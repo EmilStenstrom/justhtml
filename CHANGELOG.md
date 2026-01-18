@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.38.0]
+## [Unreleased]
+
+## [0.39.0]
 ### Added
 - Expand sanitize escape-mode fixtures to cover malformed markup edge cases (EOF tag fragments, bogus end tags, markup declarations).
 - Add `sanitize_dom(...)` helper to re-sanitize a mutated DOM tree.
@@ -14,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rename the TokenizerOpts flag for emitting malformed markup as text to `emit_bogus_markup_as_text` (was `emit_eof_tag_as_text`).
 - BREAKING: Rename DOM node classes to DOM-style names (`Node`, `Element`, `Text`, `Template`, `Comment`, `Document`, `DocumentFragment`).
 
+## [0.38.0]
 ### Fixed
 - Escape-mode sanitization now preserves malformed tag-like text across more tokenizer states (end tags, markup declarations, and EOF-in-tag paths) instead of dropping tail content.
 
