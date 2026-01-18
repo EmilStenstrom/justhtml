@@ -61,6 +61,16 @@ By default, the CLI sanitizes output (same safe-by-default behavior as `JustHTML
 
 To disable sanitization for trusted input, pass `--unsafe`.
 
+### Allow extra tags
+
+In safe mode, you can allow additional tags via `--allow-tags` (comma-separated). This augments the default policy (document vs fragment).
+
+Example:
+
+```bash
+justhtml page.html --selector "article" --allow-tags article,section --format markdown
+```
+
 ## Text options
 
 When using `--format text`, you can control whitespace handling:
