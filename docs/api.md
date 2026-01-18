@@ -96,6 +96,18 @@ Node types:
 - `Comment`: comment nodes (`#comment`)
 - `Template`: `<template>` elements with `template_content`
 
+`Template` nodes expose a `template_content` document fragment (HTML namespace only),
+which holds the template’s children.
+
+### Recommended mutation path
+
+Direct DOM edits are supported, but transforms are the preferred way to make
+changes because they preserve ordering semantics and make sanitization explicit.
+See [Transforms](transforms.md) for the recommended workflow. If you mutate the
+DOM after construction, sanitization has already happened; re-sanitize by using
+`sanitize_dom(...)` or rebuild the document with a `Sanitize(...)` transform in
+the construction pipeline.
+
 ### Properties
 
 | Property | Type | Description |
@@ -105,6 +117,7 @@ Node types:
 | `children` | `list \| None` | Child nodes (None for comments/doctypes) |
 | `parent` | `Node` | Parent node (or `None` for root) |
 | `text` | `str` | Node-local text value. For text nodes this is the node data, otherwise `""`. Use `to_text()` for textContent semantics. |
+| `namespace` | `str \| None` | Namespace for the node (`"html"` by default for elements). |
 
 ### Methods
 
@@ -151,6 +164,30 @@ node.to_markdown()
 
 Markdown output is safe-by-default when you build documents with `JustHTML(..., safe=True)` (the default). Use `safe=False` at construction for trusted input.
 
+#### `append_child(node)`
+
+Append a child node to this node.
+
+#### `insert_before(node, reference_node)`
+
+Insert `node` before `reference_node` (or append if `reference_node` is `None`).
+
+#### `remove_child(node)`
+
+Remove a direct child node.
+
+#### `replace_child(new_node, old_node)`
+
+Replace a direct child node with a new node.
+
+#### `clone_node(deep=False, override_attrs=None)`
+
+Clone this node. If `deep=True`, children are cloned recursively.
+
+#### `has_child_nodes()`
+
+Return `True` if this node has children.
+
 ---
 
 ## Sanitization
@@ -165,7 +202,7 @@ Guides:
 - [Unsafe Handling](unsafe-handling.md)
 
 ```python
-from justhtml import DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlProxy, UrlRule
+from justhtml import DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlProxy, UrlRule, sanitize_dom
 ```
 
 ### Sanitizing output vs sanitizing the DOM
@@ -180,6 +217,19 @@ from justhtml import JustHTML, Sanitize
 
 doc = JustHTML(user_html, fragment=True, transforms=[Sanitize()])
 clean_root = doc.root
+```
+
+### `sanitize_dom(node, *, policy=None, errors=None)`
+
+Re-sanitize a DOM tree after direct edits. For document roots (`#document` or
+`#document-fragment`), this mutates the tree in place. For other nodes, the
+node is sanitized as if it were the only child of a document fragment; the
+returned node may need to be reattached by the caller.
+
+```python
+from justhtml import sanitize_dom
+
+sanitize_dom(doc.root)  # In-place for document roots
 ```
 
 ### `DEFAULT_POLICY`

@@ -990,3 +990,47 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
         return only
 
     return wrapper
+
+
+def sanitize_dom(
+    node: Any,
+    *,
+    policy: SanitizationPolicy | None = None,
+    errors: list[ParseError] | None = None,
+) -> Any:
+    """Sanitize a DOM tree in place.
+
+    For document roots (`#document` or `#document-fragment`), this mutates the
+    tree in place and returns the same root. For other nodes, the node is
+    sanitized as if it were the only child of a document fragment; the returned
+    node may need to be reattached by the caller.
+    """
+
+    if policy is None:
+        policy = DEFAULT_DOCUMENT_POLICY if node.name == "#document" else DEFAULT_POLICY
+
+    from .transforms import Sanitize, apply_compiled_transforms, compile_transforms  # noqa: PLC0415
+
+    compiled = policy._compiled_sanitize_transforms
+    if compiled is None:
+        compiled = compile_transforms((Sanitize(policy=policy),))
+        object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
+
+    if node.name in {"#document", "#document-fragment"}:
+        apply_compiled_transforms(node, compiled, errors=errors)
+        return node
+
+    from .node import DocumentFragment  # noqa: PLC0415
+
+    wrapper = DocumentFragment()
+    wrapper.append_child(node)
+    apply_compiled_transforms(wrapper, compiled, errors=errors)
+
+    children = wrapper.children or []
+    if len(children) == 1:
+        only = children[0]
+        only.parent = None
+        wrapper.children = []
+        return only
+
+    return wrapper

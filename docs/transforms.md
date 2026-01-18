@@ -6,6 +6,10 @@ JustHTML supports optional **transforms** to modify the parsed DOM tree right af
 
 This is intended as a migration path for Bleach/html5lib filter pipelines, but implemented as DOM transforms (tree-aware and HTML5-treebuilder-correct).
 
+Transforms are the recommended way to mutate the DOM. Direct node edits are supported,
+but transforms provide clearer ordering guarantees and make it explicit when sanitization
+should run.
+
 If you're migrating an existing Bleach setup, see [Migrating from Bleach](bleach-migration.md).
 
 Transforms are applied during construction via the `transforms` keyword argument:

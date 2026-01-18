@@ -17,6 +17,7 @@ from justhtml.sanitize import (
     _is_valid_css_property_name,
     _sanitize_inline_style,
     _sanitize_url_value,
+    sanitize_dom,
 )
 from justhtml.sanitize import (
     _sanitize as sanitize,
@@ -98,6 +99,69 @@ class TestSanitizePlumbing(unittest.TestCase):
             UrlPolicy(
                 allow_rules={("a", "href"): UrlRule(handling="proxy", allowed_schemes={"https"})},
             )
+
+
+class TestSanitizeDom(unittest.TestCase):
+    def test_sanitize_dom_document_fragment(self) -> None:
+        root = DocumentFragment()
+        root.append_child(Node("script"))
+        root.append_child(Node("b"))
+        policy = SanitizationPolicy(
+            allowed_tags=["b"],
+            allowed_attributes={"*": []},
+            disallowed_tag_handling="drop",
+        )
+
+        out = sanitize_dom(root, policy=policy)
+        assert out is root
+        assert [child.name for child in root.children] == ["b"]
+
+    def test_sanitize_dom_element_root(self) -> None:
+        root = Node("div")
+        root.append_child(Node("script"))
+        policy = SanitizationPolicy(
+            allowed_tags=["div"],
+            allowed_attributes={"*": []},
+            disallowed_tag_handling="drop",
+        )
+
+        out = sanitize_dom(root, policy=policy)
+        assert out is root
+        assert root.children == []
+
+    def test_sanitize_dom_default_policy(self) -> None:
+        root = DocumentFragment()
+        root.append_child(Node("b"))
+        out = sanitize_dom(root)
+        assert out is root
+        assert [child.name for child in root.children] == ["b"]
+
+    def test_sanitize_dom_compiled_cache_reuse(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["b"],
+            allowed_attributes={"*": []},
+            disallowed_tag_handling="drop",
+        )
+        root = DocumentFragment()
+        root.append_child(Node("b"))
+        sanitize_dom(root, policy=policy)
+
+        root2 = DocumentFragment()
+        root2.append_child(Node("b"))
+        out = sanitize_dom(root2, policy=policy)
+        assert out is root2
+
+    def test_sanitize_dom_returns_wrapper_on_drop(self) -> None:
+        root = Node("script")
+        policy = SanitizationPolicy(
+            allowed_tags=[],
+            allowed_attributes={"*": []},
+            disallowed_tag_handling="drop",
+        )
+
+        out = sanitize_dom(root, policy=policy)
+        assert out.name == "#document-fragment"
+        assert out.children == []
 
     def test_is_valid_css_property_name(self) -> None:
         assert _is_valid_css_property_name("border-top") is True

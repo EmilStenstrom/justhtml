@@ -9,6 +9,7 @@ from .sanitize import (
     UrlPolicy,
     UrlProxy,
     UrlRule,
+    sanitize_dom,
 )
 from .selector import SelectorError, matches, query
 from .serialize import to_html, to_test_format
@@ -67,6 +68,7 @@ __all__ = [
     "UrlRule",
     "matches",
     "query",
+    "sanitize_dom",
     "stream",
     "to_html",
     "to_test_format",
