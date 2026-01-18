@@ -45,6 +45,23 @@ A pure Python HTML5 parser that just works. No C extensions to compile. No syste
   # => <p class="x">Hi</p>
   ```
 
+- **Just... Transform 🏗️** — Built-in DOM transforms for: drop/unwrap nodes, rewrite attributes, linkify text, and compose safe pipelines. ([Transforms](docs/transforms.md))
+
+  ```python
+  from justhtml import JustHTML, Linkify, SetAttrs, Unwrap
+
+  doc = JustHTML(
+      "<p>Hello <span class=\"x\">world</span> example.com</p>",
+      transforms=[
+          Unwrap("span.x"),
+          Linkify(),
+          SetAttrs("a", rel="nofollow"),
+      ],
+  )
+  print(doc.to_html(pretty=False))
+  # => <p>Hello world <a href="https://example.com" rel="nofollow">example.com</a></p>
+  ```
+
 - **Just... Fast Enough ⚡** — Fast for the common case (fastest pure-Python HTML5 parser available); for terabytes, use a C/Rust parser like `html5ever`. ([Benchmarks](benchmarks/performance.py))
 
   ```bash
