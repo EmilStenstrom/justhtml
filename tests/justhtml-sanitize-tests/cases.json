@@ -110,6 +110,266 @@
     "expected_html": "only good when x&lt;y and y &gt; z"
   },
   {
+    "name": "disallowed_tag_escape_two_less_than_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<y and y<z",
+    "expected_html": "only good when x&lt;y and y&lt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_end_tag_like_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x</y and y>z",
+    "expected_html": "only good when x&lt;/y and y&gt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_markup_decl_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<! and y>z",
+    "expected_html": "only good when x&lt;! and y&gt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_processing_instruction_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<? and y>z",
+    "expected_html": "only good when x&lt;? and y&gt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_end_tag_open_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x</ and y>z",
+    "expected_html": "only good when x&lt;/ and y&gt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_end_tag_open_eof_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x</",
+    "expected_html": "only good when x&lt;/"
+  },
+  {
+    "name": "disallowed_tag_escape_end_tag_empty_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x</>",
+    "expected_html": "only good when x&lt;/&gt;"
+  },
+  {
+    "name": "disallowed_tag_escape_end_tag_attrs_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x</foo bar>y",
+    "expected_html": "only good when x&lt;/foo bar&gt;y"
+  },
+  {
+    "name": "disallowed_tag_escape_end_tag_self_closing_long_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x</foo/>y",
+    "expected_html": "only good when x&lt;/foo/&gt;y"
+  },
+  {
+    "name": "disallowed_tag_escape_end_tag_self_closing_short_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x</a/>y",
+    "expected_html": "only good when x&lt;/a/&gt;y"
+  },
+  {
+    "name": "disallowed_tag_escape_end_tag_attrs_eof_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x</foo bar",
+    "expected_html": "only good when x&lt;/foo bar"
+  },
+  {
+    "name": "disallowed_tag_escape_self_closing_like_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<y/ and y>z",
+    "expected_html": "only good when x&lt;y/ and y&gt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_comment_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<!-- and y>z",
+    "expected_html": "only good when x&lt;!-- and y&gt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_comment_open_dash_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<!- and y>z",
+    "expected_html": "only good when x&lt;!- and y&gt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_doctype_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<!DOCTYPE and y>z",
+    "expected_html": "only good when x&lt;!DOCTYPE and y&gt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_character_reference_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<&y and y>z",
+    "expected_html": "only good when x&lt;&amp;y and y&gt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_invalid_tag_name_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<0y and y>z",
+    "expected_html": "only good when x&lt;0y and y&gt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_double_less_than_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<<y and y>z",
+    "expected_html": "only good when x&lt;&lt;y and y&gt;z"
+  },
+  {
+    "name": "disallowed_tag_escape_balanced_angle_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<y> and y > z",
+    "expected_html": "only good when x&lt;y&gt; and y &gt; z"
+  },
+  {
+    "name": "disallowed_tag_escape_cdata_text",
+    "policy": {
+      "allowed_tags": [],
+      "allowed_attributes": {"*": []},
+      "url_rules": [],
+      "disallowed_tag_handling": "escape"
+    },
+    "parse": "fragment",
+    "fragment_context": "div",
+    "input_html": "only good when x<![CDATA[ and y>z",
+    "expected_html": "only good when x&lt;![CDATA[ and y&gt;z"
+  },
+  {
     "name": "disallowed_tag_drop_removes_subtree",
     "policy": {
       "allowed_tags": ["b"],

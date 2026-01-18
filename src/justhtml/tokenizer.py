@@ -79,7 +79,14 @@ def _coerce_comment_for_xml(text: str) -> str:
 
 
 class TokenizerOpts:
-    __slots__ = ("discard_bom", "exact_errors", "initial_rawtext_tag", "initial_state", "xml_coercion")
+    __slots__ = (
+        "discard_bom",
+        "emit_bogus_markup_as_text",
+        "exact_errors",
+        "initial_rawtext_tag",
+        "initial_state",
+        "xml_coercion",
+    )
 
     discard_bom: bool
     exact_errors: bool
@@ -91,12 +98,14 @@ class TokenizerOpts:
         self,
         exact_errors: bool = False,
         discard_bom: bool = True,
+        emit_bogus_markup_as_text: bool = False,
         initial_state: int | None = None,
         initial_rawtext_tag: str | None = None,
         xml_coercion: bool = False,
     ) -> None:
         self.exact_errors = bool(exact_errors)
         self.discard_bom = bool(discard_bom)
+        self.emit_bogus_markup_as_text = bool(emit_bogus_markup_as_text)
         self.initial_state = initial_state
         self.initial_rawtext_tag = initial_rawtext_tag
         self.xml_coercion = bool(xml_coercion)
@@ -491,7 +500,7 @@ class Tokenizer:
                     self.state = self.TAG_NAME
                     return self._state_tag_name()
 
-                if nc == "!":
+                if nc == "!" and not self.opts.emit_bogus_markup_as_text:
                     # Optimization: Peek ahead for comments
                     if pos + 2 < length and buffer[pos + 1] == "-" and buffer[pos + 2] == "-":
                         self._flush_text()
@@ -534,12 +543,20 @@ class Tokenizer:
             self._emit_token(EOFToken())
             return True
         if c == "!":
+            if self.opts.emit_bogus_markup_as_text:
+                self._append_text("<!")
+                self.state = self.DATA
+                return False
             self.state = self.MARKUP_DECLARATION_OPEN
             return False
         if c == "/":
             self.state = self.END_TAG_OPEN
             return False
         if c == "?":
+            if self.opts.emit_bogus_markup_as_text:
+                self._append_text("<?")
+                self.state = self.DATA
+                return False
             self._emit_error("unexpected-question-mark-instead-of-tag-name")
             self.current_comment.clear()
             self._reconsume_current()
@@ -556,6 +573,11 @@ class Tokenizer:
         c = self._get_char()
         if c is None:
             self._emit_error("eof-before-tag-name")
+            if self.opts.emit_bogus_markup_as_text:
+                self._append_text("</")
+                self._flush_text()
+                self._emit_token(EOFToken())
+                return True
             self._append_text("<")
             self._append_text("/")
             self._flush_text()
@@ -563,6 +585,16 @@ class Tokenizer:
             return True
         if c == ">":
             self._emit_error("empty-end-tag")
+            if self.opts.emit_bogus_markup_as_text:
+                self._append_text("</>")
+                self.state = self.DATA
+                return False
+            self.state = self.DATA
+            return False
+
+        if self.opts.emit_bogus_markup_as_text:
+            self._append_text("</")
+            self._append_text(c)
             self.state = self.DATA
             return False
 
@@ -598,6 +630,8 @@ class Tokenizer:
                     if pos < length:
                         next_char = buffer[pos]
                         if next_char in (" ", "\t", "\n", "\f"):
+                            if self.current_tag_kind == Tag.END and self.opts.emit_bogus_markup_as_text:
+                                return self._emit_raw_end_tag_as_text(pos)
                             pos += 1
                             self.pos = pos
                             self.state = self.BEFORE_ATTRIBUTE_NAME
@@ -609,6 +643,8 @@ class Tokenizer:
                                 self.state = self.DATA
                             return False
                         if next_char == "/":
+                            if self.current_tag_kind == Tag.END and self.opts.emit_bogus_markup_as_text:
+                                return self._emit_raw_end_tag_as_text(pos)
                             pos += 1
                             self.pos = pos
                             self.state = self.SELF_CLOSING_START_TAG
@@ -625,16 +661,20 @@ class Tokenizer:
             if c is None:
                 self.pos = pos
                 self._emit_error("eof-in-tag")
-                raw = buffer[self.current_token_start_pos : self.pos]
-                if raw:  # pragma: no branch
-                    self._emit_token(CharacterTokens(raw))
+                self._emit_incomplete_tag_as_text()
                 self._emit_token(EOFToken())
                 return True
             if c in ("\t", "\n", "\f", " "):
+                if self.current_tag_kind == Tag.END and self.opts.emit_bogus_markup_as_text:
+                    self.pos = pos
+                    return self._emit_raw_end_tag_as_text(pos)
                 self.pos = pos
                 self.state = self.BEFORE_ATTRIBUTE_NAME
                 return self._state_before_attribute_name()
             if c == "/":
+                if self.current_tag_kind == Tag.END and self.opts.emit_bogus_markup_as_text:
+                    self.pos = pos
+                    return self._emit_raw_end_tag_as_text(pos)
                 self.pos = pos
                 self.state = self.SELF_CLOSING_START_TAG
                 return self._state_self_closing_start_tag()
@@ -681,6 +721,7 @@ class Tokenizer:
 
             if c is None:
                 self._emit_error("eof-in-tag")
+                self._emit_incomplete_tag_as_text()
                 self._flush_text()
                 self._emit_token(EOFToken())
                 return True
@@ -775,6 +816,7 @@ class Tokenizer:
             self.pos = pos
             if c is None:
                 self._emit_error("eof-in-tag")
+                self._emit_incomplete_tag_as_text()
                 self._flush_text()
                 self._emit_token(EOFToken())
                 return True
@@ -826,6 +868,7 @@ class Tokenizer:
 
             if c is None:
                 self._emit_error("eof-in-tag")
+                self._emit_incomplete_tag_as_text()
                 self._flush_text()
                 self._emit_token(EOFToken())
                 return True
@@ -866,6 +909,7 @@ class Tokenizer:
             self.current_char = c
             if c is None:
                 self._emit_error("eof-in-tag")
+                self._emit_incomplete_tag_as_text()
                 self._flush_text()
                 self._emit_token(EOFToken())
                 return True
@@ -923,6 +967,7 @@ class Tokenizer:
             if self.pos >= length:
                 self.current_char = None
                 self._emit_error("eof-in-tag")
+                self._emit_incomplete_tag_as_text()
                 self._emit_token(EOFToken())
                 return True
 
@@ -978,6 +1023,7 @@ class Tokenizer:
             if self.pos >= length:
                 self.current_char = None
                 self._emit_error("eof-in-tag")
+                self._emit_incomplete_tag_as_text()
                 self._emit_token(EOFToken())
                 return True
 
@@ -1031,6 +1077,7 @@ class Tokenizer:
                 # Per HTML5 spec: EOF in attribute value is a parse error
                 # The incomplete tag is discarded (not emitted)
                 self._emit_error("eof-in-tag")
+                self._emit_incomplete_tag_as_text()
                 self._emit_token(EOFToken())
                 return True
             if c in ("\t", "\n", "\f", " "):
@@ -1066,6 +1113,7 @@ class Tokenizer:
 
         if c is None:
             self._emit_error("eof-in-tag")
+            self._emit_incomplete_tag_as_text()
             self._flush_text()
             self._emit_token(EOFToken())
             return True
@@ -1093,6 +1141,7 @@ class Tokenizer:
         c = self._get_char()
         if c is None:
             self._emit_error("eof-in-tag")
+            self._emit_incomplete_tag_as_text()
             self._flush_text()
             self._emit_token(EOFToken())
             return True
@@ -1941,6 +1990,30 @@ class Tokenizer:
         self.current_tag_self_closing = False
         self.current_tag_kind = Tag.START
         return switched_to_rawtext
+
+    def _emit_incomplete_tag_as_text(self) -> None:
+        if not self.opts.emit_bogus_markup_as_text:
+            return
+        start = self.current_token_start_pos
+        if start is None:  # pragma: no cover
+            return
+        raw = self.buffer[start : self.pos]
+        if raw:  # pragma: no branch
+            self._emit_token(CharacterTokens(raw))
+
+    def _emit_raw_end_tag_as_text(self, pos: int) -> bool:
+        end = self.buffer.find(">", pos)
+        if end == -1:
+            self.pos = self.length
+            self._emit_incomplete_tag_as_text()
+            self._emit_token(EOFToken())
+            return True
+        self.pos = end + 1
+        raw = self.buffer[self.current_token_start_pos : self.pos]
+        if raw:  # pragma: no branch
+            self._emit_token(CharacterTokens(raw))
+        self.state = self.DATA
+        return False
 
     def _emit_comment(self) -> None:
         data = "".join(self.current_comment)

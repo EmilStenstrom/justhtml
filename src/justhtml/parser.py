@@ -77,6 +77,7 @@ class JustHTML:
 
         track_tag_spans = False
         has_sanitize_transform = False
+        needs_escape_incomplete_tags = False
         if transforms:
             from .sanitize import DEFAULT_POLICY  # noqa: PLC0415
             from .transforms import Sanitize  # noqa: PLC0415
@@ -87,6 +88,7 @@ class JustHTML:
                     effective = t.policy or DEFAULT_POLICY
                     if effective.disallowed_tag_handling == "escape":
                         track_tag_spans = True
+                        needs_escape_incomplete_tags = True
                         break
 
         # If we will auto-sanitize (safe=True and no Sanitize in transforms),
@@ -94,6 +96,7 @@ class JustHTML:
         if safe and not has_sanitize_transform and policy is not None:
             if policy.disallowed_tag_handling == "escape":
                 track_tag_spans = True
+                needs_escape_incomplete_tags = True
 
         self.debug = bool(debug)
         self.fragment_context = fragment_context
@@ -119,6 +122,8 @@ class JustHTML:
             track_tag_spans=track_tag_spans,
         )
         opts = tokenizer_opts or TokenizerOpts()
+        if needs_escape_incomplete_tags:
+            opts.emit_bogus_markup_as_text = True
 
         # For RAWTEXT fragment contexts, set initial tokenizer state and rawtext tag
         if fragment_context and not fragment_context.namespace:
