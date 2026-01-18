@@ -73,6 +73,10 @@ jobs:
             echo "No failures detected; skipping fixture dump."
             exit 0
           fi
+          git -C ../html5lib-tests rev-parse HEAD
+          git -C ../html5lib-tests status --porcelain
+          git -C ../html5lib-tests ls-tree -r HEAD tokenizer/test4.test
+          git -C ../html5lib-tests ls-tree -r HEAD tree-construction/webkit01.dat
           sha256sum tests/html5lib-tests-tokenizer/test4.test
           sha256sum tests/html5lib-tests-tree/webkit01.dat
           python - <<'PY'
@@ -89,6 +93,24 @@ jobs:
           print("errors:", t.get("errors"))
           print("initialStates:", t.get("initialStates"))
           print("lastStartTag:", t.get("lastStartTag"))
+          PY
+          python - <<'PY'
+          import json
+          import subprocess
+          data = subprocess.check_output(
+              ["git", "-C", "../html5lib-tests", "show", "HEAD:tokenizer/test4.test"],
+              text=True,
+          )
+          j = json.loads(data)
+          idx = 76
+          t = j["tests"][idx]
+          print("tokenizer blob index:", idx)
+          print("blob description:", t.get("description"))
+          print("blob input:", repr(t["input"]))
+          print("blob output:", t["output"])
+          print("blob errors:", t.get("errors"))
+          print("blob initialStates:", t.get("initialStates"))
+          print("blob lastStartTag:", t.get("lastStartTag"))
           PY
           python - <<'PY'
           from pathlib import Path
