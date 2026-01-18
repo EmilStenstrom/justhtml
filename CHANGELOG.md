@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0]
+### Added
+- Speed up sanitization with a fused transform and optimized regex matching. Switching from imperative style sanitization to one based on transforms is 20% slower. We believe it's worth it because of the improved reviewability of the code.
+
+### Changed
+- BREAKING: Sanitization now happens during parsing/construction instead of at serialization time. The the `safe` and `policy` keywords move from to_html to the JustHTML constructor. Before: `JustHTML(...).to_html(safe=..., policy=...)`, After: `JustHTML(safe=..., policy=...).to_html()`.
+
+### Docs
+- Update documentation to reflect sanitize-at-construction behavior.
+- Add CLI documentation for `--allow-tags`.
+- Add a transforms example and refresh performance benchmark snippet in README.
+- Clarify lxml sanitization guidance in README.
+
 ## [0.36.0] - 2026-01-17
 ### Added
 - Sanitization is now fully constructed from a set of transforms instead of imperative code. This makes the code reviewable in a way not seen in other libraries. See [Sanitization](docs/sanitization.md) for details.
