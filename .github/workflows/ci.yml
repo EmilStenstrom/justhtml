@@ -48,20 +48,31 @@ jobs:
           ln -s ../../html5lib-tests/encoding html5lib-tests-encoding
 
       - name: Run pre-commit
+        id: precommit
         uses: pre-commit/action@v3.0.1
         env:
           SKIP: mypy
 
       - name: Run tests
+        id: run_tests
         run: python run_tests.py
 
       - name: Diagnose test failures (verbose)
-        if: failure()
-        run: python run_tests.py -v --no-write-summary
+        if: always()
+        run: |
+          if [ "${{ steps.precommit.outcome }}" = "success" ] && [ "${{ steps.run_tests.outcome }}" = "success" ]; then
+            echo "No failures detected; skipping verbose rerun."
+            exit 0
+          fi
+          python run_tests.py -v --no-write-summary
 
       - name: Dump failing html5lib fixtures
-        if: failure()
+        if: always()
         run: |
+          if [ "${{ steps.precommit.outcome }}" = "success" ] && [ "${{ steps.run_tests.outcome }}" = "success" ]; then
+            echo "No failures detected; skipping fixture dump."
+            exit 0
+          fi
           sha256sum tests/html5lib-tests-tokenizer/test4.test
           sha256sum tests/html5lib-tests-tree/webkit01.dat
           python - <<'PY'
