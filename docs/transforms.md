@@ -46,6 +46,23 @@ print(doc.to_html(pretty=False))
 - JustHTML is safe-by-default by sanitizing at construction (`JustHTML(..., safe=True)`).
 - Serialization (`to_html`/`to_text`/`to_markdown`) is serialize-only; earlier versions accepted `safe=` or `policy=` when serializing. This is no longer needed.
 
+> **Important:** When `safe=True`, JustHTML ensures the in-memory tree is sanitized by running a `Sanitize(...)` step **after parsing and after your custom transforms**.
+>
+> This means your transforms see the *unsanitized* tree, and sanitization may rewrite it afterwards (for example, stripping unsafe `href`/`src` values).
+> If you want a transform to operate on the sanitized tree, include `Sanitize()` explicitly in your transform list and place later transforms after it:
+>
+> ```python
+> from justhtml import JustHTML, Sanitize, Unwrap
+>
+> doc = JustHTML(
+>     '<a href="javascript:alert(1)">x</a>',
+>     transforms=[
+>         Sanitize(),
+>         Unwrap("a:not([href])"),
+>     ],
+> )
+> ```
+
 Raw output is available by disabling sanitization:
 
 ```python
