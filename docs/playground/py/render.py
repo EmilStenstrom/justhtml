@@ -3,7 +3,7 @@ from dataclasses import replace
 from justhtml import JustHTML
 from justhtml.context import FragmentContext
 from justhtml.sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY
-from justhtml.transforms import Drop, PruneEmpty, Unwrap
+from justhtml.transforms import Drop, PruneEmpty, Sanitize, Unwrap
 
 
 def _format_error(e):
@@ -105,8 +105,13 @@ def render(
             sanitize_policy = replace(base, unsafe_handling="collect")
 
         if cleanup:
+            # When safe=True, sanitization normally runs last (auto-appended).
+            # For cleanup UX, we want cleanup rules to apply to the sanitized tree
+            # (e.g. <a> with unsafe href stripped, or <img> whose src was stripped).
+            if safe:
+                transforms.append(Sanitize(policy=sanitize_policy))
             transforms.append(Unwrap("a:not([href])"))
-            transforms.append(Drop("img:not([src])"))
+            transforms.append(Drop('img:not([src]), img[src=""]'))
             transforms.append(PruneEmpty("*"))
 
         kwargs = {

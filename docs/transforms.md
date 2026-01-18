@@ -286,6 +286,9 @@ Recursively drops elements that are empty after transforms have run.
 
 "Empty" means there are no element children and no non-whitespace text.
 
+Note: HTML void elements (like `img`, `br`, `hr`, …) are never considered empty by `PruneEmpty(...)` and will not be removed by pruning.
+If you want to remove “empty images”, use `Drop(...)` (for example `Drop('img:not([src]), img[src=""]')`) and then prune any now-empty wrapper elements.
+
 If you want whitespace-only text nodes to count as content (so `<p> </p>` is kept), pass `strip_whitespace=False`.
 
 `PruneEmpty(...)` runs as a post-order walk over the tree and removes elements that are empty at that point in the transform pipeline.

@@ -393,9 +393,12 @@
               Sanitize
             </label>
 
-            <label class="checkbox-label">
+            <label
+              class="checkbox-label"
+              title="Cleanup unwraps <a> without href, drops <img> without src, and prunes empty non-void elements (e.g. <head>). Void elements like <img> are never removed by pruning."
+            >
               <input id="cleanup" type="checkbox" />
-              Prune empty
+              Cleanup
             </label>
           </div>
         </div>
