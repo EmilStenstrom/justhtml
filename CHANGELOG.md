@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0]
+
+### Fixed
+- Escape-mode sanitization now preserves malformed tag-like text across more tokenizer states (end tags, markup declarations, and EOF-in-tag paths) instead of dropping tail content.
+
 ## [0.37.0]
 ### Added
 - Speed up sanitization with a fused transform and optimized regex matching. Switching from imperative style sanitization to one based on transforms is 20% slower. We believe it's worth it because of the improved reviewability of the code.
