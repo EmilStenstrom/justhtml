@@ -8,8 +8,8 @@ This page focuses on **HTML cleaning**: tags, attributes, and inline styles. For
 
 On this page:
 
-- [DOM vs serialization](#important-dom-vs-serialization)
-- [Safe-by-default serialization](#safe-by-default-serialization)
+- [DOM vs construction](#important-dom-vs-construction)
+- [Safe-by-default construction](#safe-by-default-construction)
 - [Sanitizing a DOM directly](#sanitizing-a-dom-directly)
 - [Disable sanitization](#disable-sanitization)
 - [Default policy](#default-sanitization-policy)
@@ -17,15 +17,15 @@ On this page:
 - [Custom policy](#use-a-custom-sanitization-policy)
 - [Reporting issues](#reporting-issues)
 
-## Important: DOM vs serialization
+## Important: DOM vs construction
 
-The parsed DOM is **not sanitized** by default, instead we sanitize on serialization (when you convert it back to a string): `doc.to_html()` / `doc.to_markdown()` / `doc.to_text()`.
+The parsed DOM is **sanitized by default** at construction time (`JustHTML(..., safe=True)`), and serialization is a pure output step.
 
-If you want a **clean DOM tree** (for example so you can traverse/transform it safely or serialize it multiple ways), apply the `Sanitize(...)` transform to sanitize the in-memory tree.
+If you want to sanitize **after** other transforms or after direct DOM edits, apply the `Sanitize(...)` transform to sanitize the in-memory tree.
 
-## Safe-by-default serialization
+## Safe-by-default construction
 
-By default, serialization removes all dangerous html:
+By default, construction removes all dangerous html:
 
 ```python
 from justhtml import JustHTML

@@ -88,7 +88,7 @@ doc = JustHTML(
     ],
 )
 
-# Still sanitized on output by default
+# Still sanitized by default (construction time)
 print(doc.to_html(pretty=False))
 ```
 

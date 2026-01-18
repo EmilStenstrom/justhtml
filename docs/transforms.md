@@ -566,7 +566,7 @@ doc = JustHTML(
 )
 ```
 
-### Drop unsafe elements early, while still keeping safe-by-default output
+### Drop unsafe elements early, while still keeping safe-by-default sanitization
 
 ```python
 from justhtml import JustHTML, Drop

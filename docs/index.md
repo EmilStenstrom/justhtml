@@ -12,7 +12,7 @@ A pure Python HTML5 parser that just works.
 - **[Transforms](transforms.md)** - Apply declarative DOM transforms after parsing
     - **[Linkify](linkify.md)** - Convert URLs/emails in text nodes into links
 - **[Fragment Parsing](fragments.md)** - Parse HTML fragments in context
-- **[Sanitization & Security](sanitization.md)** - Overview of safe-by-default output and policy configuration
+- **[Sanitization & Security](sanitization.md)** - Overview of safe-by-default sanitization and policy configuration
     - **[HTML Cleaning](html-cleaning.md)** - Tags/attributes allowlists and inline styles
     - **[URL Cleaning](url-cleaning.md)** - URL validation, URL handling, and `srcset`
     - **[Unsafe Handling](unsafe-handling.md)** - What happens when unsafe input is encountered (strip/collect/raise)

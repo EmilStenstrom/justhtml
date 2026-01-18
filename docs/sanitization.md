@@ -6,7 +6,7 @@ JustHTML includes a built-in, **policy-driven HTML sanitizer** intended for rend
 
 JustHTML’s sanitizer is validated against the [`justhtml-xss-bench`](https://github.com/EmilStenstrom/justhtml-xss-bench) suite (a headless-browser harness), currently covering **7,000+ real-world XSS vectors**. The benchmark can be used to compare output with established sanitizers like `nh3` and `bleach`.
 
-The sanitizer is **DOM-based** (it runs on the parsed JustHTML tree), and JustHTML is **safe-by-default** when you serialize to HTML or Markdown.
+The sanitizer is **DOM-based** (it runs on the parsed JustHTML tree), and JustHTML is **safe-by-default** at construction time.
 
 ## Guides
 
@@ -19,9 +19,9 @@ The sanitizer is **DOM-based** (it runs on the parsed JustHTML tree), and JustHT
 
 Most real-world untrusted HTML is a **snippet** (a fragment) rather than a full document. In that case, pass `fragment=True` to avoid implicit document wrappers.
 
-If you *are* sanitizing a full HTML document, safe serialization keeps the document structure (it preserves `<html>`, `<head>`, and `<body>` wrappers by default).
+If you *are* sanitizing a full HTML document, the default policy keeps the document structure (it preserves `<html>`, `<head>`, and `<body>` wrappers).
 
-By default, serialization sanitizes:
+By default, construction sanitizes:
 
 ```python
 from justhtml import JustHTML
@@ -40,14 +40,14 @@ For a deeper dive, continue in [HTML Cleaning](html-cleaning.md) and [URL Cleani
 
 ## Sanitizing the in-memory DOM with `Sanitize(...)`
 
-Safe-by-default output (`doc.to_html()`, `doc.to_markdown()`, `doc.to_text()`) sanitizes a cloned view of the tree right before serialization.
+Safe-by-default construction (`JustHTML(..., safe=True)`) sanitizes the in-memory tree once, after parsing and transforms run.
 
-If you want the *in-memory* DOM itself to be sanitized (so that later transforms, DOM traversal, and repeated serialization operate on already-cleaned HTML), add `Sanitize(...)` to your transform pipeline:
+Sanitization is appended automatically after any custom transforms. If you want to run transforms *after* sanitization, add `Sanitize(...)` to your transform list and put additional transforms after it:
 
 ```python
 from justhtml import JustHTML, Sanitize
 
-doc = JustHTML(user_html, fragment=True, transforms=[Sanitize()])
+doc = JustHTML(user_html, fragment=True, transforms=[Sanitize(), PruneEmpty()])
 clean_root = doc.root
 ```
 

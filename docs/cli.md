@@ -57,7 +57,7 @@ Notes:
 
 ## Sanitization
 
-By default, the CLI sanitizes output (same safe-by-default behavior as `to_html()`, `to_text()`, and `to_markdown()`).
+By default, the CLI sanitizes output (same safe-by-default behavior as `JustHTML(..., safe=True)`).
 
 To disable sanitization for trusted input, pass `--unsafe`.
 

@@ -23,7 +23,7 @@ A pure Python HTML5 parser that just works. No C extensions to compile. No syste
   # Requires: [intentionally left blank]
   ```
 
-- **Just... Secure 🔒** — Safe-by-default output for untrusted HTML — built-in Bleach-style allowlist sanitization on `to_text()`, `to_html()`, `to_markdown()` (override with `safe=False`). Can sanitize inline CSS rules. ([Sanitization & Security](docs/sanitization.md))
+- **Just... Secure 🔒** — Safe-by-default sanitization at construction time — built-in Bleach-style allowlist sanitization on `JustHTML(...)` (disable with `safe=False`). Can sanitize inline CSS rules. ([Sanitization & Security](docs/sanitization.md))
 
   ```python
   JustHTML(
@@ -141,7 +141,7 @@ A pure Python HTML5 parser that just works. No C extensions to compile. No syste
 
 - **Just... Correct ✅** — Spec-perfect HTML5 parsing with browser-grade error recovery — passes the official 9k+ [html5lib-tests](https://github.com/html5lib/html5lib-tests) suite, with 100% line+branch coverage. ([Correctness](/EmilStenstrom/justhtml/blob/main/docs/correctness.md))
 - **Just... Python 🐍** — Pure Python, zero dependencies — no C extensions or system libraries, easy to debug, and works anywhere Python runs (including PyPy and Pyodide). ([Quickstart](/EmilStenstrom/justhtml/blob/main/docs/quickstart.md))
-- **Just... Secure 🔒** — Safe-by-default output for untrusted HTML — built-in Bleach-style allowlist sanitization on `to_html()` / `to_markdown()` (override with `safe=False`), plus URL/CSS rules. ([Sanitization & Security](/EmilStenstrom/justhtml/blob/main/docs/sanitization.md))
+- **Just... Secure 🔒** — Safe-by-default sanitization at construction time — built-in Bleach-style allowlist sanitization on `JustHTML(...)` (disable with `safe=False`), plus URL/CSS rules. ([Sanitization & Security](/EmilStenstrom/justhtml/blob/main/docs/sanitization.md))
 ```
 
 ## Security

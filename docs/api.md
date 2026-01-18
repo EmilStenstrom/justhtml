@@ -15,18 +15,25 @@ from justhtml import JustHTML
 ### Constructor
 
 ```python
-JustHTML(html, strict=False, collect_errors=False, encoding=None, fragment=False, fragment_context=None, transforms=None)
+JustHTML(html, *, safe=True, policy=None, collect_errors=False, track_node_locations=False, debug=False, encoding=None, fragment=False, fragment_context=None, iframe_srcdoc=False, strict=False, tokenizer_opts=None, tree_builder=None, transforms=None)
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `html` | `str \| bytes \| bytearray \| memoryview` | required | HTML input to parse. Bytes are decoded using HTML encoding sniffing. |
-| `strict` | `bool` | `False` | Raise `StrictModeError` on the earliest parse error by source position |
+| `safe` | `bool` | `True` | Sanitize untrusted HTML during construction |
+| `policy` | `SanitizationPolicy \| None` | `None` | Override the default sanitization policy |
 | `collect_errors` | `bool` | `False` | Collect all parse errors (enables `errors` property) |
+| `track_node_locations` | `bool` | `False` | Track line/column positions for nodes (slower) |
+| `debug` | `bool` | `False` | Enable debug mode (internal) |
 | `encoding` | `str \| None` | `None` | Transport-supplied encoding label used as an override for byte input. See [Encoding & Byte Input](encoding.md). |
 | `fragment` | `bool` | `False` | Parse as a fragment in a default `<div>` context (convenience). |
 | `fragment_context` | `FragmentContext` | `None` | Parse as fragment inside this context element |
+| `strict` | `bool` | `False` | Raise `StrictModeError` on the earliest parse error by source position |
 | `transforms` | `list[Transform] \| None` | `None` | Optional DOM transforms applied after parsing. See [Transforms](transforms.md). |
+| `iframe_srcdoc` | `bool` | `False` | Parse whole document as if it's inside an iframe `srcdoc` (HTML parsing quirk) |
+| `tokenizer_opts` | `TokenizerOpts \| None` | `None` | Advanced tokenizer configuration |
+| `tree_builder` | `TreeBuilder \| None` | `None` | Supply a custom tree builder |
 
 ### Properties
 
@@ -50,8 +57,8 @@ Parameters:
 
 - `separator` (default: `" "`): join string between text nodes
 - `strip` (default: `True`): strip each text node and drop empties
-- `safe` (default: `True`): sanitize untrusted HTML before extracting text
-- `policy` (default: `None`): override the default sanitization policy
+
+Sanitization happens at construction time. Use `JustHTML(..., safe=False)` for trusted input or `JustHTML(..., policy=...)` to customize the policy.
 
 #### `to_markdown()`
 
@@ -64,10 +71,7 @@ doc = JustHTML("<h1>Title</h1><p>Hello <b>world</b></p>")
 doc.to_markdown()  # "# Title\n\nHello **world**"
 ```
 
-Sanitization:
-
-- By default, `to_markdown()` sanitizes untrusted HTML before converting.
-- To disable sanitization for trusted input, pass `safe=False`.
+Sanitization happens at construction time. Use `JustHTML(..., safe=False)` for trusted input or `JustHTML(..., policy=...)` to customize the policy.
 
 #### `query(selector)`
 
@@ -88,8 +92,8 @@ Represents an element, text, comment, or document node.
 | Property | Type | Description |
 |----------|------|-------------|
 | `name` | `str` | Tag name (e.g., `"div"`) or `"#text"`, `"#comment"`, `"#document"` |
-| `attrs` | `dict` | Attribute dictionary (empty for non-elements) |
-| `children` | `list` | Child nodes |
+| `attrs` | `dict \| None` | Attribute dictionary (None for comments/doctypes) |
+| `children` | `list \| None` | Child nodes (None for comments/doctypes) |
 | `parent` | `SimpleDomNode` | Parent node (or `None` for root) |
 | `text` | `str` | Node-local text value. For text nodes this is the node data, otherwise `""`. Use `to_text()` for textContent semantics. |
 
@@ -157,8 +161,8 @@ from justhtml import DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlProxy, Ur
 
 ### Sanitizing output vs sanitizing the DOM
 
-- Output sanitization is the default: `doc.to_html()` / `doc.to_markdown()` sanitize by default (`safe=True`).
-- If you want the *in-memory* DOM to be sanitized (so later DOM edits/traversal operate on cleaned HTML), add `Sanitize(...)` to your transform pipeline.
+- Construction sanitization is the default: `JustHTML(..., safe=True)` sanitizes once, right after parsing.
+- If you want to sanitize *after* other transforms or direct DOM edits, add `Sanitize(...)` to your transform pipeline.
     - If you care about explicit transform passes, group transforms using [`Stage([...])`](transforms.md#advanced-stages).
     - For details on how `Sanitize(...)` works (and why it’s reviewable), see [Transforms](transforms.md#sanitizepolicynone-enabledtrue).
 
@@ -171,7 +175,7 @@ clean_root = doc.root
 
 ### `DEFAULT_POLICY`
 
-Conservative built-in policy used for safe-by-default output.
+Conservative built-in policy used for safe-by-default sanitization.
 
 ### `DEFAULT_DOCUMENT_POLICY`
 
