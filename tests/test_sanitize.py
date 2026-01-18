@@ -979,7 +979,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
             unsafe_handling="raise",
         )
 
-        with self.assertRaisesRegex(ValueError, "Unsafe attribute.*matched pattern.*on\\*"):
+        with self.assertRaisesRegex(ValueError, "Unsafe attribute.*matched forbidden pattern"):
             sanitize(node, policy=policy)
 
     def test_sanitize_unsafe_url_raises(self) -> None:
@@ -1005,7 +1005,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
             url_policy=UrlPolicy(allow_rules={}),
             unsafe_handling="raise",
         )
-        with self.assertRaisesRegex(ValueError, "Unsafe attribute.*xlink:href.*matched pattern.*\\*:\\*"):
+        with self.assertRaisesRegex(ValueError, "Unsafe attribute.*xlink:href.*matched forbidden pattern"):
             sanitize(node, policy=policy)
 
     def test_sanitize_unsafe_srcdoc_attribute_raises(self) -> None:
@@ -1017,7 +1017,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
             url_policy=UrlPolicy(allow_rules={}),
             unsafe_handling="raise",
         )
-        with self.assertRaisesRegex(ValueError, "Unsafe attribute.*srcdoc.*matched pattern.*srcdoc"):
+        with self.assertRaisesRegex(ValueError, "Unsafe attribute.*srcdoc.*matched forbidden pattern"):
             sanitize(node, policy=policy)
 
     def test_sanitize_unsafe_disallowed_attribute_raises(self) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any
 
 from justhtml import JustHTML as _JustHTML
 from justhtml import SelectorError
@@ -387,6 +388,83 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([Decide("*", decide)]))
 
         assert root.to_html(pretty=False) == "&lt;x&gt;hi&lt;/x&gt;&lt;y/&gt;"
+
+    def test_fused_sanitizer_callbacks_and_reporting(self) -> None:
+        called = []
+        reported = []
+
+        def cb(n: SimpleDomNode) -> None:
+            called.append(n.name)
+
+        def rep(msg: str, node: Any | None = None) -> None:
+            reported.append(msg)
+
+        root = SimpleDomNode("#document")
+        root.append_child(SimpleDomNode("#comment", data="foo"))
+        root.append_child(SimpleDomNode("!doctype", data="html"))
+
+        # Add foreign namespace node
+        foreign = SimpleDomNode("svg", namespace="svg")
+        root.append_child(foreign)
+
+        # Add dropped content tag (e.g. script)
+        script = SimpleDomNode("script")
+        root.append_child(script)
+
+        # Add unsafe URL attribute to verify reporting
+        bad_link = SimpleDomNode("a", attrs={"href": "javascript:alert(1)"})
+        root.append_child(bad_link)
+
+        # Add unsafe inline style
+        bad_style = SimpleDomNode("div", attrs={"style": "expression(alert(1))"})
+        root.append_child(bad_style)
+
+        # Policy that drops comments and doctypes
+        policy = SanitizationPolicy(
+            allowed_tags=frozenset({"a", "div"}),
+            allowed_attributes={"a": {"href"}, "div": {"style"}},
+            allowed_css_properties={"color"},  # Enabling style check
+            drop_comments=True,
+            drop_doctype=True,
+            # drop_foreign_namespaces=True (default is usually True, but verify)
+            # drop_content_tags defaults include script
+        )
+        # Use simple transform compilation to trigger fused path
+        transforms = [Sanitize(policy, callback=cb, report=rep)]
+        compiled = compile_transforms(transforms)
+
+        apply_compiled_transforms(root, compiled)
+
+        assert "#comment" in called
+        assert "!doctype" in called
+        assert "svg" in called
+        assert "script" in called
+        assert any("Dropped comment" in m for m in reported)
+        assert any("Dropped doctype" in m for m in reported)
+        assert any("foreign namespace" in m for m in reported)
+        assert any("dropped content" in m for m in reported)
+        assert any("Unsafe URL" in m for m in reported)
+        assert any("Unsafe inline style" in m for m in reported)
+        assert root.to_html(pretty=False) == "<a></a><div></div>"
+
+    def test_reconstruct_end_tag_handles_void_elements(self) -> None:
+        # We need a Decide.ESCAPE on a void element that has NO metadata source
+
+        def decide_escape_br(n: SimpleDomNode) -> DecideAction:
+            if n.name == "br":
+                return Decide.ESCAPE
+            return Decide.KEEP
+
+        root_void = SimpleDomNode("div")
+        br = SimpleDomNode("br")
+        # Ensure it has NO source metadata and is NOT self-closing explicitly
+        # so it hits the VOID_ELEMENTS check
+        root_void.append_child(br)
+
+        apply_compiled_transforms(root_void, compile_transforms([Decide("*", decide_escape_br)]))
+
+        # Expect <br> (escaped as &lt;br&gt;) and no end tag
+        assert root_void.to_html(pretty=False) == "<div>&lt;br&gt;</div>"
 
     def test_unwrap_moves_template_text_children(self) -> None:
         root = SimpleDomNode("#document-fragment")

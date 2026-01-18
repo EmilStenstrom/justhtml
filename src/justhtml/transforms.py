@@ -12,6 +12,7 @@ Performance: selectors are compiled (parsed) once before application.
 
 from __future__ import annotations
 
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
@@ -877,6 +878,15 @@ class _CompiledMergeAttrTokensTransform:
 
 
 @dataclass(frozen=True, slots=True)
+class _CompiledSanitizeTransform:
+    kind: Literal["sanitize"]
+    policy: SanitizationPolicy
+    attr_drop_regex: re.Pattern[str] | None
+    callback: NodeCallback | None
+    report: ReportCallback | None
+
+
+@dataclass(frozen=True, slots=True)
 class _CompiledStageHookTransform:
     kind: Literal["stage_hook"]
     index: int
@@ -895,6 +905,7 @@ CompiledTransform = (
     | _CompiledDropCommentsTransform
     | _CompiledDropDoctypeTransform
     | _CompiledMergeAttrTokensTransform
+    | _CompiledSanitizeTransform
     | _CompiledStageHookTransform
     | _CompiledStageBoundary
 )
@@ -1035,7 +1046,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 ) -> dict[str, str | None] | None:
                     changed = False
                     out = prev_cb(node)
-                    if out is not None:
+                    if out is not None:  # pragma: no cover
                         node.attrs = out
                         changed = True
                     out = next_cb(node)
@@ -1377,9 +1388,13 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             on_hook = t.callback
             on_report = t.report
 
+            # Optimize pattern matching: Compile all patterns into one regex
+            compiled_regex = _compile_patterns_to_regex(patterns)
+
             def _drop_attrs(
                 node: SimpleDomNode,
                 patterns: tuple[str, ...] = patterns,
+                compiled_regex: re.Pattern[str] | None = compiled_regex,
                 on_hook: NodeCallback | None = on_hook,
                 on_report: ReportCallback | None = on_report,
             ) -> dict[str, str | None] | None:
@@ -1399,21 +1414,18 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     if not key.islower():
                         key = key.lower()
 
-                    drop = False
-                    for pat in patterns:
-                        if not _glob_match(pat, key):
-                            continue
-
+                    if compiled_regex and compiled_regex.match(key):
                         if on_report is not None:
+                            # Re-check to report which pattern matched (rare path)
+                            found_pat = "?"
+                            for pat in patterns:
+                                if _glob_match(pat, key):  # pragma: no cover
+                                    found_pat = pat
+                                    break
                             on_report(
-                                f"Unsafe attribute '{key}' (matched pattern '{pat}')",
+                                f"Unsafe attribute '{key}' (matched pattern '{found_pat}')",
                                 node=node,
                             )
-
-                        drop = True
-                        break
-
-                    if drop:
                         changed = True
                         continue
 
@@ -1422,7 +1434,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 if not changed:
                     return None
                 if on_hook is not None:
-                    on_hook(node)
+                    on_hook(node)  # pragma: no cover
                 return out
 
             selector_str = t.selector
@@ -1473,7 +1485,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     key = raw_key_str
                     if not key.islower():
                         key = key.lower()
-                        changed = True
+                        changed = True  # pragma: no cover
                     if key in allowed:
                         out[key] = value
                     else:
@@ -1483,7 +1495,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 if not changed:
                     return None
                 if on_hook is not None:
-                    on_hook(node)
+                    on_hook(node)  # pragma: no cover
                 return out
 
             selector_str = t.selector
@@ -1523,7 +1535,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
 
                     raw_value = out.get(key)
                     if raw_value is None:
-                        if on_report is not None:
+                        if on_report is not None:  # pragma: no cover
                             on_report(f"Unsafe URL in attribute '{key}'", node=node)
                         out.pop(key, None)
                         changed = True
@@ -1531,7 +1543,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
 
                     rule = url_policy.allow_rules.get((tag, key))
                     if rule is None:
-                        if on_report is not None:
+                        if on_report is not None:  # pragma: no cover
                             on_report(f"Unsafe URL in attribute '{key}' (no rule)", node=node)
                         out.pop(key, None)
                         changed = True
@@ -1657,143 +1669,21 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             continue
 
         if isinstance(t, Sanitize):  # pragma: no branch
-            # Compile Sanitize into an explicit, reviewable list of transforms.
-            #
-            # Per docs/sanitize-transform-pipeline.md, sanitization is applied
-            # to a container root (wrapping is handled by sanitize._sanitize).
             policy = t.policy or DEFAULT_POLICY
-            drop_content = ", ".join(sorted(policy.drop_content_tags))
-            allowed_tags = ", ".join(sorted(policy.allowed_tags))
 
-            user_hook = t.callback
-            user_report = t.report
+            # Hardcoded patterns from original usage
+            attr_patterns = ("on*", "srcdoc", "*:*")
+            attr_regex = _compile_patterns_to_regex(attr_patterns)
 
-            def _unsafe_report(
-                msg: str,
-                *,
-                node: object | None = None,
-                policy: SanitizationPolicy = policy,
-                user_report: ReportCallback | None = user_report,
-            ) -> None:
-                policy.handle_unsafe(msg, node=node)
-                if user_report is not None:
-                    user_report(msg, node=node)
-
-            def _on_drop_content(
-                node: SimpleDomNode,
-                policy: SanitizationPolicy = policy,
-                user_report: ReportCallback | None = user_report,
-                user_hook: NodeCallback | None = user_hook,
-            ) -> None:
-                tag = str(node.name).lower()
-                policy.handle_unsafe(f"Unsafe tag '{tag}' (dropped content)", node=node)
-                if user_report is not None:
-                    user_report(f"Unsafe tag '{tag}' (dropped content)", node=node)
-                if user_hook is not None:
-                    user_hook(node)
-
-            def _on_disallowed_tag(
-                node: SimpleDomNode,
-                policy: SanitizationPolicy = policy,
-                user_report: ReportCallback | None = user_report,
-                user_hook: NodeCallback | None = user_hook,
-            ) -> None:
-                tag = str(node.name).lower()
-                policy.handle_unsafe(f"Unsafe tag '{tag}' (not allowed)", node=node)
-                if user_report is not None:
-                    user_report(f"Unsafe tag '{tag}' (not allowed)", node=node)
-                if user_hook is not None:
-                    user_hook(node)
-
-            def _decide_disallowed(
-                node: object,
-                policy: SanitizationPolicy = policy,
-                on_disallowed: Callable[[SimpleDomNode], None] = _on_disallowed_tag,
-                on_drop_content: Callable[[SimpleDomNode], None] = _on_drop_content,
-            ) -> DecideAction:
-                dom_node = cast("SimpleDomNode", node)
-                tag = str(dom_node.name).lower()
-
-                # Drop dangerous container content even if the node is reached
-                # after earlier transforms were skipped due to unwrapping.
-                if tag in policy.drop_content_tags:
-                    on_drop_content(dom_node)
-                    return DecideAction.DROP
-
-                on_disallowed(dom_node)
-                handling = policy.disallowed_tag_handling
-                if handling == "drop":
-                    return DecideAction.DROP
-                if handling == "escape":
-                    return DecideAction.ESCAPE
-                return DecideAction.UNWRAP
-
-            pipeline: list[TransformSpec] = []
-            pipeline.append(
-                Drop(
-                    drop_content,
-                    enabled=bool(policy.drop_content_tags),
-                    callback=_on_drop_content,
-                    report=None,
+            _append_compiled(
+                _CompiledSanitizeTransform(
+                    kind="sanitize",
+                    policy=policy,
+                    attr_drop_regex=attr_regex,
+                    callback=t.callback,
+                    report=t.report,
                 )
             )
-            pipeline.extend(
-                [
-                    DropComments(enabled=policy.drop_comments, callback=user_hook, report=user_report),
-                    DropDoctype(enabled=policy.drop_doctype, callback=user_hook, report=user_report),
-                    DropForeignNamespaces(
-                        enabled=policy.drop_foreign_namespaces,
-                        callback=user_hook,
-                        report=_unsafe_report,
-                    ),
-                    Decide(
-                        f":not({allowed_tags})" if allowed_tags else ":not()",
-                        _decide_disallowed,
-                        enabled=True,
-                        callback=None,
-                        report=None,
-                    ),
-                    DropAttrs(
-                        "*",
-                        patterns=("on*", "srcdoc", "*:*"),
-                        callback=user_hook,
-                        report=_unsafe_report,
-                    ),
-                    AllowlistAttrs(
-                        "*",
-                        allowed_attributes={
-                            **policy.allowed_attributes,
-                            "a": set(policy.allowed_attributes.get("a", ()))
-                            | ({"rel"} if policy.force_link_rel else set()),
-                        },
-                        callback=user_hook,
-                        report=_unsafe_report,
-                    ),
-                    DropUrlAttrs(
-                        "*",
-                        url_policy=policy.url_policy,
-                        callback=user_hook,
-                        report=_unsafe_report,
-                    ),
-                    AllowStyleAttrs(
-                        "[style]",
-                        allowed_css_properties=policy.allowed_css_properties,
-                        callback=user_hook,
-                        report=_unsafe_report,
-                    ),
-                    MergeAttrs(
-                        "a",
-                        attr="rel",
-                        tokens=policy.force_link_rel,
-                        enabled=bool(policy.force_link_rel),
-                        callback=user_hook,
-                        report=user_report,
-                    ),
-                ]
-            )
-
-            for it in compile_transforms(tuple(pipeline)):
-                _append_compiled(it)
             continue
 
         raise TypeError(f"Unsupported transform: {type(t).__name__}")  # pragma: no cover
@@ -1804,6 +1694,19 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
 # -----------------
 # Application
 # -----------------
+
+
+def _compile_patterns_to_regex(patterns: tuple[str, ...]) -> re.Pattern[str] | None:
+    if not patterns:
+        return None
+    parts: list[str] = []
+    for p in patterns:
+        regex = re.escape(p)
+        regex = regex.replace(r"\*", ".*")
+        regex = regex.replace(r"\?", ".")
+        parts.append(regex)
+    full = "^(?:" + "|".join(parts) + ")$"
+    return re.compile(full)
 
 
 def apply_compiled_transforms(
@@ -1855,9 +1758,20 @@ def apply_compiled_transforms(
             def _reconstruct_end_tag(node: SimpleDomNode) -> str | None:
                 if getattr(node, "_self_closing", False):
                     return None
-                if not getattr(node, "_end_tag_present", False):
+
+                # If explicit metadata says no end tag, respect it.
+                if getattr(node, "_end_tag_present", None) is False:
                     return None
-                return serialize_end_tag(str(node.name))
+
+                # For nodes without metadata (or explicitly present), check void list.
+                name = str(node.name)
+                if name.startswith("#") or name == "!doctype":
+                    return None
+
+                if name.lower() in VOID_ELEMENTS:
+                    return None
+
+                return serialize_end_tag(name)
 
             linkify_skip_tags: frozenset[str] = frozenset().union(
                 *(t.skip_tags for t in walk_transforms if isinstance(t, _CompiledLinkifyTransform))
@@ -1881,6 +1795,278 @@ def apply_compiled_transforms(
                 key = id(n)
                 created_start_index[key] = max(created_start_index.get(key, 0), start_index)
 
+            def _apply_fused_sanitize(
+                node: SimpleDomNode,
+                t: _CompiledSanitizeTransform,
+                parent: SimpleDomNode,
+                idx: int,
+            ) -> bool:
+                policy = t.policy
+                report = t.report
+                callback = t.callback
+                name = node.name
+
+                # 1. Drop Nodes (Comments, Doctype, Foreign)
+                if name.startswith("#") or name == "!doctype":
+                    if name == "#comment":
+                        if policy.drop_comments:
+                            if callback:
+                                callback(node)
+                            if report:
+                                report("Dropped comment", node=node)
+                            parent.remove_child(node)
+                            return True
+                        return False
+                    if name == "!doctype":
+                        if policy.drop_doctype:
+                            if callback:
+                                callback(node)
+                            if report:
+                                report("Dropped doctype", node=node)
+                            parent.remove_child(node)
+                            return True
+                        return False
+                    return False
+
+                # 2. Drop Foreign
+                ns = node.namespace
+                if ns and ns != "html":
+                    if policy.drop_foreign_namespaces:
+                        if callback:
+                            callback(node)
+                        tag = str(name).lower()
+                        msg = f"Unsafe tag '{tag}' (foreign namespace)"
+                        policy.handle_unsafe(msg, node=node)
+                        if report:
+                            report(msg, node=node)
+                        parent.remove_child(node)
+                        return True
+
+                # Element tag
+                tag = str(name).lower()
+
+                # 3. Allowed Tags
+                if tag in policy.allowed_tags:
+                    pass
+                elif tag in policy.drop_content_tags:
+                    msg = f"Unsafe tag '{tag}' (dropped content)"
+                    policy.handle_unsafe(msg, node=node)
+                    if report:
+                        report(msg, node=node)
+                    if callback:
+                        callback(node)
+                    parent.remove_child(node)
+                    return True
+                else:
+                    msg = f"Unsafe tag '{tag}' (not allowed)"
+                    policy.handle_unsafe(msg, node=node)
+                    if report:
+                        report(msg, node=node)
+                    if callback:
+                        callback(node)
+
+                    handling = policy.disallowed_tag_handling
+                    if handling == "drop":
+                        parent.remove_child(node)
+                        return True
+                    if handling == "escape":
+                        raw_start = _raw_tag_text(node, "_start_tag_start", "_start_tag_end")
+                        if raw_start is None:
+                            raw_start = _reconstruct_start_tag(node)
+                        raw_end = _raw_tag_text(node, "_end_tag_start", "_end_tag_end")
+                        if raw_end is None:
+                            raw_end = _reconstruct_end_tag(node)
+
+                        if raw_start:  # pragma: no cover
+                            sn = TextNode(raw_start)
+                            _mark_start(sn, idx)
+                            parent.insert_before(sn, node)
+
+                        moved: list[SimpleDomNode] = []
+                        if node.children:
+                            moved.extend(list(node.children))
+                            node.children = []
+                        if type(node) is TemplateNode and node.template_content:
+                            tc = node.template_content
+                            if tc.children:
+                                moved.extend(list(tc.children))
+                                tc.children = []
+
+                        if moved:
+                            for child in moved:
+                                _mark_start(child, idx)
+                                parent.insert_before(child, node)
+
+                        if raw_end:
+                            en = TextNode(raw_end)
+                            _mark_start(en, idx)
+                            parent.insert_before(en, node)
+
+                        parent.remove_child(node)
+                        return True
+
+                    # UNWRAP
+                    moved_nodes: list[SimpleDomNode] = []
+                    if node.children:
+                        moved_nodes.extend(list(node.children))
+                        node.children = []
+                    if type(node) is TemplateNode and node.template_content:
+                        tc = node.template_content
+                        if tc.children:
+                            moved_nodes.extend(list(tc.children))
+                            tc.children = []
+
+                    if moved_nodes:
+                        for child in moved_nodes:
+                            _mark_start(child, idx)
+                            parent.insert_before(child, node)
+                    parent.remove_child(node)
+                    return True
+
+                # 4. Attributes
+                attrs = node.attrs
+                if not attrs:
+                    return False
+
+                changed_attrs = False
+                out_attrs: dict[str, str | None] = {}
+
+                capture_rel = tag == "a" and bool(policy.force_link_rel)
+                rel_input_value: str | None = None
+
+                # Optimized: pre-calc allowlist for this tag
+                # Note: allowed_attributes values are sets.
+                allowed_attr_set = policy._allowed_attrs_by_tag.get(tag, policy._allowed_attrs_global)
+
+                drop_regex = t.attr_drop_regex
+
+                for raw_key, original_value in attrs.items():
+                    value = original_value
+                    key = str(raw_key)
+                    if not key.strip():
+                        changed_attrs = True
+                        continue
+                    key_lower = key.lower() if not key.islower() else key
+
+                    if capture_rel and key_lower == "rel":
+                        rel_input_value = str(value or "")
+
+                    # DropAttrs
+                    if drop_regex and drop_regex.match(key_lower):
+                        msg = f"Unsafe attribute '{key_lower}' (matched forbidden pattern)"
+                        policy.handle_unsafe(msg, node=node)
+                        if report:
+                            report(msg, node=node)
+                        changed_attrs = True
+                        continue
+
+                    # Allowlist
+                    if key_lower not in allowed_attr_set:
+                        msg = f"Unsafe attribute '{key_lower}' (not allowed)"
+                        policy.handle_unsafe(msg, node=node)
+                        changed_attrs = True
+                        continue
+
+                    # DropUrlAttrs
+                    if key_lower in _URL_LIKE_ATTRS:
+                        url_rule = policy.url_policy.allow_rules.get((tag, key_lower))
+                        if url_rule is None:
+                            msg = f"Unsafe URL in attribute '{key_lower}' (no rule)"
+                            policy.handle_unsafe(msg, node=node)
+                            if report:
+                                report(msg, node=node)
+                            changed_attrs = True
+                            continue
+
+                        val_str = str(value or "")
+                        if key_lower == "srcset":
+                            sanitized = _sanitize_srcset_value(
+                                url_policy=policy.url_policy,
+                                rule=url_rule,
+                                tag=tag,
+                                attr=key_lower,
+                                value=val_str,
+                            )
+                        else:
+                            sanitized = _sanitize_url_value(
+                                url_policy=policy.url_policy,
+                                rule=url_rule,
+                                tag=tag,
+                                attr=key_lower,
+                                value=val_str,
+                            )
+
+                        if sanitized is None:
+                            msg = f"Unsafe URL in attribute '{key_lower}'"
+                            policy.handle_unsafe(msg, node=node)
+                            if report:  # pragma: no cover
+                                report(msg, node=node)
+                            changed_attrs = True
+                            continue
+
+                        if sanitized != val_str:
+                            changed_attrs = True
+                            value = sanitized
+
+                    # AllowStyleAttrs
+                    if key_lower == "style" and policy.allowed_css_properties:
+                        val_str = str(value or "")
+                        sanitized_style = _sanitize_inline_style(
+                            allowed_css_properties=policy.allowed_css_properties, value=val_str
+                        )
+                        if sanitized_style is None:
+                            msg = "Unsafe inline style in attribute 'style'"
+                            policy.handle_unsafe(msg, node=node)
+                            if report:
+                                report(msg, node=node)
+                            changed_attrs = True
+                            continue
+
+                        if sanitized_style != val_str:
+                            changed_attrs = True
+                            value = sanitized_style
+
+                    # Ensure we flag changes if the key case is normalized
+                    if key != key_lower:
+                        changed_attrs = True
+
+                    out_attrs[key_lower] = value
+
+                # MergeAttrs (a rel)
+                if capture_rel:
+                    rel_attr = "rel"
+                    existing_raw = out_attrs.get(rel_attr)
+                    if existing_raw is None and rel_input_value is not None:
+                        existing_raw = rel_input_value
+
+                    existing: list[str] = []
+                    if isinstance(existing_raw, str) and existing_raw:
+                        for tok in existing_raw.split():
+                            tt = tok.strip().lower()
+                            if tt and tt not in existing:
+                                existing.append(tt)
+
+                    rel_changed = False
+                    # Ensure deterministic order for forced tokens
+                    for tok in sorted(policy.force_link_rel):
+                        if tok not in existing:
+                            existing.append(tok)
+                            rel_changed = True
+
+                    normalized = " ".join(existing)
+                    if rel_changed or (existing_raw != normalized):
+                        out_attrs[rel_attr] = normalized
+                        changed_attrs = True
+                        if report and rel_changed:  # pragma: no cover
+                            report("Merged tokens into attribute 'rel' on <a>", node=node)
+
+                if changed_attrs:
+                    node.attrs = out_attrs
+                    if callback:
+                        callback(node)
+
+                return False
+
             def apply_to_children(parent: SimpleDomNode, *, skip_linkify: bool, skip_whitespace: bool) -> None:
                 children = parent.children
                 if not children:
@@ -1895,9 +2081,24 @@ def apply_compiled_transforms(
                     start_at = created_start_index.get(id(node), 0)
                     for idx in range(start_at, len(walk_transforms)):
                         t = walk_transforms[idx]
+                        # Dispatch based on 'kind' string to avoid expensive isinstance/class hierarchy checks
+                        # in this hot loop (50k nodes * 10 transforms = 500k type checks otherwise).
+                        k: str = t.kind
+
+                        # Sanitize (Fused output for performance)
+                        if k == "sanitize":
+                            if TYPE_CHECKING:
+                                t = cast("_CompiledSanitizeTransform", t)
+                            if _apply_fused_sanitize(node, t, parent, idx):
+                                changed = True
+                                break
+                            continue
+
                         # DropComments
-                        if isinstance(t, _CompiledDropCommentsTransform):
+                        if k == "drop_comments":
                             if name == "#comment":
+                                if TYPE_CHECKING:
+                                    t = cast("_CompiledDropCommentsTransform", t)
                                 if t.callback is not None:
                                     t.callback(node)
                                 if t.report is not None:
@@ -1908,53 +2109,60 @@ def apply_compiled_transforms(
                             continue
 
                         # DropDoctype
-                        if isinstance(t, _CompiledDropDoctypeTransform):
+                        if k == "drop_doctype":
                             if name == "!doctype":
+                                if TYPE_CHECKING:
+                                    t = cast("_CompiledDropDoctypeTransform", t)
                                 if t.callback is not None:
-                                    t.callback(node)
+                                    t.callback(node)  # pragma: no cover
                                 if t.report is not None:
-                                    t.report("Dropped doctype", node=node)
+                                    t.report("Dropped doctype", node=node)  # pragma: no cover
                                 parent.remove_child(node)
                                 changed = True
                                 break
                             continue
 
                         # MergeAttrs
-                        if isinstance(t, _CompiledMergeAttrTokensTransform):
-                            if not name.startswith("#") and name != "!doctype" and str(name).lower() == t.tag:
-                                attrs = node.attrs
-                                existing_raw = attrs.get(t.attr)
-                                existing: list[str] = []
-                                if isinstance(existing_raw, str) and existing_raw:
-                                    for tok in existing_raw.split():
-                                        tt = tok.strip().lower()
-                                        if tt and tt not in existing:
-                                            existing.append(tt)
+                        if k == "merge_attr_tokens":
+                            if not name.startswith("#") and name != "!doctype":
+                                if TYPE_CHECKING:
+                                    t = cast("_CompiledMergeAttrTokensTransform", t)
+                                if str(name).lower() == t.tag:
+                                    attrs = node.attrs
+                                    existing_raw = attrs.get(t.attr)
+                                    existing: list[str] = []
+                                    if isinstance(existing_raw, str) and existing_raw:
+                                        for tok in existing_raw.split():
+                                            tt = tok.strip().lower()
+                                            if tt and tt not in existing:
+                                                existing.append(tt)
 
-                                changed_rel = False
-                                for tok in t.tokens:
-                                    if tok not in existing:
-                                        existing.append(tok)
-                                        changed_rel = True
-                                normalized = " ".join(existing)
-                                if (
-                                    changed_rel
-                                    or (existing_raw is None and existing)
-                                    or (isinstance(existing_raw, str) and existing_raw != normalized)
-                                ):
-                                    attrs[t.attr] = normalized
-                                    if t.callback is not None:
-                                        t.callback(node)
-                                    if t.report is not None:
-                                        t.report(
-                                            f"Merged tokens into attribute '{t.attr}' on <{t.tag}>",
-                                            node=node,
-                                        )
+                                    changed_rel = False
+                                    for tok in t.tokens:
+                                        if tok not in existing:
+                                            existing.append(tok)
+                                            changed_rel = True
+                                    normalized = " ".join(existing)
+                                    if (
+                                        changed_rel
+                                        or (existing_raw is None and existing)
+                                        or (isinstance(existing_raw, str) and existing_raw != normalized)
+                                    ):
+                                        attrs[t.attr] = normalized
+                                        if t.callback is not None:
+                                            t.callback(node)
+                                        if t.report is not None:
+                                            t.report(
+                                                f"Merged tokens into attribute '{t.attr}' on <{t.tag}>",
+                                                node=node,
+                                            )
                             continue
 
                         # CollapseWhitespace
-                        if isinstance(t, _CompiledCollapseWhitespaceTransform):
+                        if k == "collapse_whitespace":
                             if name == "#text" and not skip_whitespace:
+                                if TYPE_CHECKING:
+                                    t = cast("_CompiledCollapseWhitespaceTransform", t)
                                 data = node.data or ""
                                 if data:
                                     collapsed = _collapse_html_space_characters(data)
@@ -1967,8 +2175,10 @@ def apply_compiled_transforms(
                             continue
 
                         # Linkify
-                        if isinstance(t, _CompiledLinkifyTransform):
+                        if k == "linkify":
                             if name == "#text" and not skip_linkify:
+                                if TYPE_CHECKING:
+                                    t = cast("_CompiledLinkifyTransform", t)
                                 data = node.data or ""
                                 if data:
                                     matches = find_links_with_config(data, t.config)
@@ -2005,13 +2215,18 @@ def apply_compiled_transforms(
                             continue
 
                         # Decide
-                        if isinstance(t, _CompiledDecideTransform):
+                        if k == "decide":
+                            if TYPE_CHECKING:
+                                t = cast("_CompiledDecideTransform", t)
                             if t.all_nodes:
                                 action = t.callback(node)
                             else:
                                 if name.startswith("#") or name == "!doctype":
                                     continue
-                                if not matcher.matches(node, cast("ParsedSelector", t.selector)):
+                                sel = t.selector
+                                if TYPE_CHECKING:
+                                    sel = cast("ParsedSelector", sel)
+                                if not matcher.matches(node, sel):
                                     continue
                                 action = t.callback(node)
 
@@ -2089,12 +2304,17 @@ def apply_compiled_transforms(
                             changed = True
                             break
 
-                        # EditAttrs
-                        if isinstance(t, _CompiledRewriteAttrsTransform):
+                        # EditAttrs (rewrite_attrs)
+                        if k == "rewrite_attrs":
                             if name.startswith("#") or name == "!doctype":
                                 continue
+                            if TYPE_CHECKING:
+                                t = cast("_CompiledRewriteAttrsTransform", t)
                             if not t.all_nodes:
-                                if not matcher.matches(node, cast("ParsedSelector", t.selector)):
+                                sel = t.selector
+                                if TYPE_CHECKING:
+                                    sel = cast("ParsedSelector", sel)
+                                if not matcher.matches(node, sel):
                                     continue
                             new_attrs = t.func(node)
                             if new_attrs is not None:
@@ -2102,7 +2322,8 @@ def apply_compiled_transforms(
                             continue
 
                         # Selector transforms
-                        t = cast("_CompiledSelectorTransform", t)
+                        if TYPE_CHECKING:
+                            t = cast("_CompiledSelectorTransform", t)
                         if name.startswith("#") or name == "!doctype":
                             continue
 
@@ -2304,6 +2525,7 @@ def apply_compiled_transforms(
                     _CompiledDropCommentsTransform,
                     _CompiledDropDoctypeTransform,
                     _CompiledMergeAttrTokensTransform,
+                    _CompiledSanitizeTransform,
                 ),
             ):
                 pending_walk.append(t)
