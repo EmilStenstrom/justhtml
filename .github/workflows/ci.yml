@@ -59,6 +59,39 @@ jobs:
         if: failure()
         run: python run_tests.py -v --no-write-summary
 
+      - name: Dump failing html5lib fixtures
+        if: failure()
+        run: |
+          sha256sum tests/html5lib-tests-tokenizer/test4.test
+          sha256sum tests/html5lib-tests-tree/webkit01.dat
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("tests/html5lib-tests-tokenizer/test4.test")
+          data = json.loads(path.read_text())
+          idx = 76
+          t = data["tests"][idx]
+          print("tokenizer test index:", idx)
+          print("description:", t.get("description"))
+          print("input:", repr(t["input"]))
+          print("output:", t["output"])
+          print("errors:", t.get("errors"))
+          print("initialStates:", t.get("initialStates"))
+          print("lastStartTag:", t.get("lastStartTag"))
+          PY
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/html5lib-tests-tree/webkit01.dat")
+          lines = path.read_text(encoding="utf-8").splitlines()
+          for i, line in enumerate(lines):
+            if line.strip() == "<di":
+              start = max(i - 8, 0)
+              end = min(i + 24, len(lines))
+              print("webkit01.dat snippet around <di (line", i, "):")
+              print("\\n".join(lines[start:end]))
+              break
+          PY
+
       - name: Run mypy
         if: matrix.python-version == '3.12'
         run: mypy
