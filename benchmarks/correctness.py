@@ -157,9 +157,10 @@ def run_test_justhtml(html, fragment_context, expected, xml_coercion=False, ifra
                 fragment_context=ctx,
                 tokenizer_opts=opts,
                 iframe_srcdoc=iframe_srcdoc,
+                safe=False,
             )
         else:
-            parser = JustHTML(html, tokenizer_opts=opts, iframe_srcdoc=iframe_srcdoc)
+            parser = JustHTML(html, tokenizer_opts=opts, iframe_srcdoc=iframe_srcdoc, safe=False)
         actual = to_test_format(parser.root)
         passed = compare_outputs(expected, actual)
         return passed, actual, None

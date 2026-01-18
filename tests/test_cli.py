@@ -125,7 +125,18 @@ class TestCLI(unittest.TestCase):
 
     def test_selector_markdown(self):
         html = "<article><p>Hello <b>world</b></p></article>"
-        code, out, err = self._run_cli(["-", "--selector", "article", "--format", "markdown"], stdin_text=html)
+        code, out, err = self._run_cli(
+            [
+                "-",
+                "--selector",
+                "article",
+                "--allow-tags",
+                ",, article,,",
+                "--format",
+                "markdown",
+            ],
+            stdin_text=html,
+        )
         self.assertEqual(code, 0)
         self.assertEqual(out, "Hello **world**\n")
         self.assertEqual(err, "")

@@ -50,7 +50,7 @@ doc.query('[class*="btn"]')      # Classes containing "btn"
 | Sibling | `h1 ~ p` | Any `<p>` sibling after `<h1>` |
 
 ```python
-doc.query("article p")      # Paragraphs anywhere in article
+doc.query("div p")          # Paragraphs anywhere in a div
 doc.query("ul > li")        # Direct list items
 doc.query("h1 + p")         # First paragraph after h1
 doc.query("h1 ~ p")         # All paragraphs after h1
@@ -141,8 +141,8 @@ doc.query("form input:not([type='hidden'])")
 # Alternating table rows
 doc.query("tr:nth-child(even)")
 
-# First paragraph in each article
-doc.query("article > p:first-of-type")
+# First paragraph in each container
+doc.query("div > p:first-of-type")
 
 # External links
 doc.query('a[href^="http"]:not([href*="mysite.com"])')

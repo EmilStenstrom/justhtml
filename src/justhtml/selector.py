@@ -651,7 +651,9 @@ class SelectorMatcher:
         attr_value: str | None = None
         for name, value in attrs.items():
             if name.lower() == attr_name:
-                attr_value = value
+                # Attributes can be boolean (represented as None in JustHTML).
+                # For selector matching, presence should still count.
+                attr_value = "" if value is None else str(value)
                 break
 
         if attr_value is None:

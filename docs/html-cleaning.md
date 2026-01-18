@@ -59,7 +59,7 @@ user_html = '<p>Hello <b>world</b> <script>alert(1)</script> <a href="javascript
 doc = JustHTML(user_html, fragment=True, transforms=[Sanitize()])
 
 # The DOM is now sanitized in-memory.
-print(doc.root.to_html(pretty=False, safe=False))
+print(doc.root.to_html(pretty=False))
 ```
 
 ## Disable sanitization
@@ -70,9 +70,9 @@ If you want to (dangerously) disable sanitization, because you know that your tr
 from justhtml import JustHTML
 
 user_html = '<p>Hello <b>world</b> <script>init_page_view_tracker()</script> <a href="javascript:track_pageview()">ok</a></p>'
-doc = JustHTML(user_html, fragment=True)
+doc = JustHTML(user_html, fragment=True, safe=False)
 
-print(doc.to_html(safe=False))
+print(doc.to_html())
 ```
 
 Output:
@@ -134,7 +134,7 @@ policy = SanitizationPolicy(
 )
 
 html = '<p style="color: red; background-image: url(https://evil.test/x); width: expression(alert(1));">Hi</p>'
-print(JustHTML(html).to_html(policy=policy))
+print(JustHTML(html, policy=policy).to_html())
 ```
 
 Output:
@@ -175,7 +175,8 @@ policy = SanitizationPolicy(
 )
 
 doc = JustHTML(user_html, fragment=True)
-print(doc.to_html(policy=policy))
+doc = JustHTML(user_html, fragment=True, policy=policy)
+print(doc.to_html())
 ```
 
 Output:

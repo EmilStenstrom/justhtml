@@ -19,14 +19,12 @@ Use this mode when you want best-effort cleaned output and don't need a list of 
 
 If you want to keep sanitizing but also get a list of what was removed, set `unsafe_handling="collect"`.
 
-Collected findings are exposed as parse-style errors with `category == "security"` and are merged into `doc.errors` when you serialize via `doc.to_html(...)`, `doc.to_text(...)`, or `doc.to_markdown(...)`.
+Collected findings are exposed as parse-style errors with `category == "security"` and are available in `doc.errors` after construction.
 
 Tip: pass `track_node_locations=True` to `JustHTML(...)` to include `line`/`column` information in the collected findings (otherwise location may be missing). This comes with a slight performance penalty, which is why it's disabled by default.
 
 ```python
 from justhtml import JustHTML, SanitizationPolicy, UrlPolicy
-
-doc = JustHTML("<p>ok</p><script>alert(1)</script>", fragment=True, track_node_locations=True)
 
 policy = SanitizationPolicy(
     allowed_tags=["p"],
@@ -35,7 +33,12 @@ policy = SanitizationPolicy(
     unsafe_handling="collect",
 )
 
-_ = doc.to_html(pretty=False, policy=policy)
+doc = JustHTML(
+    "<p>ok</p><script>alert(1)</script>",
+    fragment=True,
+    track_node_locations=True,
+    policy=policy,
+)
 for e in doc.errors:
     if e.category == "security":
         print(e.message)
@@ -66,7 +69,7 @@ policy = SanitizationPolicy(
 )
 
 try:
-    doc.to_html(policy=policy)
+    _ = JustHTML("<p>ok</p><script>alert(1)</script>", fragment=True, policy=policy)
 except UnsafeHtmlError as e:
     print(e)
 ```

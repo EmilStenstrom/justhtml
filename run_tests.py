@@ -63,6 +63,15 @@ def parse_args():
         action="store_true",
         help="Quiet mode: only print the header line (no per-file breakdown). For a full unfiltered run the detailed summary is still written to test-summary.txt",
     )
+
+    parser.add_argument(
+        "--no-write-summary",
+        action="store_true",
+        help=(
+            "Do not write test-summary.txt, even for a full (unfiltered) run. "
+            "Useful for pre-commit/CI runs where hooks must not modify files."
+        ),
+    )
     parser.add_argument(
         "--exclude-errors",
         type=str,
@@ -132,6 +141,7 @@ def parse_args():
         "fail_fast": args.fail_fast,
         "test_specs": test_specs,
         "quiet": args.quiet,
+        "write_summary": not args.no_write_summary,
         "exclude_errors": exclude_errors,
         "exclude_files": exclude_files,
         "exclude_html": exclude_html,

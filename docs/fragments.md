@@ -75,7 +75,7 @@ Output:
 
 ### WYSIWYG Editor Content
 
-When users edit HTML in a rich text editor, the content will be inserted into a container like `<div>` or `<article>`:
+When users edit HTML in a rich text editor, the content will typically be inserted into a container like `<div>` or `<article>`:
 
 ```python
 # User's editor content
@@ -220,7 +220,7 @@ def sanitize_fragment(html: str) -> str:
     # Sanitize the in-memory DOM by applying a Sanitize transform.
     # Put Sanitize at the end if you want a sanitized DOM.
     doc = JustHTML(html, fragment_context=ctx, transforms=[Sanitize(policy)])
-    return doc.root.to_html(pretty=False, safe=False)
+    return doc.root.to_html(pretty=False)
 
 # Usage
 dirty = '<p>Hello</p><script>alert("xss")</script><b>world</b>'

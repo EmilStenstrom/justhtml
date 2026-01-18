@@ -81,7 +81,7 @@
     "parse": "fragment",
     "fragment_context": "div",
     "input_html": "<sarcasm class='x'><b>world</b></sarcasm>",
-    "expected_html": "&lt;sarcasm class=\"x\"&gt;<b>world</b>&lt;/sarcasm&gt;"
+    "expected_html": "&lt;sarcasm class='x'&gt;<b>world</b>&lt;/sarcasm&gt;"
   },
   {
     "name": "disallowed_tag_escape_less_than_text",
@@ -107,7 +107,7 @@
     "parse": "fragment",
     "fragment_context": "div",
     "input_html": "only good when x<y and y > z",
-    "expected_html": "only good when x&lt;y and y&gt; z"
+    "expected_html": "only good when x&lt;y and y &gt; z"
   },
   {
     "name": "disallowed_tag_drop_removes_subtree",

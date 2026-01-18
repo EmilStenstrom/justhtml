@@ -33,7 +33,7 @@ repos:
     hooks:
       - id: tests-coverage
         name: Tests & Coverage
-        entry: bash -c 'coverage run run_tests.py && coverage report'
+        entry: bash -c 'coverage run run_tests.py --no-write-summary && coverage report'
         language: system
         pass_filenames: false
         always_run: true

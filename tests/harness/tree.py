@@ -325,6 +325,7 @@ class TestRunner:
                     tokenizer_opts=opts,
                     iframe_srcdoc=test.iframe_srcdoc,
                     collect_errors=True,
+                    safe=False,
                 )
                 actual_tree = to_test_format(parser.root)
             debug_output = f.getvalue()
@@ -335,6 +336,7 @@ class TestRunner:
                 tokenizer_opts=opts,
                 iframe_srcdoc=test.iframe_srcdoc,
                 collect_errors=True,
+                safe=False,
             )
             actual_tree = to_test_format(parser.root)
 

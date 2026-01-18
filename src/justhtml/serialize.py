@@ -8,7 +8,6 @@ import re
 from typing import Any
 
 from .constants import FOREIGN_ATTRIBUTE_ADJUSTMENTS, SPECIAL_ELEMENTS, VOID_ELEMENTS, WHITESPACE_PRESERVING_ELEMENTS
-from .sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, _sanitize
 
 # Matches characters that prevent an attribute value from being unquoted.
 # Note: This matches the logic of the previous loop-based implementation.
@@ -120,15 +119,8 @@ def to_html(
     indent_size: int = 2,
     *,
     pretty: bool = True,
-    safe: bool = True,
-    policy: SanitizationPolicy | None = None,
 ) -> str:
     """Convert node to HTML string."""
-    if safe:
-        if policy is None and node.name == "#document":
-            node = _sanitize(node, policy=DEFAULT_DOCUMENT_POLICY)
-        else:
-            node = _sanitize(node, policy=policy or DEFAULT_POLICY)
     if node.name == "#document":
         # Document root - just render children
         parts: list[str] = []
@@ -468,7 +460,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
     if all_text and pretty and not content_pre:
         # Serializer controls sanitization at the to_html() entry point; avoid
         # implicit re-sanitization during rendering.
-        text_content = node.to_text(separator="", strip=False, safe=False)
+        text_content = node.to_text(separator="", strip=False)
         text_content = _collapse_html_whitespace(text_content)
         return f"{prefix}{open_tag}{_escape_text(text_content)}{serialize_end_tag(name)}"
 

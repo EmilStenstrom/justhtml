@@ -36,7 +36,7 @@ class TestSanitizeTransform(unittest.TestCase):
         )
 
         # Sanitize runs again after SetAttrs introduced a new unsafe URL.
-        assert doc.to_html(pretty=False, safe=False) == "<p><a>t</a></p>"
+        assert doc.to_html(pretty=False) == "<p><a>t</a></p>"
 
     def test_sanitize_transform_makes_dom_safe_in_place(self) -> None:
         doc = JustHTML(
@@ -45,9 +45,8 @@ class TestSanitizeTransform(unittest.TestCase):
             transforms=[Sanitize()],
         )
 
-        # Tree is already sanitized, so raw and safe output match.
-        assert doc.to_html(pretty=False, safe=False) == "<p><a>x</a></p>"
-        assert doc.to_html(pretty=False, safe=True) == "<p><a>x</a></p>"
+        # Tree is already sanitized.
+        assert doc.to_html(pretty=False) == "<p><a>x</a></p>"
 
     def test_compile_transforms_allows_transforms_after_sanitize(self) -> None:
         compile_transforms((Sanitize(), Linkify()))
@@ -61,9 +60,7 @@ class TestSanitizeTransform(unittest.TestCase):
         )
 
         # Existing unsafe content is removed by Sanitize, then Linkify runs.
-        assert doc.to_html(pretty=False, safe=False) == (
-            '<p><a>x</a> <a href="https://example.com">https://example.com</a></p>'
-        )
+        assert doc.to_html(pretty=False) == ('<p><a>x</a> <a href="https://example.com">https://example.com</a></p>')
 
     def test_pruneempty_can_run_after_sanitize(self) -> None:
         doc = JustHTML(
@@ -71,7 +68,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(), PruneEmpty("p")],
         )
-        assert doc.to_html(pretty=False, safe=False) == ""
+        assert doc.to_html(pretty=False) == ""
 
     def test_drop_then_pruneempty_can_run_after_sanitize_in_order(self) -> None:
         doc = JustHTML(
@@ -79,7 +76,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(), Drop("a"), PruneEmpty("p")],
         )
-        assert doc.to_html(pretty=False, safe=False) == ""
+        assert doc.to_html(pretty=False) == ""
 
     def test_collapsewhitespace_can_run_after_sanitize(self) -> None:
         doc = JustHTML(
@@ -87,7 +84,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(), CollapseWhitespace()],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p>a b</p>"
+        assert doc.to_html(pretty=False) == "<p>a b</p>"
 
     def test_post_sanitize_collapsewhitespace_then_pruneempty_runs_in_order(self) -> None:
         doc = JustHTML(
@@ -95,7 +92,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(), CollapseWhitespace(), PruneEmpty("p")],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p>x</p>"
+        assert doc.to_html(pretty=False) == "<p>x</p>"
 
     def test_post_sanitize_pruneempty_then_collapsewhitespace_runs_in_order(self) -> None:
         doc = JustHTML(
@@ -103,7 +100,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(), PruneEmpty("span"), CollapseWhitespace()],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p>a b</p>"
+        assert doc.to_html(pretty=False) == "<p>a b</p>"
 
     def test_post_sanitize_consecutive_pruneempty_transforms_are_batched(self) -> None:
         doc = JustHTML(
@@ -111,7 +108,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(), PruneEmpty("p"), PruneEmpty("div")],
         )
-        assert doc.to_html(pretty=False, safe=False) == ""
+        assert doc.to_html(pretty=False) == ""
 
     def test_sanitize_transform_supports_element_root(self) -> None:
         root = ElementNode("a", {"href": "javascript:alert(1)", "onclick": "x()"}, "html")
@@ -179,7 +176,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(policy)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<b>Hello &lt;sarcasm&gt;world&lt;/sarcasm&gt;</b>"
+        assert doc.to_html(pretty=False) == "<b>Hello &lt;sarcasm&gt;world&lt;/sarcasm&gt;</b>"
 
     def test_sanitize_transform_escape_disallowed_self_closing_tag(self) -> None:
         policy = SanitizationPolicy(
@@ -192,7 +189,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(policy)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p>yeah right&lt;sarcasm/&gt;</p>"
+        assert doc.to_html(pretty=False) == "<p>yeah right&lt;sarcasm/&gt;</p>"
 
     def test_sanitize_transform_escape_disallowed_missing_end_tag(self) -> None:
         policy = SanitizationPolicy(
@@ -205,7 +202,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(policy)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<b>Hello &lt;sarcasm&gt;world</b>"
+        assert doc.to_html(pretty=False) == "<b>Hello &lt;sarcasm&gt;world</b>"
 
     def test_sanitize_transform_escape_disallowed_with_allowed_children(self) -> None:
         policy = SanitizationPolicy(
@@ -218,7 +215,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(policy)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "&lt;sarcasm class='x'&gt;<b>world</b>&lt;/sarcasm&gt;"
+        assert doc.to_html(pretty=False) == "&lt;sarcasm class='x'&gt;<b>world</b>&lt;/sarcasm&gt;"
 
     def test_sanitize_transform_drop_disallowed_subtree(self) -> None:
         policy = SanitizationPolicy(
@@ -231,7 +228,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(policy)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<b>Hello </b>"
+        assert doc.to_html(pretty=False) == "<b>Hello </b>"
 
     def test_sanitize_transform_escape_without_source_html(self) -> None:
         policy = SanitizationPolicy(
@@ -248,7 +245,7 @@ class TestSanitizeTransform(unittest.TestCase):
 
         compiled = compile_transforms((Sanitize(policy),))
         apply_compiled_transforms(root, compiled)
-        assert root.to_html(pretty=False, safe=False) == "&lt;x&gt;ok"
+        assert root.to_html(pretty=False) == "&lt;x&gt;ok"
 
     def test_sanitize_transform_escape_uses_raw_tokens(self) -> None:
         policy = SanitizationPolicy(
@@ -261,7 +258,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(policy)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p>Hello &lt;x&gt;world&lt;/x&gt;</p>"
+        assert doc.to_html(pretty=False) == "<p>Hello &lt;x&gt;world&lt;/x&gt;</p>"
 
     def test_sanitize_transform_escape_template_content(self) -> None:
         policy = SanitizationPolicy(
@@ -274,7 +271,7 @@ class TestSanitizeTransform(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(policy)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "&lt;template&gt;<b>x</b>&lt;/template&gt;"
+        assert doc.to_html(pretty=False) == "&lt;template&gt;<b>x</b>&lt;/template&gt;"
 
     def test_sanitize_transform_converts_comment_root_to_fragment_when_dropped(self) -> None:
         root = SimpleDomNode("#comment", data="x")
@@ -355,7 +352,7 @@ class TestSanitizeTransform(unittest.TestCase):
 
         compiled = compile_transforms((Sanitize(policy),))
         apply_compiled_transforms(wrapper, compiled)
-        assert wrapper.to_html(pretty=False, safe=False) == "x"
+        assert wrapper.to_html(pretty=False) == "x"
 
     def test_sanitize_transform_disallowed_root_without_children_is_empty(self) -> None:
         policy = SanitizationPolicy(
@@ -371,7 +368,7 @@ class TestSanitizeTransform(unittest.TestCase):
 
         compiled = compile_transforms((Sanitize(policy),))
         apply_compiled_transforms(wrapper, compiled)
-        assert wrapper.to_html(pretty=False, safe=False) == ""
+        assert wrapper.to_html(pretty=False) == ""
 
     def test_sanitize_transform_disallowed_template_root_hoists_template_content(self) -> None:
         policy = SanitizationPolicy(
@@ -423,7 +420,7 @@ class TestSanitizeTransform(unittest.TestCase):
         compiled = compile_transforms((Sanitize(),))
         apply_compiled_transforms(root, compiled)
 
-        assert root.to_html(pretty=False, safe=False) == "<p></p>"
+        assert root.to_html(pretty=False) == "<p></p>"
 
     def test_sanitize_transform_decide_drops_foreign_namespace_elements(self) -> None:
         root = SimpleDomNode("#document-fragment")
@@ -432,7 +429,7 @@ class TestSanitizeTransform(unittest.TestCase):
         compiled = compile_transforms((Sanitize(),))
         apply_compiled_transforms(root, compiled)
 
-        assert root.to_html(pretty=False, safe=False) == ""
+        assert root.to_html(pretty=False) == ""
 
     def test_sanitize_transform_decide_unwraps_disallowed_elements(self) -> None:
         root = SimpleDomNode("#document-fragment")
@@ -443,4 +440,4 @@ class TestSanitizeTransform(unittest.TestCase):
         compiled = compile_transforms((Sanitize(),))
         apply_compiled_transforms(root, compiled)
 
-        assert root.to_html(pretty=False, safe=False) == "x"
+        assert root.to_html(pretty=False) == "x"

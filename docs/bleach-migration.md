@@ -13,9 +13,9 @@ This guide covers common migration patterns.
 ## Mental model differences
 
 - Bleach takes a string and returns a cleaned string.
-- JustHTML parses into a DOM and serilization happens when you serialize the DOM to a tree:
-  - `doc.to_html()` sanitizes by default (`safe=True`).
-  - `doc.to_html(safe=False)` returns raw output (trusted input only).
+- JustHTML parses into a DOM and sanitizes by default at construction time:
+    - `JustHTML(html)` sanitizes by default (`safe=True`).
+    - `JustHTML(html, safe=False)` disables sanitization (trusted input only).
 
 JustHTML also supports constructor-time **transforms** (a DOM equivalent of Bleach/html5lib filter pipelines): see [Transforms](transforms.md).
 
@@ -51,14 +51,14 @@ policy = SanitizationPolicy(
     ),
 )
 
-doc = JustHTML(user_html, fragment=True)
-clean = doc.to_html(policy=policy)
+doc = JustHTML(user_html, fragment=True, policy=policy)
+clean = doc.to_html()
 ```
 
 Notes:
 
 - Prefer `fragment=True` for user-generated snippets. That avoids adding `<html>`, `<head>`, and `<body>` tags.
-- JustHTML sanitizes *on serialization* by default. If you need a sanitized DOM tree, put `Sanitize(...)` at the end of your transform pipeline (see [HTML Cleaning](html-cleaning.md)).
+- JustHTML sanitizes *at construction time* by default. If you need to sanitize again after later DOM edits, add `Sanitize(...)` at the end of your transform pipeline (see [HTML Cleaning](html-cleaning.md)).
 
 ## Bleach filters → JustHTML transforms
 

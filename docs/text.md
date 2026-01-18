@@ -12,12 +12,12 @@ Use `to_text()` when you want the concatenated text from a whole subtree:
 - Joins text nodes using `separator` (default: a single space).
 - Strips each text node by default (`strip=True`) and drops empty segments.
 - Includes `<template>` contents (via `template_content`).
-- Sanitizes untrusted HTML by default (`safe=True`).
+- Sanitizes untrusted HTML by default (safe-by-default at construction).
 
 ```python
 from justhtml import JustHTML
 
-doc = JustHTML("<article><h1>Title</h1><p>Hello <b>world</b></p></article>", fragment=True)
+doc = JustHTML("<div><h1>Title</h1><p>Hello <b>world</b></p></div>", fragment=True)
 print(doc.to_text())
 ```
 
@@ -43,8 +43,8 @@ Hello World
 ```python
 from justhtml import JustHTML
 
-untrusted = JustHTML("<p>Hello<script>alert(1)</script>World</p>", fragment=True)
-print(untrusted.to_text(safe=False))
+untrusted = JustHTML("<p>Hello<script>alert(1)</script>World</p>", fragment=True, safe=False)
+print(untrusted.to_text())
 ```
 
 Output:
@@ -112,7 +112,7 @@ Example:
 from justhtml import JustHTML
 
 html = """
-<article>
+<div>
   <h1>Title</h1>
   <p>Hello <b>world</b> and <a href="https://example.com">links</a>.</p>
   <ul>
@@ -120,7 +120,7 @@ html = """
     <li>Second item</li>
   </ul>
   <pre>code block</pre>
-</article>
+</div>
 """
 
 doc = JustHTML(html)

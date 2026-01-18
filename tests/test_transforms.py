@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from justhtml import JustHTML, SelectorError
+from justhtml import JustHTML as _JustHTML
+from justhtml import SelectorError
 from justhtml.node import ElementNode, SimpleDomNode, TemplateNode, TextNode
 from justhtml.sanitize import SanitizationPolicy, UrlPolicy, UrlRule
 from justhtml.transforms import (
@@ -33,6 +34,12 @@ from justhtml.transforms import (
     compile_transforms,
     emit_error,
 )
+
+
+def JustHTML(*args, **kwargs):  # noqa: N802
+    if "safe" not in kwargs:
+        kwargs["safe"] = False
+    return _JustHTML(*args, **kwargs)
 
 
 class TestTransforms(unittest.TestCase):
@@ -85,7 +92,7 @@ class TestTransforms(unittest.TestCase):
 
     def test_constructor_accepts_transforms_and_applies_setattrs(self) -> None:
         doc = JustHTML("<p>Hello</p>", transforms=[SetAttrs("p", id="x")])
-        assert doc.to_html(pretty=False, safe=False) == '<html><head></head><body><p id="x">Hello</p></body></html>'
+        assert doc.to_html(pretty=False) == '<html><head></head><body><p id="x">Hello</p></body></html>'
 
     def test_constructor_compiles_selectors_and_raises_early(self) -> None:
         with self.assertRaises(SelectorError):
@@ -93,30 +100,30 @@ class TestTransforms(unittest.TestCase):
 
     def test_drop_removes_nodes(self) -> None:
         doc = JustHTML("<p>ok</p><script>alert(1)</script>", transforms=[Drop("script")])
-        assert doc.to_html(pretty=False, safe=False) == "<html><head></head><body><p>ok</p></body></html>"
+        assert doc.to_html(pretty=False) == "<html><head></head><body><p>ok</p></body></html>"
 
     def test_unwrap_hoists_children(self) -> None:
         doc = JustHTML("<p>Hello <span>world</span></p>", transforms=[Unwrap("span")])
-        assert doc.to_html(pretty=False, safe=False) == "<html><head></head><body><p>Hello world</p></body></html>"
+        assert doc.to_html(pretty=False) == "<html><head></head><body><p>Hello world</p></body></html>"
 
     def test_unwrap_handles_empty_elements(self) -> None:
         doc = JustHTML("<div><span></span>ok</div>", transforms=[Unwrap("span")])
-        assert doc.to_html(pretty=False, safe=False) == "<html><head></head><body><div>ok</div></body></html>"
+        assert doc.to_html(pretty=False) == "<html><head></head><body><div>ok</div></body></html>"
 
     def test_empty_removes_children_but_keeps_element(self) -> None:
         doc = JustHTML("<div><b>x</b>y</div>", transforms=[Empty("div")])
-        assert doc.to_html(pretty=False, safe=False) == "<html><head></head><body><div></div></body></html>"
+        assert doc.to_html(pretty=False) == "<html><head></head><body><div></div></body></html>"
 
     def test_empty_also_clears_template_content(self) -> None:
         doc = JustHTML("<template><b>x</b></template>", transforms=[Empty("template")])
-        assert doc.to_html(pretty=False, safe=False) == "<html><head><template></template></head><body></body></html>"
+        assert doc.to_html(pretty=False) == "<html><head><template></template></head><body></body></html>"
 
     def test_edit_can_mutate_attrs(self) -> None:
         def cb(node):
             node.attrs["data-x"] = "1"
 
         doc = JustHTML('<a href="https://e.com">x</a>', transforms=[Edit("a", cb)])
-        assert 'data-x="1"' in doc.to_html(pretty=False, safe=False)
+        assert 'data-x="1"' in doc.to_html(pretty=False)
 
     def test_editdocument_runs_once_on_root(self) -> None:
         seen: list[str] = []
@@ -127,7 +134,7 @@ class TestTransforms(unittest.TestCase):
 
         doc = JustHTML("<p>x</p>", fragment=True, transforms=[EditDocument(cb)])
         assert seen == ["#document-fragment"]
-        assert doc.to_html(pretty=False, safe=False) == "<p>x</p><p></p>"
+        assert doc.to_html(pretty=False) == "<p>x</p><p></p>"
 
     def test_walk_transforms_traverse_root_template_content(self) -> None:
         root = TemplateNode("template", attrs={}, namespace="html")
@@ -135,7 +142,7 @@ class TestTransforms(unittest.TestCase):
         root.template_content.append_child(ElementNode("p", {}, "html"))
 
         apply_compiled_transforms(root, compile_transforms([SetAttrs("p", id="x")]))
-        assert root.to_html(pretty=False, safe=False) == '<template><p id="x"></p></template>'
+        assert root.to_html(pretty=False) == '<template><p id="x"></p></template>'
 
     def test_transform_callbacks_can_emit_errors_without_parse_error_collection(self) -> None:
         def cb(node: SimpleDomNode) -> None:
@@ -153,7 +160,7 @@ class TestTransforms(unittest.TestCase):
         assert err.message == "bad <p>"
         assert err.line is not None
         assert err.column is not None
-        assert 'id="x"' in doc.to_html(pretty=False, safe=False)
+        assert 'id="x"' in doc.to_html(pretty=False)
 
     def test_transform_callback_errors_merge_with_parse_errors_when_collect_errors_true(self) -> None:
         doc = JustHTML(
@@ -184,7 +191,7 @@ class TestTransforms(unittest.TestCase):
             "<p>Hello</p>",
             transforms=[SetAttrs("p", id="x"), Drop("p"), SetAttrs("p", class_="y")],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<html><head></head><body></body></html>"
+        assert doc.to_html(pretty=False) == "<html><head></head><body></body></html>"
 
     def test_disabled_transforms_are_omitted_at_compile_time(self) -> None:
         doc = JustHTML(
@@ -196,7 +203,7 @@ class TestTransforms(unittest.TestCase):
             ],
         )
         assert (
-            doc.to_html(pretty=False, safe=False)
+            doc.to_html(pretty=False)
             == "<html><head></head><body><p>ok</p><script>alert(1)</script><div><b>x</b></div></body></html>"
         )
 
@@ -211,7 +218,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Drop("div.x", callback=callback)],
         )
-        assert doc.to_html(pretty=False, safe=False) == '<div class="y"></div>'
+        assert doc.to_html(pretty=False) == '<div class="y"></div>'
         assert dropped == ["div"]
 
     def test_drop_with_callback_tag_list_fast_path_rejection_still_validates_selector(self) -> None:
@@ -225,7 +232,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Drop("script, ", callback=callback)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p>ok</p>"
+        assert doc.to_html(pretty=False) == "<p>ok</p>"
         assert dropped == ["script"]
 
     def test_hook_callback_property_exposes_configured_hook(self) -> None:
@@ -268,7 +275,7 @@ class TestTransforms(unittest.TestCase):
         )
         apply_compiled_transforms(root, compiled)
 
-        assert root.to_html(pretty=False, safe=False) == '<a rel="nofollow noopener"></a>'
+        assert root.to_html(pretty=False) == '<a rel="nofollow noopener"></a>'
         assert ("node", "#comment") in calls
         assert ("node", "!doctype") in calls
         assert ("node", "a") in calls
@@ -300,10 +307,7 @@ class TestTransforms(unittest.TestCase):
 
         assert "Collapsed whitespace in text node" in calls
         assert any(c.startswith("Linkified ") for c in calls)
-        assert (
-            root.to_html(pretty=False, safe=False)
-            == '<p>visit <a href="https://example.com">https://example.com</a> now</p>'
-        )
+        assert root.to_html(pretty=False) == '<p>visit <a href="https://example.com">https://example.com</a> now</p>'
 
     def test_setattrs_change_detection_controls_hooks(self) -> None:
         calls: list[str] = []
@@ -347,7 +351,7 @@ class TestTransforms(unittest.TestCase):
         root.append_child(tpl)
 
         apply_compiled_transforms(root, compile_transforms([Unwrap("template", callback=on_node, report=on_report)]))
-        assert root.to_html(pretty=False, safe=False) == "<b></b>"
+        assert root.to_html(pretty=False) == "<b></b>"
         assert "template" in called
         assert any("Unwrapped" in c for c in called)
 
@@ -382,7 +386,7 @@ class TestTransforms(unittest.TestCase):
 
         apply_compiled_transforms(root, compile_transforms([Decide("*", decide)]))
 
-        assert root.to_html(pretty=False, safe=False) == "&lt;x&gt;hi&lt;/x&gt;&lt;y/&gt;"
+        assert root.to_html(pretty=False) == "&lt;x&gt;hi&lt;/x&gt;&lt;y/&gt;"
 
     def test_unwrap_moves_template_text_children(self) -> None:
         root = SimpleDomNode("#document-fragment")
@@ -392,11 +396,11 @@ class TestTransforms(unittest.TestCase):
         root.append_child(tpl)
 
         apply_compiled_transforms(root, compile_transforms([Unwrap("template")]))
-        assert root.to_html(pretty=False, safe=False) == "x"
+        assert root.to_html(pretty=False) == "x"
 
     def test_unwrap_moves_template_element_children_from_parsed_html(self) -> None:
         doc = JustHTML("<template><b>x</b></template>", fragment=True, transforms=[Unwrap("template")])
-        assert doc.to_html(pretty=False, safe=False) == "<b>x</b>"
+        assert doc.to_html(pretty=False) == "<b>x</b>"
 
     def test_edit_editdocument_decide_editattrs_hooks_and_reports(self) -> None:
         calls: list[str] = []
@@ -583,7 +587,7 @@ class TestTransforms(unittest.TestCase):
         root.append_child(ElementNode("p", {"onclick": "x()"}, "html"))
 
         apply_compiled_transforms(root, compile_transforms([Sanitize(callback=on_node, report=on_report)]))
-        assert root.to_html(pretty=False, safe=False) == "<p></p>"
+        assert root.to_html(pretty=False) == "<p></p>"
         assert any(e.startswith("node:") for e in events)
         assert any("Unsafe tag" in e for e in events)
         assert any("Unsafe attribute" in e for e in events)
@@ -596,7 +600,7 @@ class TestTransforms(unittest.TestCase):
         root.append_child(tpl)
 
         apply_compiled_transforms(root, compile_transforms([Decide("template", lambda n: Decide.UNWRAP)]))
-        assert root.to_html(pretty=False, safe=False) == "<b></b>"
+        assert root.to_html(pretty=False) == "<b></b>"
 
     def test_decide_escape_hoists_template_content(self) -> None:
         root = SimpleDomNode("#document-fragment")
@@ -606,7 +610,7 @@ class TestTransforms(unittest.TestCase):
         root.append_child(tpl)
 
         apply_compiled_transforms(root, compile_transforms([Decide("template", lambda n: Decide.ESCAPE)]))
-        assert root.to_html(pretty=False, safe=False) == "&lt;template&gt;<b></b>"
+        assert root.to_html(pretty=False) == "&lt;template&gt;<b></b>"
 
     def test_empty_and_drop_selector_hooks(self) -> None:
         calls: list[str] = []
@@ -635,7 +639,7 @@ class TestTransforms(unittest.TestCase):
                 ]
             ),
         )
-        assert root.to_html(pretty=False, safe=False) == "<div></div><div></div>"
+        assert root.to_html(pretty=False) == "<div></div><div></div>"
         assert "div" in calls
         assert any("Emptied" in c for c in calls)
         assert any("Dropped" in c for c in calls)
@@ -868,7 +872,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[DropUrlAttrs("*", url_policy=policy.url_policy, enabled=False, report=policy.handle_unsafe)],
         )
-        assert doc.to_html(pretty=False, safe=False) == '<a href="javascript:alert(1)">x</a>'
+        assert doc.to_html(pretty=False) == '<a href="javascript:alert(1)">x</a>'
         assert policy.collected_security_errors() == []
 
     def test_allowstyleattrs_branches_raw_none_and_sanitized_none(self) -> None:
@@ -946,7 +950,7 @@ class TestTransforms(unittest.TestCase):
                 )
             ],
         )
-        assert doc.to_html(pretty=False, safe=False) == '<span style="position: fixed">x</span>'
+        assert doc.to_html(pretty=False) == '<span style="position: fixed">x</span>'
         assert policy.collected_security_errors() == []
 
     def test_mergeattrs_rewrites_on_add_missing_and_normalization(self) -> None:
@@ -956,7 +960,7 @@ class TestTransforms(unittest.TestCase):
             transforms=[MergeAttrs("a", attr="rel", tokens={"noopener"})],
         )
         assert (
-            doc.to_html(pretty=False, safe=False)
+            doc.to_html(pretty=False)
             == '<a rel="noopener"></a><a rel="noopener"></a><a rel="noreferrer noopener"></a><a rel="noopener"></a>'
         )
 
@@ -966,7 +970,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[MergeAttrs("a", attr="rel", tokens={"noopener"})],
         )
-        assert doc.to_html(pretty=False, safe=False) == '<div></div><a rel="noopener"></a>'
+        assert doc.to_html(pretty=False) == '<div></div><a rel="noopener"></a>'
 
     def test_mergeattrs_is_skipped_if_no_tokens(self) -> None:
         compiled = compile_transforms([MergeAttrs("a", attr="rel", tokens=set())])
@@ -991,7 +995,7 @@ class TestTransforms(unittest.TestCase):
                 Stage([SetAttrs("p", **{"class": "y"})]),
             ],
         )
-        html = doc.to_html(pretty=False, safe=False)
+        html = doc.to_html(pretty=False)
         assert 'id="x"' not in html
         assert 'class="y"' in html
 
@@ -1002,7 +1006,7 @@ class TestTransforms(unittest.TestCase):
 
     def test_selector_transforms_skip_comment_nodes(self) -> None:
         doc = JustHTML("<!--x--><p>y</p>", transforms=[SetAttrs("p", id="x")])
-        assert '<p id="x">y</p>' in doc.to_html(pretty=False, safe=False)
+        assert '<p id="x">y</p>' in doc.to_html(pretty=False)
 
     def test_decide_star_can_drop_comment_nodes(self) -> None:
         def decide(node: object) -> DecideAction:
@@ -1012,7 +1016,7 @@ class TestTransforms(unittest.TestCase):
             return Decide.KEEP
 
         doc = JustHTML("<!--x--><p>y</p>", fragment=True, transforms=[Decide("*", decide)])
-        assert doc.to_html(pretty=False, safe=False) == "<p>y</p>"
+        assert doc.to_html(pretty=False) == "<p>y</p>"
 
     def test_decide_selector_only_runs_on_elements(self) -> None:
         seen: list[str] = []
@@ -1025,7 +1029,7 @@ class TestTransforms(unittest.TestCase):
             return Decide.DROP
 
         doc = JustHTML("<!--x--><p>y</p>", fragment=True, transforms=[Decide("p", decide)])
-        assert doc.to_html(pretty=False, safe=False) == "<!--x-->"
+        assert doc.to_html(pretty=False) == "<!--x-->"
         assert seen == ["p"]
 
     def test_decide_empty_clears_template_content(self) -> None:
@@ -1035,7 +1039,7 @@ class TestTransforms(unittest.TestCase):
             return Decide.KEEP
 
         doc = JustHTML("<template><b>x</b></template>", fragment=True, transforms=[Decide("*", decide)])
-        assert doc.to_html(pretty=False, safe=False) == "<template></template>"
+        assert doc.to_html(pretty=False) == "<template></template>"
 
     def test_decide_empty_clears_element_children(self) -> None:
         doc = JustHTML(
@@ -1043,7 +1047,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Decide("div", lambda n: Decide.EMPTY)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<div></div>"
+        assert doc.to_html(pretty=False) == "<div></div>"
 
     def test_decide_unwrap_hoists_template_content(self) -> None:
         doc = JustHTML(
@@ -1051,7 +1055,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Decide("template", lambda n: Decide.UNWRAP)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<div><b>x</b>y</div>"
+        assert doc.to_html(pretty=False) == "<div><b>x</b>y</div>"
 
     def test_decide_unwrap_hoists_element_children(self) -> None:
         doc = JustHTML(
@@ -1059,7 +1063,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Decide("span", lambda n: Decide.UNWRAP)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<div><b>x</b>y</div>"
+        assert doc.to_html(pretty=False) == "<div><b>x</b>y</div>"
 
     def test_decide_unwrap_with_no_children_still_removes_node(self) -> None:
         doc = JustHTML(
@@ -1067,7 +1071,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Decide("span, template", lambda n: Decide.UNWRAP)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<div>ok</div><div>y</div>"
+        assert doc.to_html(pretty=False) == "<div>ok</div><div>y</div>"
 
     def test_rewriteattrs_can_replace_attribute_dict(self) -> None:
         def rewrite(node: SimpleDomNode) -> dict[str, str | None] | None:
@@ -1075,15 +1079,15 @@ class TestTransforms(unittest.TestCase):
             return {"href": node.attrs.get("href"), "data-ok": "1"}
 
         doc = JustHTML('<a href="x" onclick="y">t</a>', fragment=True, transforms=[EditAttrs("a", rewrite)])
-        assert doc.to_html(pretty=False, safe=False) == '<a href="x" data-ok="1">t</a>'
+        assert doc.to_html(pretty=False) == '<a href="x" data-ok="1">t</a>'
 
     def test_rewriteattrs_returning_none_noops(self) -> None:
         doc = JustHTML('<a href="x">t</a>', fragment=True, transforms=[EditAttrs("a", lambda n: None)])
-        assert doc.to_html(pretty=False, safe=False) == '<a href="x">t</a>'
+        assert doc.to_html(pretty=False) == '<a href="x">t</a>'
 
     def test_rewriteattrs_skips_non_matching_elements(self) -> None:
         doc = JustHTML("<p>t</p>", fragment=True, transforms=[EditAttrs("a", lambda n: {"x": "1"})])
-        assert doc.to_html(pretty=False, safe=False) == "<p>t</p>"
+        assert doc.to_html(pretty=False) == "<p>t</p>"
 
     def test_walk_transforms_traverse_nested_document_containers(self) -> None:
         root = SimpleDomNode("#document-fragment")
@@ -1092,17 +1096,17 @@ class TestTransforms(unittest.TestCase):
         root.append_child(nested)
 
         apply_compiled_transforms(root, compile_transforms([SetAttrs("p", id="x")]))
-        assert root.to_html(pretty=False, safe=False) == '<p id="x"></p>'
+        assert root.to_html(pretty=False) == '<p id="x"></p>'
 
     def test_apply_compiled_transforms_handles_empty_root(self) -> None:
         root = SimpleDomNode("div")
         apply_compiled_transforms(root, compile_transforms([SetAttrs("div", id="x")]))
-        assert root.to_html(pretty=False, safe=False) == "<div></div>"
+        assert root.to_html(pretty=False) == "<div></div>"
 
     def test_apply_compiled_transforms_noops_with_no_transforms(self) -> None:
         root = SimpleDomNode("div")
         apply_compiled_transforms(root, [])
-        assert root.to_html(pretty=False, safe=False) == "<div></div>"
+        assert root.to_html(pretty=False) == "<div></div>"
 
     def test_apply_compiled_transforms_supports_text_root(self) -> None:
         root = TextNode("example.com")
@@ -1120,7 +1124,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Sanitize(), SetAttrs("p", **{"class": "y"})],
         )
-        assert doc.to_html(pretty=False, safe=False) == '<p class="y">x</p>'
+        assert doc.to_html(pretty=False) == '<p class="y">x</p>'
 
     def test_sanitize_root_comment_and_doctype_keep(self) -> None:
         policy_keep = SanitizationPolicy(
@@ -1135,11 +1139,11 @@ class TestTransforms(unittest.TestCase):
 
         c = SimpleDomNode("#comment", data="x")
         apply_compiled_transforms(c, compiled)
-        assert c.to_html(pretty=False, safe=False) == "<!--x-->"
+        assert c.to_html(pretty=False) == "<!--x-->"
 
         d = SimpleDomNode("!doctype", data="html")
         apply_compiled_transforms(d, compiled)
-        assert d.to_html(pretty=False, safe=False) == "<!DOCTYPE html>"
+        assert d.to_html(pretty=False) == "<!DOCTYPE html>"
 
     def test_collapsewhitespace_collapses_text_nodes(self) -> None:
         doc = JustHTML(
@@ -1147,7 +1151,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[CollapseWhitespace()],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p>Hello world</p><p>a b</p>"
+        assert doc.to_html(pretty=False) == "<p>Hello world</p><p>a b</p>"
 
     def test_collapsewhitespace_skips_pre_by_default(self) -> None:
         doc = JustHTML(
@@ -1155,7 +1159,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[CollapseWhitespace()],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<pre>a  b</pre><p>a b</p>"
+        assert doc.to_html(pretty=False) == "<pre>a  b</pre><p>a b</p>"
 
     def test_collapsewhitespace_noops_when_no_collapse_needed(self) -> None:
         doc = JustHTML(
@@ -1163,7 +1167,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[CollapseWhitespace()],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p>Hello world</p>"
+        assert doc.to_html(pretty=False) == "<p>Hello world</p>"
 
     def test_collapsewhitespace_can_skip_custom_tags(self) -> None:
         doc = JustHTML(
@@ -1171,20 +1175,20 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[CollapseWhitespace(skip_tags=("p",))],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p>a  b</p>"
+        assert doc.to_html(pretty=False) == "<p>a  b</p>"
 
     def test_collapsewhitespace_ignores_empty_text_nodes(self) -> None:
         root = SimpleDomNode("div")
         root.append_child(TextNode(""))
         apply_compiled_transforms(root, compile_transforms([CollapseWhitespace()]))
-        assert root.to_html(pretty=False, safe=False) == "<div></div>"
+        assert root.to_html(pretty=False) == "<div></div>"
 
     def test_to_html_still_sanitizes_by_default_after_transforms_and_mutation(self) -> None:
-        doc = JustHTML("<p>ok</p>")
+        doc = _JustHTML("<p>ok</p>")
         # Mutate the tree after parse.
         doc.root.append_child(SimpleDomNode("script"))
-        # Safe-by-default output should strip it.
-        assert doc.to_html(pretty=False) == "<html><head></head><body><p>ok</p></body></html>"
+        # Sanitization happens at construction time; later mutations are not re-sanitized.
+        assert "<script" in doc.to_html(pretty=False)
 
     def test_pruneempty_drops_empty_elements(self) -> None:
         doc = JustHTML(
@@ -1192,7 +1196,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[PruneEmpty("p")],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p><img></p>"
+        assert doc.to_html(pretty=False) == "<p><img></p>"
 
     def test_pruneempty_is_recursive_post_order(self) -> None:
         doc = JustHTML(
@@ -1200,7 +1204,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[PruneEmpty("p, div")],
         )
-        assert doc.to_html(pretty=False, safe=False) == ""
+        assert doc.to_html(pretty=False) == ""
 
     def test_pruneempty_drops_nested_empty_elements(self) -> None:
         doc = JustHTML(
@@ -1208,7 +1212,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[PruneEmpty("span")],
         )
-        assert doc.to_html(pretty=False, safe=False) == ""
+        assert doc.to_html(pretty=False) == ""
 
     def test_pruneempty_supports_consecutive_prune_transforms(self) -> None:
         doc = JustHTML(
@@ -1216,7 +1220,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[PruneEmpty("p"), PruneEmpty("div")],
         )
-        assert doc.to_html(pretty=False, safe=False) == ""
+        assert doc.to_html(pretty=False) == ""
 
     def test_pruneempty_can_run_before_other_transforms(self) -> None:
         # If pruning runs before later transforms, it only prunes emptiness at
@@ -1226,7 +1230,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[PruneEmpty("p"), Drop("img")],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p></p>"
+        assert doc.to_html(pretty=False) == "<p></p>"
 
     def test_pruneempty_ignores_comments_when_determining_emptiness(self) -> None:
         doc = JustHTML(
@@ -1234,7 +1238,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[PruneEmpty("p")],
         )
-        assert doc.to_html(pretty=False, safe=False) == ""
+        assert doc.to_html(pretty=False) == ""
 
     def test_pruneempty_can_preserve_whitespace_only_text(self) -> None:
         doc = JustHTML(
@@ -1242,7 +1246,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[PruneEmpty("p", strip_whitespace=False)],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p>   </p>"
+        assert doc.to_html(pretty=False) == "<p>   </p>"
 
     def test_pruneempty_does_not_prune_void_elements(self) -> None:
         doc = JustHTML(
@@ -1250,7 +1254,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[PruneEmpty("*")],
         )
-        assert doc.to_html(pretty=False, safe=False) == (
+        assert doc.to_html(pretty=False) == (
             '<img src="/static/images/icons/wikipedia.png" alt height="50" width="50">'
         )
 
@@ -1261,7 +1265,7 @@ class TestTransforms(unittest.TestCase):
         root.append_child(p)
 
         apply_compiled_transforms(root, compile_transforms([PruneEmpty("p", strip_whitespace=False)]))
-        assert root.to_html(pretty=False, safe=False) == "<div></div>"
+        assert root.to_html(pretty=False) == "<div></div>"
 
     def test_pruneempty_considers_template_content(self) -> None:
         doc = JustHTML(
@@ -1269,7 +1273,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[PruneEmpty("p, template")],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<template>ok</template>"
+        assert doc.to_html(pretty=False) == "<template>ok</template>"
 
     def test_transform_order_is_respected_for_linkify_and_drop(self) -> None:
         # Drop runs before Linkify: it should not remove links created later.
@@ -1278,7 +1282,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Drop("a"), Linkify()],
         )
-        assert doc_keep.to_html(pretty=False, safe=False) == '<p><a href="http://example.com">example.com</a></p>'
+        assert doc_keep.to_html(pretty=False) == '<p><a href="http://example.com">example.com</a></p>'
 
         # Drop runs after Linkify: it should remove the linkified <a>.
         doc_drop = JustHTML(
@@ -1286,7 +1290,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Linkify(), Drop("a")],
         )
-        assert doc_drop.to_html(pretty=False, safe=False) == "<p></p>"
+        assert doc_drop.to_html(pretty=False) == "<p></p>"
 
     def test_stage_auto_grouping_does_not_change_ordering(self) -> None:
         # Stage boundaries split passes, but ordering semantics are preserved.
@@ -1295,7 +1299,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Drop("a"), Stage([Linkify()])],
         )
-        assert doc_stage.to_html(pretty=False, safe=False) == '<p><a href="http://example.com">example.com</a></p>'
+        assert doc_stage.to_html(pretty=False) == '<p><a href="http://example.com">example.com</a></p>'
 
     def test_stage_can_be_nested_and_is_flattened(self) -> None:
         doc = JustHTML(
@@ -1303,7 +1307,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Stage([Stage([Linkify()])])],
         )
-        assert doc.to_html(pretty=False, safe=False) == '<p><a href="http://example.com">example.com</a></p>'
+        assert doc.to_html(pretty=False) == '<p><a href="http://example.com">example.com</a></p>'
 
     def test_stage_auto_grouping_includes_trailing_transforms(self) -> None:
         # When a Stage exists at the top level, transforms outside stages are
@@ -1313,7 +1317,7 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Stage([SetAttrs("p", id="x")]), SetAttrs("p", **{"class": "y"})],
         )
-        html = doc.to_html(pretty=False, safe=False)
+        html = doc.to_html(pretty=False)
         assert "<p" in html
         assert 'id="x"' in html
         assert 'class="y"' in html
@@ -1325,4 +1329,4 @@ class TestTransforms(unittest.TestCase):
             fragment=True,
             transforms=[Linkify()],
         )
-        assert doc.to_html(pretty=False, safe=False) == "<p>Hello world</p>"
+        assert doc.to_html(pretty=False) == "<p>Hello world</p>"

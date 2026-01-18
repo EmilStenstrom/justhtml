@@ -11,8 +11,6 @@ from .transforms import apply_compiled_transforms, compile_transforms
 from .treebuilder import TreeBuilder
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from .node import SimpleDomNode
     from .sanitize import SanitizationPolicy
     from .tokens import ParseError
@@ -57,6 +55,8 @@ class JustHTML:
         self,
         html: str | bytes | bytearray | memoryview | None,
         *,
+        safe: bool = True,
+        policy: SanitizationPolicy | None = None,
         collect_errors: bool = False,
         track_node_locations: bool = False,
         debug: bool = False,
@@ -76,21 +76,24 @@ class JustHTML:
             fragment_context = FragmentContext("div")
 
         track_tag_spans = False
+        has_sanitize_transform = False
         if transforms:
             from .sanitize import DEFAULT_POLICY  # noqa: PLC0415
             from .transforms import Sanitize  # noqa: PLC0415
 
             for t in transforms:
                 if isinstance(t, Sanitize):
-                    policy = t.policy or DEFAULT_POLICY
-                    if policy.disallowed_tag_handling == "escape":
+                    has_sanitize_transform = True
+                    effective = t.policy or DEFAULT_POLICY
+                    if effective.disallowed_tag_handling == "escape":
                         track_tag_spans = True
                         break
 
-        # Compile transforms early so invalid selectors fail fast.
-        compiled_transforms = None
-        if transforms:
-            compiled_transforms = compile_transforms(tuple(transforms))
+        # If we will auto-sanitize (safe=True and no Sanitize in transforms),
+        # escape-mode tag reconstruction may require tracking tag spans.
+        if safe and not has_sanitize_transform and policy is not None:
+            if policy.disallowed_tag_handling == "escape":
+                track_tag_spans = True
 
         self.debug = bool(debug)
         self.fragment_context = fragment_context
@@ -142,8 +145,50 @@ class JustHTML:
 
         transform_errors: list[ParseError] = []
 
-        if compiled_transforms is not None:
-            apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
+        # Apply transforms after parse.
+        # Safety model: when safe=True, the in-memory tree is sanitized exactly once
+        # during construction by ensuring a Sanitize transform runs.
+        if transforms or safe:
+            from .sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
+            from .transforms import Sanitize  # noqa: PLC0415
+
+            final_transforms: list[TransformSpec] = list(transforms or [])
+
+            # Normalize explicit Sanitize() transforms to use the same default policy
+            # choice as the old safe-output sanitizer (document vs fragment).
+            if final_transforms:
+                default_mode_policy = DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY
+                for i, t in enumerate(final_transforms):
+                    if isinstance(t, Sanitize) and t.policy is None:
+                        final_transforms[i] = Sanitize(
+                            policy=default_mode_policy, enabled=t.enabled, callback=t.callback, report=t.report
+                        )
+
+            # Auto-append a final Sanitize step only if the user didn't include
+            # Sanitize anywhere in their transform list.
+            if safe and not any(isinstance(t, Sanitize) for t in final_transforms):
+                effective_policy = (
+                    policy
+                    if policy is not None
+                    else (DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY)
+                )
+                # Avoid stale collected errors on reused policy objects.
+                if effective_policy.unsafe_handling == "collect":
+                    effective_policy.reset_collected_security_errors()
+                final_transforms.append(Sanitize(policy=effective_policy))
+
+            if final_transforms:
+                compiled_transforms = compile_transforms(tuple(final_transforms))
+                apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
+
+                # Merge collected security errors into the document error list.
+                # This mirrors the old behavior where safe output could feed
+                # security findings into doc.errors.
+                for t in final_transforms:
+                    if isinstance(t, Sanitize):
+                        t_policy = t.policy
+                        if t_policy is not None and t_policy.unsafe_handling == "collect":
+                            transform_errors.extend(t_policy.collected_security_errors())
 
         if should_collect:
             # Merge errors from both tokenizer and tree builder.
@@ -176,107 +221,29 @@ class JustHTML:
             )
         ]
 
-    def _with_security_error_collection(
-        self,
-        policy: SanitizationPolicy | None,
-        serialize: Callable[[], str],
-    ) -> str:
-        if policy is not None and policy.unsafe_handling == "collect":
-            handler = policy._unsafe_handler
-            prev_sink = handler.sink
-            handler.sink = self.errors
-            try:
-                policy.reset_collected_security_errors()
-                out = serialize()
-            finally:
-                handler.sink = prev_sink
-
-            if self.errors:
-                self.errors.sort(
-                    key=lambda e: (
-                        e.line if e.line is not None else 1_000_000_000,
-                        e.column if e.column is not None else 1_000_000_000,
-                    )
-                )
-            return out
-
-        # Avoid stale security errors if a previous serialization used collect.
-        if self.errors:
-            write_i = 0
-            for e in self.errors:
-                if e.category == "security":
-                    continue
-                self.errors[write_i] = e
-                write_i += 1
-            del self.errors[write_i:]
-        return serialize()
-
     def to_html(
         self,
         pretty: bool = True,
         indent_size: int = 2,
-        *,
-        safe: bool = True,
-        policy: SanitizationPolicy | None = None,
     ) -> str:
         """Serialize the document to HTML.
 
-        - `safe=True` sanitizes untrusted content before serialization.
-        - `policy` overrides the default sanitization policy.
+        Sanitization (when enabled) happens during construction.
         """
-        if not safe:
-            return self.root.to_html(
-                indent=0,
-                indent_size=indent_size,
-                pretty=pretty,
-                safe=False,
-                policy=policy,
-            )
-
-        return self._with_security_error_collection(
-            policy,
-            lambda: self.root.to_html(
-                indent=0,
-                indent_size=indent_size,
-                pretty=pretty,
-                safe=True,
-                policy=policy,
-            ),
+        return self.root.to_html(
+            indent=0,
+            indent_size=indent_size,
+            pretty=pretty,
         )
 
     def to_text(
         self,
         separator: str = " ",
         strip: bool = True,
-        *,
-        safe: bool = True,
-        policy: SanitizationPolicy | None = None,
     ) -> str:
-        """Return the document's concatenated text.
+        """Return the document's concatenated text."""
+        return self.root.to_text(separator=separator, strip=strip)
 
-        - `safe=True` sanitizes untrusted content before text extraction.
-        - `policy` overrides the default sanitization policy.
-
-        Delegates to `root.to_text(...)`.
-        """
-        if not safe:
-            return self.root.to_text(separator=separator, strip=strip, safe=False, policy=policy)
-
-        return self._with_security_error_collection(
-            policy,
-            lambda: self.root.to_text(separator=separator, strip=strip, safe=True, policy=policy),
-        )
-
-    def to_markdown(self, *, safe: bool = True, policy: SanitizationPolicy | None = None) -> str:
-        """Return a GitHub Flavored Markdown representation.
-
-        - `safe=True` sanitizes untrusted content before conversion.
-        - `policy` overrides the default sanitization policy.
-        """
-        if not safe:
-            return self.root.to_markdown(safe=False, policy=policy)
-
-        return self._with_security_error_collection(
-            policy,
-            lambda: self.root.to_markdown(safe=True, policy=policy),
-        )
+    def to_markdown(self) -> str:
+        """Return a GitHub Flavored Markdown representation."""
+        return self.root.to_markdown()

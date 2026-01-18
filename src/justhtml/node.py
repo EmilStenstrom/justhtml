@@ -3,12 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
-from .sanitize import _sanitize
 from .selector import query
 from .serialize import to_html
 
 if TYPE_CHECKING:
-    from .sanitize import SanitizationPolicy
     from .tokens import Doctype
 
 
@@ -274,12 +272,9 @@ class SimpleDomNode:
         indent: int = 0,
         indent_size: int = 2,
         pretty: bool = True,
-        *,
-        safe: bool = True,
-        policy: SanitizationPolicy | None = None,
     ) -> str:
         """Convert node to HTML string."""
-        return to_html(self, indent, indent_size, pretty=pretty, safe=safe, policy=policy)
+        return to_html(self, indent, indent_size, pretty=pretty)
 
     def query(self, selector: str) -> list[Any]:
         """
@@ -315,39 +310,27 @@ class SimpleDomNode:
         self,
         separator: str = " ",
         strip: bool = True,
-        *,
-        safe: bool = True,
-        policy: SanitizationPolicy | None = None,
     ) -> str:
         """Return the concatenated text of this node's descendants.
 
         - `separator` controls how text nodes are joined (default: a single space).
         - `strip=True` strips each text node and drops empty segments.
-        - `safe=True` sanitizes untrusted HTML before extracting text.
-        - `policy` overrides the default sanitization policy.
-
         Template element contents are included via `template_content`.
         """
-        node: Any = _sanitize(self, policy=policy) if safe else self
+        node: Any = self
         parts: list[str] = []
         _to_text_collect(node, parts, strip=strip)
         if not parts:
             return ""
         return separator.join(parts)
 
-    def to_markdown(self, *, safe: bool = True, policy: SanitizationPolicy | None = None) -> str:
+    def to_markdown(self) -> str:
         """Return a GitHub Flavored Markdown representation of this subtree.
 
         This is a pragmatic HTML->Markdown converter intended for readability.
         - Tables and images are preserved as raw HTML.
         - Unknown elements fall back to rendering their children.
         """
-        if safe:
-            node = _sanitize(self, policy=policy)
-            builder = _MarkdownBuilder()
-            _to_markdown_walk(node, builder, preserve_whitespace=False, list_depth=0)
-            return builder.finish()
-
         builder = _MarkdownBuilder()
         _to_markdown_walk(self, builder, preserve_whitespace=False, list_depth=0)
         return builder.finish()
@@ -585,15 +568,8 @@ class TextNode:
         self,
         separator: str = " ",
         strip: bool = True,
-        *,
-        safe: bool = True,
-        policy: SanitizationPolicy | None = None,
     ) -> str:
-        # Parameters are accepted for API consistency; they don't affect leaf nodes.
         _ = separator
-        _ = safe
-        _ = policy
-
         if self.data is None:
             return ""
         if strip:

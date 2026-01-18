@@ -2,7 +2,8 @@
 
 import unittest
 
-from justhtml import JustHTML, SelectorError, matches, query
+from justhtml import JustHTML as _JustHTML
+from justhtml import SelectorError, matches, query
 from justhtml.selector import (
     ComplexSelector,
     CompoundSelector,
@@ -18,6 +19,12 @@ from justhtml.selector import (
     _query_descendants_tag,
     parse_selector,
 )
+
+
+def JustHTML(*args, **kwargs):  # noqa: N802
+    if "safe" not in kwargs:
+        kwargs["safe"] = False
+    return _JustHTML(*args, **kwargs)
 
 
 class SelectorTestCase(unittest.TestCase):

@@ -1465,11 +1465,15 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 changed = False
                 out: dict[str, str | None] = {}
                 for raw_key, value in attrs.items():
-                    if not raw_key or not str(raw_key).strip():
+                    raw_key_str = str(raw_key)
+                    if not raw_key_str.strip():
+                        # Drop invalid attribute names like '' or whitespace-only.
+                        changed = True
                         continue
-                    key = raw_key
+                    key = raw_key_str
                     if not key.islower():
                         key = key.lower()
+                        changed = True
                     if key in allowed:
                         out[key] = value
                     else:
@@ -1705,8 +1709,18 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 node: object,
                 policy: SanitizationPolicy = policy,
                 on_disallowed: Callable[[SimpleDomNode], None] = _on_disallowed_tag,
+                on_drop_content: Callable[[SimpleDomNode], None] = _on_drop_content,
             ) -> DecideAction:
-                on_disallowed(cast("SimpleDomNode", node))
+                dom_node = cast("SimpleDomNode", node)
+                tag = str(dom_node.name).lower()
+
+                # Drop dangerous container content even if the node is reached
+                # after earlier transforms were skipped due to unwrapping.
+                if tag in policy.drop_content_tags:
+                    on_drop_content(dom_node)
+                    return DecideAction.DROP
+
+                on_disallowed(dom_node)
                 handling = policy.disallowed_tag_handling
                 if handling == "drop":
                     return DecideAction.DROP

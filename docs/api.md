@@ -100,11 +100,14 @@ Represents an element, text, comment, or document node.
 Serialize the node to HTML string.
 
 ```python
-node.to_html()                 # Pretty-printed + sanitized (default)
-node.to_html(indent=0)         # Compact + sanitized
-node.to_html(indent=4)         # 4-space indent + sanitized
-node.to_html(safe=False)       # Raw output (trusted input only)
-node.to_html(policy=...)       # Use a custom SanitizationPolicy
+node.to_html()                 # Pretty-printed HTML
+node.to_html(indent=0)         # Compact HTML
+node.to_html(indent=4)         # 4-space indent
+
+# Safety happens at construction time:
+# - default: JustHTML(..., safe=True)
+# - raw/trusted: JustHTML(..., safe=False)
+# - custom policy: JustHTML(..., policy=policy)
 ```
 
 #### `query(selector)`
@@ -123,7 +126,7 @@ Return the node's concatenated text.
 node.to_text()
 ```
 
-Like `to_html()` and `to_markdown()`, text extraction is sanitized by default. Use `safe=False` to disable sanitization for trusted input.
+Text extraction is safe-by-default when you build documents with `JustHTML(..., safe=True)` (the default). Use `safe=False` at construction for trusted input.
 
 #### `to_markdown()`
 
@@ -133,7 +136,7 @@ Return a pragmatic subset of GitHub Flavored Markdown (GFM) for this subtree.
 node.to_markdown()
 ```
 
-Like `to_html()`, Markdown output is sanitized by default. Use `safe=False` to disable.
+Markdown output is safe-by-default when you build documents with `JustHTML(..., safe=True)` (the default). Use `safe=False` at construction for trusted input.
 
 ---
 

@@ -40,7 +40,7 @@ policy = SanitizationPolicy(
 print(JustHTML("""
     <img src="https://example.com">
     <img src="https://attacker.com">
-""", fragment=True).to_html(policy=policy))
+""", fragment=True, policy=policy).to_html())
 ```
 
 Output:
@@ -72,7 +72,7 @@ print(JustHTML("""
     <img src="https://example.com">
     <img src="http://example.com">
     <img src="https://attacker.com">
-""", fragment=True).to_html(policy=policy))
+""", fragment=True, policy=policy).to_html())
 ```
 
 Output:
@@ -146,8 +146,8 @@ policy = SanitizationPolicy(
     ),
 )
 
-print(JustHTML('<img src="https://example.com/x">', fragment=True).to_html(policy=policy))
-print(JustHTML('<img src="/x">', fragment=True).to_html(policy=policy))
+print(JustHTML('<img src="https://example.com/x">', fragment=True, policy=policy).to_html())
+print(JustHTML('<img src="/x">', fragment=True, policy=policy).to_html())
 ```
 
 Output:
@@ -176,8 +176,8 @@ policy = SanitizationPolicy(
     ),
 )
 
-print(JustHTML('<img src="https://example.com/x">', fragment=True).to_html(policy=policy))
-print(JustHTML('<img src="/x">', fragment=True).to_html(policy=policy))
+print(JustHTML('<img src="https://example.com/x">', fragment=True, policy=policy).to_html())
+print(JustHTML('<img src="/x">', fragment=True, policy=policy).to_html())
 ```
 
 Output:
@@ -206,7 +206,7 @@ policy = SanitizationPolicy(
     ),
 )
 
-print(JustHTML('<a href="https://example.com/?a=1&b=2">link</a>').to_html(policy=policy))
+print(JustHTML('<a href="https://example.com/?a=1&b=2">link</a>', policy=policy).to_html())
 ```
 
 Output:
@@ -240,7 +240,7 @@ policy = SanitizationPolicy(
     ),
 )
 
-print(JustHTML('<a href="https://example.com/?a=1&b=2">link</a>').to_html(policy=policy))
+print(JustHTML('<a href="https://example.com/?a=1&b=2">link</a>', policy=policy).to_html())
 ```
 
 Output:
@@ -315,7 +315,7 @@ policy = SanitizationPolicy(
 )
 
 html = '<a href="https://example.com/">ok</a>\n<a href="https://attacker.com/">bad</a>'
-print(JustHTML(html, fragment=True).to_html(policy=policy))
+print(JustHTML(html, fragment=True, policy=policy).to_html())
 ```
 
 Output:

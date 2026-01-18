@@ -17,8 +17,6 @@ from justhtml.sanitize import (
     _is_valid_css_property_name,
     _sanitize_inline_style,
     _sanitize_url_value,
-    _srcset_contains_external_url,
-    _url_is_external,
 )
 from justhtml.sanitize import (
     _sanitize as sanitize,
@@ -142,7 +140,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         )
 
         html = '<div style="color: red; position: fixed; top: 0">x</div>'
-        out = JustHTML(html, fragment=True).to_html(policy=policy)
+        out = JustHTML(html, fragment=True, policy=policy).to_html()
         assert out == '<div style="color: red">x</div>'
 
     def test_style_attribute_is_dropped_when_nothing_survives(self) -> None:
@@ -154,7 +152,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         )
 
         html = '<div style="position: fixed">x</div>'
-        out = JustHTML(html, fragment=True).to_html(policy=policy)
+        out = JustHTML(html, fragment=True, policy=policy).to_html()
         assert out == "<div>x</div>"
 
     def test_css_value_may_load_external_resource(self) -> None:
@@ -193,7 +191,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             allowed_attributes={"*": [], "img": ["src"]},
             url_policy=UrlPolicy(allow_rules={}),
         )
-        out = JustHTML('<img src="/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="/x">', fragment=True, policy=policy).to_html()
         assert out == "<img>"
 
     def test_url_policy_remote_strip_blocks_remote_but_keeps_relative(self) -> None:
@@ -207,10 +205,10 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img src="https://example.com/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="https://example.com/x">', fragment=True, policy=policy).to_html()
         assert out == '<img src="https://example.com/x">'
 
-        out = JustHTML('<img src="/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="/x">', fragment=True, policy=policy).to_html()
         assert out == '<img src="/x">'
 
     def test_url_rule_handling_strip_drops_absolute_url(self) -> None:
@@ -227,7 +225,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img src="https://example.com/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="https://example.com/x">', fragment=True, policy=policy).to_html()
         assert out == "<img>"
 
     def test_url_rule_handling_strip_drops_relative_url(self) -> None:
@@ -246,7 +244,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img src="/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="/x">', fragment=True, policy=policy).to_html()
         assert out == "<img>"
 
     def test_url_rule_relative_only_blocks_remote_but_keeps_relative(self) -> None:
@@ -265,10 +263,10 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img src="https://example.com/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="https://example.com/x">', fragment=True, policy=policy).to_html()
         assert out == "<img>"
 
-        out = JustHTML('<img src="/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="/x">', fragment=True, policy=policy).to_html()
         assert out == '<img src="/x">'
 
     def test_url_rule_can_override_global_strip(self) -> None:
@@ -287,10 +285,10 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img src="/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="/x">', fragment=True, policy=policy).to_html()
         assert out == '<img src="/x">'
 
-        out = JustHTML('<img src="https://example.com/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="https://example.com/x">', fragment=True, policy=policy).to_html()
         assert out == "<img>"
 
     def test_url_policy_remote_strip_blocks_protocol_relative(self) -> None:
@@ -309,7 +307,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img src="//example.com/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="//example.com/x">', fragment=True, policy=policy).to_html()
         assert out == "<img>"
 
     def test_url_policy_remote_proxy_rewrites_protocol_relative(self) -> None:
@@ -329,7 +327,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img src="//example.com/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="//example.com/x">', fragment=True, policy=policy).to_html()
         assert out == '<img src="/proxy?url=https%3A%2F%2Fexample.com%2Fx">'
 
     def test_url_policy_remote_proxy_global_and_img_override(self) -> None:
@@ -350,10 +348,10 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<a href="https://example.com/x">x</a>', fragment=True).to_html(policy=policy)
+        out = JustHTML('<a href="https://example.com/x">x</a>', fragment=True, policy=policy).to_html()
         assert out == '<a href="/proxy?url=https%3A%2F%2Fexample.com%2Fx">x</a>'
 
-        out = JustHTML('<img src="https://example.com/x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img src="https://example.com/x">', fragment=True, policy=policy).to_html()
         assert out == '<img src="/image-proxy?url=https%3A%2F%2Fexample.com%2Fx">'
 
     def test_url_policy_proxy_does_not_bypass_scheme_checks(self) -> None:
@@ -372,7 +370,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<a href="https://example.com/x">x</a>', fragment=True).to_html(policy=policy)
+        out = JustHTML('<a href="https://example.com/x">x</a>', fragment=True, policy=policy).to_html()
         assert out == "<a>x</a>"
 
     def test_url_policy_proxy_rewrites_fragment_urls(self) -> None:
@@ -391,7 +389,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<a href="#x">x</a>', fragment=True).to_html(policy=policy)
+        out = JustHTML('<a href="#x">x</a>', fragment=True, policy=policy).to_html()
         assert out == '<a href="/proxy?url=%23x">x</a>'
 
     def test_url_policy_strip_drops_fragment_urls(self) -> None:
@@ -410,20 +408,8 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<a href="#x">x</a>', fragment=True).to_html(policy=policy)
+        out = JustHTML('<a href="#x">x</a>', fragment=True, policy=policy).to_html()
         assert out == "<a>x</a>"
-
-    def test_url_is_external_helper(self) -> None:
-        assert _url_is_external("") is False
-        assert _url_is_external("#x") is False
-        assert _url_is_external("/x") is False
-        assert _url_is_external("//example.com/x") is True
-        assert _url_is_external("https://example.com/x") is True
-
-    def test_srcset_external_scanner_helper(self) -> None:
-        assert _srcset_contains_external_url("/a 1x, /b 2x") is False
-        assert _srcset_contains_external_url("\t ,  \n") is False
-        assert _srcset_contains_external_url("https://example.com/a 1x, /b 2x") is True
 
     def test_url_policy_proxy_rewrites_remote_srcset_candidates(self) -> None:
         policy = SanitizationPolicy(
@@ -436,7 +422,11 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img srcset="https://example.com/a 1x, /b 2x">', fragment=True).to_html(policy=policy)
+        out = JustHTML(
+            '<img srcset="https://example.com/a 1x, /b 2x">',
+            fragment=True,
+            policy=policy,
+        ).to_html()
         assert out == '<img srcset="/proxy?url=https%3A%2F%2Fexample.com%2Fa 1x, /proxy?url=%2Fb 2x">'
 
     def test_srcset_is_dropped_if_url_filter_drops_value(self) -> None:
@@ -457,7 +447,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img srcset="https://example.com/a 1x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img srcset="https://example.com/a 1x">', fragment=True, policy=policy).to_html()
         assert out == "<img>"
 
     def test_srcset_is_dropped_if_empty(self) -> None:
@@ -470,7 +460,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img srcset="  \t\n  ">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img srcset="  \t\n  ">', fragment=True, policy=policy).to_html()
         assert out == "<img>"
 
     def test_srcset_url_filter_can_rewrite_value(self) -> None:
@@ -491,7 +481,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img srcset="ignored">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img srcset="ignored">', fragment=True, policy=policy).to_html()
         assert out == '<img srcset="https://example.com/a 1x">'
 
     def test_srcset_skips_empty_candidates(self) -> None:
@@ -505,7 +495,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img srcset=", https://example.com/a 1x">', fragment=True).to_html(policy=policy)
+        out = JustHTML('<img srcset=", https://example.com/a 1x">', fragment=True, policy=policy).to_html()
         assert out == '<img srcset="/proxy?url=https%3A%2F%2Fexample.com%2Fa 1x">'
 
     def test_srcset_is_dropped_if_any_candidate_is_invalid(self) -> None:
@@ -519,9 +509,11 @@ class TestSanitizePlumbing(unittest.TestCase):
             ),
         )
 
-        out = JustHTML('<img srcset="http://example.com/a 1x, https://example.com/b 2x">', fragment=True).to_html(
-            policy=policy
-        )
+        out = JustHTML(
+            '<img srcset="http://example.com/a 1x, https://example.com/b 2x">',
+            fragment=True,
+            policy=policy,
+        ).to_html()
         assert out == "<img>"
 
     def test_policy_accepts_pre_normalized_sets(self) -> None:
@@ -561,7 +553,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         root.append_child(nested)
 
         out = sanitize(root, policy=policy)
-        assert to_html(out, pretty=False, safe=False) == "t"
+        assert to_html(out, pretty=False) == "t"
 
     def test_sanitize_template_subtree_without_template_content_branch(self) -> None:
         policy = SanitizationPolicy(
@@ -572,7 +564,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         root = SimpleDomNode("#document-fragment")
         root.append_child(TemplateNode("template", namespace=None))
         out = sanitize(root, policy=policy)
-        assert to_html(out, pretty=False, safe=False) == "<template></template>"
+        assert to_html(out, pretty=False) == "<template></template>"
 
     def test_sanitize_attribute_edge_cases_do_not_crash(self) -> None:
         policy = SanitizationPolicy(
@@ -582,7 +574,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         )
         n = SimpleDomNode("div", attrs={"": "x", "   ": "y", "id": None, "disabled": None})
         out = sanitize(n, policy=policy)
-        html = to_html(out, pretty=False, safe=False)
+        html = to_html(out, pretty=False)
         assert html in {"<div disabled id></div>", "<div id disabled></div>"}
 
     def test_sanitize_drops_disallowed_attribute_and_reports(self) -> None:
@@ -596,7 +588,7 @@ class TestSanitizePlumbing(unittest.TestCase):
 
         n = SimpleDomNode("p", attrs={"foo": "1"})
         out = sanitize(n, policy=policy)
-        assert to_html(out, pretty=False, safe=False) == "<p></p>"
+        assert to_html(out, pretty=False) == "<p></p>"
         assert len(policy.collected_security_errors()) == 1
 
     def test_sanitize_drops_style_attribute_with_no_value(self) -> None:
@@ -611,7 +603,7 @@ class TestSanitizePlumbing(unittest.TestCase):
 
         n = SimpleDomNode("span", attrs={"style": None})
         out = sanitize(n, policy=policy)
-        assert to_html(out, pretty=False, safe=False) == "<span></span>"
+        assert to_html(out, pretty=False) == "<span></span>"
         assert len(policy.collected_security_errors()) == 1
 
     def test_sanitize_force_link_rel_inserts_rel_when_missing(self) -> None:
@@ -631,7 +623,7 @@ class TestSanitizePlumbing(unittest.TestCase):
 
         n = SimpleDomNode("a", attrs={"href": "https://example.com"})
         out = sanitize(n, policy=policy)
-        html = to_html(out, pretty=False, safe=False)
+        html = to_html(out, pretty=False)
         assert 'rel="noopener"' in html
         assert len(policy.collected_security_errors()) == 0
 
@@ -651,7 +643,7 @@ class TestSanitizePlumbing(unittest.TestCase):
 
         n = SimpleDomNode("a", attrs={"href": None})
         out = sanitize(n, policy=policy)
-        assert to_html(out, pretty=False, safe=False) == "<a></a>"
+        assert to_html(out, pretty=False) == "<a></a>"
         assert len(policy.collected_security_errors()) == 1
 
     def test_sanitize_force_link_rel_does_not_rewrite_when_already_normalized(self) -> None:
@@ -671,7 +663,7 @@ class TestSanitizePlumbing(unittest.TestCase):
 
         n = SimpleDomNode("a", attrs={"href": "https://example.com", "rel": "noopener"})
         out = sanitize(n, policy=policy)
-        html = to_html(out, pretty=False, safe=False)
+        html = to_html(out, pretty=False)
         assert 'rel="noopener"' in html
         assert len(policy.collected_security_errors()) == 0
 
@@ -680,12 +672,12 @@ class TestSanitizePlumbing(unittest.TestCase):
         # ensure sanitize() is robust to unexpected input.
         n = SimpleDomNode("a", attrs={"HREF": "https://example.com"})
         out = sanitize(n)
-        html = to_html(out, pretty=False, safe=False)
+        html = to_html(out, pretty=False)
         assert 'href="https://example.com"' in html
 
     def test_sanitize_text_root_is_cloned(self) -> None:
         out = sanitize(TextNode("x"))
-        assert to_html(out, pretty=False, safe=False) == "x"
+        assert to_html(out, pretty=False) == "x"
 
     def test_sanitize_root_comment_and_doctype_nodes_do_not_crash(self) -> None:
         # Another plumbing-only test: root comment/doctype nodes aren't typical
@@ -701,17 +693,17 @@ class TestSanitizePlumbing(unittest.TestCase):
         c = SimpleDomNode("#comment", data="x")
         d = SimpleDomNode("!doctype", data="html")
 
-        assert to_html(sanitize(c, policy=policy_keep), pretty=False, safe=False) == "<!--x-->"
-        assert to_html(sanitize(d, policy=policy_keep), pretty=False, safe=False) == "<!DOCTYPE html>"
+        assert to_html(sanitize(c, policy=policy_keep), pretty=False) == "<!--x-->"
+        assert to_html(sanitize(d, policy=policy_keep), pretty=False) == "<!DOCTYPE html>"
 
         # Default policy drops these root nodes (turned into empty fragments).
-        assert to_html(sanitize(c), pretty=False, safe=False) == ""
-        assert to_html(sanitize(d), pretty=False, safe=False) == ""
+        assert to_html(sanitize(c), pretty=False) == ""
+        assert to_html(sanitize(d), pretty=False) == ""
 
         def test_sanitize_default_policy_differs_for_document_vs_fragment(self) -> None:
             root = JustHTML("<p>Hi</p>").root
             out = sanitize(root)
-            assert to_html(out, pretty=False, safe=False) == "<html><head></head><body><p>Hi</p></body></html>"
+            assert to_html(out, pretty=False) == "<html><head></head><body><p>Hi</p></body></html>"
 
     def test_sanitize_root_element_edge_cases(self) -> None:
         policy = SanitizationPolicy(
@@ -721,7 +713,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         )
 
         foreign = SimpleDomNode("div", namespace="svg")
-        assert to_html(sanitize(foreign, policy=policy), pretty=False, safe=False) == ""
+        assert to_html(sanitize(foreign, policy=policy), pretty=False) == ""
 
         disallowed_subtree_drop = SanitizationPolicy(
             allowed_tags=["div"],
@@ -730,7 +722,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         )
         span = SimpleDomNode("span")
         span.append_child(TextNode("x"))
-        assert to_html(sanitize(span, policy=disallowed_subtree_drop), pretty=False, safe=False) == "x"
+        assert to_html(sanitize(span, policy=disallowed_subtree_drop), pretty=False) == "x"
 
         drop_content = SanitizationPolicy(
             allowed_tags=["div"],
@@ -740,7 +732,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         )
         script = SimpleDomNode("script")
         script.append_child(TextNode("alert(1)"))
-        assert to_html(sanitize(script, policy=drop_content), pretty=False, safe=False) == ""
+        assert to_html(sanitize(script, policy=drop_content), pretty=False) == ""
 
         template_policy = SanitizationPolicy(
             allowed_tags=["template"],
@@ -750,13 +742,10 @@ class TestSanitizePlumbing(unittest.TestCase):
         tpl = TemplateNode("template", namespace="html")
         assert tpl.template_content is not None
         tpl.template_content.append_child(TextNode("T"))
-        assert to_html(sanitize(tpl, policy=template_policy), pretty=False, safe=False) == "<template>T</template>"
+        assert to_html(sanitize(tpl, policy=template_policy), pretty=False) == "<template>T</template>"
 
         tpl_no_content = TemplateNode("template", namespace=None)
-        assert (
-            to_html(sanitize(tpl_no_content, policy=template_policy), pretty=False, safe=False)
-            == "<template></template>"
-        )
+        assert to_html(sanitize(tpl_no_content, policy=template_policy), pretty=False) == "<template></template>"
 
 
 class TestSanitizeUnsafe(unittest.TestCase):
@@ -781,8 +770,6 @@ class TestSanitizeUnsafe(unittest.TestCase):
         assert errs[0].category == "security"
 
     def test_collect_mode_can_run_with_no_security_findings(self) -> None:
-        doc = JustHTML("<p>ok</p>", fragment=True)
-
         policy = SanitizationPolicy(
             allowed_tags=set(DEFAULT_POLICY.allowed_tags),
             allowed_attributes=DEFAULT_POLICY.allowed_attributes,
@@ -792,7 +779,8 @@ class TestSanitizeUnsafe(unittest.TestCase):
             unsafe_handling="collect",
         )
 
-        _ = doc.to_html(pretty=False, policy=policy)
+        doc = JustHTML("<p>ok</p>", fragment=True, policy=policy)
+        _ = doc.to_html(pretty=False)
         assert doc.errors == []
 
     def test_policy_collect_helpers_cover_empty_paths(self) -> None:
@@ -817,13 +805,46 @@ class TestSanitizeUnsafe(unittest.TestCase):
         policy_collect.handle_unsafe("Unsafe tag 'x'", node=None)
         errs = policy_collect.collected_security_errors()
         assert len(errs) == 1
-        assert errs[0].category == "security"
-        assert errs[0].line is None
-        assert errs[0].column is None
+
+    def test_unsafe_handler_reset_removes_security_errors_from_shared_sink(self) -> None:
+        sink: list[ParseError] = [
+            ParseError("x", category="security", message="s"),
+            ParseError("y", category="tokenizer", message="t"),
+            ParseError("z", category="security", message="s2"),
+        ]
+
+        handler = UnsafeHandler("collect", sink=sink)
+        handler.reset()
+
+        assert [e.category for e in sink] == ["tokenizer"]
+
+    def test_unsafe_handler_collected_filters_security_from_shared_sink(self) -> None:
+        sink: list[ParseError] = [
+            ParseError("x", category="security", message="a", line=2, column=2),
+            ParseError("y", category="tokenizer", message="t", line=1, column=1),
+            ParseError("z", category="security", message="b", line=1, column=2),
+        ]
+
+        handler = UnsafeHandler("collect", sink=sink)
+        out = handler.collected()
+
+        assert [e.category for e in out] == ["security", "security"]
+        assert [e.message for e in out] == ["b", "a"]
+
+    def test_unsafe_handler_handle_writes_to_shared_sink(self) -> None:
+        sink: list[ParseError] = []
+
+        handler = UnsafeHandler("collect", sink=sink)
+        handler.handle("Unsafe tag 'x'", node=None)
+
+        assert len(sink) == 1
+        assert sink[0].category == "security"
+        assert sink[0].line is None
+        assert sink[0].column is None
 
     def test_sanitize_unsafe_collects_security_errors(self) -> None:
         html = "<script>alert(1)</script>"
-        node = JustHTML(html, fragment=True, track_node_locations=True).root
+        node = JustHTML(html, fragment=True, track_node_locations=True, safe=False).root
 
         policy = SanitizationPolicy(
             allowed_tags={"p"},
@@ -843,9 +864,6 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_collect_mode_merges_into_doc_errors(self) -> None:
         html = "<p>\x00</p><script>alert(1)</script>"
-        doc = JustHTML(html, fragment=True, collect_errors=True, track_node_locations=True)
-        assert any(e.category == "tokenizer" for e in doc.errors)
-
         policy = SanitizationPolicy(
             allowed_tags=set(DEFAULT_POLICY.allowed_tags),
             allowed_attributes=DEFAULT_POLICY.allowed_attributes,
@@ -855,18 +873,24 @@ class TestSanitizeUnsafe(unittest.TestCase):
             unsafe_handling="collect",
         )
 
-        _ = doc.to_html(pretty=False, policy=policy)
+        doc = JustHTML(
+            html,
+            fragment=True,
+            collect_errors=True,
+            track_node_locations=True,
+            policy=policy,
+        )
+        assert any(e.category == "tokenizer" for e in doc.errors)
         assert any(e.category == "security" for e in doc.errors)
 
-        # Repeated calls should not accumulate duplicates.
+        # Repeated serialization should not accumulate duplicates.
         before = len([e for e in doc.errors if e.category == "security"])
-        _ = doc.to_html(pretty=False, policy=policy)
+        _ = doc.to_html(pretty=False)
+        _ = doc.to_html(pretty=False)
         after = len([e for e in doc.errors if e.category == "security"])
         assert before == after
 
     def test_collect_mode_merges_into_doc_errors_text_and_markdown(self) -> None:
-        doc = JustHTML("<p>ok</p><script>alert(1)</script>", fragment=True, track_node_locations=True)
-
         policy = SanitizationPolicy(
             allowed_tags=set(DEFAULT_POLICY.allowed_tags),
             allowed_attributes=DEFAULT_POLICY.allowed_attributes,
@@ -876,15 +900,20 @@ class TestSanitizeUnsafe(unittest.TestCase):
             unsafe_handling="collect",
         )
 
-        _ = doc.to_text(policy=policy)
+        doc = JustHTML(
+            "<p>ok</p><script>alert(1)</script>",
+            fragment=True,
+            track_node_locations=True,
+            policy=policy,
+        )
+
+        _ = doc.to_text()
         assert any(e.category == "security" for e in doc.errors)
 
-        _ = doc.to_markdown(policy=policy)
+        _ = doc.to_markdown()
         assert any(e.category == "security" for e in doc.errors)
 
     def test_justhtml_serialization_clears_stale_security_errors_and_safe_false_paths(self) -> None:
-        doc = JustHTML("<p>ok</p><script>alert(1)</script>", fragment=True, track_node_locations=True)
-
         policy = SanitizationPolicy(
             allowed_tags=set(DEFAULT_POLICY.allowed_tags),
             allowed_attributes=DEFAULT_POLICY.allowed_attributes,
@@ -894,21 +923,35 @@ class TestSanitizeUnsafe(unittest.TestCase):
             unsafe_handling="collect",
         )
 
-        _ = doc.to_html(pretty=False, policy=policy)
-        assert any(e.category == "security" for e in doc.errors)
+        doc_collect = JustHTML(
+            "<p>ok</p><script>alert(1)</script>",
+            fragment=True,
+            track_node_locations=True,
+            policy=policy,
+        )
+        assert any(e.category == "security" for e in doc_collect.errors)
 
-        # Safe serialization with no collect should clear security errors.
-        _ = doc.to_html(pretty=False, policy=None)
-        assert not any(e.category == "security" for e in doc.errors)
+        doc_default = JustHTML(
+            "<p>ok</p><script>alert(1)</script>",
+            fragment=True,
+            track_node_locations=True,
+        )
+        assert not any(e.category == "security" for e in doc_default.errors)
 
-        # Cover safe=False branches (these should not crash).
-        _ = doc.to_html(pretty=False, safe=False)
-        _ = doc.to_text(safe=False)
-        _ = doc.to_markdown(safe=False)
+        # Safe=False documents should still serialize without crashing.
+        doc_unsafe = JustHTML(
+            "<p>ok</p><script>alert(1)</script>",
+            fragment=True,
+            track_node_locations=True,
+            safe=False,
+        )
+        _ = doc_unsafe.to_html(pretty=False)
+        _ = doc_unsafe.to_text()
+        _ = doc_unsafe.to_markdown()
 
     def test_sanitize_unsafe_raises(self) -> None:
         html = "<script>alert(1)</script>"
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
 
         # Default behavior: script is removed
         sanitized = sanitize(node)
@@ -927,7 +970,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_attribute_raises(self) -> None:
         html = '<p onclick="alert(1)">Hello</p>'
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
 
         policy = SanitizationPolicy(
             allowed_tags={"p"},
@@ -941,7 +984,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_url_raises(self) -> None:
         html = '<a href="javascript:alert(1)">Link</a>'
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
 
         policy = SanitizationPolicy(
             allowed_tags={"a"},
@@ -955,7 +998,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_namespaced_attribute_raises(self) -> None:
         html = '<p xlink:href="foo">Hello</p>'
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
         policy = SanitizationPolicy(
             allowed_tags={"p"},
             allowed_attributes={"p": set()},
@@ -967,7 +1010,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_srcdoc_attribute_raises(self) -> None:
         html = '<iframe srcdoc="<script>"></iframe>'
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
         policy = SanitizationPolicy(
             allowed_tags={"iframe"},
             allowed_attributes={"iframe": {"srcdoc"}},  # Even if allowed, srcdoc is dangerous
@@ -979,7 +1022,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_disallowed_attribute_raises(self) -> None:
         html = '<p foo="bar">Hello</p>'
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
         policy = SanitizationPolicy(
             allowed_tags={"p"},
             allowed_attributes={"p": set()},  # No attributes allowed
@@ -991,7 +1034,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_inline_style_raises(self) -> None:
         html = '<p style="background: url(javascript:alert(1))">Hello</p>'
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
         policy = SanitizationPolicy(
             allowed_tags={"p"},
             allowed_attributes={"p": {"style"}},
@@ -1005,7 +1048,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
     def test_sanitize_unsafe_root_tag_raises(self) -> None:
         # Test disallowed tag as root
         html = "<div>Content</div>"
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
         # node is a div (because fragment=True parses into a list of nodes, but JustHTML.root wraps them?
         # Wait, JustHTML(fragment=True).root is a DocumentFragment containing the nodes.
         # sanitize() on a DocumentFragment iterates children.
@@ -1023,7 +1066,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_root_dropped_content_raises(self) -> None:
         html = "<script>alert(1)</script>"
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
         script = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1037,7 +1080,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_child_dropped_content_raises(self) -> None:
         html = "<div><script>alert(1)</script></div>"
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
         div = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1051,7 +1094,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_child_disallowed_tag_raises(self) -> None:
         html = "<div><foo></foo></div>"
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
         div = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1066,7 +1109,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
     def test_sanitize_unsafe_root_foreign_namespace_raises(self) -> None:
         # <svg> puts elements in SVG namespace
         html = "<svg><title>foo</title></svg>"
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
         svg = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1081,7 +1124,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_child_foreign_namespace_raises(self) -> None:
         html = "<div><svg></svg></div>"
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
         div = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1096,7 +1139,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_root_disallowed_raises(self) -> None:
         html = "<x-foo></x-foo>"
-        node = JustHTML(html, fragment=True).root
+        node = JustHTML(html, fragment=True, safe=False).root
         xfoo = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1116,7 +1159,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
             url_policy=UrlPolicy(allow_rules={}),
             disallowed_tag_handling="escape",
         )
-        out = JustHTML(html, fragment=True).to_html(pretty=False, safe=True, policy=policy)
+        out = JustHTML(html, fragment=True, policy=policy).to_html(pretty=False)
         assert out == "&lt;template&gt;<b>x</b>&lt;/template&gt;"
 
     def test_sanitize_escape_disallowed_without_source_html(self) -> None:
@@ -1131,7 +1174,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
         node._start_tag_end = 2
         node.append_child(TextNode("ok"))
         sanitized = sanitize(node, policy=policy)
-        assert to_html(sanitized, pretty=False, safe=False) == "&lt;x&gt;ok"
+        assert to_html(sanitized, pretty=False) == "&lt;x&gt;ok"
 
     def test_sanitize_escape_disallowed_reconstructs_end_tag_without_source_html(self) -> None:
         policy = SanitizationPolicy(
@@ -1148,7 +1191,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
         node._end_tag_present = True
         node.append_child(TextNode("ok"))
         sanitized = sanitize(node, policy=policy)
-        assert to_html(sanitized, pretty=False, safe=False) == "&lt;x&gt;ok&lt;/x&gt;"
+        assert to_html(sanitized, pretty=False) == "&lt;x&gt;ok&lt;/x&gt;"
 
     def test_sanitize_escape_disallowed_reconstructs_self_closing_without_source_html(self) -> None:
         policy = SanitizationPolicy(
@@ -1162,7 +1205,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
         node._start_tag_end = 3
         node._self_closing = True
         sanitized = sanitize(node, policy=policy)
-        out = to_html(sanitized, pretty=False, safe=False)
+        out = to_html(sanitized, pretty=False)
         assert out.startswith("&lt;x")
         assert 'a="b"' in out
         assert out.endswith("/&gt;")
@@ -1191,8 +1234,55 @@ class TestSanitizeUnsafe(unittest.TestCase):
         root.append_child(node)
 
         sanitized = sanitize(root, policy=policy)
-        assert to_html(sanitized, pretty=False, safe=False) == "&lt;x&gt;hi&lt;/x&gt;"
+        assert to_html(sanitized, pretty=False) == "&lt;x&gt;hi&lt;/x&gt;"
         assert node._source_html == root._source_html
+
+    def test_sanitize_escape_disallowed_inherits_source_html_for_template_content(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"p"},
+            allowed_attributes={"*": set(), "p": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            disallowed_tag_handling="escape",
+        )
+
+        root = SimpleDomNode("#document-fragment")
+        root._source_html = "<template>x</template>"
+
+        # TemplateNode has a template_content container in the HTML namespace.
+        template = TemplateNode("template", namespace="html")
+        assert template.template_content is not None
+
+        # Ensure inheritance has to walk up (both template and template_content
+        # start without source html).
+        template._source_html = None
+        template.template_content._source_html = None
+        root.append_child(template)
+
+        sanitize(root, policy=policy)
+        assert template.template_content._source_html == root._source_html
+
+    def test_sanitize_escape_disallowed_does_not_override_existing_template_content_source_html(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"p"},
+            allowed_attributes={"*": set(), "p": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            disallowed_tag_handling="escape",
+        )
+
+        root = SimpleDomNode("#document-fragment")
+        root._source_html = "<template>x</template>"
+
+        template = TemplateNode("template", namespace="html")
+        assert template.template_content is not None
+
+        # Cover the branch where the child already has source html (no overwrite).
+        template._source_html = "<template>own</template>"
+        template.template_content._source_html = "tc"
+        root.append_child(template)
+
+        sanitize(root, policy=policy)
+        assert template._source_html == "<template>own</template>"
+        assert template.template_content._source_html == "tc"
 
 
 if __name__ == "__main__":

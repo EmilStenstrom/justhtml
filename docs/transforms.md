@@ -30,7 +30,7 @@ doc = JustHTML(
 )
 
 # The tree is transformed in memory
-print(doc.root.to_html(safe=False))
+print(doc.root.to_html())
 
 # Output is still safe by default
 print(doc.to_html(pretty=False))
@@ -39,20 +39,15 @@ print(doc.to_html(pretty=False))
 ## Safety model
 
 - Transforms run **once**, right after parsing, and mutate `doc.root`.
-- Safe-by-default output is still enforced by:
-  - `JustHTML.to_html(safe=True)`
-  - `JustHTML.to_text(safe=True)`
-  - `JustHTML.to_markdown(safe=True)`
+- JustHTML is safe-by-default by sanitizing at construction (`JustHTML(..., safe=True)`).
+- Serialization (`to_html`/`to_text`/`to_markdown`) is serialize-only; earlier versions accepted `safe=` or `policy=` when serializing. This is no longer needed.
 
-This means output stays safe even if you mutate the DOM after parsing.
-
-Transforms do not sanitize the in-memory tree. `safe=True` serialization sanitizes a cloned view of the tree right before output.
-
-Raw output for trusted input is available via `safe=False`:
+Raw output is available by disabling sanitization:
 
 ```python
-doc.to_html(pretty=False, safe=False)
-doc.root.to_html(pretty=False, safe=False)
+doc = JustHTML("<p>Hello</p><script>alert(1)</script>", safe=False)
+doc.to_html(pretty=False)
+doc.root.to_html(pretty=False)
 ```
 
 Sanitization can remove or rewrite transform results (for example, unsafe tags, event handler attributes, or unsafe URLs in `href`).
@@ -121,14 +116,15 @@ doc = JustHTML(
 doc2 = JustHTML(
     "<p>one</p><p>two</p>",
     fragment=True,
+    safe=False,
     transforms=[
         Stage([Edit("p:first-child", insert_marker)]),
         Stage([SetAttrs("span", id="marker")]),
     ],
 )
 
-print(doc.to_html(pretty=False, safe=False))
-print(doc2.to_html(pretty=False, safe=False))
+print(doc.to_html(pretty=False))
+print(doc2.to_html(pretty=False))
 ```
 
 Output:
@@ -240,7 +236,7 @@ doc = JustHTML(
     transforms=[CollapseWhitespace()],
 )
 
-print(doc.to_html(pretty=False, safe=False))
+print(doc.to_html(pretty=False))
 ```
 
 Output:
@@ -306,7 +302,7 @@ doc = JustHTML(
     ],
 )
 
-print(doc.to_html(pretty=False, safe=False))
+print(doc.to_html(pretty=False))
 ```
 
 Output:
@@ -351,7 +347,7 @@ doc = JustHTML(
     transforms=[Drop("script, style")],
 )
 
-print(doc.to_html(pretty=False, safe=False))
+print(doc.to_html(pretty=False))
 ```
 
 Output:
@@ -371,7 +367,7 @@ doc = JustHTML(
     transforms=[Drop(".ad")],
 )
 
-print(doc.to_html(pretty=False, safe=False))
+print(doc.to_html(pretty=False))
 ```
 
 Output:
@@ -391,7 +387,7 @@ doc = JustHTML(
     transforms=[Drop('img:not([src]), img[src=""]')],
 )
 
-print(doc.to_html(pretty=False, safe=False))
+print(doc.to_html(pretty=False))
 ```
 
 Output:

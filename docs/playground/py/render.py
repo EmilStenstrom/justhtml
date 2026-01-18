@@ -3,7 +3,7 @@ from dataclasses import replace
 from justhtml import JustHTML
 from justhtml.context import FragmentContext
 from justhtml.sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY
-from justhtml.transforms import Drop, PruneEmpty, Sanitize, Unwrap
+from justhtml.transforms import Drop, PruneEmpty, Unwrap
 
 
 def _format_error(e):
@@ -65,60 +65,22 @@ def _dedupe_sorted_errors(errors):
 def _serialize_nodes(
     nodes,
     output_format,
-    safe,
     pretty,
     indent_size,
     text_separator,
     text_strip,
 ):
-    security_errors = []
-
     if output_format == "html":
-        parts = []
-        for node in nodes:
-            if safe:
-                policy = _policy_for(node)
-                parts.append(
-                    node.to_html(
-                        pretty=pretty,
-                        indent_size=indent_size,
-                        safe=True,
-                        policy=policy,
-                    )
-                )
-                security_errors.extend(policy.collected_security_errors())
-            else:
-                parts.append(node.to_html(pretty=pretty, indent_size=indent_size, safe=False))
-        return ("\n".join(parts), security_errors)
+        parts = [node.to_html(pretty=pretty, indent_size=indent_size) for node in nodes]
+        return ("\n".join(parts), [])
 
     if output_format == "markdown":
-        parts = []
-        for node in nodes:
-            if safe:
-                policy = _policy_for(node)
-                parts.append(node.to_markdown(safe=True, policy=policy))
-                security_errors.extend(policy.collected_security_errors())
-            else:
-                parts.append(node.to_markdown(safe=False))
-        return ("\n\n".join(parts), security_errors)
+        parts = [node.to_markdown() for node in nodes]
+        return ("\n\n".join(parts), [])
 
     if output_format == "text":
-        parts = []
-        for node in nodes:
-            if safe:
-                policy = _policy_for(node)
-                parts.append(
-                    node.to_text(
-                        separator=text_separator,
-                        strip=text_strip,
-                        safe=True,
-                        policy=policy,
-                    )
-                )
-                security_errors.extend(policy.collected_security_errors())
-            else:
-                parts.append(node.to_text(separator=text_separator, strip=text_strip, safe=False))
-        return ("\n".join(parts), security_errors)
+        parts = [node.to_text(separator=text_separator, strip=text_strip) for node in nodes]
+        return ("\n".join(parts), [])
 
     raise ValueError(f"Unknown output_format: {output_format}")
 
@@ -141,7 +103,6 @@ def render(
         if safe:
             base = DEFAULT_DOCUMENT_POLICY if parse_mode == "document" else DEFAULT_POLICY
             sanitize_policy = replace(base, unsafe_handling="collect")
-            transforms.append(Sanitize(policy=sanitize_policy))
 
         if cleanup:
             transforms.append(Unwrap("a:not([href])"))
@@ -153,6 +114,8 @@ def render(
             "track_node_locations": True,
             "strict": False,
             "transforms": transforms,
+            "safe": bool(safe),
+            "policy": sanitize_policy,
         }
 
         if parse_mode == "fragment":
@@ -164,22 +127,16 @@ def render(
         out, security_errors = _serialize_nodes(
             nodes,
             output_format=output_format,
-            safe=bool(safe),
             pretty=bool(pretty),
             indent_size=int(indent_size),
             text_separator=text_separator,
             text_strip=bool(text_strip),
         )
 
-        tree_security_errors = []
-        if sanitize_policy is not None:
-            tree_security_errors = sanitize_policy.collected_security_errors()
-
-        combined = _merge_sorted_errors(
-            sorted(list(doc.errors), key=_sort_key),
-            sorted(list(tree_security_errors) + list(security_errors), key=_sort_key),
-        )
-        combined = _dedupe_sorted_errors(combined)
+        # doc.errors already includes security errors when safe=True and
+        # policy.unsafe_handling == "collect".
+        combined = _dedupe_sorted_errors(sorted(list(doc.errors), key=_sort_key))
+        _ = security_errors
         errors = [_format_error(e) for e in combined]
     except Exception as e:  # noqa: BLE001
         return {

@@ -32,7 +32,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "  curl -s https://example.com | justhtml -\n"
             "  justhtml page.html --selector 'main p' --format text\n"
             "  justhtml page.html --selector 'a' --format html\n"
-            "  justhtml page.html --selector 'article' --format markdown\n"
+            "  justhtml page.html --selector 'article' --allow-tags article --format markdown\n"
             "\n"
             "If you don't have the 'justhtml' command available, use:\n"
             "  python -m justhtml ...\n"
@@ -61,6 +61,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--unsafe",
         action="store_true",
         help="Disable sanitization (trusted input only)",
+    )
+
+    parser.add_argument(
+        "--allow-tags",
+        help=(
+            "Safe mode: allow these additional tags during sanitization (comma-separated). "
+            "Example: --allow-tags article,section"
+        ),
     )
     parser.add_argument(
         "--first",
@@ -123,7 +131,36 @@ def main() -> None:
     args = _parse_args(sys.argv[1:])
     html = _read_html(args.path)
     fragment_context = FragmentContext("div") if args.fragment else None
-    doc = JustHTML(html, fragment_context=fragment_context)
+    safe = not args.unsafe
+
+    policy = None
+    if safe and args.allow_tags:
+        from .sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy  # noqa: PLC0415
+
+        extra_tags: set[str] = set()
+        for part in str(args.allow_tags).replace(" ", ",").split(","):
+            tag = part.strip().lower()
+            if tag:
+                extra_tags.add(tag)
+
+        base = DEFAULT_POLICY if fragment_context is not None else DEFAULT_DOCUMENT_POLICY
+        allowed = set(base.allowed_tags)
+        allowed.update(extra_tags)
+        policy = SanitizationPolicy(
+            allowed_tags=allowed,
+            allowed_attributes=base.allowed_attributes,
+            url_policy=base.url_policy,
+            drop_comments=base.drop_comments,
+            drop_doctype=base.drop_doctype,
+            drop_foreign_namespaces=base.drop_foreign_namespaces,
+            drop_content_tags=base.drop_content_tags,
+            allowed_css_properties=base.allowed_css_properties,
+            force_link_rel=base.force_link_rel,
+            unsafe_handling=base.unsafe_handling,
+            disallowed_tag_handling=base.disallowed_tag_handling,
+        )
+
+    doc = JustHTML(html, fragment_context=fragment_context, safe=safe, policy=policy)
 
     try:
         nodes = doc.query(args.selector) if args.selector else [doc.root]
@@ -138,9 +175,8 @@ def main() -> None:
         nodes = [nodes[0]]
 
     def write_output(out: TextIO) -> None:
-        safe = not args.unsafe
         if args.format == "html":
-            outputs = [node.to_html(safe=safe) for node in nodes]
+            outputs = [node.to_html() for node in nodes]
             out.write("\n".join(outputs))
             out.write("\n")
             return
@@ -149,19 +185,19 @@ def main() -> None:
             # Keep these branches explicit so coverage will highlight untested CLI options.
             if args.separator == " ":
                 if args.strip:
-                    outputs = [node.to_text(strip=True, safe=safe) for node in nodes]
+                    outputs = [node.to_text(strip=True) for node in nodes]
                 else:
-                    outputs = [node.to_text(strip=False, safe=safe) for node in nodes]
+                    outputs = [node.to_text(strip=False) for node in nodes]
             else:
                 if args.strip:
-                    outputs = [node.to_text(separator=args.separator, strip=True, safe=safe) for node in nodes]
+                    outputs = [node.to_text(separator=args.separator, strip=True) for node in nodes]
                 else:
-                    outputs = [node.to_text(separator=args.separator, strip=False, safe=safe) for node in nodes]
+                    outputs = [node.to_text(separator=args.separator, strip=False) for node in nodes]
             out.write("\n".join(outputs))
             out.write("\n")
             return
 
-        outputs = [node.to_markdown(safe=safe) for node in nodes]
+        outputs = [node.to_markdown() for node in nodes]
         out.write("\n\n".join(outputs))
         out.write("\n")
 

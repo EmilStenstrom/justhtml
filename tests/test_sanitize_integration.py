@@ -118,13 +118,17 @@ class TestSanitizeIntegration(unittest.TestCase):
             parse_mode = case.get("parse", "fragment")
             if parse_mode == "fragment":
                 ctx = case.get("fragment_context", "div")
-                doc = JustHTML(input_html, fragment_context=FragmentContext(ctx))
+                doc = JustHTML(
+                    input_html,
+                    fragment_context=FragmentContext(ctx),
+                    policy=policy,
+                )
             elif parse_mode == "document":
-                doc = JustHTML(input_html)
+                doc = JustHTML(input_html, policy=policy)
             else:
                 raise ValueError(f"Unknown parse mode in {name}: {parse_mode}")
 
-            actual = doc.to_html(pretty=False, safe=True, policy=policy)
+            actual = doc.to_html(pretty=False)
             if actual != expected_html:
                 self.fail(
                     "\n".join(

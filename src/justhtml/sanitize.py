@@ -18,9 +18,6 @@ from .tokens import ParseError
 UrlFilter = Callable[[str, str, str], str | None]
 
 
-_DROP_ATTRS_PATTERNS: tuple[str, ...] = ("on*", "srcdoc", "*:*")
-
-
 class UnsafeHtmlError(ValueError):
     """Raised when unsafe HTML is encountered and unsafe_handling='raise'."""
 
@@ -315,6 +312,15 @@ class SanitizationPolicy:
     )
     _allowed_attrs_by_tag: dict[str, frozenset[str]] = field(
         default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    # Cache for the compiled `Sanitize(policy=...)` transform pipeline.
+    # This lets safe serialization reuse the same compiled transforms.
+    _compiled_sanitize_transforms: list[Any] | None = field(
+        default=None,
         init=False,
         repr=False,
         compare=False,
@@ -914,294 +920,6 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
 )
 
 
-def _url_is_external(normalized_url: str) -> bool:
-    if not normalized_url:
-        return False
-    if normalized_url.startswith("#"):
-        return False
-    if normalized_url.startswith("//"):
-        return True
-    return _has_scheme(normalized_url)
-
-
-def _srcset_contains_external_url(value: str) -> bool:
-    # Minimal srcset scanner: parse comma-separated candidates, taking the URL
-    # up to the first whitespace of each candidate.
-    i = 0
-    n = len(value)
-    while i < n:
-        # Skip whitespace and commas.
-        while i < n and value[i] in "\t\n\r\f ,":
-            i += 1
-        if i >= n:
-            break
-
-        start = i
-        while i < n and value[i] not in "\t\n\r\f ,":
-            i += 1
-        candidate = value[start:i]
-
-        normalized = _normalize_url_for_checking(candidate.strip())
-        if _url_is_external(normalized):
-            return True
-
-        # Skip the rest of the candidate (descriptors) until the next comma.
-        while i < n and value[i] != ",":
-            i += 1
-        if i < n and value[i] == ",":
-            i += 1
-
-    return False
-
-
-def _sanitize_clone_into(
-    src: Any,
-    dst_parent: Any,
-    *,
-    policy: SanitizationPolicy,
-    include_self: bool = False,
-) -> None:
-    # Lazy imports to avoid circular imports:
-    # transforms -> node -> sanitize
-    from .node import SimpleDomNode, TemplateNode, TextNode  # noqa: PLC0415
-    from .serialize import serialize_end_tag, serialize_start_tag  # noqa: PLC0415
-    from .transforms import _glob_match  # noqa: PLC0415
-
-    allowed_tags = policy.allowed_tags
-    disallowed_tag_handling = policy.disallowed_tag_handling
-    drop_content_tags = policy.drop_content_tags
-    drop_foreign = policy.drop_foreign_namespaces
-    drop_comments = policy.drop_comments
-    drop_doctype = policy.drop_doctype
-
-    allowed_global = policy._allowed_attrs_global
-    allowed_by_tag = policy._allowed_attrs_by_tag
-
-    url_policy = policy.url_policy
-    allowed_css_properties = policy.allowed_css_properties
-    force_link_rel = policy.force_link_rel
-    force_link_rel_tokens = tuple(sorted(force_link_rel)) if force_link_rel else ()
-
-    def _raw_tag_text(node: SimpleDomNode, start_attr: str, end_attr: str) -> str | None:
-        start = getattr(node, start_attr, None)
-        end = getattr(node, end_attr, None)
-        if start is None or end is None:
-            return None
-        src = node._source_html
-        if src is None:
-            cur: SimpleDomNode | None = node
-            while cur is not None and src is None:
-                cur = cur.parent
-                if cur is None:
-                    break
-                src = cur._source_html
-            if src is not None:
-                node._source_html = src
-        if src is None:
-            return None
-        return src[start:end]
-
-    def _reconstruct_start_tag(node: SimpleDomNode) -> str:
-        name = str(node.name)
-        attrs = getattr(node, "attrs", None)
-        tag = serialize_start_tag(name, attrs)
-        if getattr(node, "_self_closing", False):
-            tag = f"{tag[:-1]}/>"
-        return tag
-
-    def _reconstruct_end_tag(node: SimpleDomNode) -> str | None:
-        if getattr(node, "_self_closing", False):
-            return None
-        if not getattr(node, "_end_tag_present", False):
-            return None
-        return serialize_end_tag(str(node.name))
-
-    def _sanitize_attrs(node: SimpleDomNode, *, tag: str) -> dict[str, str | None]:
-        attrs = node.attrs
-        if not attrs:
-            out: dict[str, str | None] = {}
-        else:
-            allowed = allowed_by_tag.get(tag, allowed_global)
-            allow_rel = bool(force_link_rel_tokens) and tag == "a"
-
-            out = {}
-            for raw_key, raw_value in attrs.items():
-                if not raw_key or not str(raw_key).strip():
-                    continue
-
-                key = raw_key
-                if not key.islower():
-                    key = key.lower()
-
-                matched_pat: str | None = None
-                for pat in _DROP_ATTRS_PATTERNS:
-                    if _glob_match(pat, key):
-                        matched_pat = pat
-                        break
-                if matched_pat is not None:
-                    policy.handle_unsafe(
-                        f"Unsafe attribute '{key}' (matched pattern '{matched_pat}')",
-                        node=node,
-                    )
-                    continue
-
-                if key not in allowed and not (allow_rel and key == "rel"):
-                    policy.handle_unsafe(f"Unsafe attribute '{key}' (not allowed)", node=node)
-                    continue
-
-                value = raw_value
-
-                if key in _URL_LIKE_ATTRS:
-                    if value is None:
-                        policy.handle_unsafe(f"Unsafe URL in attribute '{key}'", node=node)
-                        continue
-
-                    rule = url_policy.allow_rules.get((tag, key))
-                    if rule is None:
-                        policy.handle_unsafe(f"Unsafe URL in attribute '{key}' (no rule)", node=node)
-                        continue
-
-                    if key == "srcset":
-                        sanitized = _sanitize_srcset_value(
-                            url_policy=url_policy,
-                            rule=rule,
-                            tag=tag,
-                            attr=key,
-                            value=str(value),
-                        )
-                    else:
-                        sanitized = _sanitize_url_value(
-                            url_policy=url_policy,
-                            rule=rule,
-                            tag=tag,
-                            attr=key,
-                            value=str(value),
-                        )
-
-                    if sanitized is None:
-                        policy.handle_unsafe(f"Unsafe URL in attribute '{key}'", node=node)
-                        continue
-
-                    value = sanitized
-
-                if key == "style":
-                    if value is None:
-                        policy.handle_unsafe("Unsafe inline style in attribute 'style'", node=node)
-                        continue
-
-                    sanitized_style = _sanitize_inline_style(
-                        allowed_css_properties=allowed_css_properties,
-                        value=str(value),
-                    )
-                    if sanitized_style is None:
-                        policy.handle_unsafe("Unsafe inline style in attribute 'style'", node=node)
-                        continue
-
-                    value = sanitized_style
-
-                out[key] = value
-
-        if force_link_rel_tokens and tag == "a":
-            existing_raw = out.get("rel")
-            existing: list[str] = []
-            if isinstance(existing_raw, str) and existing_raw:
-                for tok in existing_raw.split():
-                    tt = tok.strip().lower()
-                    if tt and tt not in existing:
-                        existing.append(tt)
-
-            changed_rel = False
-            for tok in force_link_rel_tokens:
-                if tok not in existing:
-                    existing.append(tok)
-                    changed_rel = True
-
-            normalized = " ".join(existing)
-            if (
-                changed_rel
-                or (existing_raw is None and existing)
-                or (isinstance(existing_raw, str) and existing_raw != normalized)
-            ):
-                out["rel"] = normalized
-
-        return out
-
-    def _walk_children(src_parent: Any, dst: Any) -> None:
-        children = src_parent.children
-        if not children:
-            return
-        for ch in children:
-            _handle_node(ch, dst)
-
-    def _handle_node(node: Any, dst: Any) -> None:
-        name = node.name
-
-        if name == "#text":
-            dst.append_child(TextNode(node.data))
-            return
-
-        if name == "#comment":
-            if drop_comments:
-                return
-            dst.append_child(node.clone_node(deep=False))
-            return
-
-        if name == "!doctype":
-            if drop_doctype:
-                return
-            dst.append_child(node.clone_node(deep=False))
-            return
-
-        if name.startswith("#"):
-            cloned = node.clone_node(deep=False)
-            dst.append_child(cloned)
-            _walk_children(node, cloned)
-            return
-
-        ns = node.namespace
-        if drop_foreign and ns not in (None, "html"):
-            tag = str(name).lower()
-            policy.handle_unsafe(f"Unsafe tag '{tag}' (foreign namespace)", node=node)
-            return
-
-        tag = str(name).lower()
-        if tag in drop_content_tags:
-            policy.handle_unsafe(f"Unsafe tag '{tag}' (dropped content)", node=node)
-            return
-
-        if tag not in allowed_tags:
-            policy.handle_unsafe(f"Unsafe tag '{tag}' (not allowed)", node=node)
-            if disallowed_tag_handling == "drop":
-                return
-            if disallowed_tag_handling == "escape":
-                raw_start = _raw_tag_text(node, "_start_tag_start", "_start_tag_end") or _reconstruct_start_tag(node)
-                raw_end = _raw_tag_text(node, "_end_tag_start", "_end_tag_end") or _reconstruct_end_tag(node)
-                dst.append_child(TextNode(raw_start))
-                _walk_children(node, dst)
-                if type(node) is TemplateNode and node.template_content is not None:
-                    _walk_children(node.template_content, dst)
-                if raw_end:
-                    dst.append_child(TextNode(raw_end))
-                return
-            _walk_children(node, dst)
-            if type(node) is TemplateNode and node.template_content is not None:
-                _walk_children(node.template_content, dst)
-            return
-
-        sanitized_attrs = _sanitize_attrs(node, tag=tag)
-        cloned_el = node.clone_node(deep=False, override_attrs=sanitized_attrs)
-        dst.append_child(cloned_el)
-
-        _walk_children(node, cloned_el)
-        if type(node) is TemplateNode and node.template_content is not None:
-            _walk_children(node.template_content, cast("SimpleDomNode", cloned_el.template_content))
-
-    if include_self:
-        _handle_node(src, dst_parent)
-    else:
-        _walk_children(src, dst_parent)
-
-
 def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     """Return a sanitized clone of `node`.
 
@@ -1212,21 +930,61 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     if policy is None:
         policy = DEFAULT_DOCUMENT_POLICY if node.name == "#document" else DEFAULT_POLICY
 
-    # Container-root rule: sanitization always runs on a container.
+    # Escape-mode tag reconstruction may need access to the original source HTML.
+    # Historically we allow a child element to inherit _source_html from an
+    # ancestor container; keep that behavior even though we sanitize a clone.
+    if policy.disallowed_tag_handling == "escape":
+        root_source_html = getattr(node, "_source_html", None)
+        if root_source_html:
+            from .node import TemplateNode  # noqa: PLC0415
+
+            stack: list[Any] = [node]
+            while stack:
+                current = stack.pop()
+                current_source_html = getattr(current, "_source_html", None) or root_source_html
+
+                children = getattr(current, "children", None) or []
+                for child in children:
+                    # TextNode does not have _source_html.
+                    if getattr(child, "name", "") == "#text":
+                        continue
+                    if getattr(child, "_source_html", None) is None:
+                        child._source_html = current_source_html
+                    stack.append(child)
+
+                if type(current) is TemplateNode and current.template_content is not None:
+                    tc = current.template_content
+                    if getattr(tc, "_source_html", None) is None:
+                        tc._source_html = current_source_html
+                    stack.append(tc)
+
+    # We intentionally implement safe-output sanitization by applying the
+    # `Sanitize(policy=...)` transform pipeline to a clone of the node.
+    # This keeps a single canonical sanitization algorithm.
+    from .transforms import Sanitize, apply_compiled_transforms, compile_transforms  # noqa: PLC0415
+
+    compiled = policy._compiled_sanitize_transforms
+    if compiled is None:
+        compiled = compile_transforms((Sanitize(policy=policy),))
+        object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
+
+    # Container-root rule: transforms walk children of the provided root.
+    # For non-container roots, wrap the cloned node in a document fragment so
+    # the sanitizer can act on the root node itself.
     if node.name in {"#document", "#document-fragment"}:
-        out = node.clone_node(deep=False)
-        _sanitize_clone_into(node, out, policy=policy)
-        return out
+        cloned = node.clone_node(deep=True)
+        apply_compiled_transforms(cloned, compiled, errors=None)
+        return cloned
 
     from .node import SimpleDomNode  # noqa: PLC0415
 
     wrapper = SimpleDomNode("#document-fragment")
-    _sanitize_clone_into(node, wrapper, policy=policy, include_self=True)
+    wrapper.append_child(node.clone_node(deep=True))
+    apply_compiled_transforms(wrapper, compiled, errors=None)
 
     children = wrapper.children or []
     if len(children) == 1:
         only = children[0]
-        # Detach so callers get a standalone node like before.
         only.parent = None
         wrapper.children = []
         return only

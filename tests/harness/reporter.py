@@ -75,14 +75,15 @@ class TestReporter:
 
         full_run = self.is_full_run()
         summary_file = "test-summary.txt"
+        write_summary = bool(self.config.get("write_summary", True))
 
         if not file_results:
-            if full_run:
+            if full_run and write_summary:
                 Path(summary_file).write_text(header + "\n")
             return
 
         detailed = self._generate_detailed_summary(header, file_results)
-        if full_run:
+        if full_run and write_summary:
             Path(summary_file).write_text(detailed + "\n")
         if self.config.get("quiet"):
             print(header)

@@ -100,10 +100,6 @@ class TestNode(unittest.TestCase):
 
         # `.text` only sees direct children, while `to_text()` includes template content.
         assert template.text == ""
-        # safe=False ensures we traverse TemplateNode.template_content directly.
-        assert template.to_text(safe=False) == "Inside"
-        # safe=True may sanitize/unwrap the template node depending on policy,
-        # but should still preserve the template content in output.
         assert template.to_text() == "Inside"
 
     def test_to_text_simple_dom_text_node_branch(self):
@@ -120,8 +116,8 @@ class TestNode(unittest.TestCase):
         assert doc.to_text() == "ok"
 
     def test_to_text_safe_false_includes_script_text(self):
-        doc = JustHTML("<p>ok</p><script>alert(1)</script>")
-        assert doc.to_text(safe=False) == "ok alert(1)"
+        doc = JustHTML("<p>ok</p><script>alert(1)</script>", safe=False)
+        assert doc.to_text() == "ok alert(1)"
 
     def test_to_text_policy_override_can_preserve_script_text(self):
         # With a custom policy that *doesn't* treat <script> as a drop-content tag,
@@ -132,8 +128,8 @@ class TestNode(unittest.TestCase):
             url_policy=DEFAULT_POLICY.url_policy,
             drop_content_tags=set(),
         )
-        doc = JustHTML("<p>ok</p><script>alert(1)</script>")
-        assert doc.to_text(policy=policy) == "ok alert(1)"
+        doc = JustHTML("<p>ok</p><script>alert(1)</script>", policy=policy)
+        assert doc.to_text() == "ok alert(1)"
 
     def test_node_origin_offset_and_location_helpers(self):
         doc = JustHTML("<p>hi</p>", track_node_locations=True)
@@ -165,7 +161,7 @@ class TestNode(unittest.TestCase):
         assert node.origin_location is None
 
     def test_node_origin_location_for_comment(self):
-        doc = JustHTML("<!--x--><p>y</p>", track_node_locations=True)
+        doc = JustHTML("<!--x--><p>y</p>", track_node_locations=True, safe=False)
         assert doc.root.children is not None
         comment = doc.root.children[0]
         assert comment.name == "#comment"
@@ -173,7 +169,7 @@ class TestNode(unittest.TestCase):
         assert comment.origin_location == (1, 1)
 
     def test_node_origin_location_for_comment_inside_element(self):
-        doc = JustHTML("<p><!--x--></p>", track_node_locations=True)
+        doc = JustHTML("<p><!--x--></p>", track_node_locations=True, safe=False)
         p = doc.query("p")[0]
         comment = p.children[0]
         assert comment.name == "#comment"
@@ -277,7 +273,6 @@ class TestNode(unittest.TestCase):
         root.append_child(SimpleDomNode("!doctype", data="html"))
         root.append_child(TextNode("ok"))
         assert root.to_markdown() == "ok"
-        assert root.to_markdown(safe=False) == "ok"
 
     def test_to_markdown_preserves_script_whitespace(self):
         # script/style are treated as whitespace-preserving containers.
@@ -286,8 +281,7 @@ class TestNode(unittest.TestCase):
         # Include a trailing newline to exercise raw-newline tracking.
         script.append_child(TextNode("var x = 1;\nvar y = 2;\n"))
         root.append_child(script)
-        assert root.to_markdown() == ""
-        assert root.to_markdown(safe=False) == "var x = 1;\nvar y = 2;"
+        assert root.to_markdown() == "var x = 1;\nvar y = 2;"
 
     def test_to_markdown_textnode_method(self):
         t = TextNode("a*b")
@@ -441,8 +435,7 @@ class TestNode(unittest.TestCase):
         style = SimpleDomNode("style")
         style.append_child(TextNode("a {\n  b: c; }"))
         root.append_child(style)
-        assert root.to_markdown() == ""
-        assert "a {\n  b: c; }" in root.to_markdown(safe=False)
+        assert "a {\n  b: c; }" in root.to_markdown()
 
     def test_to_markdown_unknown_container_walks_children(self):
         doc = JustHTML("<span>Hi</span>")
@@ -478,7 +471,6 @@ class TestNode(unittest.TestCase):
         template = TemplateNode("template", namespace="html")
         template.template_content.append_child(TextNode("T"))
         assert template.to_markdown() == "T"
-        assert template.to_markdown(safe=False) == "T"
 
     def test_markdown_walk_unknown_tag_children_loop(self):
         b = _MarkdownBuilder()
