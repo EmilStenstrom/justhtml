@@ -1,7 +1,7 @@
 import unittest
 
 from justhtml import JustHTML
-from justhtml.node import ElementNode
+from justhtml.node import Element
 from justhtml.tokenizer import Tokenizer, TokenizerOpts
 from justhtml.treebuilder import InsertionMode, TreeBuilder
 
@@ -34,7 +34,7 @@ class TestCoverage(unittest.TestCase):
     def test_treebuilder_process_characters_strips_null_and_appends(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)
         tree_builder.mode = InsertionMode.IN_BODY
-        tree_builder.open_elements.append(ElementNode("body", {}, None))
+        tree_builder.open_elements.append(Element("body", {}, None))
 
         tree_builder.process_characters("a\x00b")
         body = tree_builder.open_elements[-1]
@@ -44,7 +44,7 @@ class TestCoverage(unittest.TestCase):
     def test_treebuilder_process_characters_only_null_returns_continue(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)
         tree_builder.mode = InsertionMode.IN_BODY
-        tree_builder.open_elements.append(ElementNode("body", {}, None))
+        tree_builder.open_elements.append(Element("body", {}, None))
 
         tree_builder.process_characters("\x00")
         body = tree_builder.open_elements[-1]
@@ -53,7 +53,7 @@ class TestCoverage(unittest.TestCase):
     def test_treebuilder_process_characters_empty_returns_continue(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)
         tree_builder.mode = InsertionMode.IN_BODY
-        tree_builder.open_elements.append(ElementNode("body", {}, None))
+        tree_builder.open_elements.append(Element("body", {}, None))
 
         tree_builder.process_characters("")
         body = tree_builder.open_elements[-1]

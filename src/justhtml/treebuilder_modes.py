@@ -10,7 +10,7 @@ from .constants import (
     FORMATTING_ELEMENTS,
     HEADING_ELEMENTS,
 )
-from .node import SimpleDomNode, TemplateNode
+from .node import Comment, Node, Template
 from .tokens import AnyToken, CharacterTokens, CommentToken, DoctypeToken, EOFToken, Tag, TokenSinkResult
 from .treebuilder_utils import (
     InsertionMode,
@@ -34,7 +34,7 @@ class TreeBuilderModesMixin:
         doctype = token.doctype
         parse_error, quirks_mode = doctype_error_and_quirks(doctype, self.iframe_srcdoc)
 
-        node = SimpleDomNode("!doctype", data=doctype)
+        node = Node("!doctype", data=doctype)
         self.document.append_child(node)
 
         if parse_error:
@@ -693,7 +693,7 @@ class TreeBuilderModesMixin:
                 parent, position = self._appropriate_insertion_location(common_ancestor, foster_parenting=True)
                 self._insert_node_at(parent, position, last_node)
             else:
-                if type(common_ancestor) is TemplateNode and common_ancestor.template_content:
+                if type(common_ancestor) is Template and common_ancestor.template_content:
                     common_ancestor.template_content.append_child(last_node)
                 else:
                     common_ancestor.append_child(last_node)
@@ -1779,7 +1779,7 @@ class TreeBuilderModesMixin:
             if self.fragment_context is not None:
                 # html is always on stack in fragment parsing
                 html_node = self._find_last_on_stack("html")
-                html_node.append_child(SimpleDomNode("#comment", data=token.data))
+                html_node.append_child(Comment(data=token.data))
                 return None
             self._append_comment_to_document(token.data)
             return None

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
 from .constants import VOID_ELEMENTS, WHITESPACE_PRESERVING_ELEMENTS
 from .linkify import LinkifyConfig, find_links_with_config
-from .node import ElementNode, SimpleDomNode, TemplateNode, TextNode
+from .node import Element, Node, Template, Text
 from .sanitize import (
     _URL_LIKE_ATTRS,
     DEFAULT_POLICY,
@@ -41,10 +41,10 @@ if TYPE_CHECKING:
     from .selector import ParsedSelector
 
     class NodeCallback(Protocol):
-        def __call__(self, node: SimpleDomNode) -> None: ...
+        def __call__(self, node: Node) -> None: ...
 
     class EditAttrsCallback(Protocol):
-        def __call__(self, node: SimpleDomNode) -> dict[str, str | None] | None: ...
+        def __call__(self, node: Node) -> dict[str, str | None] | None: ...
 
     class ReportCallback(Protocol):
         def __call__(self, msg: str, *, node: Any | None = None) -> None: ...
@@ -61,7 +61,7 @@ _ERROR_SINK: ContextVar[list[ParseError] | None] = ContextVar("justhtml_transfor
 def emit_error(
     code: str,
     *,
-    node: SimpleDomNode | None = None,
+    node: Node | None = None,
     line: int | None = None,
     column: int | None = None,
     category: str = "transform",
@@ -269,7 +269,7 @@ class Decide:
     """
 
     selector: str
-    func: Callable[[SimpleDomNode], DecideAction]
+    func: Callable[[Node], DecideAction]
     enabled: bool
     callback: NodeCallback | None
     report: ReportCallback | None
@@ -283,7 +283,7 @@ class Decide:
     def __init__(
         self,
         selector: str,
-        func: Callable[[SimpleDomNode], DecideAction],
+        func: Callable[[Node], DecideAction],
         *,
         enabled: bool = True,
         callback: NodeCallback | None = None,
@@ -841,7 +841,7 @@ class _CompiledDecideTransform:
     selector_str: str
     selector: ParsedSelector | None
     all_nodes: bool
-    callback: Callable[[SimpleDomNode], DecideAction]
+    callback: Callable[[Node], DecideAction]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1040,9 +1040,9 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 next_cb = item.func
 
                 def _chained(
-                    node: SimpleDomNode,
-                    prev_cb: Callable[[SimpleDomNode], dict[str, str | None] | None] = prev_cb,
-                    next_cb: Callable[[SimpleDomNode], dict[str, str | None] | None] = next_cb,
+                    node: Node,
+                    prev_cb: Callable[[Node], dict[str, str | None] | None] = prev_cb,
+                    next_cb: Callable[[Node], dict[str, str | None] | None] = next_cb,
                 ) -> dict[str, str | None] | None:
                     changed = False
                     out = prev_cb(node)
@@ -1107,7 +1107,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 on_report = t.report
 
                 def _drop_if_tag(
-                    node: SimpleDomNode,
+                    node: Node,
                     tags: frozenset[str] = tags,
                     selector_str: str = selector_str,
                     on_drop: NodeCallback | None = on_drop,
@@ -1178,7 +1178,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             on_report = t.report
 
             def _wrapped(
-                node: SimpleDomNode,
+                node: Node,
                 edit_func: NodeCallback = edit_func,
                 selector_str: str = selector_str,
                 on_hook: NodeCallback | None = on_hook,
@@ -1209,7 +1209,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             on_report = t.report
 
             def _wrapped_root(
-                node: SimpleDomNode,
+                node: Node,
                 edit_document_func: NodeCallback = edit_document_func,
                 on_hook: NodeCallback | None = on_hook,
                 on_report: ReportCallback | None = on_report,
@@ -1231,8 +1231,8 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             on_report = t.report
 
             def _wrapped_decide(
-                node: SimpleDomNode,
-                decide_func: Callable[[SimpleDomNode], DecideAction] = decide_func,
+                node: Node,
+                decide_func: Callable[[Node], DecideAction] = decide_func,
                 selector_str: str = selector_str,
                 on_hook: NodeCallback | None = on_hook,
                 on_report: ReportCallback | None = on_report,
@@ -1267,7 +1267,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             on_report = t.report
 
             def _wrapped_attrs(
-                node: SimpleDomNode,
+                node: Node,
                 edit_attrs_func: EditAttrsCallback = edit_attrs_func,
                 selector_str: str = selector_str,
                 on_hook: NodeCallback | None = on_hook,
@@ -1355,7 +1355,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             on_report = t.report
 
             def _drop_foreign(
-                node: SimpleDomNode,
+                node: Node,
                 on_hook: NodeCallback | None = on_hook,
                 on_report: ReportCallback | None = on_report,
             ) -> DecideAction:
@@ -1392,7 +1392,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             compiled_regex = _compile_patterns_to_regex(patterns)
 
             def _drop_attrs(
-                node: SimpleDomNode,
+                node: Node,
                 patterns: tuple[str, ...] = patterns,
                 compiled_regex: re.Pattern[str] | None = compiled_regex,
                 on_hook: NodeCallback | None = on_hook,
@@ -1462,7 +1462,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 allowed_by_tag[str(tag).lower()] = set(allowed_global).union(attrs)
 
             def _allowlist_attrs(
-                node: SimpleDomNode,
+                node: Node,
                 allowed_by_tag: dict[str, set[str]] = allowed_by_tag,
                 allowed_global: set[str] = allowed_global,
                 on_hook: NodeCallback | None = on_hook,
@@ -1517,7 +1517,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             on_report = t.report
 
             def _drop_url_attrs(
-                node: SimpleDomNode,
+                node: Node,
                 url_policy: UrlPolicy = url_policy,
                 on_hook: NodeCallback | None = on_hook,
                 on_report: ReportCallback | None = on_report,
@@ -1603,7 +1603,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             on_report = t.report
 
             def _allow_style_attrs(
-                node: SimpleDomNode,
+                node: Node,
                 allowed_css_properties: tuple[str, ...] = allowed_css_properties,
                 on_hook: NodeCallback | None = on_hook,
                 on_report: ReportCallback | None = on_report,
@@ -1710,7 +1710,7 @@ def _compile_patterns_to_regex(patterns: tuple[str, ...]) -> re.Pattern[str] | N
 
 
 def apply_compiled_transforms(
-    root: SimpleDomNode,
+    root: Node,
     compiled: list[CompiledTransform],
     *,
     errors: list[ParseError] | None = None,
@@ -1722,18 +1722,18 @@ def apply_compiled_transforms(
     try:
         matcher = SelectorMatcher()
 
-        def apply_walk_transforms(root_node: SimpleDomNode, walk_transforms: list[CompiledTransform]) -> None:
+        def apply_walk_transforms(root_node: Node, walk_transforms: list[CompiledTransform]) -> None:
             if not walk_transforms:
                 return
 
-            def _raw_tag_text(node: SimpleDomNode, start_attr: str, end_attr: str) -> str | None:
+            def _raw_tag_text(node: Node, start_attr: str, end_attr: str) -> str | None:
                 start = getattr(node, start_attr, None)
                 end = getattr(node, end_attr, None)
                 if start is None or end is None:
                     return None
                 src = node._source_html
                 if src is None:
-                    cur: SimpleDomNode | None = node
+                    cur: Node | None = node
                     while cur is not None and src is None:
                         cur = cur.parent
                         if cur is None:
@@ -1745,7 +1745,7 @@ def apply_compiled_transforms(
                     return None
                 return src[start:end]
 
-            def _reconstruct_start_tag(node: SimpleDomNode) -> str | None:
+            def _reconstruct_start_tag(node: Node) -> str | None:
                 if node.name.startswith("#") or node.name == "!doctype":
                     return None
                 name = str(node.name)
@@ -1755,7 +1755,7 @@ def apply_compiled_transforms(
                     tag = f"{tag[:-1]}/>"
                 return tag
 
-            def _reconstruct_end_tag(node: SimpleDomNode) -> str | None:
+            def _reconstruct_end_tag(node: Node) -> str | None:
                 if getattr(node, "_self_closing", False):
                     return None
 
@@ -1796,9 +1796,9 @@ def apply_compiled_transforms(
                 created_start_index[key] = max(created_start_index.get(key, 0), start_index)
 
             def _apply_fused_sanitize(
-                node: SimpleDomNode,
+                node: Node,
                 t: _CompiledSanitizeTransform,
-                parent: SimpleDomNode,
+                parent: Node,
                 idx: int,
             ) -> bool:
                 policy = t.policy
@@ -1878,15 +1878,15 @@ def apply_compiled_transforms(
                             raw_end = _reconstruct_end_tag(node)
 
                         if raw_start:  # pragma: no cover
-                            sn = TextNode(raw_start)
+                            sn = Text(raw_start)
                             _mark_start(sn, idx)
                             parent.insert_before(sn, node)
 
-                        moved: list[SimpleDomNode] = []
+                        moved: list[Node] = []
                         if node.children:
                             moved.extend(list(node.children))
                             node.children = []
-                        if type(node) is TemplateNode and node.template_content:
+                        if type(node) is Template and node.template_content:
                             tc = node.template_content
                             if tc.children:
                                 moved.extend(list(tc.children))
@@ -1898,7 +1898,7 @@ def apply_compiled_transforms(
                                 parent.insert_before(child, node)
 
                         if raw_end:
-                            en = TextNode(raw_end)
+                            en = Text(raw_end)
                             _mark_start(en, idx)
                             parent.insert_before(en, node)
 
@@ -1906,11 +1906,11 @@ def apply_compiled_transforms(
                         return True
 
                     # UNWRAP
-                    moved_nodes: list[SimpleDomNode] = []
+                    moved_nodes: list[Node] = []
                     if node.children:
                         moved_nodes.extend(list(node.children))
                         node.children = []
-                    if type(node) is TemplateNode and node.template_content:
+                    if type(node) is Template and node.template_content:
                         tc = node.template_content
                         if tc.children:
                             moved_nodes.extend(list(tc.children))
@@ -2067,7 +2067,7 @@ def apply_compiled_transforms(
 
                 return False
 
-            def apply_to_children(parent: SimpleDomNode, *, skip_linkify: bool, skip_whitespace: bool) -> None:
+            def apply_to_children(parent: Node, *, skip_linkify: bool, skip_whitespace: bool) -> None:
                 children = parent.children
                 if not children:
                     return
@@ -2193,19 +2193,19 @@ def apply_compiled_transforms(
                                         cursor = 0
                                         for m in matches:
                                             if m.start > cursor:
-                                                txt = TextNode(data[cursor : m.start])
+                                                txt = Text(data[cursor : m.start])
                                                 _mark_start(txt, idx + 1)
                                                 parent.insert_before(txt, node)
 
                                             ns = parent.namespace or "html"
-                                            a = ElementNode("a", {"href": m.href}, ns)
-                                            a.append_child(TextNode(m.text))
+                                            a = Element("a", {"href": m.href}, ns)
+                                            a.append_child(Text(m.text))
                                             _mark_start(a, idx + 1)
                                             parent.insert_before(a, node)
                                             cursor = m.end
 
                                         if cursor < len(data):
-                                            tail = TextNode(data[cursor:])
+                                            tail = Text(data[cursor:])
                                             _mark_start(tail, idx + 1)
                                             parent.insert_before(tail, node)
 
@@ -2238,7 +2238,7 @@ def apply_compiled_transforms(
                                     for child in node.children:
                                         child.parent = None
                                     node.children = []
-                                if type(node) is TemplateNode and node.template_content is not None:
+                                if type(node) is Template and node.template_content is not None:
                                     tc = node.template_content
                                     for child in tc.children or []:
                                         child.parent = None
@@ -2246,11 +2246,11 @@ def apply_compiled_transforms(
                                 continue
 
                             if action is DecideAction.UNWRAP:
-                                moved_nodes: list[SimpleDomNode] = []
+                                moved_nodes: list[Node] = []
                                 if name != "#text" and node.children:
                                     moved_nodes.extend(list(node.children))
                                     node.children = []
-                                if type(node) is TemplateNode and node.template_content is not None:
+                                if type(node) is Template and node.template_content is not None:
                                     tc = node.template_content
                                     if tc.children:
                                         moved_nodes.extend(list(tc.children))
@@ -2271,15 +2271,15 @@ def apply_compiled_transforms(
                                 if raw_end is None:
                                     raw_end = _reconstruct_end_tag(node)
                                 if raw_start:
-                                    start_node = TextNode(raw_start)
+                                    start_node = Text(raw_start)
                                     _mark_start(start_node, idx)
                                     parent.insert_before(start_node, node)
 
-                                moved: list[SimpleDomNode] = []
+                                moved: list[Node] = []
                                 if name != "#text" and node.children:
                                     moved.extend(list(node.children))
                                     node.children = []
-                                if type(node) is TemplateNode and node.template_content is not None:
+                                if type(node) is Template and node.template_content is not None:
                                     tc = node.template_content
                                     tc_children = tc.children or []
                                     moved.extend(tc_children)
@@ -2291,7 +2291,7 @@ def apply_compiled_transforms(
                                         parent.insert_before(child, node)
 
                                 if raw_end:
-                                    end_node = TextNode(raw_end)
+                                    end_node = Text(raw_end)
                                     _mark_start(end_node, idx)
                                     parent.insert_before(end_node, node)
 
@@ -2361,7 +2361,7 @@ def apply_compiled_transforms(
                                 for child in node.children:
                                     child.parent = None
                                 node.children = []
-                            if type(node) is TemplateNode and node.template_content is not None:
+                            if type(node) is Template and node.template_content is not None:
                                 tc = node.template_content
                                 had_children = had_children or bool(tc.children)
                                 for child in tc.children or []:
@@ -2392,12 +2392,12 @@ def apply_compiled_transforms(
                             tag = str(node.name).lower()
                             t.report(f"Unwrapped <{tag}> (matched selector '{t.selector_str}')", node=node)
 
-                        moved_nodes_unwrap: list[SimpleDomNode] = []
+                        moved_nodes_unwrap: list[Node] = []
                         if node.children:
                             moved_nodes_unwrap.extend(list(node.children))
                             node.children = []
 
-                        if type(node) is TemplateNode and node.template_content is not None:
+                        if type(node) is Template and node.template_content is not None:
                             tc = node.template_content
                             tc_children = tc.children or []
                             moved_nodes_unwrap.extend(tc_children)
@@ -2427,29 +2427,27 @@ def apply_compiled_transforms(
                         if node.children:
                             apply_to_children(node, skip_linkify=child_skip, skip_whitespace=child_skip_ws)
 
-                        if type(node) is TemplateNode and node.template_content is not None:
+                        if type(node) is Template and node.template_content is not None:
                             apply_to_children(
                                 node.template_content, skip_linkify=child_skip, skip_whitespace=child_skip_ws
                             )
 
                     i += 1
 
-            if type(root_node) is not TextNode:
+            if type(root_node) is not Text:
                 apply_to_children(root_node, skip_linkify=False, skip_whitespace=False)
 
                 # Root template nodes need special handling since the main walk
                 # only visits children of the provided root.
-                if type(root_node) is TemplateNode and root_node.template_content is not None:
+                if type(root_node) is Template and root_node.template_content is not None:
                     apply_to_children(root_node.template_content, skip_linkify=False, skip_whitespace=False)
 
-        def apply_prune_transforms(
-            root_node: SimpleDomNode, prune_transforms: list[_CompiledPruneEmptyTransform]
-        ) -> None:
-            def _is_effectively_empty_element(n: SimpleDomNode, *, strip_whitespace: bool) -> bool:
+        def apply_prune_transforms(root_node: Node, prune_transforms: list[_CompiledPruneEmptyTransform]) -> None:
+            def _is_effectively_empty_element(n: Node, *, strip_whitespace: bool) -> bool:
                 if n.namespace == "html" and n.name.lower() in VOID_ELEMENTS:
                     return False
 
-                def _has_content(children: list[SimpleDomNode] | None) -> bool:
+                def _has_content(children: list[Node] | None) -> bool:
                     if not children:
                         return False
                     for ch in children:
@@ -2471,22 +2469,22 @@ def apply_compiled_transforms(
                 if _has_content(n.children):
                     return False
 
-                if type(n) is TemplateNode and n.template_content is not None:
+                if type(n) is Template and n.template_content is not None:
                     if _has_content(n.template_content.children):
                         return False
 
                 return True
 
-            stack: list[tuple[SimpleDomNode, bool]] = [(root_node, False)]
+            stack: list[tuple[Node, bool]] = [(root_node, False)]
             while stack:
                 node, visited = stack.pop()
                 if not visited:
                     stack.append((node, True))
 
                     children = node.children or []
-                    stack.extend((child, False) for child in reversed(children) if isinstance(child, SimpleDomNode))
+                    stack.extend((child, False) for child in reversed(children) if isinstance(child, Node))
 
-                    if type(node) is TemplateNode and node.template_content is not None:
+                    if type(node) is Template and node.template_content is not None:
                         stack.append((node.template_content, False))
                     continue
 

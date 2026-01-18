@@ -11,7 +11,7 @@ from .transforms import apply_compiled_transforms, compile_transforms
 from .treebuilder import TreeBuilder
 
 if TYPE_CHECKING:
-    from .node import SimpleDomNode
+    from .node import Node
     from .sanitize import SanitizationPolicy
     from .tokens import ParseError
     from .transforms import TransformSpec
@@ -47,7 +47,7 @@ class JustHTML:
     encoding: str | None
     errors: list[ParseError]
     fragment_context: FragmentContext | None
-    root: SimpleDomNode
+    root: Node
     tokenizer: Tokenizer
     tree_builder: TreeBuilder
 

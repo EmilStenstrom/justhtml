@@ -39,7 +39,7 @@ JustHTML(html, *, safe=True, policy=None, collect_errors=False, track_node_locat
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `root` | `SimpleDomNode` | The document root (`#document` or `#document-fragment`) |
+| `root` | `Document \| DocumentFragment` | The document root |
 | `errors` | `list[ParseError]` | Parse errors, ordered by source position (only if `collect_errors=True`) |
 
 ### Methods
@@ -83,9 +83,18 @@ doc.query("div.container > p")  # Returns list of matching nodes
 
 ---
 
-## SimpleDomNode
+## Node
 
-Represents an element, text, comment, or document node.
+Base type for all DOM nodes.
+
+Node types:
+
+- `Document`: the root for full-document parses
+- `DocumentFragment`: the root for fragment parses
+- `Element`: normal HTML/SVG/MathML elements
+- `Text`: text nodes (`#text`)
+- `Comment`: comment nodes (`#comment`)
+- `Template`: `<template>` elements with `template_content`
 
 ### Properties
 
@@ -94,7 +103,7 @@ Represents an element, text, comment, or document node.
 | `name` | `str` | Tag name (e.g., `"div"`) or `"#text"`, `"#comment"`, `"#document"` |
 | `attrs` | `dict \| None` | Attribute dictionary (None for comments/doctypes) |
 | `children` | `list \| None` | Child nodes (None for comments/doctypes) |
-| `parent` | `SimpleDomNode` | Parent node (or `None` for root) |
+| `parent` | `Node` | Parent node (or `None` for root) |
 | `text` | `str` | Node-local text value. For text nodes this is the node data, otherwise `""`. Use `to_text()` for textContent semantics. |
 
 ### Methods

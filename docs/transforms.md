@@ -90,15 +90,15 @@ Example: Let's a Edit() transform create new nodes and then set attributes
 
 ```python
 from justhtml import Edit, JustHTML, SetAttrs, Stage
-from justhtml.node import SimpleDomNode, TextNode
+from justhtml.node import Node, Text
 
 
 def insert_marker(p):
     # Insert a new sibling *before* the current node.
     # Without an explicit stage boundary, later transforms in the same walk
     # may not visit nodes inserted before the current cursor.
-    marker = SimpleDomNode("span")
-    marker.append_child(TextNode("NEW "))
+    marker = Node("span")
+    marker.append_child(Text("NEW "))
     # If this was insert_after, SetAttrs would have seen the node.
     p.parent.insert_before(marker, p)
 

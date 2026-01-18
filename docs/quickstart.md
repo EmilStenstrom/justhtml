@@ -55,7 +55,7 @@ See [Encoding & Byte Input](encoding.md) for details and how to override with `e
 
 ## Traversing the Tree
 
-The parser returns a tree of `SimpleDomNode` objects:
+The parser returns a tree of `Node` objects:
 
 ```python
 from justhtml import JustHTML

@@ -936,7 +936,7 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     if policy.disallowed_tag_handling == "escape":
         root_source_html = getattr(node, "_source_html", None)
         if root_source_html:
-            from .node import TemplateNode  # noqa: PLC0415
+            from .node import Template  # noqa: PLC0415
 
             stack: list[Any] = [node]
             while stack:
@@ -945,14 +945,14 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
 
                 children = getattr(current, "children", None) or []
                 for child in children:
-                    # TextNode does not have _source_html.
+                    # Text does not have _source_html.
                     if getattr(child, "name", "") == "#text":
                         continue
                     if getattr(child, "_source_html", None) is None:
                         child._source_html = current_source_html
                     stack.append(child)
 
-                if type(current) is TemplateNode and current.template_content is not None:
+                if type(current) is Template and current.template_content is not None:
                     tc = current.template_content
                     if getattr(tc, "_source_html", None) is None:
                         tc._source_html = current_source_html
@@ -976,9 +976,9 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
         apply_compiled_transforms(cloned, compiled, errors=None)
         return cloned
 
-    from .node import SimpleDomNode  # noqa: PLC0415
+    from .node import DocumentFragment  # noqa: PLC0415
 
-    wrapper = SimpleDomNode("#document-fragment")
+    wrapper = DocumentFragment()
     wrapper.append_child(node.clone_node(deep=True))
     apply_compiled_transforms(wrapper, compiled, errors=None)
 

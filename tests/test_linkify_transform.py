@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from justhtml import JustHTML as _JustHTML
-from justhtml.node import ElementNode, TextNode
+from justhtml.node import Element, Text
 from justhtml.transforms import Linkify, apply_compiled_transforms, compile_transforms
 
 
@@ -51,8 +51,8 @@ class TestLinkifyTransform(unittest.TestCase):
         assert '<template><a href="http://example.com">example.com</a></template>' in out
 
     def test_apply_compiled_transforms_handles_empty_text_nodes(self) -> None:
-        root = ElementNode("div", {}, "html")
-        root.append_child(TextNode(""))
+        root = Element("div", {}, "html")
+        root.append_child(Text(""))
 
         compiled = compile_transforms([Linkify()])
         apply_compiled_transforms(root, compiled)

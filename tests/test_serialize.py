@@ -3,6 +3,7 @@ import unittest
 
 from justhtml import JustHTML as _JustHTML
 from justhtml.context import FragmentContext
+from justhtml.node import Comment, DocumentFragment, Node, Template, Text
 from justhtml.serialize import (
     _can_unquote_attr_value,
     _choose_attr_quote,
@@ -19,8 +20,6 @@ from justhtml.serialize import (
     to_html,
     to_test_format,
 )
-from justhtml.treebuilder import SimpleDomNode as Node
-from justhtml.treebuilder import TemplateNode
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802
@@ -92,10 +91,10 @@ class TestSerialize(unittest.TestCase):
         assert 'data-val="x&amp;y"' in output  # Check escaping
 
     def test_text_escaping(self):
-        frag = Node("#document-fragment")
+        frag = DocumentFragment()
         div = Node("div")
         frag.append_child(div)
-        div.append_child(Node("#text", data="a<b&c"))
+        div.append_child(Text("a<b&c"))
         output = to_html(frag, pretty=False)
         assert output == "<div>a&lt;b&amp;c</div>"
 
@@ -116,7 +115,7 @@ class TestSerialize(unittest.TestCase):
 
     def test_document_fragment(self):
         # Manually create a document fragment since parser returns Document
-        frag = Node("#document-fragment")
+        frag = DocumentFragment()
         child = Node("div")
         frag.append_child(child)
         output = to_html(frag)
@@ -153,11 +152,11 @@ class TestSerialize(unittest.TestCase):
         # "all-children-are-elements" multiline rule).
         div = Node("div")
         div.append_child(Node("span"))
-        div.append_child(Node("#text", data="      "))
+        div.append_child(Text("      "))
         div.append_child(Node("a"))
-        div.append_child(Node("#text", data="\n  \t"))
-        div.append_child(Node("#text", data="Search"))
-        div.append_child(Node("#text", data="     "))
+        div.append_child(Text("\n  \t"))
+        div.append_child(Text("Search"))
+        div.append_child(Text("     "))
         div.append_child(Node("ul"))
 
         output = div.to_html(pretty=True)
@@ -178,13 +177,13 @@ class TestSerialize(unittest.TestCase):
         # run-splitting layout and fall back to the existing compact-pretty logic.
         div = Node("div")
         div.append_child(Node("span"))
-        div.append_child(Node("#text", data="     "))
+        div.append_child(Text("     "))
         div.append_child(Node("ul"))
         div.append_child(Node("span"))  # Adjacent to <ul> (no whitespace) => same run
-        div.append_child(Node("#text", data="\n  \t"))
+        div.append_child(Text("\n  \t"))
         div.append_child(Node("a"))
-        div.append_child(Node("#text", data="     "))
-        div.append_child(Node("#text", data="Tail"))
+        div.append_child(Text("     "))
+        div.append_child(Text("Tail"))
 
         output = div.to_html(pretty=True)
         expected = textwrap.dedent(
@@ -202,10 +201,10 @@ class TestSerialize(unittest.TestCase):
 
     def test_pretty_block_container_keeps_inline_run_on_one_line(self):
         div = Node("div")
-        div.append_child(Node("#text", data="Hello"))
-        div.append_child(Node("#text", data=" "))
+        div.append_child(Text("Hello"))
+        div.append_child(Text(" "))
         div.append_child(Node("em"))
-        div.append_child(Node("#text", data=" world"))
+        div.append_child(Text(" world"))
         assert div.to_html(pretty=True) == "<div>Hello <em></em> world</div>"
 
     def test_pretty_block_container_breaks_before_block_child_even_with_small_spaces(self):
@@ -213,11 +212,11 @@ class TestSerialize(unittest.TestCase):
         # "formatting whitespace separator" heuristic doesn't trigger.
         # We still want the block subtree (and its indentation) to be preserved.
         div = Node("div")
-        div.append_child(Node("#text", data="Main menu  Navigation  "))
+        div.append_child(Text("Main menu  Navigation  "))
 
         ul = Node("ul")
         li = Node("li")
-        li.append_child(Node("#text", data="Item"))
+        li.append_child(Text("Item"))
         ul.append_child(li)
         div.append_child(ul)
 
@@ -239,8 +238,8 @@ class TestSerialize(unittest.TestCase):
         assert _is_formatting_whitespace_text("\n") is True
 
     def test_is_blocky_element_returns_false_for_text_comment_and_doctype_nodes(self):
-        assert _is_blocky_element(Node("#text", data="x")) is False
-        assert _is_blocky_element(Node("#comment", data="c")) is False
+        assert _is_blocky_element(Text("x")) is False
+        assert _is_blocky_element(Comment(data="c")) is False
         assert _is_blocky_element(Node("!doctype")) is False
 
     def test_is_blocky_element_returns_false_for_objects_without_children(self):
@@ -253,7 +252,7 @@ class TestSerialize(unittest.TestCase):
         assert _is_layout_blocky_element(object()) is False
 
     def test_is_layout_blocky_element_returns_false_for_comment_node(self):
-        assert _is_layout_blocky_element(Node("#comment", data="c")) is False
+        assert _is_layout_blocky_element(Comment(data="c")) is False
 
     def test_is_layout_blocky_element_true_for_layout_blocks_and_descendants(self):
         assert _is_layout_blocky_element(Node("div")) is True
@@ -284,12 +283,12 @@ class TestSerialize(unittest.TestCase):
         # (" ") and renders inline elements via _node_to_html(..., indent=0).
         div = Node("div")
         div.append_child(Node("span"))
-        div.append_child(Node("#text", data="\n  "))
-        div.append_child(Node("#text", data="Hello"))
-        div.append_child(Node("#text", data=" "))
+        div.append_child(Text("\n  "))
+        div.append_child(Text("Hello"))
+        div.append_child(Text(" "))
         div.append_child(Node("em"))
-        div.append_child(Node("#text", data=" world"))
-        div.append_child(Node("#text", data="\n"))
+        div.append_child(Text(" world"))
+        div.append_child(Text("\n"))
         div.append_child(Node("a"))
 
         assert div.to_html(pretty=True) == textwrap.dedent(
@@ -305,13 +304,13 @@ class TestSerialize(unittest.TestCase):
     def test_pretty_block_container_smart_mode_ignores_leading_and_trailing_formatting_whitespace(self):
         # Covers trimming of leading/trailing formatting whitespace in smart-mode.
         div = Node("div")
-        div.append_child(Node("#text", data="\n"))
+        div.append_child(Text("\n"))
         div.append_child(Node("span"))
-        div.append_child(Node("#text", data="\n"))
+        div.append_child(Text("\n"))
         div.append_child(Node("a"))
-        div.append_child(Node("#text", data=" "))
-        div.append_child(Node("#text", data="Tail"))
-        div.append_child(Node("#text", data="\n"))
+        div.append_child(Text(" "))
+        div.append_child(Text("Tail"))
+        div.append_child(Text("\n"))
 
         assert div.to_html(pretty=True) == textwrap.dedent(
             """\
@@ -330,13 +329,13 @@ class TestSerialize(unittest.TestCase):
         # to guarantee two distinct formatting-whitespace nodes.
         div.children = [
             Node("span"),
-            Node("#text", data="\n"),
-            Node("#text", data="\n  \t"),
+            Text("\n"),
+            Text("\n  \t"),
             Node("a"),
             # Make the container mixed-content so we actually take the smart
             # run-splitting path (the simpler multiline indentation path is disabled
             # when there is non-whitespace text).
-            Node("#text", data=" Tail"),
+            Text(" Tail"),
         ]
 
         assert div.to_html(pretty=True) == textwrap.dedent(
@@ -355,10 +354,10 @@ class TestSerialize(unittest.TestCase):
         ul.append_child(Node("li"))
         div.children = [
             None,
-            Node("#text", data="   "),
-            Node("#text", data="Text"),
+            Text("   "),
+            Text("Text"),
             ul,
-            Node("#text", data="   "),
+            Text("   "),
             None,
         ]
 
@@ -375,7 +374,7 @@ class TestSerialize(unittest.TestCase):
 
     def test_pretty_text_only_element_empty_text_is_dropped(self):
         h3 = Node("h3")
-        h3.append_child(Node("#text", data=""))
+        h3.append_child(Text(""))
         assert h3.to_html(pretty=True) == "<h3></h3>"
 
     def test_pretty_text_only_script_preserves_whitespace(self):
@@ -386,7 +385,7 @@ class TestSerialize(unittest.TestCase):
     def test_compact_mode_does_not_normalize_script_text_children(self):
         # Artificial tree to cover serializer branch: skip normalization inside rawtext elements.
         script = Node("script")
-        script.append_child(Node("#text", data="a\nb"))
+        script.append_child(Text("a\nb"))
         script.append_child(Node("span"))
         assert script.to_html(pretty=True) == "<script>a\nb<span></span></script>"
 
@@ -529,9 +528,9 @@ class TestSerialize(unittest.TestCase):
 
     def test_pretty_indent_skips_whitespace_text_nodes(self):
         div = Node("div")
-        div.append_child(Node("#text", data="\n  "))
+        div.append_child(Text("\n  "))
         div.append_child(Node("p"))
-        div.append_child(Node("#text", data="\n"))
+        div.append_child(Text("\n"))
         output = div.to_html(pretty=True)
         expected = textwrap.dedent(
             """\
@@ -561,7 +560,7 @@ class TestSerialize(unittest.TestCase):
         # to a multiline layout for readability.
         div = Node("div")
         div.append_child(Node("span"))
-        div.append_child(Node("#text", data="     "))
+        div.append_child(Text("     "))
         div.append_child(Node("span"))
         output = div.to_html(pretty=True)
         expected = textwrap.dedent(
@@ -578,7 +577,7 @@ class TestSerialize(unittest.TestCase):
         # Newlines/tabs between inline siblings upgrade to multiline layout.
         div = Node("div")
         div.append_child(Node("span"))
-        div.append_child(Node("#text", data="\n  \t"))
+        div.append_child(Text("\n  \t"))
         div.append_child(Node("span"))
         output = div.to_html(pretty=True)
         expected = textwrap.dedent(
@@ -592,12 +591,12 @@ class TestSerialize(unittest.TestCase):
         assert output == expected
 
     def test_should_pretty_indent_children_no_element_children(self):
-        children = [Node("#text", data="  "), Node("#text", data="\n")]
+        children = [Text("  "), Text("\n")]
         assert _should_pretty_indent_children(children) is True
 
     def test_should_pretty_indent_children_skips_none_children(self):
         # Defensive: children lists can contain None.
-        children = [None, Node("#text", data=" "), None]
+        children = [None, Text(" "), None]
         assert _should_pretty_indent_children(children) is True
 
     def test_should_pretty_indent_children_single_special_element_child(self):
@@ -647,7 +646,7 @@ class TestSerialize(unittest.TestCase):
         # container, prefer multiline formatting over preserving exact whitespace.
         div = Node("div")
         div.append_child(Node("span"))
-        div.append_child(Node("#text", data="  "))
+        div.append_child(Text("  "))
         div.append_child(Node("span"))
         output = div.to_html(pretty=True)
         expected = textwrap.dedent(
@@ -670,7 +669,7 @@ class TestSerialize(unittest.TestCase):
     def test_compact_pretty_drops_empty_text_children(self):
         div = Node("div")
         div.append_child(Node("span"))
-        div.append_child(Node("#text", data=""))
+        div.append_child(Text(""))
         div.append_child(Node("span"))
         output = div.to_html(pretty=True)
         expected = textwrap.dedent(
@@ -685,18 +684,18 @@ class TestSerialize(unittest.TestCase):
 
     def test_compact_pretty_drops_leading_and_trailing_whitespace(self):
         div = Node("div")
-        div.append_child(Node("#text", data=" \n"))
+        div.append_child(Text(" \n"))
         div.append_child(Node("a"))
-        div.append_child(Node("#text", data=" \t\n"))
+        div.append_child(Text(" \t\n"))
         output = div.to_html(pretty=True)
         assert output == "<div>\n  <a></a>\n</div>"
 
     def test_blockish_compact_multiline_not_used_with_comment_children(self):
         div = Node("div")
         div.append_child(Node("span"))
-        div.append_child(Node("#text", data=" "))
-        div.append_child(Node("#comment", data="x"))
-        div.append_child(Node("#text", data=" "))
+        div.append_child(Text(" "))
+        div.append_child(Comment(data="x"))
+        div.append_child(Text(" "))
         div.append_child(Node("span"))
         output = div.to_html(pretty=True)
         assert output == "<div><span></span> <!--x--> <span></span></div>"
@@ -704,8 +703,8 @@ class TestSerialize(unittest.TestCase):
     def test_blockish_compact_multiline_not_used_with_non_whitespace_text(self):
         div = Node("div")
         div.append_child(Node("span"))
-        div.append_child(Node("#text", data="hi"))
-        div.append_child(Node("#text", data=" "))
+        div.append_child(Text("hi"))
+        div.append_child(Text(" "))
         div.append_child(Node("span"))
         output = div.to_html(pretty=True)
         assert output == "<div><span></span>hi <span></span></div>"
@@ -713,9 +712,9 @@ class TestSerialize(unittest.TestCase):
     def test_blockish_compact_multiline_allows_trailing_text(self):
         div = Node("div")
         div.append_child(Node("div"))
-        div.append_child(Node("#text", data=" "))
+        div.append_child(Text(" "))
         div.append_child(Node("div"))
-        div.append_child(Node("#text", data=" Collapse\n"))
+        div.append_child(Text(" Collapse\n"))
 
         output = div.to_html(pretty=True)
         expected = textwrap.dedent(
@@ -733,12 +732,12 @@ class TestSerialize(unittest.TestCase):
         # Exercise the multiline eligibility path where it matches, but each
         # child renders to an empty string (so we fall back to compact mode).
         div = Node("div")
-        frag1 = Node("#document-fragment")
-        frag1.append_child(Node("#text", data="  "))
-        frag2 = Node("#document-fragment")
-        frag2.append_child(Node("#text", data="\n"))
+        frag1 = DocumentFragment()
+        frag1.append_child(Text("  "))
+        frag2 = DocumentFragment()
+        frag2.append_child(Text("\n"))
         div.append_child(frag1)
-        div.append_child(Node("#text", data=" "))
+        div.append_child(Text(" "))
         div.append_child(frag2)
 
         output = div.to_html(pretty=True)
@@ -746,7 +745,7 @@ class TestSerialize(unittest.TestCase):
 
     def test_blockish_compact_multiline_skips_none_children(self):
         div = Node("div")
-        div.children = [Node("span"), Node("#text", data=" "), None, Node("span")]
+        div.children = [Node("span"), Text(" "), None, Node("span")]
         output = div.to_html(pretty=True)
         expected = textwrap.dedent(
             """\
@@ -764,10 +763,10 @@ class TestSerialize(unittest.TestCase):
         div = Node("div")
         div.children = [
             Node("span"),
-            Node("#text", data=" "),
+            Text(" "),
             None,
             Node("span"),
-            Node("#text", data=" trailing\n"),
+            Text(" trailing\n"),
         ]
         output = div.to_html(pretty=True)
         expected = textwrap.dedent(
@@ -786,7 +785,7 @@ class TestSerialize(unittest.TestCase):
         # formatting whitespace to a single space.
         outer = Node("span")
         outer.append_child(Node("span"))
-        outer.append_child(Node("#text", data="\n  \t"))
+        outer.append_child(Text("\n  \t"))
         outer.append_child(Node("span"))
         output = outer.to_html(pretty=True)
         assert output == "<span><span></span> <span></span></span>"
@@ -795,10 +794,10 @@ class TestSerialize(unittest.TestCase):
         # Ensure the compact-mode whitespace edge trimming is robust with None children.
         div = Node("div")
         div.children = [
-            Node("#text", data=" \n"),
+            Text(" \n"),
             Node("a"),
-            Node("#comment", data="x"),
-            Node("#text", data=" \t\n"),
+            Comment(data="x"),
+            Text(" \t\n"),
             None,
         ]
         output = div.to_html(pretty=True)
@@ -807,7 +806,7 @@ class TestSerialize(unittest.TestCase):
     def test_pretty_indentation_skips_whitespace_text_nodes(self):
         # Hit the indentation-mode branch that skips whitespace-only text nodes.
         outer = Node("span")
-        outer.children = [Node("div"), Node("#text", data=" \n\t"), Node("div")]
+        outer.children = [Node("div"), Text(" \n\t"), Node("div")]
         output = outer.to_html(pretty=True)
         assert output == "<span>\n  <div></div>\n  <div></div>\n</span>"
 
@@ -843,28 +842,28 @@ class TestSerialize(unittest.TestCase):
 
     def test_pretty_indent_children_does_not_indent_comments(self):
         div = Node("div")
-        div.append_child(Node("#comment", data="x"))
+        div.append_child(Comment(data="x"))
         div.append_child(Node("p"))
         output = div.to_html(pretty=True)
         assert output == "<div><!--x--><p></p></div>"
 
     def test_whitespace_in_fragment(self):
-        frag = Node("#document-fragment")
-        # SimpleDomNode constructor: name, attrs=None, data=None, namespace=None
-        text_node = Node("#text", data="   ")
+        frag = DocumentFragment()
+        # Node constructor: name, attrs=None, data=None, namespace=None
+        text_node = Text("   ")
         frag.append_child(text_node)
         output = to_html(frag)
         assert output == ""
 
     def test_text_node_pretty_strips_and_renders(self):
-        frag = Node("#document-fragment")
-        frag.append_child(Node("#text", data="  hi  "))
+        frag = DocumentFragment()
+        frag.append_child(Text("  hi  "))
         output = to_html(frag, pretty=True)
         assert output == "hi"
 
     def test_empty_text_node_is_dropped_when_not_pretty(self):
         div = Node("div")
-        div.append_child(Node("#text", data=""))
+        div.append_child(Text(""))
         output = to_html(div, pretty=False)
         assert output == "<div></div>"
 
@@ -880,7 +879,7 @@ class TestSerialize(unittest.TestCase):
     def test_element_without_attributes(self):
         # Test serialize.py line 82->86: attr_parts is empty (no attributes)
         node = Node("div")
-        text_node = Node("#text", data="hello")
+        text_node = Text("hello")
         node.append_child(text_node)
         output = to_html(node)
         assert output == "<div>hello</div>"
@@ -893,7 +892,7 @@ class TestSerialize(unittest.TestCase):
 
     def test_to_test_format_template_with_attributes(self):
         # Test template with attributes (line 126)
-        template = TemplateNode("template", namespace="html")
+        template = Template("template", namespace="html")
         template.attrs = {"id": "t1"}
         child = Node("p")
         template.template_content.append_child(child)

@@ -1,7 +1,7 @@
 import unittest
 
 from justhtml import JustHTML, SanitizationPolicy, UrlRule, to_html
-from justhtml.node import ElementNode, TextNode
+from justhtml.node import Element, Text
 from justhtml.transforms import (
     AllowlistAttrs,
     AllowStyleAttrs,
@@ -115,8 +115,8 @@ class TestTransformsEdgeCases(unittest.TestCase):
         # Must drop to trigger hook. HTML parser puts SVG in SVG namespace (safe).
         # We manually construct a node with Unsafe namespace.
         t_foreign = DropForeignNamespaces(callback=hook, report=report)
-        foreign_node = ElementNode("bad", {}, "unsafe:namespace")
-        root = ElementNode("root", {}, "html")
+        foreign_node = Element("bad", {}, "unsafe:namespace")
+        root = Element("root", {}, "html")
         root.append_child(foreign_node)
         # Manual apply to hit the wrapper
         apply_compiled_transforms(root, compile_transforms([t_foreign]))
@@ -125,24 +125,24 @@ class TestTransformsEdgeCases(unittest.TestCase):
     def test_drop_foreign_namespaces_keep_path(self):
         """Cover DropForeignNamespaces KEEP return for HTML namespace nodes."""
         t_foreign = DropForeignNamespaces(report=lambda m, node: None)
-        root = ElementNode("root", {}, "html")
-        root.append_child(ElementNode("p", {}, "html"))
+        root = Element("root", {}, "html")
+        root.append_child(Element("p", {}, "html"))
         apply_compiled_transforms(root, compile_transforms([t_foreign]))
         self.assertEqual(len(root.children), 1)
 
     def test_drop_attrs_no_attrs_returns_none(self):
         """Cover DropAttrs early return when attrs is empty."""
         t = DropAttrs("div", patterns=("data-*",), report=lambda m, node: None)
-        root = ElementNode("root", {}, "html")
-        root.append_child(ElementNode("div", {}, "html"))
+        root = Element("root", {}, "html")
+        root.append_child(Element("div", {}, "html"))
         apply_compiled_transforms(root, compile_transforms([t]))
         self.assertEqual(len(root.children), 1)
 
     def test_drop_attrs_no_match_returns_none(self):
         """Cover DropAttrs early return when no attribute matched patterns."""
         t = DropAttrs("div", patterns=("data-*",), report=lambda m, node: None)
-        root = ElementNode("root", {}, "html")
-        root.append_child(ElementNode("div", {"class": "x"}, "html"))
+        root = Element("root", {}, "html")
+        root.append_child(Element("div", {"class": "x"}, "html"))
         apply_compiled_transforms(root, compile_transforms([t]))
         self.assertEqual(len(root.children), 1)
 
@@ -173,16 +173,16 @@ class TestTransformsEdgeCases(unittest.TestCase):
     def test_allowlist_attrs_no_attrs_returns_none(self):
         """Cover AllowlistAttrs early return when attrs is empty."""
         t = AllowlistAttrs("div", allowed_attributes={"div": ["id"]}, report=lambda m, node: None)
-        root = ElementNode("root", {}, "html")
-        root.append_child(ElementNode("div", {}, "html"))
+        root = Element("root", {}, "html")
+        root.append_child(Element("div", {}, "html"))
         apply_compiled_transforms(root, compile_transforms([t]))
         self.assertEqual(len(root.children), 1)
 
     def test_allowlist_attrs_no_change_returns_none(self):
         """Cover AllowlistAttrs early return when nothing changes."""
         t = AllowlistAttrs("div", allowed_attributes={"div": ["id"]}, report=lambda m, node: None)
-        root = ElementNode("root", {}, "html")
-        root.append_child(ElementNode("div", {"id": "x"}, "html"))
+        root = Element("root", {}, "html")
+        root.append_child(Element("div", {"id": "x"}, "html"))
         apply_compiled_transforms(root, compile_transforms([t]))
         self.assertEqual(len(root.children), 1)
 
@@ -223,14 +223,14 @@ class TestTransformsEdgeCases(unittest.TestCase):
         def report(msg, node):
             reported.append(msg)
 
-        div = ElementNode("div", {"href": None}, "html")
+        div = Element("div", {"href": None}, "html")
         rule = UrlRule()
         policy = UrlPolicy(allow_rules={("div", "href"): rule})
         t = DropUrlAttrs("div", url_policy=policy, callback=hook, report=report)
         compiled = compile_transforms([t])
 
         # Apply - need root
-        root = ElementNode("root", {}, "html")
+        root = Element("root", {}, "html")
         root.append_child(div)
         apply_compiled_transforms(root, compiled)
 
@@ -241,11 +241,11 @@ class TestTransformsEdgeCases(unittest.TestCase):
         """
         Cover 'if not attrs: return None' in DropUrlAttrs wrapper.
         """
-        div = ElementNode("div", {}, "html")
+        div = Element("div", {}, "html")
         policy = UrlPolicy()
         t = DropUrlAttrs("div", url_policy=policy)
         compiled = compile_transforms([t])
-        root = ElementNode("root", {}, "html")
+        root = Element("root", {}, "html")
         root.append_child(div)
         apply_compiled_transforms(root, compiled)
         self.assertEqual(div.name, "div")
@@ -331,9 +331,9 @@ class TestTransformsEdgeCases(unittest.TestCase):
         t = Decide("div", lambda node: DecideAction.ESCAPE)
         compiled = compile_transforms([t])
 
-        root = ElementNode("root", {}, "html")
-        div = ElementNode("div", {}, "html")
-        div.append_child(TextNode("hi"))
+        root = Element("root", {}, "html")
+        div = Element("div", {}, "html")
+        div.append_child(Text("hi"))
 
         src = "<div>hi</div>"
         div._source_html = src

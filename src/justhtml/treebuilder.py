@@ -25,7 +25,7 @@ from .constants import (
     TABLE_SCOPE_TERMINATORS,
 )
 from .errors import generate_error_message
-from .node import ElementNode, SimpleDomNode, TemplateNode, TextNode
+from .node import Comment, Document, DocumentFragment, Element, Node, Template, Text
 from .tokens import AnyToken, CharacterTokens, CommentToken, DoctypeToken, EOFToken, ParseError, Tag, TokenSinkResult
 from .treebuilder_modes import TreeBuilderModesMixin
 from .treebuilder_utils import (
@@ -81,7 +81,7 @@ class TreeBuilder(TreeBuilderModesMixin):
     track_tag_spans: bool
     active_formatting: list[Any]
     collect_errors: bool
-    document: SimpleDomNode
+    document: Node
     errors: list[ParseError]
     form_element: Any | None
     fragment_context: Any | None
@@ -117,9 +117,9 @@ class TreeBuilder(TreeBuilderModesMixin):
         self.tokenizer = None  # Set by parser after tokenizer is created
         self.fragment_context_element = None
         if fragment_context is not None:
-            self.document = SimpleDomNode("#document-fragment")
+            self.document = DocumentFragment()
         else:
-            self.document = SimpleDomNode("#document")
+            self.document = Document()
         self.mode = InsertionMode.INITIAL
         self.original_mode = None
         self.table_text_original_mode = None
@@ -500,7 +500,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             self._pending_end_tag_start = None
             self._pending_end_tag_end = None
 
-    def finish(self) -> SimpleDomNode:
+    def finish(self) -> Node:
         if self.fragment_context is not None:
             # For fragments, remove the html wrapper and promote its children
             # Note: html element is always created in fragment setup, so children[0] is always "html"
@@ -528,7 +528,7 @@ class TreeBuilder(TreeBuilderModesMixin):
     # Insertion mode dispatch ------------------------------------------------
 
     def _append_comment_to_document(self, text: str) -> None:
-        node = SimpleDomNode("#comment", data=text)
+        node = Comment(data=text)
         if self.tokenizer is not None and self.tokenizer.track_node_locations:
             node._origin_pos = self.tokenizer.last_token_start_pos
             if node._origin_pos is not None:
@@ -539,9 +539,9 @@ class TreeBuilder(TreeBuilderModesMixin):
         if parent is None:
             parent = self._current_node_or_html()
         # If parent is a template, insert into its content fragment
-        if type(parent) is TemplateNode and parent.template_content:
+        if type(parent) is Template and parent.template_content:
             parent = parent.template_content
-        node = SimpleDomNode("#comment", data=text)
+        node = Comment(data=text)
         if self.tokenizer is not None and self.tokenizer.track_node_locations:
             node._origin_pos = self.tokenizer.last_token_start_pos
             if node._origin_pos is not None:
@@ -566,15 +566,15 @@ class TreeBuilder(TreeBuilderModesMixin):
         # Fast path optimization for common case
         target = self.open_elements[-1]
 
-        if target.name not in TABLE_FOSTER_TARGETS and type(target) is not TemplateNode:
+        if target.name not in TABLE_FOSTER_TARGETS and type(target) is not Template:
             children = target.children
             if children:
                 last_child = children[-1]
-                if type(last_child) is TextNode:
+                if type(last_child) is Text:
                     last_child.data = (last_child.data or "") + text
                     return
 
-            node = TextNode(text)
+            node = Text(text)
             if self.tokenizer is not None and self.tokenizer.track_node_locations:
                 node._origin_pos = self.tokenizer.last_token_start_pos
                 if node._origin_pos is not None:
@@ -598,7 +598,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             parent.children[position - 1].data = (parent.children[position - 1].data or "") + text
             return
 
-        node = TextNode(text)
+        node = Text(text)
         if self.tokenizer is not None and self.tokenizer.track_node_locations:
             node._origin_pos = self.tokenizer.last_token_start_pos
             if node._origin_pos is not None:
@@ -621,17 +621,17 @@ class TreeBuilder(TreeBuilderModesMixin):
         return None  # pragma: no cover
 
     def _create_root(self, attrs: dict[str, str | None]) -> Any:
-        node = SimpleDomNode("html", attrs=attrs, namespace="html")
+        node = Node("html", attrs=attrs, namespace="html")
         self.document.append_child(node)
         self.open_elements.append(node)
         return node
 
     def _insert_element(self, tag: Any, *, push: bool, namespace: str = "html") -> Any:
-        node: ElementNode | TemplateNode
+        node: Element | Template
         if tag.name == "template" and namespace == "html":
-            node = TemplateNode(tag.name, attrs=tag.attrs, namespace=namespace)
+            node = Template(tag.name, attrs=tag.attrs, namespace=namespace)
         else:
-            node = ElementNode(tag.name, attrs=tag.attrs, namespace=namespace)
+            node = Element(tag.name, attrs=tag.attrs, namespace=namespace)
         if self.track_tag_spans:
             node._start_tag_start = tag.start_pos
             node._start_tag_end = tag.end_pos
@@ -647,7 +647,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             target = self._current_node_or_html()
 
             # Handle template content insertion
-            if type(target) is TemplateNode:
+            if type(target) is Template:
                 parent = target.template_content
             else:
                 parent = target
@@ -674,7 +674,7 @@ class TreeBuilder(TreeBuilderModesMixin):
 
     def _insert_body_if_missing(self) -> None:
         html_node = self._find_last_on_stack("html")
-        node = SimpleDomNode("body", namespace="html")
+        node = Node("body", namespace="html")
         if html_node is not None:  # pragma: no branch
             html_node.append_child(node)
             node.parent = html_node
@@ -682,7 +682,7 @@ class TreeBuilder(TreeBuilderModesMixin):
 
     def _create_element(self, name: str, namespace: str | None, attrs: dict[str, str | None]) -> Any:
         ns = namespace or "html"
-        return ElementNode(name, attrs, ns)
+        return Element(name, attrs, ns)
 
     def _maybe_mark_end_tag(self, node: Any) -> None:
         if self._pending_end_tag_name is None:
@@ -1248,7 +1248,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             return parent, position
 
         # If target is a template element, insert into its content document fragment
-        if type(target) is TemplateNode and target.template_content:
+        if type(target) is Template and target.template_content:
             children = target.template_content.children
             return target.template_content, len(children) if children is not None else 0
 

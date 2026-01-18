@@ -1,3 +1,4 @@
+from .node import Comment, Document, DocumentFragment, Element, Node, Template, Text
 from .parser import JustHTML, StrictModeError
 from .sanitize import (
     CSS_PRESET_TEXT,
@@ -35,14 +36,19 @@ __all__ = [
     "DEFAULT_DOCUMENT_POLICY",
     "DEFAULT_POLICY",
     "CollapseWhitespace",
+    "Comment",
     "Decide",
+    "Document",
+    "DocumentFragment",
     "Drop",
     "Edit",
     "EditAttrs",
     "EditDocument",
+    "Element",
     "Empty",
     "JustHTML",
     "Linkify",
+    "Node",
     "ParseError",
     "PruneEmpty",
     "RewriteAttrs",
@@ -52,6 +58,8 @@ __all__ = [
     "SetAttrs",
     "Stage",
     "StrictModeError",
+    "Template",
+    "Text",
     "UnsafeHtmlError",
     "Unwrap",
     "UrlPolicy",

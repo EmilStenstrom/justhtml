@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from justhtml import JustHTML
-from justhtml.node import ElementNode, SimpleDomNode, TemplateNode, TextNode
+from justhtml.node import Comment, DocumentFragment, Element, Node, Template, Text
 from justhtml.sanitize import SanitizationPolicy
 from justhtml.transforms import (
     CollapseWhitespace,
@@ -111,8 +111,8 @@ class TestSanitizeTransform(unittest.TestCase):
         assert doc.to_html(pretty=False) == ""
 
     def test_sanitize_transform_supports_element_root(self) -> None:
-        root = ElementNode("a", {"href": "javascript:alert(1)", "onclick": "x()"}, "html")
-        wrapper = SimpleDomNode("#document-fragment")
+        root = Element("a", {"href": "javascript:alert(1)", "onclick": "x()"}, "html")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
         compiled = compile_transforms((Sanitize(),))
         apply_compiled_transforms(wrapper, compiled)
@@ -120,15 +120,15 @@ class TestSanitizeTransform(unittest.TestCase):
         assert root.attrs == {}
 
     def test_sanitize_transform_supports_template_root(self) -> None:
-        root = TemplateNode("div", attrs={"onclick": "x()", "class": "ok"}, namespace="html")
-        root.append_child(ElementNode("span", {}, "html"))
+        root = Template("div", attrs={"onclick": "x()", "class": "ok"}, namespace="html")
+        root.append_child(Element("span", {}, "html"))
 
         assert root.template_content is not None
-        script = ElementNode("script", {}, "html")
-        script.append_child(TextNode("alert(1)"))
+        script = Element("script", {}, "html")
+        script.append_child(Text("alert(1)"))
         root.template_content.append_child(script)
 
-        wrapper = SimpleDomNode("#document-fragment")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
 
         compiled = compile_transforms((Sanitize(),))
@@ -141,16 +141,16 @@ class TestSanitizeTransform(unittest.TestCase):
         assert root.template_content.children == []
 
     def test_sanitize_transform_supports_text_root(self) -> None:
-        wrapper = SimpleDomNode("#document-fragment")
-        root = TextNode("hello")
+        wrapper = DocumentFragment()
+        root = Text("hello")
         wrapper.append_child(root)
         compiled = compile_transforms((Sanitize(),))
         apply_compiled_transforms(wrapper, compiled)
         assert root.data == "hello"
 
     def test_sanitize_transform_supports_simpledomnode_element_root(self) -> None:
-        root = SimpleDomNode("a", {"href": "javascript:alert(1)", "onclick": "x()"}, namespace="html")
-        wrapper = SimpleDomNode("#document-fragment")
+        root = Node("a", {"href": "javascript:alert(1)", "onclick": "x()"}, namespace="html")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
         compiled = compile_transforms((Sanitize(),))
         apply_compiled_transforms(wrapper, compiled)
@@ -159,7 +159,7 @@ class TestSanitizeTransform(unittest.TestCase):
     def test_sanitize_transform_policy_override_is_used(self) -> None:
         # Covers the Sanitize(policy=...) override path.
         policy = SanitizationPolicy(allowed_tags={"p"}, allowed_attributes={"*": set()})
-        root = SimpleDomNode("#document-fragment")
+        root = DocumentFragment()
         compiled = compile_transforms((Sanitize(policy),))
         apply_compiled_transforms(root, compiled)
 
@@ -236,11 +236,11 @@ class TestSanitizeTransform(unittest.TestCase):
             allowed_attributes={"*": set(), "p": set()},
             disallowed_tag_handling="escape",
         )
-        root = SimpleDomNode("#document-fragment")
-        node = ElementNode("x", {}, "html")
+        root = DocumentFragment()
+        node = Element("x", {}, "html")
         node._start_tag_start = 0
         node._start_tag_end = 2
-        node.append_child(TextNode("ok"))
+        node.append_child(Text("ok"))
         root.append_child(node)
 
         compiled = compile_transforms((Sanitize(policy),))
@@ -274,8 +274,8 @@ class TestSanitizeTransform(unittest.TestCase):
         assert doc.to_html(pretty=False) == "&lt;template&gt;<b>x</b>&lt;/template&gt;"
 
     def test_sanitize_transform_converts_comment_root_to_fragment_when_dropped(self) -> None:
-        root = SimpleDomNode("#comment", data="x")
-        wrapper = SimpleDomNode("#document-fragment")
+        root = Comment(data="x")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
         compiled = compile_transforms((Sanitize(),))
         apply_compiled_transforms(wrapper, compiled)
@@ -283,8 +283,8 @@ class TestSanitizeTransform(unittest.TestCase):
         assert wrapper.children == []
 
     def test_sanitize_transform_converts_doctype_root_to_fragment_when_dropped(self) -> None:
-        root = SimpleDomNode("!doctype")
-        wrapper = SimpleDomNode("#document-fragment")
+        root = Node("!doctype")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
         compiled = compile_transforms((Sanitize(),))
         apply_compiled_transforms(wrapper, compiled)
@@ -292,10 +292,10 @@ class TestSanitizeTransform(unittest.TestCase):
         assert wrapper.children == []
 
     def test_sanitize_transform_drops_foreign_namespace_element_root(self) -> None:
-        root = SimpleDomNode("p", namespace="svg")
-        root.append_child(SimpleDomNode("span"))
+        root = Node("p", namespace="svg")
+        root.append_child(Node("span"))
 
-        wrapper = SimpleDomNode("#document-fragment")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
 
         compiled = compile_transforms((Sanitize(),))
@@ -304,9 +304,9 @@ class TestSanitizeTransform(unittest.TestCase):
         assert wrapper.children == []
 
     def test_sanitize_transform_drops_foreign_namespace_element_root_without_children(self) -> None:
-        root = SimpleDomNode("p", namespace="svg")
+        root = Node("p", namespace="svg")
 
-        wrapper = SimpleDomNode("#document-fragment")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
 
         compiled = compile_transforms((Sanitize(),))
@@ -315,10 +315,10 @@ class TestSanitizeTransform(unittest.TestCase):
         assert wrapper.children == []
 
     def test_sanitize_transform_drops_content_for_drop_content_tag_root(self) -> None:
-        root = SimpleDomNode("script")
-        root.append_child(TextNode("alert(1)"))
+        root = Node("script")
+        root.append_child(Text("alert(1)"))
 
-        wrapper = SimpleDomNode("#document-fragment")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
 
         compiled = compile_transforms((Sanitize(),))
@@ -327,9 +327,9 @@ class TestSanitizeTransform(unittest.TestCase):
         assert wrapper.children == []
 
     def test_sanitize_transform_drops_content_for_drop_content_tag_root_without_children(self) -> None:
-        root = SimpleDomNode("script")
+        root = Node("script")
 
-        wrapper = SimpleDomNode("#document-fragment")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
 
         compiled = compile_transforms((Sanitize(),))
@@ -344,10 +344,10 @@ class TestSanitizeTransform(unittest.TestCase):
             drop_foreign_namespaces=False,
             drop_content_tags=set(),
         )
-        root = SimpleDomNode("p")
-        root.append_child(TextNode("x"))
+        root = Node("p")
+        root.append_child(Text("x"))
 
-        wrapper = SimpleDomNode("#document-fragment")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
 
         compiled = compile_transforms((Sanitize(policy),))
@@ -361,9 +361,9 @@ class TestSanitizeTransform(unittest.TestCase):
             drop_foreign_namespaces=False,
             drop_content_tags=set(),
         )
-        root = SimpleDomNode("p")
+        root = Node("p")
 
-        wrapper = SimpleDomNode("#document-fragment")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
 
         compiled = compile_transforms((Sanitize(policy),))
@@ -377,11 +377,11 @@ class TestSanitizeTransform(unittest.TestCase):
             drop_foreign_namespaces=False,
             drop_content_tags=set(),
         )
-        root = TemplateNode("template", attrs={}, namespace="html")
+        root = Template("template", attrs={}, namespace="html")
         assert root.template_content is not None
-        root.template_content.append_child(SimpleDomNode("b"))
+        root.template_content.append_child(Node("b"))
 
-        wrapper = SimpleDomNode("#document-fragment")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
 
         compiled = compile_transforms((Sanitize(policy),))
@@ -397,10 +397,10 @@ class TestSanitizeTransform(unittest.TestCase):
             drop_foreign_namespaces=False,
             drop_content_tags=set(),
         )
-        root = TemplateNode("template", attrs={}, namespace="html")
-        root.append_child(SimpleDomNode("b"))
+        root = Template("template", attrs={}, namespace="html")
+        root.append_child(Node("b"))
 
-        wrapper = SimpleDomNode("#document-fragment")
+        wrapper = DocumentFragment()
         wrapper.append_child(root)
 
         compiled = compile_transforms((Sanitize(policy),))
@@ -410,11 +410,11 @@ class TestSanitizeTransform(unittest.TestCase):
         assert [c.name for c in wrapper.children] == ["b"]
 
     def test_sanitize_transform_decide_handles_comments_doctype_and_containers(self) -> None:
-        root = SimpleDomNode("#document-fragment")
-        root.append_child(SimpleDomNode("#comment", data="x"))
-        root.append_child(SimpleDomNode("!doctype"))
-        nested = SimpleDomNode("#document-fragment")
-        nested.append_child(SimpleDomNode("p"))
+        root = DocumentFragment()
+        root.append_child(Comment(data="x"))
+        root.append_child(Node("!doctype"))
+        nested = DocumentFragment()
+        nested.append_child(Node("p"))
         root.append_child(nested)
 
         compiled = compile_transforms((Sanitize(),))
@@ -423,8 +423,8 @@ class TestSanitizeTransform(unittest.TestCase):
         assert root.to_html(pretty=False) == "<p></p>"
 
     def test_sanitize_transform_decide_drops_foreign_namespace_elements(self) -> None:
-        root = SimpleDomNode("#document-fragment")
-        root.append_child(SimpleDomNode("p", namespace="svg"))
+        root = DocumentFragment()
+        root.append_child(Node("p", namespace="svg"))
 
         compiled = compile_transforms((Sanitize(),))
         apply_compiled_transforms(root, compiled)
@@ -432,9 +432,9 @@ class TestSanitizeTransform(unittest.TestCase):
         assert root.to_html(pretty=False) == ""
 
     def test_sanitize_transform_decide_unwraps_disallowed_elements(self) -> None:
-        root = SimpleDomNode("#document-fragment")
-        blink = SimpleDomNode("blink")
-        blink.append_child(TextNode("x"))
+        root = DocumentFragment()
+        blink = Node("blink")
+        blink.append_child(Text("x"))
         root.append_child(blink)
 
         compiled = compile_transforms((Sanitize(),))

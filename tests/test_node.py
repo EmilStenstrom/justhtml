@@ -2,10 +2,12 @@ import unittest
 
 from justhtml import JustHTML
 from justhtml.node import (
-    ElementNode,
-    SimpleDomNode,
-    TemplateNode,
-    TextNode,
+    Comment,
+    Document,
+    Element,
+    Node,
+    Template,
+    Text,
     _markdown_code_span,
     _markdown_link_destination,
     _MarkdownBuilder,
@@ -16,34 +18,42 @@ from justhtml.sanitize import DEFAULT_POLICY, SanitizationPolicy
 
 class TestNode(unittest.TestCase):
     def test_simple_dom_text_node_text_property(self):
-        node = SimpleDomNode("#text", data="Hi")
+        node = Text("Hi")
         assert node.text == "Hi"
 
+    def test_node_text_property_for_text_name(self):
+        node = Node("#text", data="Hi")
+        assert node.text == "Hi"
+
+    def test_node_text_property_for_text_name_none(self):
+        node = Node("#text", data=None)
+        assert node.text == ""
+
     def test_append_child_noop_for_comment_node(self):
-        parent = SimpleDomNode("#comment", data="comment")
-        child = SimpleDomNode("span")
+        parent = Comment(data="comment")
+        child = Node("span")
         parent.append_child(child)
         assert child.parent is None
 
     def test_remove_child_noop_for_comment_node(self):
-        parent = SimpleDomNode("#comment", data="comment")
-        child = SimpleDomNode("span")
+        parent = Comment(data="comment")
+        child = Node("span")
         parent.remove_child(child)
         assert child.parent is None
 
     def test_text_property_simple(self):
-        node = SimpleDomNode("div")
-        text = TextNode("Hello")
+        node = Node("div")
+        text = Text("Hello")
         node.append_child(text)
         assert node.text == ""
         assert text.text == "Hello"
         assert node.to_text() == "Hello"
 
     def test_text_property_nested(self):
-        root = SimpleDomNode("div")
-        span = SimpleDomNode("span")
-        text1 = TextNode("Hello ")
-        text2 = TextNode("World")
+        root = Node("div")
+        span = Node("span")
+        text1 = Text("Hello ")
+        text2 = Text("World")
 
         root.append_child(text1)
         root.append_child(span)
@@ -55,19 +65,19 @@ class TestNode(unittest.TestCase):
         assert span.to_text() == "World"
 
     def test_text_property_empty(self):
-        node = SimpleDomNode("div")
+        node = Node("div")
         assert node.text == ""
 
     def test_text_property_comment(self):
-        node = SimpleDomNode("#comment", data="comment")
+        node = Comment(data="comment")
         assert node.text == ""
 
     def test_to_text_matches_textcontent(self):
-        root = SimpleDomNode("div")
-        span = SimpleDomNode("span")
-        root.append_child(TextNode("Hello "))
+        root = Node("div")
+        span = Node("span")
+        root.append_child(Text("Hello "))
         root.append_child(span)
-        span.append_child(TextNode("World"))
+        span.append_child(Text("World"))
 
         assert root.to_text() == "Hello World"
         assert span.to_text() == "World"
@@ -75,35 +85,35 @@ class TestNode(unittest.TestCase):
         assert root.to_text(separator="", strip=True) == "HelloWorld"
 
     def test_to_text_skips_empty_and_whitespace_segments_by_default(self):
-        root = SimpleDomNode("div")
-        root.append_child(TextNode(""))
-        root.append_child(TextNode("   "))
-        root.append_child(TextNode("A"))
+        root = Node("div")
+        root.append_child(Text(""))
+        root.append_child(Text("   "))
+        root.append_child(Text("A"))
         assert root.to_text() == "A"
 
     def test_to_text_empty_subtree(self):
-        root = SimpleDomNode("div")
+        root = Node("div")
         assert root.to_text() == ""
 
     def test_textnode_to_text_strip_false(self):
-        t = TextNode("  A  ")
+        t = Text("  A  ")
         assert t.to_text(strip=False) == "  A  "
         assert t.to_text(strip=True) == "A"
 
     def test_textnode_to_text_none_data(self):
-        t = TextNode(None)
+        t = Text(None)
         assert t.to_text() == ""
 
     def test_to_text_includes_template_content(self):
-        template = TemplateNode("template", namespace="html")
-        template.template_content.append_child(TextNode("Inside"))
+        template = Template("template", namespace="html")
+        template.template_content.append_child(Text("Inside"))
 
         # `.text` only sees direct children, while `to_text()` includes template content.
         assert template.text == ""
         assert template.to_text() == "Inside"
 
     def test_to_text_simple_dom_text_node_branch(self):
-        node = SimpleDomNode("#text", data="Hi")
+        node = Text("Hi")
         assert node.to_text() == "Hi"
 
     def test_justhtml_to_text(self):
@@ -157,7 +167,7 @@ class TestNode(unittest.TestCase):
         assert text.origin_location is None
 
     def test_textnode_origin_location_is_none_if_unset(self):
-        node = TextNode("x")
+        node = Text("x")
         assert node.origin_location is None
 
     def test_node_origin_location_for_comment(self):
@@ -268,28 +278,28 @@ class TestNode(unittest.TestCase):
         assert "</table>" in md
 
     def test_to_markdown_ignores_comment_and_doctype(self):
-        root = SimpleDomNode("div")
-        root.append_child(SimpleDomNode("#comment", data="nope"))
-        root.append_child(SimpleDomNode("!doctype", data="html"))
-        root.append_child(TextNode("ok"))
+        root = Node("div")
+        root.append_child(Comment(data="nope"))
+        root.append_child(Node("!doctype", data="html"))
+        root.append_child(Text("ok"))
         assert root.to_markdown() == "ok"
 
     def test_to_markdown_preserves_script_whitespace(self):
         # script/style are treated as whitespace-preserving containers.
-        root = SimpleDomNode("div")
-        script = SimpleDomNode("script")
+        root = Node("div")
+        script = Node("script")
         # Include a trailing newline to exercise raw-newline tracking.
-        script.append_child(TextNode("var x = 1;\nvar y = 2;\n"))
+        script.append_child(Text("var x = 1;\nvar y = 2;\n"))
         root.append_child(script)
         assert root.to_markdown() == "var x = 1;\nvar y = 2;"
 
     def test_to_markdown_textnode_method(self):
-        t = TextNode("a*b")
+        t = Text("a*b")
         assert t.to_markdown() == "a\\*b"
 
     def test_to_markdown_empty_textnode(self):
         # Exercises empty-string handling in markdown helpers and builder.
-        t = TextNode("")
+        t = Text("")
         assert t.to_markdown() == ""
 
     def test_to_markdown_br_on_empty_buffer_and_multiple_newlines(self):
@@ -323,29 +333,29 @@ class TestNode(unittest.TestCase):
         assert doc.to_markdown() == "[x](<https://e.com/a%20b>)"
 
     def test_to_markdown_in_link_br_and_paragraph_spacing(self):
-        a = SimpleDomNode("a", attrs={"href": "https://e.com"})
-        a.append_child(TextNode("A"))
-        a.append_child(SimpleDomNode("br"))
-        a.append_child(TextNode("B"))
-        p = SimpleDomNode("p")
-        p.append_child(TextNode("C"))
+        a = Node("a", attrs={"href": "https://e.com"})
+        a.append_child(Text("A"))
+        a.append_child(Node("br"))
+        a.append_child(Text("B"))
+        p = Node("p")
+        p.append_child(Text("C"))
         a.append_child(p)
-        a.append_child(TextNode("D"))
+        a.append_child(Text("D"))
         assert a.to_markdown() == "[A BC D](https://e.com)"
 
     def test_to_markdown_in_link_block_elements_are_flattened(self):
-        a = SimpleDomNode("a", attrs={"href": "https://e.com"})
-        bq = SimpleDomNode("blockquote")
-        p = SimpleDomNode("p")
-        p.append_child(TextNode("Q"))
+        a = Node("a", attrs={"href": "https://e.com"})
+        bq = Node("blockquote")
+        p = Node("p")
+        p.append_child(Text("Q"))
         bq.append_child(p)
         a.append_child(bq)
 
-        ul = SimpleDomNode("ul")
-        li1 = SimpleDomNode("li")
-        li1.append_child(TextNode("One"))
-        li2 = SimpleDomNode("li")
-        li2.append_child(TextNode("Two"))
+        ul = Node("ul")
+        li1 = Node("li")
+        li1.append_child(Text("One"))
+        li2 = Node("li")
+        li2.append_child(Text("Two"))
         ul.append_child(li1)
         ul.append_child(li2)
         a.append_child(ul)
@@ -353,21 +363,21 @@ class TestNode(unittest.TestCase):
         assert a.to_markdown() == "[Q One Two](https://e.com)"
 
     def test_to_markdown_in_link_table_heading_pre_and_hr(self):
-        a = SimpleDomNode("a", attrs={"href": "https://e.com"})
-        a.append_child(SimpleDomNode("hr"))
+        a = Node("a", attrs={"href": "https://e.com"})
+        a.append_child(Node("hr"))
 
-        h2 = SimpleDomNode("h2")
-        h2.append_child(TextNode("T"))
+        h2 = Node("h2")
+        h2.append_child(Text("T"))
         a.append_child(h2)
 
-        pre = SimpleDomNode("pre")
-        pre.append_child(TextNode("code"))
+        pre = Node("pre")
+        pre.append_child(Text("code"))
         a.append_child(pre)
 
-        table = SimpleDomNode("table")
-        tr = SimpleDomNode("tr")
-        td = SimpleDomNode("td")
-        td.append_child(TextNode("A"))
+        table = Node("table")
+        tr = Node("tr")
+        td = Node("td")
+        td.append_child(Text("A"))
         tr.append_child(td)
         table.append_child(tr)
         a.append_child(table)
@@ -381,16 +391,16 @@ class TestNode(unittest.TestCase):
         assert "---" not in md
 
     def test_to_markdown_in_link_blockquote_empty_and_list_skips_non_li(self):
-        a = SimpleDomNode("a", attrs={"href": "https://e.com"})
+        a = Node("a", attrs={"href": "https://e.com"})
 
         # Covers blockquote in-link branch with no children.
-        a.append_child(SimpleDomNode("blockquote"))
+        a.append_child(Node("blockquote"))
 
         # Covers list-in-link branch where a non-li child is skipped.
-        ul = SimpleDomNode("ul")
-        ul.append_child(TextNode("\n"))
-        li = SimpleDomNode("li")
-        li.append_child(TextNode("One"))
+        ul = Node("ul")
+        ul.append_child(Text("\n"))
+        li = Node("li")
+        li.append_child(Text("One"))
         ul.append_child(li)
         a.append_child(ul)
 
@@ -414,8 +424,8 @@ class TestNode(unittest.TestCase):
         assert doc.to_markdown() == "```\nX\n```"
 
     def test_to_markdown_document_container_direct(self):
-        doc = SimpleDomNode("#document")
-        doc.append_child(SimpleDomNode("p"))
+        doc = Document()
+        doc.append_child(Node("p"))
         assert doc.to_markdown() == ""
 
     def test_markdown_builder_text_preserve_whitespace_branch(self):
@@ -431,9 +441,9 @@ class TestNode(unittest.TestCase):
 
     def test_to_markdown_raw_with_internal_newline_no_trailing_newline(self):
         # Covers raw() newline handling when the string contains a newline but doesn't end with one.
-        root = SimpleDomNode("div")
-        style = SimpleDomNode("style")
-        style.append_child(TextNode("a {\n  b: c; }"))
+        root = Node("div")
+        style = Node("style")
+        style.append_child(Text("a {\n  b: c; }"))
         root.append_child(style)
         assert "a {\n  b: c; }" in root.to_markdown()
 
@@ -457,32 +467,32 @@ class TestNode(unittest.TestCase):
 
     def test_markdown_walk_document_children_loop(self):
         b = _MarkdownBuilder()
-        doc = SimpleDomNode("#document")
-        doc.append_child(TextNode("Hi"))
+        doc = Document()
+        doc.append_child(Text("Hi"))
         _to_markdown_walk(doc, b, preserve_whitespace=False, list_depth=0)
         assert b.finish() == "Hi"
 
     def test_markdown_walk_document_without_children(self):
         # Covers the document-container branch when there are no children.
-        doc = SimpleDomNode("#document")
+        doc = Document()
         assert doc.to_markdown() == ""
 
     def test_to_markdown_includes_template_content(self):
-        template = TemplateNode("template", namespace="html")
-        template.template_content.append_child(TextNode("T"))
+        template = Template("template", namespace="html")
+        template.template_content.append_child(Text("T"))
         assert template.to_markdown() == "T"
 
     def test_markdown_walk_unknown_tag_children_loop(self):
         b = _MarkdownBuilder()
-        span = SimpleDomNode("span")
-        span.append_child(TextNode("Hi"))
+        span = Node("span")
+        span.append_child(Text("Hi"))
         _to_markdown_walk(span, b, preserve_whitespace=False, list_depth=0)
         assert b.finish() == "Hi"
 
     def test_insert_before(self):
-        parent = SimpleDomNode("div")
-        child1 = SimpleDomNode("span", attrs={"id": "1"})
-        child2 = SimpleDomNode("span", attrs={"id": "2"})
+        parent = Node("div")
+        child1 = Node("span", attrs={"id": "1"})
+        child2 = Node("span", attrs={"id": "2"})
 
         parent.append_child(child1)
         parent.insert_before(child2, child1)
@@ -491,9 +501,9 @@ class TestNode(unittest.TestCase):
         assert child2.parent == parent
 
     def test_insert_before_none(self):
-        parent = SimpleDomNode("div")
-        child1 = SimpleDomNode("span", attrs={"id": "1"})
-        child2 = SimpleDomNode("span", attrs={"id": "2"})
+        parent = Node("div")
+        child1 = Node("span", attrs={"id": "1"})
+        child2 = Node("span", attrs={"id": "2"})
 
         parent.append_child(child1)
         parent.insert_before(child2, None)
@@ -502,10 +512,10 @@ class TestNode(unittest.TestCase):
         assert child2.parent == parent
 
     def test_insert_before_invalid_reference(self):
-        parent = SimpleDomNode("div")
-        child1 = SimpleDomNode("span", attrs={"id": "1"})
-        child2 = SimpleDomNode("span", attrs={"id": "2"})
-        other = SimpleDomNode("div")
+        parent = Node("div")
+        child1 = Node("span", attrs={"id": "1"})
+        child2 = Node("span", attrs={"id": "2"})
+        other = Node("div")
 
         parent.append_child(child1)
 
@@ -513,25 +523,25 @@ class TestNode(unittest.TestCase):
             parent.insert_before(child2, other)
 
     def test_insert_before_no_children_allowed(self):
-        comment = SimpleDomNode("#comment", data="foo")
-        node = SimpleDomNode("div")
+        comment = Comment(data="foo")
+        node = Node("div")
 
         with self.assertRaises(ValueError):
             comment.insert_before(node, None)
 
     def test_text_node_none(self):
-        text = TextNode(None)
+        text = Text(None)
         assert text.text == ""
 
     def test_simple_dom_node_text_none(self):
-        node = SimpleDomNode("#text", data=None)
+        node = Text(None)
         assert node.text == ""
 
     def test_replace_child(self):
-        parent = SimpleDomNode("div")
-        child1 = SimpleDomNode("span", attrs={"id": "1"})
-        child2 = SimpleDomNode("span", attrs={"id": "2"})
-        new_child = SimpleDomNode("p")
+        parent = Node("div")
+        child1 = Node("span", attrs={"id": "1"})
+        child2 = Node("span", attrs={"id": "2"})
+        new_child = Node("p")
 
         parent.append_child(child1)
         parent.append_child(child2)
@@ -544,9 +554,9 @@ class TestNode(unittest.TestCase):
         assert child1.parent is None
 
     def test_replace_child_invalid(self):
-        parent = SimpleDomNode("div")
-        child1 = SimpleDomNode("span")
-        other = SimpleDomNode("p")
+        parent = Node("div")
+        child1 = Node("span")
+        other = Node("p")
 
         parent.append_child(child1)
 
@@ -554,22 +564,22 @@ class TestNode(unittest.TestCase):
             parent.replace_child(other, other)
 
     def test_replace_child_no_children_allowed(self):
-        comment = SimpleDomNode("#comment", data="foo")
-        node = SimpleDomNode("div")
+        comment = Comment(data="foo")
+        node = Node("div")
 
         with self.assertRaises(ValueError):
             comment.replace_child(node, node)
 
     def test_has_child_nodes(self):
-        parent = SimpleDomNode("div")
+        parent = Node("div")
         assert not parent.has_child_nodes()
 
-        parent.append_child(SimpleDomNode("span"))
+        parent.append_child(Node("span"))
         assert parent.has_child_nodes()
 
     def test_clone_node_shallow(self):
-        node = SimpleDomNode("div", attrs={"class": "foo"}, namespace="html")
-        child = SimpleDomNode("span")
+        node = Node("div", attrs={"class": "foo"}, namespace="html")
+        child = Node("span")
         node.append_child(child)
 
         clone = node.clone_node(deep=False)
@@ -582,7 +592,7 @@ class TestNode(unittest.TestCase):
         assert clone.attrs is not node.attrs
 
     def test_clone_node_simple(self):
-        node = SimpleDomNode("div", attrs={"id": "1"})
+        node = Node("div", attrs={"id": "1"})
         clone = node.clone_node()
         assert clone.name == "div"
         assert clone.attrs == {"id": "1"}
@@ -590,8 +600,8 @@ class TestNode(unittest.TestCase):
         assert clone.children == []
 
     def test_clone_node_deep(self):
-        parent = SimpleDomNode("div")
-        child = SimpleDomNode("span")
+        parent = Node("div")
+        child = Node("span")
         parent.append_child(child)
 
         clone = parent.clone_node(deep=True)
@@ -601,14 +611,14 @@ class TestNode(unittest.TestCase):
         assert clone.children[0].parent == clone
 
     def test_clone_text_node(self):
-        text = TextNode("hello")
+        text = Text("hello")
         clone = text.clone_node()
         assert clone.data == "hello"
         assert clone is not text
 
     def test_clone_template_node(self):
-        template = TemplateNode("template", namespace="html")
-        content_child = SimpleDomNode("div")
+        template = Template("template", namespace="html")
+        content_child = Node("div")
         template.template_content.append_child(content_child)
 
         clone = template.clone_node(deep=True)
@@ -618,8 +628,8 @@ class TestNode(unittest.TestCase):
         assert clone.template_content.children[0].name == "div"
 
     def test_clone_template_node_with_children(self):
-        template = TemplateNode("template", namespace="html")
-        child = SimpleDomNode("span")
+        template = Template("template", namespace="html")
+        child = Node("span")
         template.append_child(child)
 
         clone = template.clone_node(deep=True)
@@ -629,13 +639,13 @@ class TestNode(unittest.TestCase):
         assert clone.children[0].parent == clone
 
     def test_clone_element_node(self):
-        element = ElementNode("div", attrs={"class": "foo"}, namespace="html")
-        child = SimpleDomNode("span")
+        element = Element("div", attrs={"class": "foo"}, namespace="html")
+        child = Node("span")
         element.append_child(child)
 
         # Shallow clone
         clone_shallow = element.clone_node(deep=False)
-        assert isinstance(clone_shallow, ElementNode)
+        assert isinstance(clone_shallow, Element)
         assert clone_shallow.children == []
 
         # Deep clone
@@ -646,21 +656,21 @@ class TestNode(unittest.TestCase):
         assert clone_deep.children[0].parent == clone_deep
 
     def test_clone_node_empty_attrs(self):
-        node = SimpleDomNode("div")
+        node = Node("div")
         clone = node.clone_node()
         assert clone.attrs == {}
 
     def test_clone_comment_node(self):
-        node = SimpleDomNode("#comment", data="foo")
+        node = Comment(data="foo")
         clone = node.clone_node()
         assert clone.attrs is None
         assert clone.data == "foo"
 
     def test_clone_template_node_non_html(self):
-        template = TemplateNode("template", namespace="svg")
+        template = Template("template", namespace="svg")
         assert template.template_content is None
         # Add a child to exercise the for loop even when template_content is None
-        child = SimpleDomNode("g")
+        child = Node("g")
         template.append_child(child)
 
         clone = template.clone_node(deep=True)
@@ -670,8 +680,8 @@ class TestNode(unittest.TestCase):
         assert clone.children[0].name == "g"
 
     def test_clone_template_node_shallow(self):
-        template = TemplateNode("template", namespace="html")
-        child = SimpleDomNode("div")
+        template = Template("template", namespace="html")
+        child = Node("div")
         template.append_child(child)
 
         clone = template.clone_node(deep=False)
@@ -681,21 +691,31 @@ class TestNode(unittest.TestCase):
         assert len(clone.children) == 0
 
     def test_clone_doctype(self):
-        node = SimpleDomNode("!doctype", data="html")
+        node = Node("!doctype", data="html")
         clone = node.clone_node()
         assert clone.name == "!doctype"
         assert clone.attrs is None
 
     def test_clone_document(self):
-        node = SimpleDomNode("#document")
+        node = Document()
         clone = node.clone_node()
         assert clone.name == "#document"
         assert clone.children == []
         assert clone.attrs == {}
 
+    def test_clone_document_deep(self):
+        node = Document()
+        child = Node("div")
+        node.append_child(child)
+        clone = node.clone_node(deep=True)
+        assert len(clone.children) == 1
+        assert clone.children[0].name == "div"
+        assert clone.children[0] is not child
+        assert clone.children[0].parent is clone
+
     def test_remove_child(self):
-        parent = SimpleDomNode("div")
-        child = SimpleDomNode("span")
+        parent = Node("div")
+        child = Node("span")
         parent.append_child(child)
 
         parent.remove_child(child)
@@ -703,30 +723,30 @@ class TestNode(unittest.TestCase):
         assert child.parent is None
 
     def test_remove_child_not_found(self):
-        parent = SimpleDomNode("div")
-        child = SimpleDomNode("span")
+        parent = Node("div")
+        child = Node("span")
         with self.assertRaises(ValueError):
             parent.remove_child(child)
 
     def test_to_html_method(self):
-        node = SimpleDomNode("div")
+        node = Node("div")
         output = node.to_html()
         assert "<div>" in output
 
     def test_query_method(self):
-        parent = SimpleDomNode("div")
-        child = SimpleDomNode("span")
+        parent = Node("div")
+        child = Node("span")
         parent.append_child(child)
         results = parent.query("span")
         assert len(results) == 1
         assert results[0].name == "span"
 
     def test_template_node_clone_with_content(self):
-        template = TemplateNode("template", namespace="html")
-        inner = SimpleDomNode("div")
+        template = Template("template", namespace="html")
+        inner = Node("div")
         template.template_content.append_child(inner)
         # Also add a direct child to cover line 180-181
-        direct_child = SimpleDomNode("span")
+        direct_child = Node("span")
         template.append_child(direct_child)
 
         clone = template.clone_node(deep=True)
@@ -736,6 +756,6 @@ class TestNode(unittest.TestCase):
         assert clone.children[0].name == "span"
 
     def test_text_node_children_and_has_child_nodes(self):
-        text = TextNode("hello")
+        text = Text("hello")
         assert text.children == []
         assert not text.has_child_nodes()

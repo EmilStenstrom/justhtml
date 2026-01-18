@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.38.0]
+### Added
+- Expand sanitize escape-mode fixtures to cover malformed markup edge cases (EOF tag fragments, bogus end tags, markup declarations).
+
+### Changed
+- Rename the TokenizerOpts flag for emitting malformed markup as text to `emit_bogus_markup_as_text` (was `emit_eof_tag_as_text`).
+- BREAKING: Rename DOM node classes to DOM-style names (`Node`, `Element`, `Text`, `Template`, `Comment`, `Document`, `DocumentFragment`).
 
 ### Fixed
 - Escape-mode sanitization now preserves malformed tag-like text across more tokenizer states (end tags, markup declarations, and EOF-in-tag paths) instead of dropping tail content.
@@ -126,7 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add security policy (`SECURITY.md`) and update documentation to reference it.
 ### Changed
 - Optimize whitespace collapsing and enhance attribute unquoting logic in serialization.
-- Enhance `clone_node` method to support attribute overriding in `SimpleDomNode`.
+- Enhance `clone_node` method to support attribute overriding in `Node`.
 - Normalize `rel` tokens in `SanitizationPolicy` for performance improvement.
 
 ## [0.25.0] - 2026-01-02
@@ -246,7 +252,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Add mypy hook for type checking in pre-commit configuration.
 ### Changed
-- Refactor code for improved clarity and consistency; add tests for `SimpleDomNode` behavior.
+- Refactor code for improved clarity and consistency; add tests for `Node` behavior.
 - Add additional usage examples to documentation for parsing and text extraction.
 - Update documentation to reflect test suite changes and improve clarity.
 - Add command line interface documentation and update index.
@@ -295,7 +301,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add error checking option to `TestReporter` configuration.
 - Enhance error handling in tokenizer and treebuilder; track token positions for improved error reporting.
 - Implement error collection and strict mode in `justhtml` parser; add tests for error handling.
-- Add node manipulation methods and text property to `SimpleDomNode`.
+- Add node manipulation methods and text property to `Node`.
 
 ## [0.4.0] - 2025-12-06
 ### Changed

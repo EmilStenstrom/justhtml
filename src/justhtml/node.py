@@ -154,7 +154,7 @@ class _MarkdownBuilder:
 
 
 # Type alias for any node type
-NodeType = "SimpleDomNode | ElementNode | TemplateNode | TextNode"
+NodeType = "Node | Element | Template | Text | Comment | Document | DocumentFragment"
 
 
 def _to_text_collect(node: Any, parts: list[str], strip: bool) -> None:
@@ -177,7 +177,7 @@ def _to_text_collect(node: Any, parts: list[str], strip: bool) -> None:
 
         # Preserve the same traversal order as the recursive implementation:
         # children first, then template content.
-        if type(current) is TemplateNode and current.template_content:
+        if type(current) is Template and current.template_content:
             stack.append(current.template_content)
 
         children = current.children
@@ -185,7 +185,7 @@ def _to_text_collect(node: Any, parts: list[str], strip: bool) -> None:
             stack.extend(reversed(children))
 
 
-class SimpleDomNode:
+class Node:
     __slots__ = (
         "_origin_col",
         "_origin_line",
@@ -200,7 +200,7 @@ class SimpleDomNode:
     )
 
     name: str
-    parent: SimpleDomNode | ElementNode | TemplateNode | None
+    parent: Node | Element | Template | None
     attrs: dict[str, str | None] | None
     children: list[Any] | None
     data: str | Doctype | None
@@ -391,7 +391,7 @@ class SimpleDomNode:
         """Return True if this node has children."""
         return bool(self.children)
 
-    def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> SimpleDomNode:
+    def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> Node:
         """
         Clone this node.
 
@@ -403,7 +403,7 @@ class SimpleDomNode:
             A new node that is a copy of this node.
         """
         attrs = override_attrs if override_attrs is not None else (self.attrs.copy() if self.attrs else None)
-        clone = SimpleDomNode(
+        clone = Node(
             self.name,
             attrs,
             self.data,
@@ -419,7 +419,62 @@ class SimpleDomNode:
         return clone
 
 
-class ElementNode(SimpleDomNode):
+class Document(Node):
+    __slots__ = ()
+
+    def __init__(self) -> None:
+        super().__init__("#document")
+
+    def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> Document:
+        _ = override_attrs
+        clone = Document()
+        clone._source_html = self._source_html
+        clone._origin_pos = self._origin_pos
+        clone._origin_line = self._origin_line
+        clone._origin_col = self._origin_col
+        if deep and self.children:
+            for child in self.children:
+                clone.append_child(child.clone_node(deep=True))
+        return clone
+
+
+class DocumentFragment(Node):
+    __slots__ = ()
+
+    def __init__(self) -> None:
+        super().__init__("#document-fragment")
+
+    def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> DocumentFragment:
+        _ = override_attrs
+        clone = DocumentFragment()
+        clone._source_html = self._source_html
+        clone._origin_pos = self._origin_pos
+        clone._origin_line = self._origin_line
+        clone._origin_col = self._origin_col
+        if deep and self.children:
+            for child in self.children:
+                clone.append_child(child.clone_node(deep=True))
+        return clone
+
+
+class Comment(Node):
+    __slots__ = ()
+
+    def __init__(self, data: str | None = None) -> None:
+        super().__init__("#comment", data=data)
+
+    def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> Comment:
+        _ = override_attrs
+        _ = deep
+        clone = Comment(self.data if isinstance(self.data, str) else None)
+        clone._source_html = self._source_html
+        clone._origin_pos = self._origin_pos
+        clone._origin_line = self._origin_line
+        clone._origin_col = self._origin_col
+        return clone
+
+
+class Element(Node):
     __slots__ = (
         "_end_tag_end",
         "_end_tag_present",
@@ -430,7 +485,7 @@ class ElementNode(SimpleDomNode):
         "template_content",
     )
 
-    template_content: SimpleDomNode | None
+    template_content: Node | None
     children: list[Any]
     attrs: dict[str, str | None]
     _start_tag_start: int | None
@@ -459,9 +514,9 @@ class ElementNode(SimpleDomNode):
         self._end_tag_present = False
         self._self_closing = False
 
-    def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> ElementNode:
+    def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> Element:
         attrs = override_attrs if override_attrs is not None else (self.attrs.copy() if self.attrs else {})
-        clone = ElementNode(self.name, attrs, self.namespace)
+        clone = Element(self.name, attrs, self.namespace)
         clone._source_html = self._source_html
         clone._origin_pos = self._origin_pos
         clone._origin_line = self._origin_line
@@ -478,7 +533,7 @@ class ElementNode(SimpleDomNode):
         return clone
 
 
-class TemplateNode(ElementNode):
+class Template(Element):
     __slots__ = ()
 
     def __init__(
@@ -490,13 +545,13 @@ class TemplateNode(ElementNode):
     ) -> None:
         super().__init__(name, attrs, namespace)
         if self.namespace == "html":
-            self.template_content = SimpleDomNode("#document-fragment")
+            self.template_content = DocumentFragment()
         else:
             self.template_content = None
 
-    def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> TemplateNode:
+    def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> Template:
         attrs = override_attrs if override_attrs is not None else (self.attrs.copy() if self.attrs else {})
-        clone = TemplateNode(
+        clone = Template(
             self.name,
             attrs,
             None,
@@ -520,13 +575,13 @@ class TemplateNode(ElementNode):
         return clone
 
 
-class TextNode:
+class Text:
     __slots__ = ("_origin_col", "_origin_line", "_origin_pos", "data", "name", "namespace", "parent")
 
     data: str | None
     name: str
     namespace: None
-    parent: SimpleDomNode | ElementNode | TemplateNode | None
+    parent: Node | Element | Template | None
     _origin_pos: int | None
     _origin_line: int | None
     _origin_col: int | None
@@ -583,15 +638,15 @@ class TextNode:
 
     @property
     def children(self) -> list[Any]:
-        """Return empty list for TextNode (leaf node)."""
+        """Return empty list for Text (leaf node)."""
         return []
 
     def has_child_nodes(self) -> bool:
-        """Return False for TextNode."""
+        """Return False for Text."""
         return False
 
-    def clone_node(self, deep: bool = False) -> TextNode:
-        clone = TextNode(self.data)
+    def clone_node(self, deep: bool = False) -> Text:
+        clone = Text(self.data)
         clone._origin_pos = self._origin_pos
         clone._origin_line = self._origin_line
         clone._origin_col = self._origin_col
@@ -903,7 +958,7 @@ def _to_markdown_walk(
                 in_link=in_link,
             )
 
-    if isinstance(node, ElementNode) and node.template_content:
+    if isinstance(node, Element) and node.template_content:
         _to_markdown_walk(
             node.template_content,
             builder,

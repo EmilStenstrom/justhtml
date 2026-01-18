@@ -4,7 +4,7 @@ import unittest
 
 import justhtml
 from justhtml import JustHTML
-from justhtml.node import ElementNode, SimpleDomNode, TemplateNode, TextNode
+from justhtml.node import Comment, DocumentFragment, Element, Node, Template, Text
 from justhtml.sanitize import (
     CSS_PRESET_TEXT,
     DEFAULT_POLICY,
@@ -547,9 +547,9 @@ class TestSanitizePlumbing(unittest.TestCase):
             allowed_attributes={"*": []},
             url_policy=UrlPolicy(allow_rules={}),
         )
-        root = SimpleDomNode("#document-fragment")
-        nested = SimpleDomNode("#document-fragment")
-        nested.append_child(TextNode("t"))
+        root = DocumentFragment()
+        nested = DocumentFragment()
+        nested.append_child(Text("t"))
         root.append_child(nested)
 
         out = sanitize(root, policy=policy)
@@ -561,8 +561,8 @@ class TestSanitizePlumbing(unittest.TestCase):
             allowed_attributes={"*": [], "template": []},
             url_policy=UrlPolicy(allow_rules={}),
         )
-        root = SimpleDomNode("#document-fragment")
-        root.append_child(TemplateNode("template", namespace=None))
+        root = DocumentFragment()
+        root.append_child(Template("template", namespace=None))
         out = sanitize(root, policy=policy)
         assert to_html(out, pretty=False) == "<template></template>"
 
@@ -572,7 +572,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             allowed_attributes={"*": ["id"], "div": ["disabled"]},
             url_policy=UrlPolicy(allow_rules={}),
         )
-        n = SimpleDomNode("div", attrs={"": "x", "   ": "y", "id": None, "disabled": None})
+        n = Node("div", attrs={"": "x", "   ": "y", "id": None, "disabled": None})
         out = sanitize(n, policy=policy)
         html = to_html(out, pretty=False)
         assert html in {"<div disabled id></div>", "<div id disabled></div>"}
@@ -586,7 +586,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         )
         policy.reset_collected_security_errors()
 
-        n = SimpleDomNode("p", attrs={"foo": "1"})
+        n = Node("p", attrs={"foo": "1"})
         out = sanitize(n, policy=policy)
         assert to_html(out, pretty=False) == "<p></p>"
         assert len(policy.collected_security_errors()) == 1
@@ -601,7 +601,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         )
         policy.reset_collected_security_errors()
 
-        n = SimpleDomNode("span", attrs={"style": None})
+        n = Node("span", attrs={"style": None})
         out = sanitize(n, policy=policy)
         assert to_html(out, pretty=False) == "<span></span>"
         assert len(policy.collected_security_errors()) == 1
@@ -621,7 +621,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         )
         policy.reset_collected_security_errors()
 
-        n = SimpleDomNode("a", attrs={"href": "https://example.com"})
+        n = Node("a", attrs={"href": "https://example.com"})
         out = sanitize(n, policy=policy)
         html = to_html(out, pretty=False)
         assert 'rel="noopener"' in html
@@ -641,7 +641,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         )
         policy.reset_collected_security_errors()
 
-        n = SimpleDomNode("a", attrs={"href": None})
+        n = Node("a", attrs={"href": None})
         out = sanitize(n, policy=policy)
         assert to_html(out, pretty=False) == "<a></a>"
         assert len(policy.collected_security_errors()) == 1
@@ -661,7 +661,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         )
         policy.reset_collected_security_errors()
 
-        n = SimpleDomNode("a", attrs={"href": "https://example.com", "rel": "noopener"})
+        n = Node("a", attrs={"href": "https://example.com", "rel": "noopener"})
         out = sanitize(n, policy=policy)
         html = to_html(out, pretty=False)
         assert 'rel="noopener"' in html
@@ -670,13 +670,13 @@ class TestSanitizePlumbing(unittest.TestCase):
     def test_sanitize_lowercases_attribute_names(self) -> None:
         # The parser already lowercases attribute names; build a manual node to
         # ensure sanitize() is robust to unexpected input.
-        n = SimpleDomNode("a", attrs={"HREF": "https://example.com"})
+        n = Node("a", attrs={"HREF": "https://example.com"})
         out = sanitize(n)
         html = to_html(out, pretty=False)
         assert 'href="https://example.com"' in html
 
     def test_sanitize_text_root_is_cloned(self) -> None:
-        out = sanitize(TextNode("x"))
+        out = sanitize(Text("x"))
         assert to_html(out, pretty=False) == "x"
 
     def test_sanitize_root_comment_and_doctype_nodes_do_not_crash(self) -> None:
@@ -690,8 +690,8 @@ class TestSanitizePlumbing(unittest.TestCase):
             drop_doctype=False,
         )
 
-        c = SimpleDomNode("#comment", data="x")
-        d = SimpleDomNode("!doctype", data="html")
+        c = Comment(data="x")
+        d = Node("!doctype", data="html")
 
         assert to_html(sanitize(c, policy=policy_keep), pretty=False) == "<!--x-->"
         assert to_html(sanitize(d, policy=policy_keep), pretty=False) == "<!DOCTYPE html>"
@@ -712,7 +712,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             url_policy=UrlPolicy(allow_rules={}),
         )
 
-        foreign = SimpleDomNode("div", namespace="svg")
+        foreign = Node("div", namespace="svg")
         assert to_html(sanitize(foreign, policy=policy), pretty=False) == ""
 
         disallowed_subtree_drop = SanitizationPolicy(
@@ -720,8 +720,8 @@ class TestSanitizePlumbing(unittest.TestCase):
             allowed_attributes={"*": [], "div": []},
             url_policy=UrlPolicy(allow_rules={}),
         )
-        span = SimpleDomNode("span")
-        span.append_child(TextNode("x"))
+        span = Node("span")
+        span.append_child(Text("x"))
         assert to_html(sanitize(span, policy=disallowed_subtree_drop), pretty=False) == "x"
 
         drop_content = SanitizationPolicy(
@@ -730,8 +730,8 @@ class TestSanitizePlumbing(unittest.TestCase):
             url_policy=UrlPolicy(allow_rules={}),
             drop_content_tags={"script"},
         )
-        script = SimpleDomNode("script")
-        script.append_child(TextNode("alert(1)"))
+        script = Node("script")
+        script.append_child(Text("alert(1)"))
         assert to_html(sanitize(script, policy=drop_content), pretty=False) == ""
 
         template_policy = SanitizationPolicy(
@@ -739,12 +739,12 @@ class TestSanitizePlumbing(unittest.TestCase):
             allowed_attributes={"*": [], "template": []},
             url_policy=UrlPolicy(allow_rules={}),
         )
-        tpl = TemplateNode("template", namespace="html")
+        tpl = Template("template", namespace="html")
         assert tpl.template_content is not None
-        tpl.template_content.append_child(TextNode("T"))
+        tpl.template_content.append_child(Text("T"))
         assert to_html(sanitize(tpl, policy=template_policy), pretty=False) == "<template>T</template>"
 
-        tpl_no_content = TemplateNode("template", namespace=None)
+        tpl_no_content = Template("template", namespace=None)
         assert to_html(sanitize(tpl_no_content, policy=template_policy), pretty=False) == "<template></template>"
 
 
@@ -1169,10 +1169,10 @@ class TestSanitizeUnsafe(unittest.TestCase):
             url_policy=UrlPolicy(allow_rules={}),
             disallowed_tag_handling="escape",
         )
-        node = ElementNode("x", {}, "html")
+        node = Element("x", {}, "html")
         node._start_tag_start = 0
         node._start_tag_end = 2
-        node.append_child(TextNode("ok"))
+        node.append_child(Text("ok"))
         sanitized = sanitize(node, policy=policy)
         assert to_html(sanitized, pretty=False) == "&lt;x&gt;ok"
 
@@ -1183,13 +1183,13 @@ class TestSanitizeUnsafe(unittest.TestCase):
             url_policy=UrlPolicy(allow_rules={}),
             disallowed_tag_handling="escape",
         )
-        node = ElementNode("x", {}, "html")
+        node = Element("x", {}, "html")
         node._start_tag_start = 0
         node._start_tag_end = 3
         node._end_tag_start = 5
         node._end_tag_end = 9
         node._end_tag_present = True
-        node.append_child(TextNode("ok"))
+        node.append_child(Text("ok"))
         sanitized = sanitize(node, policy=policy)
         assert to_html(sanitized, pretty=False) == "&lt;x&gt;ok&lt;/x&gt;"
 
@@ -1200,7 +1200,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
             url_policy=UrlPolicy(allow_rules={}),
             disallowed_tag_handling="escape",
         )
-        node = ElementNode("x", {"a": "b"}, "html")
+        node = Element("x", {"a": "b"}, "html")
         node._start_tag_start = 0
         node._start_tag_end = 3
         node._self_closing = True
@@ -1218,16 +1218,16 @@ class TestSanitizeUnsafe(unittest.TestCase):
             disallowed_tag_handling="escape",
         )
 
-        root = SimpleDomNode("#document-fragment")
+        root = DocumentFragment()
         root._source_html = "<x>hi</x>"
 
-        node = ElementNode("x", {}, "html")
+        node = Element("x", {}, "html")
         node._start_tag_start = 0
         node._start_tag_end = 3
         node._end_tag_start = 5
         node._end_tag_end = 9
         node._end_tag_present = True
-        node.append_child(TextNode("hi"))
+        node.append_child(Text("hi"))
 
         # Ensure tag extraction has to walk up to the parent.
         node._source_html = None
@@ -1245,11 +1245,11 @@ class TestSanitizeUnsafe(unittest.TestCase):
             disallowed_tag_handling="escape",
         )
 
-        root = SimpleDomNode("#document-fragment")
+        root = DocumentFragment()
         root._source_html = "<template>x</template>"
 
-        # TemplateNode has a template_content container in the HTML namespace.
-        template = TemplateNode("template", namespace="html")
+        # Template has a template_content container in the HTML namespace.
+        template = Template("template", namespace="html")
         assert template.template_content is not None
 
         # Ensure inheritance has to walk up (both template and template_content
@@ -1269,10 +1269,10 @@ class TestSanitizeUnsafe(unittest.TestCase):
             disallowed_tag_handling="escape",
         )
 
-        root = SimpleDomNode("#document-fragment")
+        root = DocumentFragment()
         root._source_html = "<template>x</template>"
 
-        template = TemplateNode("template", namespace="html")
+        template = Template("template", namespace="html")
         assert template.template_content is not None
 
         # Cover the branch where the child already has source html (no overwrite).
