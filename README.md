@@ -65,9 +65,9 @@ A pure Python HTML5 parser that just works. No C extensions to compile. No syste
 - **Just... Fast Enough ⚡** — Fast for the common case (fastest pure-Python HTML5 parser available); for terabytes, use a C/Rust parser like `html5ever`. ([Benchmarks](benchmarks/performance.py))
 
   ```bash
-  TIMEFORMAT='%3R s' time curl -Ls https://en.wikipedia.org/wiki/HTML \
-    | python -m justhtml - > /dev/null
-  # 0.365 s
+  /usr/bin/time -f '%e s' bash -lc \
+    "curl -Ls https://en.wikipedia.org/wiki/HTML | python -m justhtml - > /dev/null"
+  # 0.41 s
   ```
 
 ## Comparison
