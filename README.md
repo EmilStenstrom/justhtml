@@ -66,7 +66,7 @@ A pure Python HTML5 parser that just works. No C extensions to compile. No syste
 | **`selectolax`**<br>Python wrapper of C-based Lexbor | 🟡 68% | 🚀 Very Fast | ✅ CSS selectors | ❌ Needs sanitization | Very fast but less compliant. |
 | **`html.parser`**<br>Python stdlib | 🔴 4% | ⚡ Fast | ❌ None | ❌ Needs sanitization | Standard library. Chokes on malformed HTML. |
 | **`BeautifulSoup`**<br>Pure Python | 🔴 4% (default) | 🐢 Slow | 🟡 Custom API | ❌ Needs sanitization | Wraps `html.parser` (default). Can use lxml or html5lib. |
-| **`lxml`**<br>Python wrapper of C-based libxml2 | 🔴 1% | 🚀 Very Fast | 🟡 XPath | ❌ Needs sanitization | Fast but not HTML5 compliant. |
+| **`lxml`**<br>Python wrapper of C-based libxml2 | 🔴 1% | 🚀 Very Fast | 🟡 XPath | ❌ Needs sanitization | Fast but not HTML5 compliant. Don't use the old lxml.html.clean module! |
 
 [1]: Parser compliance scores are from a strict run of the [html5lib-tests](https://github.com/html5lib/html5lib-tests) tree-construction fixtures (1,743 non-script tests). See [docs/correctness.md](docs/correctness.md) for details.
 
