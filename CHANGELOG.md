@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.37.0]
 ### Added
-- Speed up sanitization with a fused transform and optimized regex matching. Switching from imperative style sanitization to one based on transforms is 20% slower. We believe it's worth it because of the improved reviewability of the code.
+- Speed up sanitization with a fused transform and optimized regex matching. Despite these improvements, the switch from imperative style sanitization to one based on transforms is 20% slower. We believe it's worth it because of the improved reviewability of the code.
 
 ### Changed
 - BREAKING: Sanitization now happens during parsing/construction instead of at serialization time. The the `safe` and `policy` keywords move from to_html to the JustHTML constructor. Before: `JustHTML(...).to_html(safe=..., policy=...)`, After: `JustHTML(safe=..., policy=...).to_html()`.
