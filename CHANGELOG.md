@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.0]
+
+### Added
+- Add `html_passthrough` option to `to_markdown()` to preserve raw HTML (for example `<script>`, `<style>`, and `<textarea>`) instead of dropping it by default.
+
+### Fixed
+- Playground cleanup now runs against the sanitized tree when `safe=True`, so cleanup rules also apply after unsafe URLs are stripped.
+
+### Changed
+- Playground: rename “Prune empty” to “Cleanup” and clarify behavior via tooltip.
+
+### Docs
+- Clarify transform ordering around `safe=True` and when `Sanitize(...)` runs relative to custom transforms.
+
 ## [0.39.0]
 ### Added
 - Expand sanitize escape-mode fixtures to cover malformed markup edge cases (EOF tag fragments, bogus end tags, markup declarations).
