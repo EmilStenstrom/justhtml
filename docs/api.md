@@ -60,15 +60,18 @@ Parameters:
 
 Sanitization happens at construction time. Use `JustHTML(..., safe=False)` for trusted input or `JustHTML(..., policy=...)` to customize the policy.
 
-#### `to_markdown()`
+#### `to_markdown(html_passthrough=False)`
 
 Return a pragmatic subset of GitHub Flavored Markdown (GFM).
 
-Tables (`<table>`) and images (`<img>`) are preserved as raw HTML.
+Tables (`<table>`) and images (`<img>`) are preserved as raw HTML. Raw HTML tags like
+`<script>`, `<style>`, and `<textarea>` are dropped by default; pass
+`html_passthrough=True` to preserve them (including their contents).
 
 ```python
 doc = JustHTML("<h1>Title</h1><p>Hello <b>world</b></p>")
 doc.to_markdown()  # "# Title\n\nHello **world**"
+doc.to_markdown(html_passthrough=True)
 ```
 
 Sanitization happens at construction time. Use `JustHTML(..., safe=False)` for trusted input or `JustHTML(..., policy=...)` to customize the policy.
@@ -154,12 +157,13 @@ node.to_text()
 
 Text extraction is safe-by-default when you build documents with `JustHTML(..., safe=True)` (the default). Use `safe=False` at construction for trusted input.
 
-#### `to_markdown()`
+#### `to_markdown(html_passthrough=False)`
 
 Return a pragmatic subset of GitHub Flavored Markdown (GFM) for this subtree.
 
 ```python
 node.to_markdown()
+node.to_markdown(html_passthrough=True)
 ```
 
 Markdown output is safe-by-default when you build documents with `JustHTML(..., safe=True)` (the default). Use `safe=False` at construction for trusted input.

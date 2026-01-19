@@ -90,6 +90,8 @@ Helloworld
 
 - Converts common elements like headings, paragraphs, lists, emphasis, links, and code.
 - Keeps tables (`<table>`) and images (`<img>`) as raw HTML.
+- Drops `<script>`, `<style>`, and `<textarea>` by default; pass
+  `html_passthrough=True` to include them and their contents.
 
 ```python
 from justhtml import JustHTML

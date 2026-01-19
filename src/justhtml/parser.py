@@ -249,6 +249,6 @@ class JustHTML:
         """Return the document's concatenated text."""
         return self.root.to_text(separator=separator, strip=strip)
 
-    def to_markdown(self) -> str:
+    def to_markdown(self, html_passthrough: bool = False) -> str:
         """Return a GitHub Flavored Markdown representation."""
-        return self.root.to_markdown()
+        return self.root.to_markdown(html_passthrough=html_passthrough)

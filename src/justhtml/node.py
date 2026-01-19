@@ -324,7 +324,7 @@ class Node:
             return ""
         return separator.join(parts)
 
-    def to_markdown(self) -> str:
+    def to_markdown(self, html_passthrough: bool = False) -> str:
         """Return a GitHub Flavored Markdown representation of this subtree.
 
         This is a pragmatic HTML->Markdown converter intended for readability.
@@ -332,7 +332,13 @@ class Node:
         - Unknown elements fall back to rendering their children.
         """
         builder = _MarkdownBuilder()
-        _to_markdown_walk(self, builder, preserve_whitespace=False, list_depth=0)
+        _to_markdown_walk(
+            self,
+            builder,
+            preserve_whitespace=False,
+            list_depth=0,
+            html_passthrough=html_passthrough,
+        )
         return builder.finish()
 
     def insert_before(self, node: Any, reference_node: Any | None) -> None:
@@ -631,7 +637,8 @@ class Text:
             return self.data.strip()
         return self.data
 
-    def to_markdown(self) -> str:
+    def to_markdown(self, html_passthrough: bool = False) -> str:
+        _ = html_passthrough
         builder = _MarkdownBuilder()
         builder.text(_markdown_escape_text(self.data or ""), preserve_whitespace=False)
         return builder.finish()
@@ -687,6 +694,7 @@ def _to_markdown_walk(
     preserve_whitespace: bool,
     list_depth: int,
     in_link: bool = False,
+    html_passthrough: bool = False,
 ) -> None:
     name: str = node.name
 
@@ -718,6 +726,7 @@ def _to_markdown_walk(
                     preserve_whitespace,
                     list_depth,
                     in_link=in_link,
+                    html_passthrough=html_passthrough,
                 )
         return
 
@@ -727,15 +736,24 @@ def _to_markdown_walk(
     if tag == "head" or tag == "title":
         return
 
-    # Preserve <img> and <table> as HTML.
+    # Preserve <img>, <table>, and raw-text elements as HTML.
     if tag == "img":
         builder.raw(node.to_html(indent=0, indent_size=2, pretty=False))
         return
 
-    if tag == "table":
+    if tag in {"table", "script", "style", "textarea"}:
         if not in_link:
             builder.ensure_newlines(2 if builder._buf else 0)
-        builder.raw(node.to_html(indent=0, indent_size=2, pretty=False))
+        if tag in {"script", "style", "textarea"}:
+            if not html_passthrough:
+                return
+            builder.raw(f"<{tag}>")
+            content = node.to_text(separator="", strip=False)
+            if content:
+                builder.raw(content)
+            builder.raw(f"</{tag}>")
+        else:
+            builder.raw(node.to_html(indent=0, indent_size=2, pretty=False))
         if not in_link:
             builder.ensure_newlines(2)
         return
@@ -756,6 +774,7 @@ def _to_markdown_walk(
                     preserve_whitespace=False,
                     list_depth=list_depth,
                     in_link=in_link,
+                    html_passthrough=html_passthrough,
                 )
 
         if not in_link:
@@ -807,6 +826,7 @@ def _to_markdown_walk(
                     preserve_whitespace=False,
                     list_depth=list_depth,
                     in_link=in_link,
+                    html_passthrough=html_passthrough,
                 )
 
         if not in_link:
@@ -828,6 +848,7 @@ def _to_markdown_walk(
                         preserve_whitespace=False,
                         list_depth=list_depth,
                         in_link=in_link,
+                        html_passthrough=html_passthrough,
                     )
             text = inner.finish()
             if text:
@@ -847,6 +868,7 @@ def _to_markdown_walk(
                         preserve_whitespace=False,
                         list_depth=list_depth,
                         in_link=in_link,
+                        html_passthrough=html_passthrough,
                     )
         return
 
@@ -873,6 +895,7 @@ def _to_markdown_walk(
                         preserve_whitespace=False,
                         list_depth=list_depth + 1,
                         in_link=in_link,
+                        html_passthrough=html_passthrough,
                     )
                 idx += 1
             builder.ensure_newlines(2)
@@ -889,33 +912,46 @@ def _to_markdown_walk(
                         preserve_whitespace=False,
                         list_depth=list_depth + 1,
                         in_link=in_link,
+                        html_passthrough=html_passthrough,
                     )
         return
 
     # Emphasis/strong.
     if tag in {"em", "i"}:
-        builder.raw("*")
+        inner = _MarkdownBuilder()
         for child in node.children or []:
             _to_markdown_walk(
                 child,
-                builder,
+                inner,
                 preserve_whitespace=False,
                 list_depth=list_depth,
                 in_link=in_link,
+                html_passthrough=html_passthrough,
             )
+        content = inner.finish()
+        if not content:
+            return
+        builder.raw("*")
+        builder.raw(content)
         builder.raw("*")
         return
 
     if tag in {"strong", "b"}:
-        builder.raw("**")
+        inner = _MarkdownBuilder()
         for child in node.children or []:
             _to_markdown_walk(
                 child,
-                builder,
+                inner,
                 preserve_whitespace=False,
                 list_depth=list_depth,
                 in_link=in_link,
+                html_passthrough=html_passthrough,
             )
+        content = inner.finish()
+        if not content:
+            return
+        builder.raw("**")
+        builder.raw(content)
         builder.raw("**")
         return
 
@@ -934,6 +970,7 @@ def _to_markdown_walk(
                 preserve_whitespace=False,
                 list_depth=list_depth,
                 in_link=True,
+                html_passthrough=html_passthrough,
             )
         link_text = inner_builder.finish()
 
@@ -956,6 +993,7 @@ def _to_markdown_walk(
                 next_preserve,
                 list_depth,
                 in_link=in_link,
+                html_passthrough=html_passthrough,
             )
 
     if isinstance(node, Element) and node.template_content:
@@ -965,6 +1003,7 @@ def _to_markdown_walk(
             next_preserve,
             list_depth,
             in_link=in_link,
+            html_passthrough=html_passthrough,
         )
 
     # Add spacing after block containers to keep output readable.

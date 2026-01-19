@@ -285,13 +285,30 @@ class TestNode(unittest.TestCase):
         assert root.to_markdown() == "ok"
 
     def test_to_markdown_preserves_script_whitespace(self):
-        # script/style are treated as whitespace-preserving containers.
+        # script/style are preserved as raw HTML blocks in markdown when passthrough is on.
         root = Node("div")
         script = Node("script")
         # Include a trailing newline to exercise raw-newline tracking.
         script.append_child(Text("var x = 1;\nvar y = 2;\n"))
         root.append_child(script)
-        assert root.to_markdown() == "var x = 1;\nvar y = 2;"
+        assert root.to_markdown(html_passthrough=True) == "<script>var x = 1;\nvar y = 2;\n</script>"
+
+    def test_to_markdown_empty_script_still_outputs_tags(self):
+        root = Node("div")
+        root.append_child(Node("script"))
+        assert root.to_markdown() == ""
+
+    def test_to_markdown_empty_script_passthrough(self):
+        root = Node("div")
+        root.append_child(Node("script"))
+        assert root.to_markdown(html_passthrough=True) == "<script></script>"
+
+    def test_to_markdown_script_drops_content_by_default(self):
+        root = Node("div")
+        script = Node("script")
+        script.append_child(Text("alert(1);"))
+        root.append_child(script)
+        assert root.to_markdown() == ""
 
     def test_to_markdown_textnode_method(self):
         t = Text("a*b")
@@ -301,6 +318,12 @@ class TestNode(unittest.TestCase):
         # Exercises empty-string handling in markdown helpers and builder.
         t = Text("")
         assert t.to_markdown() == ""
+
+    def test_to_markdown_ignores_empty_inline_formatting(self):
+        root = Node("div")
+        root.append_child(Node("i"))
+        root.append_child(Node("b"))
+        assert root.to_markdown() == ""
 
     def test_to_markdown_br_on_empty_buffer_and_multiple_newlines(self):
         # Exercises newline logic when buffer is empty and when newline_count is already >= 2.
@@ -433,6 +456,11 @@ class TestNode(unittest.TestCase):
         b.text("x\n", preserve_whitespace=True)
         assert b.finish() == "x"
 
+    def test_to_markdown_walk_preserves_whitespace_for_text_nodes(self):
+        b = _MarkdownBuilder()
+        _to_markdown_walk(Text("a\nb"), b, preserve_whitespace=True, list_depth=0)
+        assert b.finish() == "a\nb"
+
     def test_markdown_builder_text_leading_whitespace_does_not_add_space(self):
         # Covers the branch where pending whitespace exists but we are at start of output.
         b = _MarkdownBuilder()
@@ -445,7 +473,7 @@ class TestNode(unittest.TestCase):
         style = Node("style")
         style.append_child(Text("a {\n  b: c; }"))
         root.append_child(style)
-        assert "a {\n  b: c; }" in root.to_markdown()
+        assert "a {\n  b: c; }" in root.to_markdown(html_passthrough=True)
 
     def test_to_markdown_unknown_container_walks_children(self):
         doc = JustHTML("<span>Hi</span>")
