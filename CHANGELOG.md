@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.40.0]
+## [0.40.0] - 2026-01-19
 
 ### Added
 - Add `html_passthrough` option to `to_markdown()` to preserve raw HTML (for example `<script>`, `<style>`, and `<textarea>`) instead of dropping it by default.
@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Docs
 - Clarify transform ordering around `safe=True` and when `Sanitize(...)` runs relative to custom transforms.
 
-## [0.39.0]
+## [0.39.0] - 2026-01-18
 ### Added
 - Expand sanitize escape-mode fixtures to cover malformed markup edge cases (EOF tag fragments, bogus end tags, markup declarations).
 - Add `sanitize_dom(...)` helper to re-sanitize a mutated DOM tree.
@@ -30,11 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rename the TokenizerOpts flag for emitting malformed markup as text to `emit_bogus_markup_as_text` (was `emit_eof_tag_as_text`).
 - BREAKING: Rename DOM node classes to DOM-style names (`Node`, `Element`, `Text`, `Template`, `Comment`, `Document`, `DocumentFragment`).
 
-## [0.38.0]
+## [0.38.0] - 2026-01-18
 ### Fixed
 - Escape-mode sanitization now preserves malformed tag-like text across more tokenizer states (end tags, markup declarations, and EOF-in-tag paths) instead of dropping tail content.
 
-## [0.37.0]
+## [0.37.0] - 2026-01-18
 ### Added
 - Speed up sanitization with a fused transform and optimized regex matching. Despite these improvements, the switch from imperative style sanitization to one based on transforms is 20% slower. We believe it's worth it because of the improved reviewability of the code.
 
@@ -262,9 +262,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Add support for `:contains()` pseudo-class and related tests.
 - Enable manual triggering of the publish workflow.
-- Enhance stdin handling for non-UTF-8 bytes and update tests.
+
+## [0.12.0] - 2025-12-15
+### Added
+- CLI: preserve non-UTF-8 input by reading stdin as bytes when available.
+- CLI: read file inputs as bytes to avoid decode failures on non-UTF-8.
+- Add tests for CLI stdin handling with non-UTF-8 bytes.
+
 ### Fixed
-- Skip mypy check in pre-commit step.
+- CI: skip mypy check in pre-commit step.
+
+### Changed
+- Update test summary for CLI/CI changes.
 
 ## [0.11.0] - 2025-12-15
 ### Added
@@ -297,8 +306,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add design proposal for optional HTML sanitizer in `justhtml`.
 - Update test case counts in documentation to reflect current compliance status.
 - Add `FragmentContext` support to `justhtml` and update documentation.
-- Enhance noscript handling in the parser and update test coverage.
-- Add acknowledgments section to README.md, crediting html5ever as the foundation for `justhtml`.
+
+## [0.6.0] - 2025-12-08
+### Fixed
+- Parse `<noscript>` content in `<head>` as HTML when scripting is disabled.
+
+### Changed
+- Adjust test runner to skip script-on tests and add new `<noscript>` fixtures.
+- Update correctness docs and test summary to reflect the new results.
+
+### Docs
+- Add acknowledgments section to README.md, crediting html5ever as the foundation for JustHTML.
 
 ## [0.5.2] - 2025-12-07
 ### Changed
