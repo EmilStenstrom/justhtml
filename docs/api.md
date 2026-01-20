@@ -126,14 +126,15 @@ the construction pipeline.
 
 ### Methods
 
-#### `to_html(indent=2)`
+#### `to_html(indent=0, indent_size=2, pretty=True)`
 
 Serialize the node to HTML string.
 
 ```python
-node.to_html()                 # Pretty-printed HTML
-node.to_html(indent=0)         # Compact HTML
-node.to_html(indent=4)         # 4-space indent
+node.to_html()                      # Pretty-printed HTML
+node.to_html(pretty=False)          # Compact HTML
+node.to_html(indent_size=4)         # 4-space indent
+node.to_html(indent=2, indent_size=4)  # Start with 2 indents
 
 # Safety happens at construction time:
 # - default: JustHTML(..., safe=True)
@@ -425,7 +426,7 @@ if matches(node, "div.active"):
     ...
 ```
 
-### `to_html(node, indent=2)`
+### `to_html(node, indent=0, indent_size=2, pretty=True)`
 
 Serialize a node to HTML.
 
