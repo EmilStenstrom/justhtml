@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-01-21
+
+### Changed
+- Declare JustHTML stable: the public API is now considered 1.0, and breaking changes will follow SemVer.
+
 ## [0.40.0] - 2026-01-19
 
 ### Added
