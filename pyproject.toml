@@ -1,7 +1,7 @@
 [project]
 name = "justhtml"
 authors = [{ name = "Emil Stenström", email = "emil@emilstenstrom.se" }]
-version = "0.40.0"
+version = "1.0.0"
 description = "A pure Python HTML5 parser that just works."
 readme = "README.md"
 license = { file = "LICENSE" }
