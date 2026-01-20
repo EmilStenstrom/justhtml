@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import ast
+import codeop
 import difflib
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,16 +24,194 @@ class _DocExample:
     expects_raise: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _ReadmeExample:
+    readme_path: Path
+    code_start_line: int
+    original_code: str
+    runnable_code: str
+    expected_output: str
+
+
+def _strip_expected_prefix(line: str) -> str | None:
+    stripped = line.lstrip()
+    if not stripped.startswith("#"):
+        return None
+    stripped = stripped[1:].lstrip()
+    if not stripped.startswith("=>"):
+        return None
+    return stripped[2:].lstrip()
+
+
+_INLINE_EXPECT_RE = re.compile(r"^(?P<code>.*?)(?P<ws>\s*)#\s*=>\s*(?P<expected>.*)$")
+
+
+def _is_print_expr(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Expr):
+        return False
+    value = node.value
+    if not isinstance(value, ast.Call):
+        return False
+    func = value.func
+    return isinstance(func, ast.Name) and func.id == "print"
+
+
+def _rewrite_readme_block_to_runnable(code: str) -> tuple[str, str]:
+    lines = code.splitlines()
+
+    runnable_lines: list[str] = [
+        "from __future__ import annotations",
+        "",
+        "from justhtml import JustHTML",
+        "",
+    ]
+    expected_lines: list[str] = []
+
+    compiler = codeop.CommandCompiler()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        expected = _strip_expected_prefix(line)
+        if expected is not None:
+            raise AssertionError("Found '# => ...' without a preceding statement")
+
+        # Preserve blank lines as-is.
+        if line.strip() == "":
+            runnable_lines.append("")
+            i += 1
+            continue
+
+        # Accumulate a complete Python statement.
+        stmt_lines: list[str] = []
+        while i < len(lines):
+            stmt_lines.append(lines[i])
+            src = "\n".join(stmt_lines)
+            try:
+                code = compiler(src, symbol="exec")
+            except (SyntaxError, OverflowError, ValueError):
+                # Keep as-is; execution will surface the error.
+                code = object()
+            i += 1
+            if code is not None:
+                break
+
+        stmt_src = "\n".join(stmt_lines).rstrip("\n")
+
+        expected_for_stmt: list[str] = []
+        if stmt_lines:
+            m = _INLINE_EXPECT_RE.match(stmt_lines[-1])
+            if m is not None:
+                expected_inline = m.group("expected")
+                stmt_lines[-1] = m.group("code").rstrip()
+                stmt_src = "\n".join(stmt_lines).rstrip("\n")
+                expected_for_stmt.append(expected_inline)
+
+        # Collect consecutive expectation lines immediately following the statement.
+        while i < len(lines):
+            exp = _strip_expected_prefix(lines[i])
+            if exp is None:
+                break
+            expected_for_stmt.append(exp)
+            i += 1
+
+        if expected_for_stmt:
+            try:
+                parsed = ast.parse(stmt_src, mode="exec")
+            except SyntaxError:
+                raise AssertionError("Unable to parse statement preceding '# =>'") from None
+
+            if len(parsed.body) != 1:
+                raise AssertionError("Expected a single statement before '# =>'")
+
+            only = parsed.body[0]
+            if _is_print_expr(only):
+                runnable_lines.append(stmt_src)
+            elif isinstance(only, ast.Expr):
+                expr_src = stmt_src.strip()
+                runnable_lines.append(f"print(\n{expr_src}\n)")
+            else:
+                raise AssertionError("'# =>' must follow an expression or print(...) statement")
+
+            expected_lines.extend(expected_for_stmt)
+        else:
+            runnable_lines.append(stmt_src)
+
+    runnable_code = "\n".join(runnable_lines).rstrip("\n")
+    expected_output = "\n".join(expected_lines).rstrip("\n")
+    return runnable_code, expected_output
+
+
+def _iter_readme_examples(project_root: Path) -> list[_ReadmeExample]:
+    return _iter_markdown_hash_arrow_examples(project_root, project_root / "README.md")
+
+
+def _iter_markdown_hash_arrow_examples(project_root: Path, md_path: Path) -> list[_ReadmeExample]:
+    text = md_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    examples: list[_ReadmeExample] = []
+
+    i = 0
+    while i < len(lines):
+        parsed = _parse_fence_line(lines[i])
+        if parsed is None:
+            i += 1
+            continue
+
+        code_fence, fence_lang = parsed
+        if fence_lang not in {"python", "py"}:
+            i += 1
+            continue
+
+        code_start_line = i + 1  # 1-based line number of opening fence
+        i += 1
+        code_lines: list[str] = []
+        while i < len(lines) and not lines[i].lstrip().startswith(code_fence):
+            code_lines.append(lines[i])
+            i += 1
+        if i < len(lines) and lines[i].lstrip().startswith(code_fence):
+            i += 1
+
+        original_code = "\n".join(code_lines).rstrip("\n")
+        original_code = textwrap.dedent(original_code).rstrip("\n")
+        if "# =>" not in original_code:
+            continue
+
+        try:
+            runnable_code, expected_output = _rewrite_readme_block_to_runnable(original_code)
+        except AssertionError as e:
+            raise AssertionError(
+                f"Markdown doctest parse error at {md_path.relative_to(project_root)}:{code_start_line}: {e}"
+            ) from None
+
+        if expected_output.strip() == "":
+            continue
+
+        examples.append(
+            _ReadmeExample(
+                readme_path=md_path,
+                code_start_line=code_start_line,
+                original_code=original_code,
+                runnable_code=runnable_code,
+                expected_output=expected_output,
+            )
+        )
+
+    return examples
+
+
 def _parse_fence_line(line: str) -> tuple[str, str] | None:
-    if not line.startswith("`"):
+    stripped = line.lstrip()
+    if not stripped.startswith("`"):
         return None
     i = 0
-    while i < len(line) and line[i] == "`":
+    while i < len(stripped) and stripped[i] == "`":
         i += 1
     if i < 3:
         return None
-    fence = line[:i]
-    lang = line[i:].strip().lower()
+    fence = stripped[:i]
+    lang = stripped[i:].strip().lower()
     return fence, lang
 
 
@@ -50,14 +232,15 @@ def _iter_doc_examples(docs_dir: Path) -> list[_DocExample]:
                     code_start_line = i + 1  # 1-based line number of fence
                     i += 1
                     code_lines: list[str] = []
-                    while i < len(lines) and not lines[i].startswith(code_fence):
+                    while i < len(lines) and not lines[i].lstrip().startswith(code_fence):
                         code_lines.append(lines[i])
                         i += 1
                     # Skip closing fence if present.
-                    if i < len(lines) and lines[i].startswith(code_fence):
+                    if i < len(lines) and lines[i].lstrip().startswith(code_fence):
                         i += 1
 
                     code = "\n".join(code_lines).rstrip("\n")
+                    code = textwrap.dedent(code).rstrip("\n")
 
                     expects_raise = "doctest: raises" in code
 
@@ -78,10 +261,10 @@ def _iter_doc_examples(docs_dir: Path) -> list[_DocExample]:
                             out_fence, output_lang = out_parsed
                             k += 1
                             out_lines: list[str] = []
-                            while k < len(lines) and not lines[k].startswith(out_fence):
+                            while k < len(lines) and not lines[k].lstrip().startswith(out_fence):
                                 out_lines.append(lines[k])
                                 k += 1
-                            if k < len(lines) and lines[k].startswith(out_fence):
+                            if k < len(lines) and lines[k].lstrip().startswith(out_fence):
                                 k += 1
 
                             expected_output = "\n".join(out_lines).rstrip("\n")
@@ -243,6 +426,84 @@ class TestDocsExamples(unittest.TestCase):
                         [
                             f"Doc: {ex.doc_path.relative_to(project_root)}:{ex.code_start_line}",
                             f"Output fence language: {ex.output_lang}",
+                            _diff(expected, actual),
+                        ]
+                    )
+                )
+
+        if failures:
+            self.fail("\n\n".join(failures))
+
+    def test_readme_python_blocks_match_hash_arrow_output(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+
+        examples = _iter_readme_examples(project_root)
+        if not examples:
+            self.fail("No README doctest-style examples (# => ...) found")
+
+        failures: list[str] = []
+        for ex in examples:
+            returncode, stdout, stderr = _run_python_snippet(project_root, ex.runnable_code)
+            if returncode != 0:
+                failures.append(
+                    "\n".join(
+                        [
+                            f"Doc: {ex.readme_path.relative_to(project_root)}:{ex.code_start_line}",
+                            "Snippet execution failed:",
+                            stderr,
+                        ]
+                    )
+                )
+                continue
+
+            expected = ex.expected_output.replace("\r\n", "\n").rstrip("\n")
+            actual = stdout
+            if not _matches_with_ellipsis(expected, actual):
+                failures.append(
+                    "\n".join(
+                        [
+                            f"Doc: {ex.readme_path.relative_to(project_root)}:{ex.code_start_line}",
+                            _diff(expected, actual),
+                        ]
+                    )
+                )
+
+        if failures:
+            self.fail("\n\n".join(failures))
+
+    def test_docs_python_blocks_match_hash_arrow_output(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        docs_dir = project_root / "docs"
+
+        examples: list[_ReadmeExample] = []
+        for md_path in sorted(docs_dir.rglob("*.md")):
+            examples.extend(_iter_markdown_hash_arrow_examples(project_root, md_path))
+
+        if not examples:
+            self.fail("No docs doctest-style examples (# => ...) found")
+
+        failures: list[str] = []
+        for ex in examples:
+            returncode, stdout, stderr = _run_python_snippet(project_root, ex.runnable_code)
+            if returncode != 0:
+                failures.append(
+                    "\n".join(
+                        [
+                            f"Doc: {ex.readme_path.relative_to(project_root)}:{ex.code_start_line}",
+                            "Snippet execution failed:",
+                            stderr,
+                        ]
+                    )
+                )
+                continue
+
+            expected = ex.expected_output.replace("\r\n", "\n").rstrip("\n")
+            actual = stdout
+            if not _matches_with_ellipsis(expected, actual):
+                failures.append(
+                    "\n".join(
+                        [
+                            f"Doc: {ex.readme_path.relative_to(project_root)}:{ex.code_start_line}",
                             _diff(expected, actual),
                         ]
                     )

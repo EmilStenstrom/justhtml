@@ -19,12 +19,7 @@ from justhtml import JustHTML
 
 doc = JustHTML("<div><h1>Title</h1><p>Hello <b>world</b></p></div>", fragment=True)
 print(doc.to_text())
-```
-
-Output:
-
-```text
-Title Hello world
+# => Title Hello world
 ```
 
 ```python
@@ -32,12 +27,7 @@ from justhtml import JustHTML
 
 untrusted = JustHTML("<p>Hello<script>alert(1)</script>World</p>", fragment=True)
 print(untrusted.to_text())
-```
-
-Output:
-
-```text
-Hello World
+# => Hello World
 ```
 
 ```python
@@ -45,12 +35,7 @@ from justhtml import JustHTML
 
 untrusted = JustHTML("<p>Hello<script>alert(1)</script>World</p>", fragment=True, safe=False)
 print(untrusted.to_text())
-```
-
-Output:
-
-```text
-Hello alert(1) World
+# => Hello alert(1) World
 ```
 
 ```python
@@ -58,12 +43,7 @@ from justhtml import JustHTML
 
 doc = JustHTML("<p>Hello <b>world</b></p>", fragment=True)
 print(doc.root.to_text(separator="", strip=False))
-```
-
-Output:
-
-```text
-Hello world
+# => Hello world
 ```
 
 The default `separator=" "` avoids accidentally smashing words together when the HTML splits text across nodes:
@@ -75,13 +55,8 @@ doc = JustHTML("<p>Hello<b>world</b></p>")
 
 print(doc.to_text())
 print(doc.to_text(separator="", strip=True))
-```
-
-Output:
-
-```text
-Hello world
-Helloworld
+# => Hello world
+# => Helloworld
 ```
 
 ## 2) `to_markdown()` (GitHub Flavored Markdown)
@@ -98,14 +73,9 @@ from justhtml import JustHTML
 
 doc = JustHTML("<h1>Title</h1><p>Hello <b>world</b></p>")
 print(doc.to_markdown())
-```
-
-Output:
-
-```text
-# Title
-
-Hello **world**
+# => # Title
+# =>
+# => Hello **world**
 ```
 
 Example:

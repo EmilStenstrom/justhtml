@@ -50,7 +50,7 @@ Return the document's concatenated text.
 
 ```python
 doc = JustHTML("<p>Hello <b>world</b></p>")
-doc.to_text()  # "Hello world"  (separator=" ", strip=True)
+doc.to_text()  # => Hello world
 ```
 
 Parameters:
@@ -70,7 +70,9 @@ Tables (`<table>`) and images (`<img>`) are preserved as raw HTML. Raw HTML tags
 
 ```python
 doc = JustHTML("<h1>Title</h1><p>Hello <b>world</b></p>")
-doc.to_markdown()  # "# Title\n\nHello **world**"
+doc.to_markdown()  # => # Title
+# =>
+# => Hello **world**
 doc.to_markdown(html_passthrough=True)
 ```
 

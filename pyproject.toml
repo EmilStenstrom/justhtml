@@ -4,6 +4,7 @@ authors = [{ name = "Emil Stenström", email = "emil@emilstenstrom.se" }]
 version = "0.40.0"
 description = "A pure Python HTML5 parser that just works."
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",

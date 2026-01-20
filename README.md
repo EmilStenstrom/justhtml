@@ -9,7 +9,7 @@ A pure Python HTML5 parser that just works. No C extensions to compile. No syste
 - **Just... Correct ✅** — Spec-perfect HTML5 parsing with browser-grade error recovery — passes the official 9k+ [html5lib-tests](https://github.com/html5lib/html5lib-tests) suite, with 100% line+branch coverage. ([Correctness](docs/correctness.md))
 
   ```python
-  JustHTML("<p><b>Hi<i>there</b>!", fragment=True).to_html()
+  JustHTML("<p><b>Hi<i>there</b>!", fragment=True).to_html(pretty=False)
   # => <p><b>Hi<i>there</i></b><i>!</i></p>
 
   # Note: fragment=True parses snippets (no <html>/<body> needed)
@@ -39,9 +39,9 @@ A pure Python HTML5 parser that just works. No C extensions to compile. No syste
 
   ```python
   JustHTML(
-      "<main><p class=\"x\">Hi</p><p>Bye</p></main>",
+      "<div><p class=\"x\">Hi</p><p>Bye</p></div>",
       fragment=True,
-  ).query("main p.x")[0].to_html()
+  ).query("div p.x")[0].to_html(pretty=False)
   # => <p class="x">Hi</p>
   ```
 
@@ -57,9 +57,11 @@ A pure Python HTML5 parser that just works. No C extensions to compile. No syste
           Linkify(),
           SetAttrs("a", rel="nofollow"),
       ],
+      fragment=True,
+      safe=False,
   )
   print(doc.to_html(pretty=False))
-  # => <p>Hello world <a href="https://example.com" rel="nofollow">example.com</a></p>
+  # => <p>Hello world <a href="http://example.com" rel="nofollow">example.com</a></p>
   ```
 
 - **Just... Fast Enough ⚡** — Fast for the common case (fastest pure-Python HTML5 parser available); for terabytes, use a C/Rust parser like `html5ever`. ([Benchmarks](benchmarks/performance.py))

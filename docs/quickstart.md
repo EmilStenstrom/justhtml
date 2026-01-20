@@ -30,12 +30,7 @@ snippet = "<p>Hello <b>world</b></p>"
 doc = JustHTML(snippet, fragment=True)
 
 print(doc.to_html())
-```
-
-Output:
-
-```html
-<p>Hello <b>world</b></p>
+# => <p>Hello <b>world</b></p>
 ```
 
 ## Parsing Bytes (Encoding Sniffing)
@@ -69,10 +64,10 @@ body = html_node.children[1] # <body> (children[0] is <head>)
 div = body.children[0]       # <div>
 
 # Each node has:
-print(div.name)                                # "div"
-print(div.attrs)                               # {"id": "main"}
-print([child.name for child in div.children])  # ['p']
-print(div.parent.name)                         # body
+print(div.name)                                # => div
+print(div.attrs)                               # => {'id': 'main'}
+print([child.name for child in div.children])  # => ['p']
+print(div.parent.name)                         # => body
 ```
 
 ## Querying with CSS Selectors

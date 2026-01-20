@@ -11,8 +11,9 @@ This is a DOM transform (it does not operate on raw HTML strings), so it never r
 ```python
 from justhtml import JustHTML, Linkify
 
-doc = JustHTML("<p>See example.com</p>", transforms=[Linkify()])
+doc = JustHTML("<p>See example.com</p>", fragment=True, transforms=[Linkify()])
 print(doc.to_html(pretty=False))
+# => <p>See <a href="http://example.com">example.com</a></p>
 ```
 
 ## Behavior
@@ -34,11 +35,10 @@ Example:
 ```python
 from justhtml import JustHTML, Linkify
 
-doc = JustHTML("<p>See bücher.de</p>", transforms=[Linkify()])
+doc = JustHTML("<p>See bücher.de</p>", fragment=True, transforms=[Linkify()])
 print(doc.to_html(pretty=False))
+# => <p>See <a href="http://xn--bcher-kva.de">bücher.de</a></p>
 ```
-
-This produces an `<a>` where the link text remains `bücher.de`, while `href` uses the punycoded host (for example `http://xn--bcher-kva.de`).
 
 Notes:
 

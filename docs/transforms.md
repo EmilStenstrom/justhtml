@@ -258,12 +258,7 @@ doc = JustHTML(
 )
 
 print(doc.to_html(pretty=False))
-```
-
-Output:
-
-```html
-<p>Hello world</p><pre>a  b</pre>
+# => <p>Hello world</p><pre>a  b</pre>
 ```
 
 ### `Sanitize(policy=None, enabled=True, callback=None, report=None)`
