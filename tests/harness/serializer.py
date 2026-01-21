@@ -440,6 +440,7 @@ def _run_serializer_tests(config):
     verbosity = config.get("verbosity", 0)
     quiet = config.get("quiet", False)
     test_specs = config.get("test_specs", [])
+    fail_fast = bool(config.get("fail_fast"))
 
     total = 0
     passed = 0
@@ -531,6 +532,16 @@ def _run_serializer_tests(config):
                         print(repr(e))
                     print("ACTUAL:")
                     print(repr(actual))
+
+                if fail_fast:
+                    file_results[rel_name] = {
+                        "passed": file_passed,
+                        "failed": file_failed,
+                        "skipped": file_skipped,
+                        "total": file_passed + file_failed + file_skipped,
+                        "test_indices": test_indices,
+                    }
+                    return passed, total, skipped, file_results
 
         file_results[rel_name] = {
             "passed": file_passed,

@@ -102,6 +102,7 @@ def _run_tokenizer_tests(config):
     verbosity = config.get("verbosity", 0)
     quiet = config.get("quiet", False)
     test_specs = config.get("test_specs", [])
+    fail_fast = bool(config.get("fail_fast"))
 
     for path in sorted(test_files, key=lambda p: p.name):
         filename = path.name
@@ -159,6 +160,17 @@ def _run_tokenizer_tests(config):
                         xml_coercion=is_xml_violation,
                         check_errors=config.get("check_errors"),
                     )
+
+                if fail_fast:
+                    rel_name = str(path.relative_to(Path("tests")))
+                    file_results[rel_name] = {
+                        "passed": file_passed,
+                        "failed": file_failed,
+                        "skipped": 0,
+                        "total": file_passed + file_failed,
+                        "test_indices": test_indices,
+                    }
+                    return passed, total, file_results
         rel_name = str(path.relative_to(Path("tests")))
         file_results[rel_name] = {
             "passed": file_passed,

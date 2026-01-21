@@ -235,6 +235,7 @@ def _run_unit_tests(config):
         runner = unittest.TextTestRunner(
             stream=stream,
             verbosity=0 if quiet else verbosity,
+            failfast=bool(config.get("fail_fast")),
             resultclass=(
                 lambda *args, file_key=test_file.name, **kwargs: _CollectingResult(*args, file_key=file_key, **kwargs)
             ),
@@ -261,6 +262,9 @@ def _run_unit_tests(config):
             for test, traceback in result.failures + result.errors:
                 print(f"\nFAILED: {test}")
                 print(traceback)
+
+        if config.get("fail_fast") and file_failed:
+            break
 
     return total_passed, total_failed, file_results
 
