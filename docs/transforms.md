@@ -55,20 +55,22 @@ print(doc.to_html(pretty=False))
 > from justhtml import JustHTML, Sanitize, Unwrap
 >
 > doc = JustHTML(
->     '<a href="javascript:alert(1)">x</a>',
+>     'Hello <a href="javascript:alert(1)">x</a>',
 >     transforms=[
 >         Sanitize(),
 >         Unwrap("a:not([href])"),
 >     ],
 > )
+> print(doc.to_html())
+> # => Hello
 > ```
 
 Raw output is available by disabling sanitization:
 
 ```python
-doc = JustHTML("<p>Hello</p><script>alert(1)</script>", safe=False)
-doc.to_html(pretty=False)
-doc.root.to_html(pretty=False)
+doc = JustHTML("<p>Hello</p><script>alert(1)</script>", fragment=True, safe=False)
+print(doc.to_html(pretty=False))
+# => <p>Hello</p><script>alert(1)</script>
 ```
 
 Sanitization can remove or rewrite transform results (for example, unsafe tags, event handler attributes, or unsafe URLs in `href`).
