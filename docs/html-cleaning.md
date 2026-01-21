@@ -59,7 +59,7 @@ user_html = '<p>Hello <b>world</b> <script>alert(1)</script> <a href="javascript
 doc = JustHTML(user_html, fragment=True, transforms=[Sanitize()])
 
 # The DOM is now sanitized in-memory.
-print(doc.root.to_html(pretty=False))
+print(doc.to_html(pretty=False))
 # => <p>Hello <b>world</b>  <a>bad</a> <a href="https://example.com/?a=1&amp;b=2">ok</a></p>
 ```
 

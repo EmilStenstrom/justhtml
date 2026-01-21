@@ -32,7 +32,7 @@ class TestSerialize(unittest.TestCase):
     def test_basic_document(self):
         html = "<!DOCTYPE html><html><head><title>Test</title></head><body><p>Hello</p></body></html>"
         doc = JustHTML(html)
-        output = doc.root.to_html()
+        output = doc.to_html()
         assert "<!DOCTYPE html>" in output
         assert "<title>Test</title>" in output
         assert "<p>Hello</p>" in output
@@ -85,7 +85,7 @@ class TestSerialize(unittest.TestCase):
     def test_attributes(self):
         html = '<div id="test" class="foo" data-val="x&y"></div>'
         doc = JustHTML(html)
-        output = doc.root.to_html()
+        output = doc.to_html()
         assert 'id="test"' in output
         assert 'class="foo"' in output
         assert 'data-val="x&amp;y"' in output  # Check escaping
@@ -101,7 +101,7 @@ class TestSerialize(unittest.TestCase):
     def test_void_elements(self):
         html = "<br><hr><img>"
         doc = JustHTML(html)
-        output = doc.root.to_html()
+        output = doc.to_html()
         assert "<br>" in output
         assert "<hr>" in output
         assert "<img>" in output
@@ -110,7 +110,7 @@ class TestSerialize(unittest.TestCase):
     def test_comments(self):
         html = "<!-- hello world -->"
         doc = JustHTML(html)
-        output = doc.root.to_html()
+        output = doc.to_html()
         assert "<!-- hello world -->" in output
 
     def test_document_fragment(self):
@@ -124,7 +124,7 @@ class TestSerialize(unittest.TestCase):
     def test_text_only_children(self):
         html = "<div>Text only</div>"
         doc = JustHTML(html)
-        output = doc.root.to_html()
+        output = doc.to_html()
         assert "<div>Text only</div>" in output
 
     def test_pretty_text_only_element_collapses_whitespace(self):
@@ -457,7 +457,7 @@ class TestSerialize(unittest.TestCase):
     def test_empty_attributes(self):
         html = "<input disabled>"
         doc = JustHTML(html)
-        output = doc.root.to_html()
+        output = doc.to_html()
         assert "<input disabled>" in output
 
     def test_none_attributes(self):
@@ -470,7 +470,7 @@ class TestSerialize(unittest.TestCase):
     def test_empty_string_attribute(self):
         html = '<div data-val=""></div>'
         doc = JustHTML(html)
-        output = doc.root.to_html()
+        output = doc.to_html()
         assert "<div data-val></div>" in output
 
     def test_serialize_start_tag_quotes(self):
@@ -522,7 +522,7 @@ class TestSerialize(unittest.TestCase):
     def test_mixed_content_whitespace(self):
         html = "<div>   <p></p></div>"
         doc = JustHTML(html)
-        output = doc.root.to_html()
+        output = doc.to_html()
         assert "<div>" in output
         assert "<p></p>" in output
 
@@ -871,7 +871,7 @@ class TestSerialize(unittest.TestCase):
         # Test serialize.py line 82->86: all_text branch when NOT all text
         html = "<div><span>inner</span></div>"
         doc = JustHTML(html)
-        output = doc.root.to_html()
+        output = doc.to_html()
         assert "<div>" in output
         assert "<span>inner</span>" in output
         assert "</div>" in output

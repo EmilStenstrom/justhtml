@@ -34,7 +34,7 @@ doc = JustHTML(
 )
 
 # The tree is transformed in memory
-print(doc.root.to_html())
+print(doc.to_html())
 
 # Output is still safe by default
 print(doc.to_html(pretty=False))

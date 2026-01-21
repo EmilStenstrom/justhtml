@@ -42,7 +42,7 @@ print(untrusted.to_text())
 from justhtml import JustHTML
 
 doc = JustHTML("<p>Hello <b>world</b></p>", fragment=True)
-print(doc.root.to_text(separator="", strip=False))
+print(doc.to_text(separator="", strip=False))
 # => Hello world
 ```
 

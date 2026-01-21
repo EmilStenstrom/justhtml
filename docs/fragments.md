@@ -13,7 +13,7 @@ from justhtml import JustHTML
 
 # "<tr>" at document level gets moved outside tables
 doc = JustHTML("<tr><td>cell</td></tr>")
-print(doc.root.to_html(indent_size=4))
+print(doc.to_html(indent_size=4))
 ```
 
 Output:
@@ -34,7 +34,7 @@ from justhtml.context import FragmentContext
 html = "<tr><td>cell</td></tr>"
 ctx = FragmentContext("tbody")
 doc = JustHTML(html, fragment_context=ctx)
-print(doc.root.to_html(indent_size=4))
+print(doc.to_html(indent_size=4))
 ```
 
 Output:
@@ -58,7 +58,7 @@ doc = JustHTML(html, fragment=True)
 print(doc.root.name)  # "#document-fragment"
 
 # No implicit <html>, <head>, or <body> are inserted
-print(doc.root.to_html())
+print(doc.to_html())
 
 # Query and serialize work normally
 paragraphs = doc.query("p")
@@ -85,7 +85,7 @@ user_html = "<p>Hello</p><ul><li>Item 1</li><li>Item 2</li></ul>"
 doc = JustHTML(user_html, fragment=True)
 
 # Sanitize, transform, or validate...
-clean_html = doc.root.to_html()
+clean_html = doc.to_html()
 ```
 
 ### Table Cell Content
@@ -140,7 +140,7 @@ from justhtml.context import FragmentContext
 # Content in <textarea> is not parsed as HTML
 ctx = FragmentContext("textarea")
 doc = JustHTML("<b>not bold</b>", fragment_context=ctx)
-print(doc.root.to_html())
+print(doc.to_html())
 ```
 
 Output:
@@ -220,7 +220,7 @@ def sanitize_fragment(html: str) -> str:
     # Sanitize the in-memory DOM by applying a Sanitize transform.
     # Put Sanitize at the end if you want a sanitized DOM.
     doc = JustHTML(html, fragment_context=ctx, transforms=[Sanitize(policy)])
-    return doc.root.to_html(pretty=False)
+    return doc.to_html(pretty=False)
 
 # Usage
 dirty = '<p>Hello</p><script>alert("xss")</script><b>world</b>'
