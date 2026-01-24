@@ -3,7 +3,7 @@
 	const BASE_PATH =
 		firstSegment && !firstSegment.includes(".") ? `/${firstSegment}` : "";
 	const SESSION_KEY = "justhtml_docs_search_v2";
-	const MAX_RESULTS = 30;
+	const MAX_RESULTS = 3;
 
 	const rootEl = document.getElementById("jh-search");
 	const inputEl = document.getElementById("jh-search-input");
@@ -60,9 +60,11 @@
 					? `<div class="jh-search__snippet">${r.snippet}</div>`
 					: "";
 				return `
-			  <li class="jh-search__result">
-			    <a class="jh-search__link" href="${escapeHtml(r.url)}">${r.title}</a>
-			    ${snippet}
+			  <li>
+			    <a class="jh-search__result" href="${escapeHtml(r.url)}">
+			      <div class="jh-search__title">${r.title}</div>
+			      ${snippet}
+			    </a>
 			  </li>
 			`.trim();
 			})
@@ -78,9 +80,11 @@
 	      .jh-search__input { width: 100%; max-width: 44rem; padding: 0.55rem 0.7rem; border: 1px solid #d0d7de; border-radius: 6px; font-size: 1rem; }
 	      .jh-search__status { color: #57606a; margin-top: 0.35rem; min-height: 1.25rem; }
 	      .jh-search__results { list-style: none !important; padding-left: 0 !important; margin-left: 0 !important; margin-top: 0.75rem; display: grid; gap: 0.6rem; }
-	      .jh-search__result { padding: 0.6rem 0.75rem; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; }
-	      .jh-search__link { font-weight: 600; text-decoration: none; }
-	      .jh-search__link:hover { text-decoration: underline; }
+	      .jh-search__results > li { margin: 0 !important; padding: 0 !important; }
+	      .jh-search__result { display: block; padding: 0.6rem 0.75rem; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; color: inherit; text-decoration: none; }
+	      .jh-search__result:hover { border-color: #afb8c1; box-shadow: 0 1px 0 rgba(31, 35, 40, 0.04); }
+	      .jh-search__result:focus { outline: 2px solid #0969da; outline-offset: 2px; }
+	      .jh-search__title { font-weight: 600; }
 	      .jh-search__snippet { margin-top: 0.25rem; color: #24292f; }
 	      .jh-search__hit { background: #fff8c5; padding: 0 0.12em; border-radius: 3px; }
 	    `.trim();
