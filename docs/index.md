@@ -2,6 +2,22 @@
 
 A pure Python HTML5 parser that just works.
 
+<div id="jh-search" class="jh-search" hidden>
+  <label class="jh-search__label" for="jh-search-input">Search</label>
+  <input id="jh-search-input" class="jh-search__input" type="search" placeholder="e.g. sanitize, selector, fragment" autocomplete="off" spellcheck="false" />
+  <div id="jh-search-status" class="jh-search__status" aria-live="polite"></div>
+  <ul id="jh-search-results" class="jh-search__results"></ul>
+</div>
+
+<noscript>
+  <p>
+    Search requires JavaScript. You can still search the docs via GitHub:
+    <a href="https://github.com/search?q=repo%3AEmilStenstrom%2Fjusthtml+path%3Adocs+">Search in docs/</a>
+  </p>
+</noscript>
+
+<script src="assets/search.js"></script>
+
 ## Contents
 
 - **[Quickstart](quickstart.md)** - Get up and running in 2 minutes

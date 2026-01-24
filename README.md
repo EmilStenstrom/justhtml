@@ -2,7 +2,7 @@
 
 A pure Python HTML5 parser that just works. No C extensions to compile. No system dependencies to install. No complex API to learn.
 
-[📖 Full documentation](docs/index.md) | [🛝 Try it in the Playground](https://emilstenstrom.github.io/justhtml/playground/)
+[📖 Full documentation](https://emilstenstrom.github.io/justhtml/) | [🛝 Try it in the Playground](https://emilstenstrom.github.io/justhtml/playground/)
 
 ## Why use JustHTML?
 
