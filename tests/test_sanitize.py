@@ -80,6 +80,42 @@ class TestSanitizePlumbing(unittest.TestCase):
                 disallowed_tag_handling="nope",  # type: ignore[arg-type]
             )
 
+    def test_policy_rejects_string_allowed_tags(self) -> None:
+        with self.assertRaises(TypeError):
+            SanitizationPolicy(
+                allowed_tags="div",  # type: ignore[arg-type]
+                allowed_attributes={"*": []},
+            )
+
+    def test_policy_rejects_string_allowed_attributes_value(self) -> None:
+        with self.assertRaises(TypeError):
+            SanitizationPolicy(
+                allowed_tags=["custom-element"],
+                allowed_attributes={"custom-element": "attribute"},  # type: ignore[arg-type]
+            )
+
+    def test_policy_rejects_non_mapping_allowed_attributes(self) -> None:
+        with self.assertRaises(TypeError):
+            SanitizationPolicy(
+                allowed_tags=["div"],
+                allowed_attributes=[],  # type: ignore[arg-type]
+            )
+
+    def test_policy_rejects_empty_tag_key_in_allowed_attributes(self) -> None:
+        with self.assertRaises(ValueError):
+            SanitizationPolicy(
+                allowed_tags=["div"],
+                allowed_attributes={"": ["id"]},
+            )
+
+    def test_policy_normalizes_and_merges_allowed_attributes_keys(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["DIV"],
+            allowed_attributes={"DIV": ["ID"], "div": ["class"]},
+        )
+        assert policy.allowed_tags == {"div"}
+        assert policy.allowed_attributes["div"] == {"id", "class"}
+
     def test_url_policy_rejects_invalid_url_handling(self) -> None:
         with self.assertRaises(ValueError):
             UrlPolicy(default_handling="nope")  # type: ignore[arg-type]

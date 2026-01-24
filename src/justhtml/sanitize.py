@@ -327,17 +327,47 @@ class SanitizationPolicy:
     )
 
     def __post_init__(self) -> None:
-        # Normalize to sets so the sanitizer can do fast membership checks.
-        if not isinstance(self.allowed_tags, set):
-            object.__setattr__(self, "allowed_tags", set(self.allowed_tags))
+        # Validate and normalize allowlists once so the sanitizer can do fast
+        # membership checks.
+        #
+        # NOTE: Strings are iterables in Python. Passing e.g. "div" or
+        # "attribute" by mistake would otherwise silently become a set of
+        # characters ("d", "i", "v"), producing surprising behavior.
+        if isinstance(self.allowed_tags, str):
+            raise TypeError(
+                "SanitizationPolicy.allowed_tags must be a collection of tag names (e.g. ['div']), not a string"
+            )
 
-        if not isinstance(self.allowed_attributes, dict) or any(
-            not isinstance(v, set) for v in self.allowed_attributes.values()
-        ):
-            normalized_attrs: dict[str, set[str]] = {}
-            for tag, attrs in self.allowed_attributes.items():
-                normalized_attrs[str(tag)] = attrs if isinstance(attrs, set) else set(attrs)
-            object.__setattr__(self, "allowed_attributes", normalized_attrs)
+        if isinstance(self.allowed_attributes, str) or not isinstance(self.allowed_attributes, Mapping):
+            raise TypeError(
+                "SanitizationPolicy.allowed_attributes must be a mapping like {'*': ['id'], 'a': ['href']}"
+            )
+
+        for tag, attrs in self.allowed_attributes.items():
+            if isinstance(attrs, str):
+                raise TypeError(
+                    "SanitizationPolicy.allowed_attributes values must be collections of attribute names "
+                    f"(e.g. {{'{tag}': ['class', 'id']}}), not a string"
+                )
+
+        normalized_tags = {str(t).strip().lower() for t in self.allowed_tags if str(t).strip()}
+        object.__setattr__(self, "allowed_tags", normalized_tags)
+
+        normalized_attrs: dict[str, set[str]] = {}
+        for tag, attrs in self.allowed_attributes.items():
+            tag_name = str(tag).strip().lower()
+            if not tag_name:
+                raise ValueError("SanitizationPolicy.allowed_attributes contains an empty tag key")
+
+            attr_set = attrs if isinstance(attrs, set) else set(attrs)
+            normalized_attr_set = {str(a).strip().lower() for a in attr_set if str(a).strip()}
+
+            if tag_name in normalized_attrs:
+                normalized_attrs[tag_name].update(normalized_attr_set)
+            else:
+                normalized_attrs[tag_name] = normalized_attr_set
+
+        object.__setattr__(self, "allowed_attributes", normalized_attrs)
 
         if not isinstance(self.drop_content_tags, set):
             object.__setattr__(self, "drop_content_tags", set(self.drop_content_tags))
