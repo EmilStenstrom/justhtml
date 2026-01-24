@@ -2,7 +2,7 @@
 	const firstSegment = location.pathname.split("/").filter(Boolean)[0] || "";
 	const BASE_PATH =
 		firstSegment && !firstSegment.includes(".") ? `/${firstSegment}` : "";
-	const SESSION_KEY = "justhtml_docs_search_v2";
+	const SESSION_KEY_PREFIX = "justhtml_docs_search";
 	const MAX_RESULTS = 3;
 
 	const rootEl = document.getElementById("jh-search");
@@ -95,12 +95,24 @@
 		document.head.appendChild(style);
 	};
 
-	const getDocLinksFromIndex = async () => {
+	const getIndexInfo = async () => {
 		const res = await fetch(`${BASE_PATH}/`, { cache: "no-store" });
 		if (!res.ok) throw new Error(`Failed to load docs index: ${res.status}`);
 
 		const html = await res.text();
 		const doc = new DOMParser().parseFromString(html, "text/html");
+		const styleHref = doc
+			.querySelector('link[rel="stylesheet"][href*="assets/css/style.css"]')
+			?.getAttribute("href");
+		let version = "";
+		if (styleHref) {
+			try {
+				version = new URL(styleHref, location.href).searchParams.get("v") || "";
+			} catch {
+				// ignore
+			}
+		}
+
 		const links = Array.from(doc.querySelectorAll('a[href$=".html"]'))
 			.map((a) => a.getAttribute("href"))
 			.filter(Boolean)
@@ -110,7 +122,7 @@
 			.filter((href) => (BASE_PATH ? href.startsWith(`${BASE_PATH}/`) : true));
 
 		const uniq = Array.from(new Set(links));
-		return uniq;
+		return { urls: uniq, version };
 	};
 
 	const extractTitleAndText = (html) => {
@@ -125,7 +137,11 @@
 	};
 
 	const buildIndex = async () => {
-		const cached = sessionStorage.getItem(SESSION_KEY);
+		setStatus("Building search index…");
+		const { urls, version } = await getIndexInfo();
+		const cacheKey = `${SESSION_KEY_PREFIX}:${version || "noversion"}`;
+
+		const cached = sessionStorage.getItem(cacheKey);
 		if (cached) {
 			try {
 				const parsed = JSON.parse(cached);
@@ -136,8 +152,6 @@
 			}
 		}
 
-		setStatus("Building search index…");
-		const urls = await getDocLinksFromIndex();
 		const items = [];
 
 		for (let i = 0; i < urls.length; i++) {
@@ -160,7 +174,7 @@
 		}
 
 		sessionStorage.setItem(
-			SESSION_KEY,
+			cacheKey,
 			JSON.stringify({ items, builtAt: Date.now() }),
 		);
 		return items;

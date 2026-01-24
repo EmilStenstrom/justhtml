@@ -1,0 +1,19 @@
+theme: jekyll-theme-primer
+
+# Needed for local previews (GitHub Metadata plugin).
+repository: EmilStenstrom/justhtml
+
+# Match GitHub Pages behavior locally:
+# - render Markdown files even without front matter
+# - add default layout
+# - keep page titles and relative links working
+plugins:
+  - jekyll-default-layout
+  - jekyll-optional-front-matter
+  - jekyll-relative-links
+  - jekyll-titles-from-headings
+  - jekyll-seo-tag
+
+relative_links:
+  enabled: true
+  collections: true

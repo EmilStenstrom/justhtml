@@ -172,3 +172,6 @@ cython_debug/
 .pypirc
 .python-version
 tests/html5lib-tests-*
+.sass-cache/*
+.gitignore
+_site/*
