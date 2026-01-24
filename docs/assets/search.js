@@ -2,7 +2,7 @@
 	const firstSegment = location.pathname.split("/").filter(Boolean)[0] || "";
 	const BASE_PATH =
 		firstSegment && !firstSegment.includes(".") ? `/${firstSegment}` : "";
-	const SESSION_KEY = "justhtml_docs_search_v1";
+	const SESSION_KEY = "justhtml_docs_search_v2";
 	const MAX_RESULTS = 30;
 
 	const rootEl = document.getElementById("jh-search");
@@ -23,6 +23,8 @@
 			.replaceAll(">", "&gt;")
 			.replaceAll('"', "&quot;")
 			.replaceAll("'", "&#39;");
+
+	const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 	const normalize = (s) =>
 		String(s)
@@ -55,14 +57,14 @@
 		resultsEl.innerHTML = items
 			.map((r) => {
 				const snippet = r.snippet
-					? `<div class="jh-search__snippet">${escapeHtml(r.snippet)}</div>`
+					? `<div class="jh-search__snippet">${r.snippet}</div>`
 					: "";
 				return `
-          <li class="jh-search__result">
-            <a class="jh-search__link" href="${escapeHtml(r.url)}">${escapeHtml(r.title)}</a>
-            ${snippet}
-          </li>
-        `.trim();
+			  <li class="jh-search__result">
+			    <a class="jh-search__link" href="${escapeHtml(r.url)}">${r.title}</a>
+			    ${snippet}
+			  </li>
+			`.trim();
 			})
 			.join("");
 	};
@@ -71,16 +73,17 @@
 		if (document.getElementById("jh-search-styles")) return;
 
 		const css = `
-      .jh-search { margin-top: 1rem; }
-      .jh-search__label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
-      .jh-search__input { width: 100%; max-width: 44rem; padding: 0.55rem 0.7rem; border: 1px solid #d0d7de; border-radius: 6px; font-size: 1rem; }
-      .jh-search__status { color: #57606a; margin-top: 0.35rem; min-height: 1.25rem; }
-      .jh-search__results { list-style: none; padding-left: 0; margin-top: 0.75rem; display: grid; gap: 0.6rem; }
-      .jh-search__result { padding: 0.6rem 0.75rem; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; }
-      .jh-search__link { font-weight: 600; text-decoration: none; }
-      .jh-search__link:hover { text-decoration: underline; }
-      .jh-search__snippet { margin-top: 0.25rem; color: #24292f; }
-    `.trim();
+	      .jh-search { margin-top: 1rem; }
+	      .jh-search__label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+	      .jh-search__input { width: 100%; max-width: 44rem; padding: 0.55rem 0.7rem; border: 1px solid #d0d7de; border-radius: 6px; font-size: 1rem; }
+	      .jh-search__status { color: #57606a; margin-top: 0.35rem; min-height: 1.25rem; }
+	      .jh-search__results { list-style: none !important; padding-left: 0 !important; margin-left: 0 !important; margin-top: 0.75rem; display: grid; gap: 0.6rem; }
+	      .jh-search__result { padding: 0.6rem 0.75rem; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; }
+	      .jh-search__link { font-weight: 600; text-decoration: none; }
+	      .jh-search__link:hover { text-decoration: underline; }
+	      .jh-search__snippet { margin-top: 0.25rem; color: #24292f; }
+	      .jh-search__hit { background: #fff8c5; padding: 0 0.12em; border-radius: 3px; }
+	    `.trim();
 
 		const style = document.createElement("style");
 		style.id = "jh-search-styles";
@@ -108,10 +111,10 @@
 
 	const extractTitleAndText = (html) => {
 		const doc = new DOMParser().parseFromString(html, "text/html");
-		const h1 = doc.querySelector("h1");
-		const title = (h1 ? h1.textContent : doc.title || "").trim();
-
 		const body = doc.querySelector(".markdown-body") || doc.body;
+		const h1s = body ? Array.from(body.querySelectorAll("h1")) : [];
+		const chosenH1 = h1s.length >= 2 ? h1s[1] : h1s[0];
+		const title = (chosenH1 ? chosenH1.textContent : doc.title || "").trim();
 		const text = body ? body.textContent || "" : "";
 
 		return { title, text };
@@ -140,12 +143,14 @@
 			if (!res.ok) continue;
 			const html = await res.text();
 			const { title, text } = extractTitleAndText(html);
-			const normalized = normalize(`${title}\n${text}`);
+			const normalizedTitle = normalize(title);
+			const normalizedBody = normalize(text);
 
 			items.push({
 				url,
 				title,
-				normalized,
+				normalizedTitle,
+				normalizedBody,
 				raw: text,
 			});
 		}
@@ -157,15 +162,64 @@
 		return items;
 	};
 
-	const scoreMatch = (tokens, normalizedText) => {
+	const countOccurrences = (haystack, needle) => {
+		if (!needle) return 0;
+		let count = 0;
+		let idx = 0;
+		while (true) {
+			idx = haystack.indexOf(needle, idx);
+			if (idx === -1) break;
+			count++;
+			idx += Math.max(1, needle.length);
+		}
+		return count;
+	};
+
+	const scoreMatch = (tokens, normalizedTitle, normalizedBody, phrase) => {
 		let score = 0;
 		for (const t of tokens) {
-			const idx = normalizedText.indexOf(t);
-			if (idx === -1) return -1;
-			score += idx === 0 ? 50 : Math.max(1, 20 - Math.min(20, idx));
-			score += Math.min(20, t.length * 2);
+			const idxTitle = normalizedTitle.indexOf(t);
+			const idxBody = normalizedBody.indexOf(t);
+
+			if (idxTitle === -1 && idxBody === -1) return -1;
+
+			if (idxTitle !== -1) {
+				score += 300;
+				score += Math.max(0, 120 - Math.min(60, idxTitle) * 2);
+				score += Math.min(60, countOccurrences(normalizedTitle, t) * 15);
+			}
+
+			if (idxBody !== -1) {
+				score += 100;
+				score += Math.max(0, 60 - Math.min(60, idxBody));
+				score += Math.min(60, countOccurrences(normalizedBody, t) * 5);
+			}
+
+			score += Math.min(40, t.length * 3);
 		}
+
+		if (phrase) {
+			if (normalizedTitle.includes(phrase)) score += 250;
+			if (normalizedBody.includes(phrase)) score += 120;
+		}
+
 		return score;
+	};
+
+	const highlightHtml = (text, tokens) => {
+		const escaped = escapeHtml(text);
+		const ordered = Array.from(new Set(tokens)).sort(
+			(a, b) => b.length - a.length,
+		);
+		let out = escaped;
+		for (const t of ordered) {
+			if (!t) continue;
+			out = out.replace(
+				new RegExp(`(${escapeRegex(t)})`, "gi"),
+				'<mark class="jh-search__hit">$1</mark>',
+			);
+		}
+		return out;
 	};
 
 	const makeSnippet = (rawText, tokens) => {
@@ -180,26 +234,33 @@
 			const i = lower.indexOf(t);
 			if (i !== -1 && (best === -1 || i < best)) best = i;
 		}
-		if (best === -1) return raw.slice(0, 200);
+		if (best === -1) return highlightHtml(raw.slice(0, 200), tokens);
 
 		const start = Math.max(0, best - 80);
 		const end = Math.min(raw.length, best + 120);
 		const prefix = start > 0 ? "…" : "";
 		const suffix = end < raw.length ? "…" : "";
-		return `${prefix}${raw.slice(start, end)}${suffix}`;
+		return highlightHtml(`${prefix}${raw.slice(start, end)}${suffix}`, tokens);
 	};
 
 	const search = (items, q) => {
 		const tokens = tokenize(q);
 		if (!tokens.length) return [];
 
+		const phrase = normalize(q);
+
 		const scored = [];
 		for (const it of items) {
-			const score = scoreMatch(tokens, it.normalized);
+			const score = scoreMatch(
+				tokens,
+				it.normalizedTitle,
+				it.normalizedBody,
+				phrase,
+			);
 			if (score >= 0) {
 				scored.push({
 					url: it.url,
-					title: it.title,
+					title: highlightHtml(it.title, tokens),
 					score,
 					snippet: makeSnippet(it.raw, tokens),
 				});
