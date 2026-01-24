@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-01-24
+
+### Added
+- Docs: Add search to the documentation site.
+
+### Fixed
+- `SanitizationPolicy` now validates and normalizes `allowed_tags` / `allowed_attributes` to prevent silent misconfiguration (for example accidentally passing a string).
+
+### Changed
+- Prefer `sanitize=` over `safe=` on `JustHTML(...)` (`safe` remains as a backwards-compatible alias).
+
 ## [1.0.0] - 2026-01-21
 
 ### Changed
