@@ -40,7 +40,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         transforms = [EditAttrs("div", cb1), EditAttrs("div", cb2)]
 
         html = "<div></div>"
-        processor = JustHTML(html, transforms=transforms, safe=False)
+        processor = JustHTML(html, transforms=transforms, sanitize=False)
         result = to_html(processor.root)
         self.assertIn('data-step="1-2"', result)
 
@@ -55,7 +55,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
 
         transforms = [EditAttrs("div", cb1), EditAttrs("div", cb2)]
         html = "<div></div>"
-        processor = JustHTML(html, transforms=transforms, safe=False)
+        processor = JustHTML(html, transforms=transforms, sanitize=False)
         result = to_html(processor.root)
         self.assertIn('a="1"', result)
 
@@ -79,7 +79,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
             return DecideAction.DROP
 
         transforms = [Decide("div", decide_drop, callback=hook, report=report)]
-        JustHTML("<div></div>", transforms=transforms, safe=False)
+        JustHTML("<div></div>", transforms=transforms, sanitize=False)
         self.assertTrue(called_hook, "Decide hook not called")
         called_hook = False
 
@@ -88,7 +88,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
             pass
 
         transforms_edit = [Edit("div", edit_cb, callback=hook, report=report)]
-        JustHTML("<div></div>", transforms=transforms_edit, safe=False)
+        JustHTML("<div></div>", transforms=transforms_edit, sanitize=False)
         self.assertTrue(called_hook, "Edit hook not called")
         called_hook = False
 
@@ -98,7 +98,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
 
         transforms_doc = [EditDocument(edit_doc_cb, callback=hook, report=report)]
         # EditDocument runs on root. JustHTML processes a doc.
-        JustHTML("", transforms=transforms_doc, safe=False)
+        JustHTML("", transforms=transforms_doc, sanitize=False)
         self.assertTrue(called_hook, "EditDocument hook not called")
         called_hook = False
 
@@ -107,7 +107,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
             return {"a": "1"}
 
         transforms_attrs = [EditAttrs("div", edit_attrs_cb, callback=hook, report=report)]
-        JustHTML("<div></div>", transforms=transforms_attrs, safe=False)
+        JustHTML("<div></div>", transforms=transforms_attrs, sanitize=False)
         self.assertTrue(called_hook, "EditAttrs hook not called")
         called_hook = False
 
@@ -164,7 +164,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
             "div", allowed_attributes={"div": ["data-test", "valid"]}, callback=hook, report=lambda m, n: None
         )
 
-        processor = JustHTML("<div></div>", transforms=[t_setup, t_allow], safe=False)
+        processor = JustHTML("<div></div>", transforms=[t_setup, t_allow], sanitize=False)
 
         self.assertTrue(called_hook, "AllowlistAttrs hook not called")
         result = to_html(processor.root)
@@ -203,7 +203,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
 
         t = DropAttrs("div", patterns=("data-*",), callback=hook, report=report)
 
-        JustHTML('<div data-foo="1"></div>', transforms=[t], safe=False)
+        JustHTML('<div data-foo="1"></div>', transforms=[t], sanitize=False)
 
         self.assertTrue(called_hook, "DropAttrs hook not called")
         self.assertTrue(any("matched pattern 'data-*'" in m for m in reported))
@@ -267,7 +267,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
 
         t = AllowStyleAttrs("div", allowed_css_properties=("color",), callback=hook, report=report)
 
-        JustHTML('<div style="position: absolute;"></div>', transforms=[t], safe=False)
+        JustHTML('<div style="position: absolute;"></div>', transforms=[t], sanitize=False)
 
         self.assertTrue(called_hook, "AllowStyleAttrs hook not called")
         self.assertTrue(any("Unsafe inline style" in m for m in reported))
@@ -285,13 +285,13 @@ class TestTransformsEdgeCases(unittest.TestCase):
 
         # 1. Div with children
         html_div = "<div><span>child</span></div>"
-        res_div = to_html(JustHTML(html_div, transforms=[t], safe=False).root)
+        res_div = to_html(JustHTML(html_div, transforms=[t], sanitize=False).root)
         self.assertIn("&lt;div&gt;", res_div)
         self.assertIn("<span>child</span>", res_div)
 
         # 2. Template with content
         html_tmpl = "<template><span>content</span></template>"
-        res_tmpl = to_html(JustHTML(html_tmpl, transforms=[t_tmpl], safe=False).root)
+        res_tmpl = to_html(JustHTML(html_tmpl, transforms=[t_tmpl], sanitize=False).root)
         self.assertIn("&lt;template&gt;", res_tmpl)
         self.assertIn("<span>content</span>", res_tmpl)
 
@@ -362,7 +362,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         """Cover Unwrap transform compilation and execution."""
         t = Unwrap("div")
         html = "<div><span>text</span></div>"
-        processor = JustHTML(html, transforms=[t], safe=False)
+        processor = JustHTML(html, transforms=[t], sanitize=False)
         result = to_html(processor.root)
         self.assertIn("<span>text</span>", result)
         self.assertNotIn("<div>", result)
@@ -371,6 +371,6 @@ class TestTransformsEdgeCases(unittest.TestCase):
         """Cover Empty transform compilation and execution."""
         t = Empty("div")
         html = "<div><span>text</span></div>"
-        processor = JustHTML(html, transforms=[t], safe=False)
+        processor = JustHTML(html, transforms=[t], sanitize=False)
         result = to_html(processor.root)
         self.assertIn("<div></div>", result)

@@ -55,7 +55,8 @@ class JustHTML:
         self,
         html: str | bytes | bytearray | memoryview | None,
         *,
-        safe: bool = True,
+        sanitize: bool | None = None,
+        safe: bool | None = None,
         policy: SanitizationPolicy | None = None,
         collect_errors: bool = False,
         track_node_locations: bool = False,
@@ -69,6 +70,19 @@ class JustHTML:
         tree_builder: TreeBuilder | None = None,
         transforms: list[TransformSpec] | None = None,
     ) -> None:
+        # `sanitize` is the primary API (preferred). `safe` is kept as a
+        # backwards-compatible alias.
+        if sanitize is None and safe is None:
+            sanitize_enabled = True
+        elif sanitize is None and safe is not None:
+            sanitize_enabled = bool(safe)
+        elif sanitize is not None and safe is None:
+            sanitize_enabled = bool(sanitize)
+        else:
+            sanitize_enabled = bool(sanitize)
+            if sanitize_enabled != bool(safe):
+                raise ValueError("Conflicting values for sanitize and safe; use only sanitize=")
+
         if fragment_context is not None:
             fragment = True
 
@@ -91,9 +105,9 @@ class JustHTML:
                         needs_escape_incomplete_tags = True
                         break
 
-        # If we will auto-sanitize (safe=True and no Sanitize in transforms),
+        # If we will auto-sanitize (sanitize=True and no Sanitize in transforms),
         # escape-mode tag reconstruction may require tracking tag spans.
-        if safe and not has_sanitize_transform and policy is not None:
+        if sanitize_enabled and not has_sanitize_transform and policy is not None:
             if policy.disallowed_tag_handling == "escape":
                 track_tag_spans = True
                 needs_escape_incomplete_tags = True
@@ -151,9 +165,9 @@ class JustHTML:
         transform_errors: list[ParseError] = []
 
         # Apply transforms after parse.
-        # Safety model: when safe=True, the in-memory tree is sanitized exactly once
+        # Safety model: when sanitize=True, the in-memory tree is sanitized exactly once
         # during construction by ensuring a Sanitize transform runs.
-        if transforms or safe:
+        if transforms or sanitize_enabled:
             from .sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
             from .transforms import Sanitize  # noqa: PLC0415
 
@@ -171,7 +185,7 @@ class JustHTML:
 
             # Auto-append a final Sanitize step only if the user didn't include
             # Sanitize anywhere in their transform list.
-            if safe and not any(isinstance(t, Sanitize) for t in final_transforms):
+            if sanitize_enabled and not any(isinstance(t, Sanitize) for t in final_transforms):
                 effective_policy = (
                     policy
                     if policy is not None

@@ -105,7 +105,7 @@ def render(
             sanitize_policy = replace(base, unsafe_handling="collect")
 
         if cleanup:
-            # When safe=True, sanitization normally runs last (auto-appended).
+            # When sanitize=True, sanitization normally runs last (auto-appended).
             # For cleanup UX, we want cleanup rules to apply to the sanitized tree
             # (e.g. <a> with unsafe href stripped, or <img> whose src was stripped).
             if safe:
@@ -119,7 +119,7 @@ def render(
             "track_node_locations": True,
             "strict": False,
             "transforms": transforms,
-            "safe": bool(safe),
+            "sanitize": bool(safe),
             "policy": sanitize_policy,
         }
 
@@ -138,7 +138,7 @@ def render(
             text_strip=bool(text_strip),
         )
 
-        # doc.errors already includes security errors when safe=True and
+        # doc.errors already includes security errors when sanitize=True and
         # policy.unsafe_handling == "collect".
         combined = _dedupe_sorted_errors(sorted(list(doc.errors), key=_sort_key))
         _ = security_errors

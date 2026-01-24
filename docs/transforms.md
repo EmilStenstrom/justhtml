@@ -43,10 +43,10 @@ print(doc.to_html(pretty=False))
 ## Safety model
 
 - Transforms run **once**, right after parsing, and mutate `doc.root`.
-- JustHTML is safe-by-default by sanitizing at construction (`JustHTML(..., safe=True)`).
+- JustHTML is safe-by-default by sanitizing at construction (`JustHTML(..., sanitize=True)`).
 - Serialization (`to_html`/`to_text`/`to_markdown`) is serialize-only; earlier versions accepted `safe=` or `policy=` when serializing. This is no longer needed.
 
-> **Important:** When `safe=True`, JustHTML ensures the in-memory tree is sanitized by running a `Sanitize(...)` step **after parsing and after your custom transforms**.
+> **Important:** When `sanitize=True`, JustHTML ensures the in-memory tree is sanitized by running a `Sanitize(...)` step **after parsing and after your custom transforms**.
 >
 > This means your transforms see the *unsanitized* tree, and sanitization may rewrite it afterwards (for example, stripping unsafe `href`/`src` values).
 > If you want a transform to operate on the sanitized tree, include `Sanitize()` explicitly in your transform list and place later transforms after it:
@@ -68,7 +68,7 @@ print(doc.to_html(pretty=False))
 Raw output is available by disabling sanitization:
 
 ```python
-doc = JustHTML("<p>Hello</p><script>alert(1)</script>", fragment=True, safe=False)
+doc = JustHTML("<p>Hello</p><script>alert(1)</script>", fragment=True, sanitize=False)
 print(doc.to_html(pretty=False))
 # => <p>Hello</p><script>alert(1)</script>
 ```
@@ -139,7 +139,7 @@ doc = JustHTML(
 doc2 = JustHTML(
     "<p>one</p><p>two</p>",
     fragment=True,
-    safe=False,
+    sanitize=False,
     transforms=[
         Stage([Edit("p:first-child", insert_marker)]),
         Stage([SetAttrs("span", id="marker")]),
@@ -265,7 +265,7 @@ print(doc.to_html(pretty=False))
 
 ### `Sanitize(policy=None, enabled=True, callback=None, report=None)`
 
-Sanitizes the in-memory DOM tree using the same sanitizer as `safe=True` output.
+Sanitizes the in-memory DOM tree using the same sanitizer as construction-time sanitization.
 
 - This is useful if you want to traverse/modify a clean DOM.
 - `Sanitize(...)` runs at its position in the pipeline. If you add transforms after it, be careful not to reintroduce unsafe content.

@@ -19,7 +19,7 @@ On this page:
 
 ## Important: DOM vs construction
 
-The parsed DOM is **sanitized by default** at construction time (`JustHTML(..., safe=True)`), and serialization is a pure output step.
+The parsed DOM is **sanitized by default** at construction time (`JustHTML(..., sanitize=True)`), and serialization is a pure output step.
 
 If you want to sanitize **after** other transforms or after direct DOM edits, apply the `Sanitize(...)` transform to sanitize the in-memory tree.
 
@@ -71,7 +71,7 @@ If you want to (dangerously) disable sanitization, because you know that your tr
 from justhtml import JustHTML
 
 user_html = '<p>Hello <b>world</b> <script>init_page_view_tracker()</script> <a href="javascript:track_pageview()">ok</a></p>'
-doc = JustHTML(user_html, fragment=True, safe=False)
+doc = JustHTML(user_html, fragment=True, sanitize=False)
 
 print(doc.to_html())
 ```

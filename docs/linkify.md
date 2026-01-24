@@ -116,16 +116,16 @@ doc = JustHTML(
 )
 ```
 
-## Interaction with safe output (sanitization)
+## Interaction with sanitization
 
-Transforms mutate the in-memory DOM. `JustHTML(..., safe=True)` appends a final `Sanitize(...)` step unless you include one yourself.
+Transforms mutate the in-memory DOM. `JustHTML(..., sanitize=True)` appends a final `Sanitize(...)` step unless you include one yourself.
 
 This matters for Linkify because sanitization policies can remove or rewrite attributes on the generated `<a>` when the final sanitizer runs:
 
 - Schemes not allowed for `a[href]` are stripped (the `<a>` remains, but `href` is removed).
 - Protocol-relative `//example.com` is resolved according to policy (default: `https://example.com`).
 
-If you want Linkify output without any sanitization changes (trusted input only), use `safe=False` and avoid adding `Sanitize(...)` in transforms.
+If you want Linkify output without any sanitization changes (trusted input only), use `sanitize=False` and avoid adding `Sanitize(...)` in transforms.
 
 ## Provenance
 

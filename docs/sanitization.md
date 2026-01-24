@@ -40,7 +40,7 @@ For a deeper dive, continue in [HTML Cleaning](html-cleaning.md) and [URL Cleani
 
 ## Sanitizing the in-memory DOM with `Sanitize(...)`
 
-Safe-by-default construction (`JustHTML(..., safe=True)`) sanitizes the in-memory tree once, after parsing and transforms run.
+Safe-by-default construction (`JustHTML(..., sanitize=True)`) sanitizes the in-memory tree once, after parsing and transforms run.
 
 Sanitization is appended automatically after any custom transforms. If you want to run transforms *after* sanitization, add `Sanitize(...)` to your transform list and put additional transforms after it:
 

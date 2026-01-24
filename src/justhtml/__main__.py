@@ -160,7 +160,7 @@ def main() -> None:
             disallowed_tag_handling=base.disallowed_tag_handling,
         )
 
-    doc = JustHTML(html, fragment_context=fragment_context, safe=safe, policy=policy)
+    doc = JustHTML(html, fragment_context=fragment_context, sanitize=safe, policy=policy)
 
     try:
         nodes = doc.query(args.selector) if args.selector else [doc.root]

@@ -126,7 +126,7 @@ class TestNode(unittest.TestCase):
         assert doc.to_text() == "ok"
 
     def test_to_text_safe_false_includes_script_text(self):
-        doc = JustHTML("<p>ok</p><script>alert(1)</script>", safe=False)
+        doc = JustHTML("<p>ok</p><script>alert(1)</script>", sanitize=False)
         assert doc.to_text() == "ok alert(1)"
 
     def test_to_text_policy_override_can_preserve_script_text(self):
@@ -171,7 +171,7 @@ class TestNode(unittest.TestCase):
         assert node.origin_location is None
 
     def test_node_origin_location_for_comment(self):
-        doc = JustHTML("<!--x--><p>y</p>", track_node_locations=True, safe=False)
+        doc = JustHTML("<!--x--><p>y</p>", track_node_locations=True, sanitize=False)
         assert doc.root.children is not None
         comment = doc.root.children[0]
         assert comment.name == "#comment"
@@ -179,7 +179,7 @@ class TestNode(unittest.TestCase):
         assert comment.origin_location == (1, 1)
 
     def test_node_origin_location_for_comment_inside_element(self):
-        doc = JustHTML("<p><!--x--></p>", track_node_locations=True, safe=False)
+        doc = JustHTML("<p><!--x--></p>", track_node_locations=True, sanitize=False)
         p = doc.query("p")[0]
         comment = p.children[0]
         assert comment.name == "#comment"

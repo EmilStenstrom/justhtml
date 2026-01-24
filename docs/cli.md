@@ -57,7 +57,7 @@ Notes:
 
 ## Sanitization
 
-By default, the CLI sanitizes output (same safe-by-default behavior as `JustHTML(..., safe=True)`).
+By default, the CLI sanitizes output (same safe-by-default behavior as `JustHTML(..., sanitize=True)`).
 
 To disable sanitization for trusted input, pass `--unsafe`.
 

@@ -431,12 +431,13 @@ class Sanitize:
     """Sanitize the in-memory tree.
 
     This transform replaces the current tree with a sanitized clone using the
-    same sanitizer that powers `safe=True` serialization.
+    same sanitizer that powers JustHTML's safe-by-default construction
+    (`sanitize=True`).
 
     Notes:
     - This runs once at parse/transform time.
         - If you apply transforms after `Sanitize`, they may reintroduce unsafe
-            content. Use safe serialization (`safe=True`) if you need output safety.
+            content. Keep `sanitize=True` if you need output safety.
     """
 
     policy: SanitizationPolicy | None

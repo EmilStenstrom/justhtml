@@ -14,8 +14,8 @@ This guide covers common migration patterns.
 
 - Bleach takes a string and returns a cleaned string.
 - JustHTML parses into a DOM and sanitizes by default at construction time:
-    - `JustHTML(html)` sanitizes by default (`safe=True`).
-    - `JustHTML(html, safe=False)` disables sanitization (trusted input only).
+    - `JustHTML(html)` sanitizes by default (`sanitize=True`).
+    - `JustHTML(html, sanitize=False)` disables sanitization (trusted input only). (`safe` is a backwards-compatible alias.)
 
 JustHTML also supports constructor-time **transforms** (a DOM equivalent of Bleach/html5lib filter pipelines): see [Transforms](transforms.md).
 
@@ -97,7 +97,7 @@ print(doc.to_html(pretty=False))
 Bleach’s `protocols=[...]` concept maps to JustHTML’s URL policy rules.
 
 - Configure allowed schemes per attribute via `UrlRule(allowed_schemes=[...])`.
-- Under `safe=True`, URLs can be rewritten or stripped according to policy (see [URL Cleaning](url-cleaning.md)).
+- Under `sanitize=True`, URLs can be rewritten or stripped according to policy (see [URL Cleaning](url-cleaning.md)).
 
 ## What to do with “strip=True/False”
 

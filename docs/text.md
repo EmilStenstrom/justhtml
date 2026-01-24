@@ -33,7 +33,7 @@ print(untrusted.to_text())
 ```python
 from justhtml import JustHTML
 
-untrusted = JustHTML("<p>Hello<script>alert(1)</script>World</p>", fragment=True, safe=False)
+untrusted = JustHTML("<p>Hello<script>alert(1)</script>World</p>", fragment=True, sanitize=False)
 print(untrusted.to_text())
 # => Hello alert(1) World
 ```

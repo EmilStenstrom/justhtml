@@ -19,16 +19,24 @@ class TestTransformsSanitizeIntegration(unittest.TestCase):
 
         unsafe_doc = JustHTML(
             "<p>example.com</p>",
-            safe=False,
+            sanitize=False,
             fragment_context=FragmentContext("div"),
             transforms=[Linkify(), SetAttrs("a", onclick="x()")],
         )
         assert unsafe_doc.to_html(pretty=False) == '<p><a href="http://example.com" onclick="x()">example.com</a></p>'
 
-    def test_safe_serialization_strips_disallowed_href_schemes_from_linkify(self) -> None:
+    def test_safe_alias_still_works(self) -> None:
+        doc = JustHTML("<p onclick='x()'>ok</p>", fragment=True, safe=False)
+        assert doc.to_html(pretty=False) == '<p onclick="x()">ok</p>'
+
+    def test_safe_and_sanitize_conflict_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            JustHTML("<p>ok</p>", fragment=True, sanitize=True, safe=False)
+
+    def test_constructor_time_sanitization_strips_disallowed_href_schemes_from_linkify(self) -> None:
         unsafe_doc = JustHTML(
             "<p>ftp://example.com</p>",
-            safe=False,
+            sanitize=False,
             fragment_context=FragmentContext("div"),
             transforms=[Linkify()],
         )
@@ -42,10 +50,10 @@ class TestTransformsSanitizeIntegration(unittest.TestCase):
         )
         assert safe_doc.to_html(pretty=False) == "<p><a>ftp://example.com</a></p>"
 
-    def test_safe_serialization_resolves_protocol_relative_links(self) -> None:
+    def test_constructor_time_sanitization_resolves_protocol_relative_links(self) -> None:
         unsafe_doc = JustHTML(
             "<p>//example.com</p>",
-            safe=False,
+            sanitize=False,
             fragment_context=FragmentContext("div"),
             transforms=[Linkify()],
         )

@@ -23,7 +23,7 @@ A pure Python HTML5 parser that just works. No C extensions to compile. No syste
   # Requires: [intentionally left blank]
   ```
 
-- **Just... Secure 🔒** — Safe-by-default sanitization at construction time — built-in Bleach-style allowlist sanitization on `JustHTML(...)` (disable with `safe=False`). Can sanitize inline CSS rules. ([Sanitization & Security](docs/sanitization.md))
+- **Just... Secure 🔒** — Safe-by-default sanitization at construction time — built-in Bleach-style allowlist sanitization on `JustHTML(...)` (disable with `sanitize=False`). Can sanitize inline CSS rules. ([Sanitization & Security](docs/sanitization.md))
 
   ```python
   JustHTML(

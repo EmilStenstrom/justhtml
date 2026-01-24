@@ -15,13 +15,14 @@ from justhtml import JustHTML
 ### Constructor
 
 ```python
-JustHTML(html, *, safe=True, policy=None, collect_errors=False, track_node_locations=False, debug=False, encoding=None, fragment=False, fragment_context=None, iframe_srcdoc=False, strict=False, tokenizer_opts=None, tree_builder=None, transforms=None)
+JustHTML(html, *, sanitize=True, safe=None, policy=None, collect_errors=False, track_node_locations=False, debug=False, encoding=None, fragment=False, fragment_context=None, iframe_srcdoc=False, strict=False, tokenizer_opts=None, tree_builder=None, transforms=None)
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `html` | `str \| bytes \| bytearray \| memoryview` | required | HTML input to parse. Bytes are decoded using HTML encoding sniffing. |
-| `safe` | `bool` | `True` | Sanitize untrusted HTML during construction |
+| `sanitize` | `bool` | `True` | Sanitize untrusted HTML during construction |
+| `safe` | `bool \| None` | `None` | Backwards-compatible alias for `sanitize` (prefer `sanitize`) |
 | `policy` | `SanitizationPolicy \| None` | `None` | Override the default sanitization policy |
 | `collect_errors` | `bool` | `False` | Collect all parse errors (enables `errors` property) |
 | `track_node_locations` | `bool` | `False` | Track line/column positions for nodes (slower) |
@@ -58,7 +59,7 @@ Parameters:
 - `separator` (default: `" "`): join string between text nodes
 - `strip` (default: `True`): strip each text node and drop empties
 
-Sanitization happens at construction time. Use `JustHTML(..., safe=False)` for trusted input or `JustHTML(..., policy=...)` to customize the policy.
+Sanitization happens at construction time. Use `JustHTML(..., sanitize=False)` for trusted input or `JustHTML(..., policy=...)` to customize the policy.
 
 #### `to_markdown(html_passthrough=False)`
 
@@ -76,7 +77,7 @@ doc.to_markdown()  # => # Title
 doc.to_markdown(html_passthrough=True)
 ```
 
-Sanitization happens at construction time. Use `JustHTML(..., safe=False)` for trusted input or `JustHTML(..., policy=...)` to customize the policy.
+Sanitization happens at construction time. Use `JustHTML(..., sanitize=False)` for trusted input or `JustHTML(..., policy=...)` to customize the policy.
 
 #### `query(selector)`
 
@@ -137,8 +138,8 @@ node.to_html(indent_size=4)         # 4-space indent
 node.to_html(indent=2, indent_size=4)  # Start with 2 indents
 
 # Safety happens at construction time:
-# - default: JustHTML(..., safe=True)
-# - raw/trusted: JustHTML(..., safe=False)
+# - default: JustHTML(..., sanitize=True)
+# - raw/trusted: JustHTML(..., sanitize=False)
 # - custom policy: JustHTML(..., policy=policy)
 ```
 
@@ -158,7 +159,7 @@ Return the node's concatenated text.
 node.to_text()
 ```
 
-Text extraction is safe-by-default when you build documents with `JustHTML(..., safe=True)` (the default). Use `safe=False` at construction for trusted input.
+Text extraction is safe-by-default when you build documents with `JustHTML(..., sanitize=True)` (the default). Use `sanitize=False` at construction for trusted input.
 
 #### `to_markdown(html_passthrough=False)`
 
@@ -169,7 +170,7 @@ node.to_markdown()
 node.to_markdown(html_passthrough=True)
 ```
 
-Markdown output is safe-by-default when you build documents with `JustHTML(..., safe=True)` (the default). Use `safe=False` at construction for trusted input.
+Markdown output is safe-by-default when you build documents with `JustHTML(..., sanitize=True)` (the default). Use `sanitize=False` at construction for trusted input.
 
 #### `append_child(node)`
 
@@ -214,7 +215,7 @@ from justhtml import DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlProxy, Ur
 
 ### Sanitizing output vs sanitizing the DOM
 
-- Construction sanitization is the default: `JustHTML(..., safe=True)` sanitizes once, right after parsing.
+- Construction sanitization is the default: `JustHTML(..., sanitize=True)` sanitizes once, right after parsing.
 - If you want to sanitize *after* other transforms or direct DOM edits, add `Sanitize(...)` to your transform pipeline.
     - If you care about explicit transform passes, group transforms using [`Stage([...])`](transforms.md#advanced-stages).
     - For details on how `Sanitize(...)` works (and why it’s reviewable), see [Transforms](transforms.md#sanitizepolicynone-enabledtrue).

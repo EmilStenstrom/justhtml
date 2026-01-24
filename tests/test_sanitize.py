@@ -944,7 +944,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_collects_security_errors(self) -> None:
         html = "<script>alert(1)</script>"
-        node = JustHTML(html, fragment=True, track_node_locations=True, safe=False).root
+        node = JustHTML(html, fragment=True, track_node_locations=True, sanitize=False).root
 
         policy = SanitizationPolicy(
             allowed_tags={"p"},
@@ -1013,7 +1013,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
         _ = doc.to_markdown()
         assert any(e.category == "security" for e in doc.errors)
 
-    def test_justhtml_serialization_clears_stale_security_errors_and_safe_false_paths(self) -> None:
+    def test_justhtml_serialization_clears_stale_security_errors_and_sanitize_false_paths(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=set(DEFAULT_POLICY.allowed_tags),
             allowed_attributes=DEFAULT_POLICY.allowed_attributes,
@@ -1038,12 +1038,12 @@ class TestSanitizeUnsafe(unittest.TestCase):
         )
         assert not any(e.category == "security" for e in doc_default.errors)
 
-        # Safe=False documents should still serialize without crashing.
+        # sanitize=False documents should still serialize without crashing.
         doc_unsafe = JustHTML(
             "<p>ok</p><script>alert(1)</script>",
             fragment=True,
             track_node_locations=True,
-            safe=False,
+            sanitize=False,
         )
         _ = doc_unsafe.to_html(pretty=False)
         _ = doc_unsafe.to_text()
@@ -1051,7 +1051,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_raises(self) -> None:
         html = "<script>alert(1)</script>"
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
 
         # Default behavior: script is removed
         sanitized = sanitize(node)
@@ -1070,7 +1070,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_attribute_raises(self) -> None:
         html = '<p onclick="alert(1)">Hello</p>'
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
 
         policy = SanitizationPolicy(
             allowed_tags={"p"},
@@ -1084,7 +1084,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_url_raises(self) -> None:
         html = '<a href="javascript:alert(1)">Link</a>'
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
 
         policy = SanitizationPolicy(
             allowed_tags={"a"},
@@ -1098,7 +1098,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_namespaced_attribute_raises(self) -> None:
         html = '<p xlink:href="foo">Hello</p>'
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
         policy = SanitizationPolicy(
             allowed_tags={"p"},
             allowed_attributes={"p": set()},
@@ -1110,7 +1110,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_srcdoc_attribute_raises(self) -> None:
         html = '<iframe srcdoc="<script>"></iframe>'
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
         policy = SanitizationPolicy(
             allowed_tags={"iframe"},
             allowed_attributes={"iframe": {"srcdoc"}},  # Even if allowed, srcdoc is dangerous
@@ -1122,7 +1122,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_disallowed_attribute_raises(self) -> None:
         html = '<p foo="bar">Hello</p>'
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
         policy = SanitizationPolicy(
             allowed_tags={"p"},
             allowed_attributes={"p": set()},  # No attributes allowed
@@ -1134,7 +1134,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_inline_style_raises(self) -> None:
         html = '<p style="background: url(javascript:alert(1))">Hello</p>'
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
         policy = SanitizationPolicy(
             allowed_tags={"p"},
             allowed_attributes={"p": {"style"}},
@@ -1148,7 +1148,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
     def test_sanitize_unsafe_root_tag_raises(self) -> None:
         # Test disallowed tag as root
         html = "<div>Content</div>"
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
         # node is a div (because fragment=True parses into a list of nodes, but JustHTML.root wraps them?
         # Wait, JustHTML(fragment=True).root is a DocumentFragment containing the nodes.
         # sanitize() on a DocumentFragment iterates children.
@@ -1166,7 +1166,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_root_dropped_content_raises(self) -> None:
         html = "<script>alert(1)</script>"
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
         script = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1180,7 +1180,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_child_dropped_content_raises(self) -> None:
         html = "<div><script>alert(1)</script></div>"
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
         div = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1194,7 +1194,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_child_disallowed_tag_raises(self) -> None:
         html = "<div><foo></foo></div>"
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
         div = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1209,7 +1209,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
     def test_sanitize_unsafe_root_foreign_namespace_raises(self) -> None:
         # <svg> puts elements in SVG namespace
         html = "<svg><title>foo</title></svg>"
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
         svg = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1224,7 +1224,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_child_foreign_namespace_raises(self) -> None:
         html = "<div><svg></svg></div>"
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
         div = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1239,7 +1239,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_unsafe_root_disallowed_raises(self) -> None:
         html = "<x-foo></x-foo>"
-        node = JustHTML(html, fragment=True, safe=False).root
+        node = JustHTML(html, fragment=True, sanitize=False).root
         xfoo = node.children[0]
 
         policy = SanitizationPolicy(
