@@ -612,8 +612,12 @@ class SelectorMatcher:
 
     def _matches_simple(self, node: Any, selector: SimpleSelector) -> bool:
         """Match a simple selector against a node."""
-        # Text nodes and other non-element nodes don't match element selectors
-        if not hasattr(node, "name") or node.name.startswith("#"):
+        # Non-element nodes only match explicit pseudo-classes (e.g. :comment)
+        if not hasattr(node, "name"):
+            return False
+        if node.name.startswith("#"):
+            if selector.type == SimpleSelector.TYPE_PSEUDO:
+                return self._matches_pseudo(node, selector)
             return False
 
         sel_type = selector.type
@@ -745,6 +749,9 @@ class SelectorMatcher:
             # text contains the substring. We use `to_text()` to approximate textContent.
             haystack: str = node.to_text(separator=" ", strip=True)
             return needle in haystack
+
+        if name == "comment":
+            return getattr(node, "name", None) == "#comment"
 
         if name == "first-of-type":
             return self._is_first_of_type(node)
@@ -953,6 +960,21 @@ def _is_simple_tag_selector(selector: str) -> bool:
     return True
 
 
+def _selector_allows_non_elements(selector: ParsedSelector | CompoundSelector | SimpleSelector) -> bool:
+    if isinstance(selector, SelectorList):
+        return any(_selector_allows_non_elements(sel) for sel in selector.selectors)
+    if isinstance(selector, ComplexSelector):
+        return any(_selector_allows_non_elements(compound) for _, compound in selector.parts)
+    if isinstance(selector, CompoundSelector):
+        return any(_selector_allows_non_elements(simple) for simple in selector.selectors)
+    if isinstance(selector, SimpleSelector):
+        if selector.type != SimpleSelector.TYPE_PSEUDO:
+            return False
+        name = (selector.name or "").lower()
+        return name == "comment"
+    return False
+
+
 def _query_descendants_tag(node: Any, tag_lower: str, results: list[Any]) -> None:
     results_append = results.append
 
@@ -987,7 +1009,7 @@ def _query_descendants_tag(node: Any, tag_lower: str, results: list[Any]) -> Non
 
 def query(root: Any, selector_string: str) -> list[Any]:
     """
-    Query the DOM tree starting from root, returning all matching elements.
+    Query the DOM tree starting from root, returning all matching nodes.
 
     Searches descendants of root, not including root itself (matching browser
     behavior for querySelectorAll).
@@ -1010,11 +1032,18 @@ def query(root: Any, selector_string: str) -> list[Any]:
         return results
 
     selector = _parse_selector_cached(selector_string)
-    _query_descendants(root, selector, results)
+    allow_non_elements = _selector_allows_non_elements(selector)
+    _query_descendants(root, selector, results, allow_non_elements=allow_non_elements)
     return results
 
 
-def _query_descendants(node: Any, selector: ParsedSelector, results: list[Any]) -> None:
+def _query_descendants(
+    node: Any,
+    selector: ParsedSelector,
+    results: list[Any],
+    *,
+    allow_non_elements: bool = False,
+) -> None:
     """Search for matching nodes in descendants."""
     matcher_matches = _matcher.matches
     results_append = results.append
@@ -1035,8 +1064,12 @@ def _query_descendants(node: Any, selector: ParsedSelector, results: list[Any]) 
         current = stack.pop()
 
         name = current.name
-        if not name.startswith("#") and matcher_matches(current, selector):
-            results_append(current)
+        if allow_non_elements:
+            if matcher_matches(current, selector):
+                results_append(current)
+        else:
+            if not name.startswith("#") and matcher_matches(current, selector):
+                results_append(current)
 
         children = current.children
         if children:

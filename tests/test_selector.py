@@ -1,6 +1,7 @@
 """Comprehensive tests for CSS selector functionality."""
 
 import unittest
+from typing import Any, cast
 
 from justhtml import JustHTML as _JustHTML
 from justhtml import SelectorError, matches, query
@@ -17,6 +18,7 @@ from justhtml.selector import (
     _is_simple_tag_selector,
     _query_descendants,
     _query_descendants_tag,
+    _selector_allows_non_elements,
     parse_selector,
 )
 
@@ -93,6 +95,21 @@ class SelectorTestCase(unittest.TestCase):
             <div class="whitespace">   </div>
             <div class="text">content</div>
             <div class="nested"><span></span></div>
+        </body></html>
+        """
+        return JustHTML(html).root
+
+    def get_comment_doc(self):
+        """Document with comments for comment selector tests."""
+        html = """
+        <html><body>
+            <div>
+                Before
+                <!-- first -->
+                <span>Inside</span>
+                <!-- second -->
+            </div>
+            <!-- outside -->
         </body></html>
         """
         return JustHTML(html).root
@@ -495,6 +512,29 @@ class TestRoot(SelectorTestCase):
     def test_root_with_tag(self):
         result = query(self.get_simple_doc(), "html:root")
         assert len(result) == 1
+
+
+class TestCommentSelector(SelectorTestCase):
+    """Test :comment pseudo-class."""
+
+    def test_comment_selector(self):
+        result = query(self.get_comment_doc(), ":comment")
+        assert len(result) == 3
+        assert all(n.name == "#comment" for n in result)
+
+    def test_comment_child_selector(self):
+        result = query(self.get_comment_doc(), "div > :comment")
+        assert len(result) == 2
+
+    def test_comment_descendant_selector(self):
+        result = query(self.get_comment_doc(), "div :comment")
+        assert len(result) == 2
+
+    def test_comment_selector_group(self):
+        result = query(self.get_comment_doc(), "div, :comment")
+        assert len(result) == 4
+        assert any(n.name == "#comment" for n in result)
+        assert any(n.name == "div" for n in result)
 
 
 class TestFirstOfType(SelectorTestCase):
@@ -1180,7 +1220,17 @@ class TestMatcherEdgeCases(SelectorTestCase):
         div = query(doc, "div")[0]
 
         # Should return False for unknown types
-        assert not matcher.matches(div, "not a selector")
+        assert not matcher.matches(div, cast("Any", "not a selector"))
+
+    def test_matches_node_without_name(self):
+        matcher = SelectorMatcher()
+
+        class Dummy:
+            pass
+
+        dummy = Dummy()
+        simple = SimpleSelector(SimpleSelector.TYPE_TAG, name="div")
+        assert not matcher.matches(dummy, simple)
 
     def test_sibling_with_no_parent(self):
         matcher = SelectorMatcher()
@@ -1290,6 +1340,11 @@ class TestParserEdgeCases(SelectorTestCase):
             raise AssertionError("Expected SelectorError")
         except SelectorError:
             pass
+
+
+class TestSelectorAllowNonElements(SelectorTestCase):
+    def test_allows_non_elements_unknown_type(self):
+        assert _selector_allows_non_elements(cast("Any", object())) is False
 
     def test_parser_unexpected_token(self):
         # Create a token list directly that will cause the parser to error

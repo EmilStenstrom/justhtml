@@ -81,10 +81,11 @@ Sanitization happens at construction time. Use `JustHTML(..., sanitize=False)` f
 
 #### `query(selector)`
 
-Find all elements matching a CSS selector.
+Find all nodes matching a CSS selector.
 
 ```python
 doc.query("div.container > p")  # Returns list of matching nodes
+doc.query(":comment")           # Returns comment nodes
 ```
 
 ---
