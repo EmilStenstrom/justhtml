@@ -152,6 +152,8 @@ def _iter_markdown_hash_arrow_examples(project_root: Path, md_path: Path) -> lis
 
     examples: list[_ReadmeExample] = []
 
+    last_html: str | None = None
+
     i = 0
     while i < len(lines):
         parsed = _parse_fence_line(lines[i])
@@ -160,6 +162,18 @@ def _iter_markdown_hash_arrow_examples(project_root: Path, md_path: Path) -> lis
             continue
 
         code_fence, fence_lang = parsed
+        if fence_lang == "html":
+            i += 1
+            html_lines: list[str] = []
+            while i < len(lines) and not lines[i].lstrip().startswith(code_fence):
+                html_lines.append(lines[i])
+                i += 1
+            if i < len(lines) and lines[i].lstrip().startswith(code_fence):
+                i += 1
+            last_html = "\n".join(html_lines).rstrip("\n")
+            last_html = textwrap.dedent(last_html).rstrip("\n")
+            continue
+
         if fence_lang not in {"python", "py"}:
             i += 1
             continue
@@ -187,6 +201,19 @@ def _iter_markdown_hash_arrow_examples(project_root: Path, md_path: Path) -> lis
 
         if expected_output.strip() == "":
             continue
+
+        # Special-case docs pages: code blocks often assume `html` comes from the last preceding
+        # HTML code fence. If we have one, inject it as a Python string literal.
+        if last_html is not None:
+            uses_html = re.search(r"\bhtml\b", original_code) is not None
+            defines_html = re.search(r"^\s*html\s*=", original_code, flags=re.MULTILINE) is not None
+            if uses_html and not defines_html:
+                inject = f"html = {last_html!r}\n\n"
+                marker = "from justhtml import JustHTML\n\n"
+                if marker in runnable_code:
+                    runnable_code = runnable_code.replace(marker, marker + inject, 1)
+                else:
+                    runnable_code = inject + runnable_code
 
         examples.append(
             _ReadmeExample(
@@ -298,14 +325,23 @@ def _run_python_snippet(project_root: Path, code: str) -> tuple[int, str, str]:
         script_path = Path(tmpdir) / "snippet.py"
         script_path.write_text(code + "\n", encoding="utf-8")
 
-        proc = subprocess.run(  # noqa: S603
-            [sys.executable, str(script_path)],
-            check=False,
-            cwd=str(project_root),
-            env=env,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            proc = subprocess.run(  # noqa: S603
+                [sys.executable, str(script_path)],
+                check=False,
+                cwd=str(project_root),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+            )
+        except subprocess.TimeoutExpired as e:
+            stdout = (e.stdout or "").replace("\r\n", "\n").rstrip("\n")
+            stderr = (e.stderr or "").replace("\r\n", "\n").rstrip("\n")
+            msg = "Doc snippet timed out after 5s"
+            if stderr:
+                msg = msg + "\n" + stderr
+            return 124, stdout, msg
 
     stdout = proc.stdout.replace("\r\n", "\n").rstrip("\n")
     stderr = proc.stderr.replace("\r\n", "\n").rstrip("\n")
@@ -408,6 +444,20 @@ class TestDocsExamples(unittest.TestCase):
             else:
                 actual = stdout
                 if returncode != 0:
+                    if returncode == 124:
+                        failures.append(
+                            "\n".join(
+                                [
+                                    f"Doc: {ex.doc_path.relative_to(project_root)}:{ex.code_start_line}",
+                                    f"Output fence language: {ex.output_lang}",
+                                    "Snippet execution timed out:",
+                                    stderr,
+                                    "Snippet:",
+                                    ex.code,
+                                ]
+                            )
+                        )
+                        continue
                     failures.append(
                         "\n".join(
                             [
@@ -445,6 +495,19 @@ class TestDocsExamples(unittest.TestCase):
         for ex in examples:
             returncode, stdout, stderr = _run_python_snippet(project_root, ex.runnable_code)
             if returncode != 0:
+                if returncode == 124:
+                    failures.append(
+                        "\n".join(
+                            [
+                                f"Doc: {ex.readme_path.relative_to(project_root)}:{ex.code_start_line}",
+                                "Snippet execution timed out:",
+                                stderr,
+                                "Snippet:",
+                                ex.original_code,
+                            ]
+                        )
+                    )
+                    continue
                 failures.append(
                     "\n".join(
                         [
@@ -486,6 +549,19 @@ class TestDocsExamples(unittest.TestCase):
         for ex in examples:
             returncode, stdout, stderr = _run_python_snippet(project_root, ex.runnable_code)
             if returncode != 0:
+                if returncode == 124:
+                    failures.append(
+                        "\n".join(
+                            [
+                                f"Doc: {ex.readme_path.relative_to(project_root)}:{ex.code_start_line}",
+                                "Snippet execution timed out:",
+                                stderr,
+                                "Snippet:",
+                                ex.original_code,
+                            ]
+                        )
+                    )
+                    continue
                 failures.append(
                     "\n".join(
                         [
