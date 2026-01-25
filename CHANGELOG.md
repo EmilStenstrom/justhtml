@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-01-26
+
+### Added
+- Selectors: Add `:comment` pseudo-class for selecting HTML comment nodes.
+- Transforms: Add `Escape(selector)` (escape an element’s tags as text while hoisting its children).
+- CLI: Add `--cleanup` option to remove unhelpful output artifacts (empty links, images, and empty tags).
+- Docs: Add “Learn by examples” migration page and JustHTML agent usage notes (`llms.txt`).
+
+### Fixed
+- CSS sanitization: Make it possible to allow url:s in inline styles.
+
+### Changed
+- Public API: Export all transforms from `justhtml` so they’re available via `from justhtml import ...`.
+
 ## [1.1.0] - 2026-01-24
 
 ### Added
