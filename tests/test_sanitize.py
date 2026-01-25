@@ -13,17 +13,23 @@ from justhtml.sanitize import (
     UrlPolicy,
     UrlProxy,
     UrlRule,
+    _css_value_contains_disallowed_functions,
+    _css_value_has_disallowed_resource_functions,
     _css_value_may_load_external_resource,
     _is_valid_css_property_name,
+    _sanitize_css_url_functions,
     _sanitize_inline_style,
     _sanitize_url_value,
     sanitize_dom,
 )
-from justhtml.sanitize import (
-    _sanitize as sanitize,
-)
+from justhtml.sanitize import _sanitize as sanitize
 from justhtml.serialize import to_html
 from justhtml.tokens import ParseError
+
+
+class _CoverageSentinel:
+    def __getitem__(self, key: str):
+        raise AssertionError("unreachable")
 
 
 class TestSanitizePlumbing(unittest.TestCase):
@@ -122,7 +128,7 @@ class TestSanitizePlumbing(unittest.TestCase):
 
     def test_url_policy_coerces_rules_to_dict(self) -> None:
         url_policy = UrlPolicy(
-            allow_rules=[(("a", "href"), UrlRule(allowed_schemes={"https"}))],
+            allow_rules=[(("a", "href"), UrlRule(allowed_schemes={"https"}))],  # type: ignore[arg-type]
         )
         assert isinstance(url_policy.allow_rules, dict)
 
@@ -135,6 +141,15 @@ class TestSanitizePlumbing(unittest.TestCase):
             UrlPolicy(
                 allow_rules={("a", "href"): UrlRule(handling="proxy", allowed_schemes={"https"})},
             )
+
+    def test_urlrule_post_init_branches(self) -> None:
+        # Cover coercion paths and the proxy type-check.
+        rule = UrlRule(allowed_schemes=["https"], allowed_hosts=["example.com"], proxy=None)
+        assert rule.allowed_schemes == {"https"}
+        assert rule.allowed_hosts == {"example.com"}
+
+        with self.assertRaises(TypeError):
+            UrlRule(proxy=_CoverageSentinel())  # type: ignore[arg-type]
 
 
 class TestSanitizeDom(unittest.TestCase):
@@ -150,7 +165,7 @@ class TestSanitizeDom(unittest.TestCase):
 
         out = sanitize_dom(root, policy=policy)
         assert out is root
-        assert [child.name for child in root.children] == ["b"]
+        assert [child.name for child in (root.children or [])] == ["b"]
 
     def test_sanitize_dom_element_root(self) -> None:
         root = Node("div")
@@ -170,7 +185,7 @@ class TestSanitizeDom(unittest.TestCase):
         root.append_child(Node("b"))
         out = sanitize_dom(root)
         assert out is root
-        assert [child.name for child in root.children] == ["b"]
+        assert [child.name for child in (root.children or [])] == ["b"]
 
     def test_sanitize_dom_compiled_cache_reuse(self) -> None:
         policy = SanitizationPolicy(
@@ -212,13 +227,35 @@ class TestSanitizeDom(unittest.TestCase):
             allowed_css_properties={"color"},
         )
 
-        assert _sanitize_inline_style(allowed_css_properties=policy.allowed_css_properties, value="") is None
+        assert (
+            _sanitize_inline_style(
+                allowed_css_properties=policy.allowed_css_properties,
+                value="",
+                tag="div",
+                url_policy=policy.url_policy,
+            )
+            is None
+        )
 
-        assert _sanitize_inline_style(allowed_css_properties=policy.allowed_css_properties, value="margin: 0") is None
+        assert (
+            _sanitize_inline_style(
+                allowed_css_properties=policy.allowed_css_properties,
+                value="margin: 0",
+                tag="div",
+                url_policy=policy.url_policy,
+            )
+            is None
+        )
 
         value = "color; co_lor: red; margin: 0; color: ; COLOR: red"
         assert (
-            _sanitize_inline_style(allowed_css_properties=policy.allowed_css_properties, value=value) == "color: red"
+            _sanitize_inline_style(
+                allowed_css_properties=policy.allowed_css_properties,
+                value=value,
+                tag="div",
+                url_policy=policy.url_policy,
+            )
+            == "color: red"
         )
 
     def test_sanitize_inline_style_returns_none_when_allowlist_empty(self) -> None:
@@ -229,7 +266,604 @@ class TestSanitizeDom(unittest.TestCase):
             allowed_css_properties=set(),
         )
 
-        assert _sanitize_inline_style(allowed_css_properties=policy.allowed_css_properties, value="color: red") is None
+        assert (
+            _sanitize_inline_style(
+                allowed_css_properties=policy.allowed_css_properties,
+                value="color: red",
+                tag="div",
+                url_policy=policy.url_policy,
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_allows_relative_url_when_rule_present(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+
+        out = _sanitize_css_url_functions(
+            url_policy=url_policy,
+            tag="div",
+            prop="background-image",
+            value="linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.45)), url('/site_media/covers/cover.jpg')",
+        )
+        assert out is not None
+        assert "url('/site_media/covers/cover.jpg')" in out
+
+    def test_sanitize_css_url_functions_rejects_comments(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url(/x)/*comment*/",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_requires_matching_rule(self) -> None:
+        url_policy = UrlPolicy(default_handling="allow", allow_rules={})
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url('/x')",
+            )
+            is None
+        )
+
+    def test_lookup_css_url_rule_prefers_tag_specific_then_wildcard(self) -> None:
+        # Coverage for the (tag, key) branch.
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("div", "style:background-image"): UrlRule(allowed_schemes=set(), resolve_protocol_relative=None),
+                ("*", "style:background-image"): UrlRule(allowed_schemes=set(), resolve_protocol_relative=None),
+            },
+        )
+        out = _sanitize_css_url_functions(
+            url_policy=url_policy,
+            tag="div",
+            prop="background-image",
+            value="url('/x.png')",
+        )
+        assert out == "url('/x.png')"
+
+    def test_sanitize_css_url_functions_requires_closing_paren(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url('/x'",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_rejects_open_paren_only(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url(",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_rejects_only_whitespace_after_open(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url(   ",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_rejects_backslash_in_value(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url('/x\\y.png')",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_allows_whitespace_before_closing_paren(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        out = _sanitize_css_url_functions(
+            url_policy=url_policy,
+            tag="div",
+            prop="background-image",
+            value="url('/x.png'   )",
+        )
+        assert out == "url('/x.png')"
+
+    def test_sanitize_css_url_functions_rejects_unquoted_missing_closing_paren(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url(/x",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_rejects_unquoted_del_char(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value=f"url(/x{chr(0x7F)}y)",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_allows_unquoted_simple_url(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        out = _sanitize_css_url_functions(
+            url_policy=url_policy,
+            tag="div",
+            prop="background-image",
+            value="url(/x.png)",
+        )
+        assert out == "url('/x.png')"
+
+    def test_sanitize_css_url_functions_allows_trailing_whitespace(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        out = _sanitize_css_url_functions(
+            url_policy=url_policy,
+            tag="div",
+            prop="background-image",
+            value="url('/x.png') ",
+        )
+        assert out == "url('/x.png') "
+
+    def test_sanitize_css_url_functions_allows_comma_between_urls(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        out = _sanitize_css_url_functions(
+            url_policy=url_policy,
+            tag="div",
+            prop="background-image",
+            value="url('/x.png'), url('/y.png')",
+        )
+        assert out == "url('/x.png'), url('/y.png')"
+
+    def test_sanitize_css_url_functions_rejects_missing_closing_quote(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url('/x)",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_rejects_missing_closing_paren_after_quote(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url('/x')x",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_rejects_suspicious_chars_in_rewritten_url(self) -> None:
+        # Coverage for the per-character rejection path.
+        def filt(tag: str, attr: str, value: str) -> str | None:
+            if attr == "style:background-image":
+                return "/x y"
+            return value
+
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+            url_filter=filt,
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url('/x.png')",
+            )
+            is None
+        )
+
+    def test_css_value_has_disallowed_resource_functions_rejects_unterminated_comment(self) -> None:
+        assert _css_value_has_disallowed_resource_functions("/*x") is True
+
+    def test_css_value_has_disallowed_resource_functions_allows_closed_comment_then_url(self) -> None:
+        # Exercise the comment-skip "break" path.
+        assert _css_value_has_disallowed_resource_functions("/*x*/ url('/x.png')") is False
+
+    def test_sanitize_css_url_functions_rejects_url_filter_empty_string(self) -> None:
+        # Coverage for `if not sanitized:`.
+        def filt(tag: str, attr: str, value: str) -> str | None:
+            if attr == "style:background-image":
+                return ""
+            return value
+
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+            url_filter=filt,
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url('/x.png')",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_rewrites_using_url_filter(self) -> None:
+        def filt(tag: str, attr: str, value: str) -> str | None:
+            if attr == "style:background-image":
+                return f"/proxied{value}"
+            return value
+
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+            url_filter=filt,
+        )
+
+        out = _sanitize_css_url_functions(
+            url_policy=url_policy,
+            tag="div",
+            prop="background-image",
+            value="url('/x.png')",
+        )
+        assert out == "url('/proxied/x.png')"
+
+    def test_sanitize_css_url_functions_rejects_invalid_url(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url('javascript:alert(1)')",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_rejects_unquoted_whitespace(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url(/x y)",
+            )
+            is None
+        )
+
+    def test_sanitize_css_url_functions_rejects_empty_url(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("*", "style:background-image"): UrlRule(
+                    allowed_schemes=set(),
+                    resolve_protocol_relative=None,
+                    allow_relative=True,
+                )
+            },
+        )
+        assert (
+            _sanitize_css_url_functions(
+                url_policy=url_policy,
+                tag="div",
+                prop="background-image",
+                value="url()",
+            )
+            is None
+        )
+
+    def test_sanitize_inline_style_drops_url_declaration_when_url_policy_missing(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["div"],
+            allowed_attributes={"*": [], "div": ["style"]},
+            allowed_css_properties={"background-image"},
+            url_policy=UrlPolicy(allow_rules={}),
+        )
+
+        value = "background-image: url('/x.png')"
+        assert (
+            _sanitize_inline_style(
+                allowed_css_properties=policy.allowed_css_properties,
+                value=value,
+                tag="div",
+                url_policy=None,
+            )
+            is None
+        )
+
+    def test_sanitize_inline_style_drops_url_declaration_without_matching_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["div"],
+            allowed_attributes={"*": [], "div": ["style"]},
+            allowed_css_properties={"background-image"},
+            url_policy=UrlPolicy(default_handling="allow", allow_rules={}),
+        )
+
+        value = "background-image: url('/x.png')"
+        assert (
+            _sanitize_inline_style(
+                allowed_css_properties=policy.allowed_css_properties,
+                value=value,
+                tag="div",
+                url_policy=policy.url_policy,
+            )
+            is None
+        )
+
+    def test_sanitize_inline_style_drops_disallowed_resource_function_even_with_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["div"],
+            allowed_attributes={"*": [], "div": ["style"]},
+            allowed_css_properties={"background-image"},
+            url_policy=UrlPolicy(
+                default_handling="allow",
+                allow_rules={
+                    ("*", "style:background-image"): UrlRule(
+                        allowed_schemes=set(),
+                        resolve_protocol_relative=None,
+                        allow_relative=True,
+                    )
+                },
+            ),
+        )
+
+        value = "background-image: image-set(url('/x.png') 1x)"
+        assert (
+            _sanitize_inline_style(
+                allowed_css_properties=policy.allowed_css_properties,
+                value=value,
+                tag="div",
+                url_policy=policy.url_policy,
+            )
+            is None
+        )
+
+    def test_sanitize_inline_style_can_allow_background_image_relative_url_via_url_policy(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["div"],
+            allowed_attributes={"*": [], "div": ["style"]},
+            allowed_css_properties={"background-image"},
+            url_policy=UrlPolicy(
+                default_handling="allow",
+                allow_rules={
+                    ("*", "style:background-image"): UrlRule(
+                        allowed_schemes=set(),
+                        resolve_protocol_relative=None,
+                        allow_relative=True,
+                    )
+                },
+            ),
+        )
+
+        value = "background-image: url('/site_media/covers/cover.jpg')"
+        assert (
+            _sanitize_inline_style(
+                allowed_css_properties=policy.allowed_css_properties,
+                value=value,
+                tag="div",
+                url_policy=policy.url_policy,
+            )
+            == value
+        )
+
+    def test_sanitize_inline_style_still_blocks_background_image_with_absolute_url(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["div"],
+            allowed_attributes={"*": [], "div": ["style"]},
+            allowed_css_properties={"background-image"},
+            url_policy=UrlPolicy(
+                default_handling="allow",
+                allow_rules={
+                    ("*", "style:background-image"): UrlRule(
+                        allowed_schemes=set(),
+                        resolve_protocol_relative=None,
+                        allow_relative=True,
+                    )
+                },
+            ),
+        )
+
+        value = "background-image: url('https://evil.example/x.png')"
+        assert (
+            _sanitize_inline_style(
+                allowed_css_properties=policy.allowed_css_properties,
+                value=value,
+                tag="div",
+                url_policy=policy.url_policy,
+            )
+            is None
+        )
 
     def test_css_preset_text_is_conservative(self) -> None:
         policy = SanitizationPolicy(
@@ -273,6 +907,22 @@ class TestSanitizeDom(unittest.TestCase):
         assert _css_value_may_load_external_resource("color: red /*") is True
         assert _css_value_may_load_external_resource("a" * 64) is False
         assert _css_value_may_load_external_resource("red") is False
+
+    def test_css_value_contains_disallowed_functions_allow_url_flag(self) -> None:
+        assert _css_value_contains_disallowed_functions("url(/x)", allow_url=False) is True
+        assert _css_value_contains_disallowed_functions("url(/x)", allow_url=True) is False
+
+    def test_css_value_has_disallowed_resource_functions(self) -> None:
+        assert _css_value_has_disallowed_resource_functions("image-set(foo)") is True
+        assert _css_value_has_disallowed_resource_functions("expression(alert(1))") is True
+        assert _css_value_has_disallowed_resource_functions("behavior: url(x)") is True
+        assert _css_value_has_disallowed_resource_functions("-moz-binding: url(x)") is True
+        assert _css_value_has_disallowed_resource_functions("AlphaImageLoader") is True
+        assert (
+            _css_value_has_disallowed_resource_functions("progid:DXImageTransform.Microsoft.AlphaImageLoader") is True
+        )
+        assert _css_value_has_disallowed_resource_functions("url(/x)") is False
+        assert _css_value_has_disallowed_resource_functions("color: red") is False
 
     def test_sanitize_url_value_keeps_non_empty_relative_url(self) -> None:
         policy = DEFAULT_POLICY
@@ -632,11 +1282,11 @@ class TestSanitizeDom(unittest.TestCase):
 
     def test_url_rule_rejects_invalid_url_handling_override(self) -> None:
         with self.assertRaises(ValueError):
-            UrlRule(handling="nope")
+            UrlRule(handling="nope")  # type: ignore[arg-type]
 
     def test_url_policy_rejects_non_urlrule_values(self) -> None:
         with self.assertRaises(TypeError):
-            UrlPolicy(allow_rules={("a", "href"): "not-a-rule"})
+            UrlPolicy(allow_rules={("a", "href"): "not-a-rule"})  # type: ignore[arg-type]
 
     def test_sanitize_handles_nested_document_containers(self) -> None:
         # This is intentionally a "plumbing" test: these container nodes are not
@@ -1154,6 +1804,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
         # sanitize() on a DocumentFragment iterates children.
         # To test root handling, we need to pass the element directly.
 
+        assert node.children is not None
         div = node.children[0]
         policy = SanitizationPolicy(
             allowed_tags={"p"},
@@ -1167,6 +1818,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
     def test_sanitize_unsafe_root_dropped_content_raises(self) -> None:
         html = "<script>alert(1)</script>"
         node = JustHTML(html, fragment=True, sanitize=False).root
+        assert node.children is not None
         script = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1181,6 +1833,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
     def test_sanitize_unsafe_child_dropped_content_raises(self) -> None:
         html = "<div><script>alert(1)</script></div>"
         node = JustHTML(html, fragment=True, sanitize=False).root
+        assert node.children is not None
         div = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1195,6 +1848,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
     def test_sanitize_unsafe_child_disallowed_tag_raises(self) -> None:
         html = "<div><foo></foo></div>"
         node = JustHTML(html, fragment=True, sanitize=False).root
+        assert node.children is not None
         div = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1210,6 +1864,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
         # <svg> puts elements in SVG namespace
         html = "<svg><title>foo</title></svg>"
         node = JustHTML(html, fragment=True, sanitize=False).root
+        assert node.children is not None
         svg = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1225,6 +1880,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
     def test_sanitize_unsafe_child_foreign_namespace_raises(self) -> None:
         html = "<div><svg></svg></div>"
         node = JustHTML(html, fragment=True, sanitize=False).root
+        assert node.children is not None
         div = node.children[0]
 
         policy = SanitizationPolicy(
@@ -1240,6 +1896,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
     def test_sanitize_unsafe_root_disallowed_raises(self) -> None:
         html = "<x-foo></x-foo>"
         node = JustHTML(html, fragment=True, sanitize=False).root
+        assert node.children is not None
         xfoo = node.children[0]
 
         policy = SanitizationPolicy(

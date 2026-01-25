@@ -550,20 +550,19 @@ def _is_valid_css_property_name(name: str) -> bool:
     return True
 
 
-def _css_value_may_load_external_resource(value: str) -> bool:
-    # Extremely conservative check: drop any declaration value that contains a
-    # CSS function call that can load external resources.
+def _css_value_contains_disallowed_functions(value: str, *, allow_url: bool) -> bool:
+    # Extremely conservative check: reject any declaration value that contains a
+    # CSS function/construct that can load external resources.
     #
-    # We intentionally do not try to parse full CSS (escapes, comments, strings,
-    # etc.). Instead, we reject values that contain backslashes (common escape
-    # obfuscation) or that *look* like they contain url(…) / image-set(…). This
-    # ensures style attributes can't be used to trigger network requests even
-    # when users allow potentially dangerous properties.
+    # We intentionally do not try to parse full CSS (escapes, strings, etc.).
+    # Instead, we scan while ignoring ASCII whitespace/control chars and CSS
+    # comments, and we look for dangerous tokens in the normalized stream.
+    #
+    # If allow_url=True, url(...) is not considered disallowed (it is handled
+    # separately by `_sanitize_css_url_functions`).
     if "\\" in value:
         return True
 
-    # Scan while ignoring ASCII whitespace/control chars and CSS comments.
-    # Keep a small rolling buffer to avoid extra allocations.
     buf: list[str] = []
     max_len = len("alphaimageloader")
 
@@ -590,17 +589,14 @@ def _css_value_may_load_external_resource(value: str) -> bool:
             i += 1
             continue
 
-        if "A" <= ch <= "Z":
-            lower_ch = chr(o + 0x20)
-        else:
-            lower_ch = ch
+        lower_ch = chr(o + 0x20) if "A" <= ch <= "Z" else ch
 
         buf.append(lower_ch)
         if len(buf) > max_len:
             buf.pop(0)
 
         # Check for url( and image-set( anywhere in the normalized stream.
-        if len(buf) >= 4 and buf[-4:] == ["u", "r", "l", "("]:
+        if not allow_url and len(buf) >= 4 and buf[-4:] == ["u", "r", "l", "("]:
             return True
         if len(buf) >= 10 and buf[-10:] == [
             "i",
@@ -679,7 +675,124 @@ def _css_value_may_load_external_resource(value: str) -> bool:
     return False
 
 
-def _sanitize_inline_style(*, allowed_css_properties: Collection[str], value: str) -> str | None:
+def _css_value_may_load_external_resource(value: str) -> bool:
+    return _css_value_contains_disallowed_functions(value, allow_url=False)
+
+
+def _css_value_has_disallowed_resource_functions(value: str) -> bool:
+    """Return True if `value` contains disallowed CSS constructs (excluding url())."""
+
+    return _css_value_contains_disallowed_functions(value, allow_url=True)
+
+
+def _lookup_css_url_rule(*, url_policy: UrlPolicy, tag: str, prop: str) -> UrlRule | None:
+    key = f"style:{prop}"
+    return url_policy.allow_rules.get((tag, key)) or url_policy.allow_rules.get(("*", key))
+
+
+def _sanitize_css_url_functions(*, url_policy: UrlPolicy, tag: str, prop: str, value: str) -> str | None:
+    # Keep this parser intentionally conservative. We only support plain url(...)
+    # without escapes and without nested parentheses inside the URL token.
+    if "\\" in value:
+        return None
+
+    # Reject comments entirely; they are commonly used for obfuscation.
+    if "/*" in value:
+        return None
+
+    rule = _lookup_css_url_rule(url_policy=url_policy, tag=tag, prop=prop)
+    if rule is None:
+        return None
+
+    lower = value.lower()
+    out_parts: list[str] = []
+    i = 0
+    replaced_any = False
+    n = len(value)
+
+    while True:
+        j = lower.find("url(", i)
+        if j == -1:
+            out_parts.append(value[i:])
+            break
+
+        out_parts.append(value[i:j])
+        k = j + 4  # after 'url('
+
+        # Skip whitespace after 'url('
+        while k < n and ord(value[k]) <= 0x20:
+            k += 1
+        if k >= n:
+            return None
+
+        quoted = value[k] in {'"', "'"}
+        q = value[k] if quoted else ""
+        if quoted:
+            k += 1
+            start = k
+            end_quote = value.find(q, k)
+            if end_quote == -1:
+                return None
+            url_raw = value[start:end_quote]
+            k = end_quote + 1
+
+            while k < n and ord(value[k]) <= 0x20:
+                k += 1
+            if k >= n or value[k] != ")":
+                return None
+            end_paren = k
+        else:
+            end_paren = value.find(")", k)
+            if end_paren == -1:
+                return None
+            url_raw = value[k:end_paren].strip()
+            if not url_raw:
+                return None
+            # Unquoted url(...) must not contain whitespace.
+            if any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in url_raw):
+                return None
+
+        # Require a clear token boundary after url(...). Without whitespace or a
+        # delimiter, we can't safely reason about how the CSS parser will
+        # interpret the value.
+        next_idx = end_paren + 1
+        if next_idx < n:
+            nxt = value[next_idx]
+            if not (ord(nxt) <= 0x20 or nxt in {",", "/"}):
+                return None
+
+        sanitized = _sanitize_url_value_inner(
+            url_policy=url_policy,
+            rule=rule,
+            tag=tag,
+            attr=f"style:{prop}",
+            value=url_raw,
+            apply_filter=True,
+        )
+        if sanitized is None:
+            return None
+
+        # Avoid generating CSS that needs escaping.
+        for ch in sanitized:
+            o = ord(ch)
+            if o <= 0x20 or o == 0x7F or ch in {"'", '"', "(", ")", "\\"}:
+                return None
+
+        out_parts.append(f"url('{sanitized}')")
+        replaced_any = True
+
+        i = end_paren + 1
+
+    return None if not replaced_any else "".join(out_parts)
+
+
+def _sanitize_inline_style(
+    *,
+    allowed_css_properties: Collection[str],
+    value: str,
+    tag: str,
+    url_policy: UrlPolicy | None = None,
+) -> str | None:
     allowed = allowed_css_properties
     if not allowed:
         return None
@@ -708,7 +821,18 @@ def _sanitize_inline_style(*, allowed_css_properties: Collection[str], value: st
             continue
 
         if _css_value_may_load_external_resource(prop_value):
-            continue
+            if url_policy is None:
+                continue
+
+            if _css_value_has_disallowed_resource_functions(prop_value):
+                continue
+
+            sanitized_with_urls = _sanitize_css_url_functions(
+                url_policy=url_policy, tag=str(tag).lower(), prop=prop, value=prop_value
+            )
+            if sanitized_with_urls is None:
+                continue
+            prop_value = sanitized_with_urls
 
         out_parts.append(f"{prop}: {prop_value}")
 

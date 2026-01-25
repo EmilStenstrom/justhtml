@@ -1671,7 +1671,10 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     return out
 
                 sanitized_style = _sanitize_inline_style(
-                    allowed_css_properties=allowed_css_properties, value=str(raw_value)
+                    allowed_css_properties=allowed_css_properties,
+                    value=str(raw_value),
+                    tag=str(node.name).lower(),
+                    url_policy=None,
                 )
                 if sanitized_style is None:
                     if on_report is not None:
@@ -2102,7 +2105,10 @@ def apply_compiled_transforms(
                     if key_lower == "style" and policy.allowed_css_properties:
                         val_str = str(value or "")
                         sanitized_style = _sanitize_inline_style(
-                            allowed_css_properties=policy.allowed_css_properties, value=val_str
+                            allowed_css_properties=policy.allowed_css_properties,
+                            value=val_str,
+                            tag=tag,
+                            url_policy=policy.url_policy,
                         )
                         if sanitized_style is None:
                             msg = "Unsafe inline style in attribute 'style'"
