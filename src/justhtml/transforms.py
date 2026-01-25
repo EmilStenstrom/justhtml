@@ -179,6 +179,38 @@ class Unwrap:
 
 
 @dataclass(frozen=True, slots=True)
+class Escape:
+    """Escape the matching element's tags, but keep its children.
+
+    This replaces e.g. `<div>hi</div>` with the text nodes `<div>` and `</div>`
+    (which will be HTML-escaped on serialization), while hoisting the element
+    children in between.
+
+    This is useful when you want to preserve "what the input looked like" for a
+    specific tag without rendering it as markup.
+    """
+
+    selector: str
+
+    enabled: bool
+    callback: NodeCallback | None
+    report: ReportCallback | None
+
+    def __init__(
+        self,
+        selector: str,
+        *,
+        enabled: bool = True,
+        callback: NodeCallback | None = None,
+        report: ReportCallback | None = None,
+    ) -> None:
+        object.__setattr__(self, "selector", str(selector))
+        object.__setattr__(self, "enabled", bool(enabled))
+        object.__setattr__(self, "callback", callback)
+        object.__setattr__(self, "report", report)
+
+
+@dataclass(frozen=True, slots=True)
 class Empty:
     selector: str
 
@@ -742,6 +774,7 @@ Transform = (
     SetAttrs
     | Drop
     | Unwrap
+    | Escape
     | Empty
     | Edit
     | EditDocument
@@ -766,6 +799,7 @@ _TRANSFORM_CLASSES: tuple[type[object], ...] = (
     SetAttrs,
     Drop,
     Unwrap,
+    Escape,
     Empty,
     Edit,
     EditDocument,
@@ -798,7 +832,7 @@ class _CompiledCollapseWhitespaceTransform:
 
 @dataclass(frozen=True, slots=True)
 class _CompiledSelectorTransform:
-    kind: Literal["setattrs", "drop", "unwrap", "empty", "edit"]
+    kind: Literal["setattrs", "drop", "unwrap", "escape", "empty", "edit"]
     selector_str: str
     selector: ParsedSelector
     payload: dict[str, str | None] | NodeCallback | None
@@ -1152,6 +1186,19 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             compiled.append(
                 _CompiledSelectorTransform(
                     kind="unwrap",
+                    selector_str=t.selector,
+                    selector=parse_selector(t.selector),
+                    payload=None,
+                    callback=t.callback,
+                    report=t.report,
+                )
+            )
+            continue
+
+        if isinstance(t, Escape):
+            compiled.append(
+                _CompiledSelectorTransform(
+                    kind="escape",
                     selector_str=t.selector,
                     selector=parse_selector(t.selector),
                     payload=None,
@@ -1796,6 +1843,48 @@ def apply_compiled_transforms(
                 key = id(n)
                 created_start_index[key] = max(created_start_index.get(key, 0), start_index)
 
+            def _escape_node(
+                node: Node,
+                *,
+                parent: Node,
+                idx: int,
+                mark_new_start_index: int,
+            ) -> None:
+                """Escape a node by emitting its tags as text and hoisting its children."""
+                raw_start = _raw_tag_text(node, "_start_tag_start", "_start_tag_end")
+                if raw_start is None:
+                    raw_start = _reconstruct_start_tag(node)
+                raw_end = _raw_tag_text(node, "_end_tag_start", "_end_tag_end")
+                if raw_end is None:
+                    raw_end = _reconstruct_end_tag(node)
+
+                if raw_start:
+                    start_node = Text(raw_start)
+                    _mark_start(start_node, mark_new_start_index)
+                    parent.insert_before(start_node, node)
+
+                moved: list[Node] = []
+                if node.name != "#text" and node.children:
+                    moved.extend(list(node.children))
+                    node.children = []
+                if type(node) is Template and node.template_content is not None:
+                    tc = node.template_content
+                    tc_children = tc.children or []
+                    moved.extend(tc_children)
+                    tc.children = []
+
+                if moved:
+                    for child in moved:
+                        _mark_start(child, mark_new_start_index)
+                        parent.insert_before(child, node)
+
+                if raw_end:
+                    end_node = Text(raw_end)
+                    _mark_start(end_node, mark_new_start_index)
+                    parent.insert_before(end_node, node)
+
+                parent.remove_child(node)
+
             def _apply_fused_sanitize(
                 node: Node,
                 t: _CompiledSanitizeTransform,
@@ -2164,10 +2253,10 @@ def apply_compiled_transforms(
                             if name == "#text" and not skip_whitespace:
                                 if TYPE_CHECKING:
                                     t = cast("_CompiledCollapseWhitespaceTransform", t)
-                                data = node.data or ""
-                                if data:
-                                    collapsed = _collapse_html_space_characters(data)
-                                    if collapsed != data:
+                                text_data: str = str(getattr(node, "data", "") or "")
+                                if text_data:
+                                    collapsed = _collapse_html_space_characters(text_data)
+                                    if collapsed != text_data:
                                         if t.callback is not None:
                                             t.callback(node)
                                         if t.report is not None:
@@ -2180,9 +2269,9 @@ def apply_compiled_transforms(
                             if name == "#text" and not skip_linkify:
                                 if TYPE_CHECKING:
                                     t = cast("_CompiledLinkifyTransform", t)
-                                data = node.data or ""
-                                if data:
-                                    matches = find_links_with_config(data, t.config)
+                                linkify_text: str = str(getattr(node, "data", "") or "")
+                                if linkify_text:
+                                    matches = find_links_with_config(linkify_text, t.config)
                                     if matches:
                                         if t.callback is not None:
                                             t.callback(node)
@@ -2194,7 +2283,7 @@ def apply_compiled_transforms(
                                         cursor = 0
                                         for m in matches:
                                             if m.start > cursor:
-                                                txt = Text(data[cursor : m.start])
+                                                txt = Text(linkify_text[cursor : m.start])
                                                 _mark_start(txt, idx + 1)
                                                 parent.insert_before(txt, node)
 
@@ -2205,8 +2294,8 @@ def apply_compiled_transforms(
                                             parent.insert_before(a, node)
                                             cursor = m.end
 
-                                        if cursor < len(data):
-                                            tail = Text(data[cursor:])
+                                        if cursor < len(linkify_text):
+                                            tail = Text(linkify_text[cursor:])
                                             _mark_start(tail, idx + 1)
                                             parent.insert_before(tail, node)
 
@@ -2265,38 +2354,8 @@ def apply_compiled_transforms(
                                 break
 
                             if action is DecideAction.ESCAPE:
-                                raw_start = _raw_tag_text(node, "_start_tag_start", "_start_tag_end")
-                                if raw_start is None:
-                                    raw_start = _reconstruct_start_tag(node)
-                                raw_end = _raw_tag_text(node, "_end_tag_start", "_end_tag_end")
-                                if raw_end is None:
-                                    raw_end = _reconstruct_end_tag(node)
-                                if raw_start:
-                                    start_node = Text(raw_start)
-                                    _mark_start(start_node, idx)
-                                    parent.insert_before(start_node, node)
-
-                                moved: list[Node] = []
-                                if name != "#text" and node.children:
-                                    moved.extend(list(node.children))
-                                    node.children = []
-                                if type(node) is Template and node.template_content is not None:
-                                    tc = node.template_content
-                                    tc_children = tc.children or []
-                                    moved.extend(tc_children)
-                                    tc.children = []
-
-                                if moved:
-                                    for child in moved:
-                                        _mark_start(child, idx)
-                                        parent.insert_before(child, node)
-
-                                if raw_end:
-                                    end_node = Text(raw_end)
-                                    _mark_start(end_node, idx)
-                                    parent.insert_before(end_node, node)
-
-                                parent.remove_child(node)
+                                # Mark created/hoisted nodes to start at the next transform.
+                                _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx + 1)
                                 changed = True
                                 break
 
@@ -2383,6 +2442,17 @@ def apply_compiled_transforms(
                                 tag = str(node.name).lower()
                                 t.report(f"Dropped <{tag}> (matched selector '{t.selector_str}')", node=node)
                             parent.remove_child(node)
+                            changed = True
+                            break
+
+                        if t.kind == "escape":
+                            if t.callback is not None:
+                                t.callback(node)
+                            if t.report is not None:
+                                tag = str(node.name).lower()
+                                t.report(f"Escaped <{tag}> (matched selector '{t.selector_str}')", node=node)
+
+                            _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx + 1)
                             changed = True
                             break
 

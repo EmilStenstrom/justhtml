@@ -221,6 +221,7 @@ Core selector transforms:
 - `SetAttrs(selector, attributes=None, **attrs)` — Set/overwrite attributes on matching elements.
 - `Drop(selector)` — Remove matching nodes.
 - `Unwrap(selector)` — Remove the element but keep its children.
+- `Escape(selector)` — Escape the element's tags but keep its children.
 - `Empty(selector)` — Remove all children of matching elements.
 - `Edit(selector, func)` — Run custom logic for matching elements.
 
@@ -426,6 +427,25 @@ Optional: pass `callback(node)` / `report(msg, node=...)` to run hooks right bef
 ```python
 Unwrap("span")
 Unwrap("div.wrapper")
+```
+
+### `Escape(selector, enabled=True, callback=None, report=None)`
+
+Escapes a matching element's start/end tags by turning them into text nodes, but keeps the element's children.
+
+Example:
+
+```python
+from justhtml import Escape, JustHTML
+
+doc = JustHTML(
+    "<p><x>hi</x></p>",
+    fragment=True,
+    sanitize=False,
+    transforms=[Escape("x")],
+)
+print(doc.to_html(pretty=False))
+# => <p>&lt;x&gt;hi&lt;/x&gt;</p>
 ```
 
 ### `Empty(selector, enabled=True, callback=None, report=None)`

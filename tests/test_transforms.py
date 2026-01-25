@@ -23,6 +23,7 @@ from justhtml.transforms import (
     EditAttrs,
     EditDocument,
     Empty,
+    Escape,
     Linkify,
     MergeAttrs,
     PruneEmpty,
@@ -110,6 +111,35 @@ class TestTransforms(unittest.TestCase):
     def test_unwrap_handles_empty_elements(self) -> None:
         doc = JustHTML("<div><span></span>ok</div>", transforms=[Unwrap("span")])
         assert doc.to_html(pretty=False) == "<html><head></head><body><div>ok</div></body></html>"
+
+    def test_escape_emits_tags_as_text_and_hoists_children(self) -> None:
+        seen: list[str] = []
+        reports: list[str] = []
+
+        def cb(node: Node) -> None:
+            seen.append(str(node.name))
+
+        def report(msg: str, *, node: Node | None = None) -> None:
+            reports.append(msg)
+
+        doc = JustHTML(
+            "<p>Hello <span>world</span></p>",
+            fragment=True,
+            transforms=[Escape("span", callback=cb, report=report)],
+        )
+
+        assert doc.to_html(pretty=False) == "<p>Hello &lt;span&gt;world&lt;/span&gt;</p>"
+        assert seen == ["span"]
+        assert reports == ["Escaped <span> (matched selector 'span')"]
+
+    def test_escape_reports_without_callback_and_without_report(self) -> None:
+        # Exercise both branches in the Escape selector path.
+        doc = JustHTML(
+            "<p>Hello <span>world</span></p>",
+            fragment=True,
+            transforms=[Escape("span")],
+        )
+        assert doc.to_html(pretty=False) == "<p>Hello &lt;span&gt;world&lt;/span&gt;</p>"
 
     def test_empty_removes_children_but_keeps_element(self) -> None:
         doc = JustHTML("<div><b>x</b>y</div>", transforms=[Empty("div")])
