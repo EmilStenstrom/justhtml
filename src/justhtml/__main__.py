@@ -8,11 +8,14 @@ import io
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import TextIO, cast
+from typing import TYPE_CHECKING, TextIO, cast
 
 from . import JustHTML
 from .context import FragmentContext
 from .selector import SelectorError
+
+if TYPE_CHECKING:
+    from .transforms import TransformSpec
 
 
 def _get_version() -> str:
@@ -33,6 +36,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "  justhtml page.html --selector 'main p' --format text\n"
             "  justhtml page.html --selector 'a' --format html\n"
             "  justhtml page.html --selector 'article' --allow-tags article --format markdown\n"
+            "  curl -s https://example.com | justhtml - --format html --cleanup\n"
             "\n"
             "If you don't have the 'justhtml' command available, use:\n"
             "  python -m justhtml ...\n"
@@ -69,6 +73,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "Safe mode: allow these additional tags during sanitization (comma-separated). "
             "Example: --allow-tags article,section"
         ),
+    )
+
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Remove common useless output (unwrap <a> without href, drop <img> without src, prune empty tags)",
     )
     parser.add_argument(
         "--first",
@@ -160,7 +170,32 @@ def main() -> None:
             disallowed_tag_handling=base.disallowed_tag_handling,
         )
 
-    doc = JustHTML(html, fragment_context=fragment_context, sanitize=safe, policy=policy)
+    transforms: list[TransformSpec] | None = None
+    if args.cleanup:
+        from .sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
+        from .transforms import Drop, PruneEmpty, Sanitize, Unwrap  # noqa: PLC0415
+
+        default_policy = DEFAULT_POLICY if fragment_context is not None else DEFAULT_DOCUMENT_POLICY
+        effective_policy = policy if policy is not None else default_policy
+
+        transforms_list: list[TransformSpec] = []
+        if safe:
+            # Ensure cleanup happens after sanitization so it can react to
+            # stripped attributes (e.g. <a> whose unsafe href was removed).
+            transforms_list.append(Sanitize(policy=effective_policy))
+
+        transforms_list.append(Unwrap("a:not([href])"))
+        transforms_list.append(Drop('img:not([src]), img[src=""]'))
+        transforms_list.append(PruneEmpty("*"))
+        transforms = transforms_list
+
+    doc = JustHTML(
+        html,
+        fragment_context=fragment_context,
+        sanitize=safe,
+        policy=policy,
+        transforms=transforms,
+    )
 
     try:
         nodes = doc.query(args.selector) if args.selector else [doc.root]

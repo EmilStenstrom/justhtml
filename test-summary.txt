@@ -89,7 +89,7 @@ justhtml-tests/tokenizer_edge_cases.test: 38/38 (100%) [........................
 justhtml-tests/treebuilder_coverage.dat: 18/18 (100%) [..................]
 justhtml-tests/xml_coercion.dat: 4/4 (100%) [....]
 justhtml-tests/xml_coercion_coverage.test: 2/2 (100%) [..]
-test_cli.py: 19/19 (100%) [...................]
+test_cli.py: 20/20 (100%) [....................]
 test_coverage.py: 17/17 (100%) [.................]
 test_docs_examples.py: 3/3 (100%) [...]
 test_encoding.py: 9/9 (100%) [.........]
@@ -110,4 +110,4 @@ test_transforms_edge_cases.py: 20/20 (100%) [....................]
 test_transforms_sanitize_integration.py: 5/5 (100%) [.....]
 test_wikipedia.py: 1/1 (100%) [.]
 
-PASSED: 9804/9804 passed (100.0%), 13 skipped
+PASSED: 9805/9805 passed (100.0%), 13 skipped

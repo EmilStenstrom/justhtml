@@ -71,6 +71,20 @@ Example:
 justhtml page.html --selector "article" --allow-tags article,section --format markdown
 ```
 
+## Cleanup
+
+`--cleanup` removes common unhelpful output artifacts:
+
+- unwrap `<a>` tags that have no `href`
+- drop `<img>` tags that have no `src` (or `src=""`)
+- prune empty tags
+
+This is useful when sanitization has stripped attributes and left behind empty tags.
+
+```bash
+curl -s https://example.com | justhtml - --format html --cleanup
+```
+
 ## Text options
 
 When using `--format text`, you can control whitespace handling:

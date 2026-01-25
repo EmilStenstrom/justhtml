@@ -33,6 +33,7 @@ class TestCLI(unittest.TestCase):
         self.assertIn("usage: justhtml", out)
         self.assertIn("--selector", out)
         self.assertIn("--format", out)
+        self.assertIn("--cleanup", out)
         self.assertEqual(err, "")
 
     def test_version(self):
@@ -70,6 +71,20 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(err, "")
         self.assertEqual(out, "<li>Hi</li>\n")
+
+    def test_cleanup_unwraps_anchor_and_drops_empty_img(self):
+        html = '<a href="javascript:alert(1)">Link</a><img src="">'
+        code, out, err = self._run_cli(["-", "--fragment", "--cleanup"], stdin_text=html)
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(out, "Link\n")
+
+    def test_cleanup_unsafe_keeps_href_but_drops_empty_img(self):
+        html = '<a href="javascript:alert(1)">Link</a><img src="">'
+        code, out, err = self._run_cli(["-", "--fragment", "--cleanup", "--unsafe"], stdin_text=html)
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(out, '<a href="javascript:alert(1)">Link</a>\n')
 
     def test_stdin_non_utf8_bytes_does_not_crash(self):
         stdout = StringIO()
