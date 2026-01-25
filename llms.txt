@@ -1,0 +1,84 @@
+JustHTML: agent usage notes (copy/paste)
+
+Official docs: https://emilstenstrom.github.io/justhtml/
+Examples migrating code to JustHTML: https://emilstenstrom.github.io/justhtml/migration-examples.html
+
+Goal
+- Parse HTML5 into a DOM that is easy to query and serialize.
+- Safe by default: sanitization runs during construction unless explicitly disabled.
+
+Core model
+- HTML (str/bytes) -> parse -> transforms -> sanitize -> query/serialize.
+- Use `fragment=True` for snippets; document mode for full pages with html/head/body.
+
+Note on sanitization
+- When `sanitize=True`, JustHTML ensures exactly one sanitize pass runs by auto-appending `Sanitize(...)` to the end of `transforms` (unless you already included `Sanitize(...)`).
+
+Safety
+- `sanitize=True` by default.
+- Use `sanitize=False` when you're only extracting data (querying, `to_text()`, etc) or you will sanitize later.
+- Avoid emitting HTML from an unsanitized tree unless the input is trusted.
+- Optional: pass `policy=SanitizationPolicy(...)` to customize allowlists.
+
+Transform ordering (most common pitfall)
+- If `sanitize=True` and you DO NOT include `Sanitize(...)` in `transforms`, JustHTML auto-appends a final sanitize step.
+- If you DO include `Sanitize(...)` in `transforms`, JustHTML will NOT auto-append another.
+- If a transform must run AFTER sanitization, include `Sanitize(...)` explicitly and put your later transforms after it.
+
+Output (pick one)
+- Readable text with line breaks: `to_markdown()` (handles `<br>`, paragraphs/lists, and normalizes whitespace).
+- Plain text for indexing/search: `to_text(separator=" ", strip=True)` (fast; no layout-aware newlines).
+
+Common patterns (from the migration examples)
+- Query: `doc.root.query(".product.special")` (or `doc.query("...")`) returns a list of nodes.
+- Attributes: `a.attrs.get("href")`.
+- Pretty HTML: `node.to_html(pretty=True)`.
+- Comments: use the `:comment` selector.
+- If you allow links, keep URL handling explicit with `UrlPolicy(...)` / `UrlRule(...) (this includes inline css which also needs to be explicitly allowed).
+
+Diagnostics (when debugging)
+- `strict=True` to raise on parse errors; `collect_errors=True` to inspect errors without raising.
+- `track_node_locations=True` to get `origin_offset/origin_line/origin_col` on nodes.
+
+Transforms (keep it simple)
+- Prefer selector-based transforms: `Drop`, `Unwrap`, `Empty`, `Edit`.
+- Treat `EditDocument(...)` as last resort.
+- Prefer multiple smaller transforms over big and complex ones
+- Keep transforms stateless (no `nonlocal`/flags). Use ordering + DOM re-checks instead.
+- Avoid regex post-processing unless there’s no better option.
+
+Built-in transforms (quick reference)
+
+All transforms are importable from `justhtml` (they also live in `justhtml.transforms`).
+Full docs: https://emilstenstrom.github.io/justhtml/transforms.html
+
+- Core selector transforms (exported from `justhtml`)
+    - `SetAttrs(selector, attributes=None, **attrs)` — set/overwrite attributes on matching elements.
+    - `Drop(selector)` — remove matching nodes.
+    - `Unwrap(selector)` — remove the element but keep its children.
+    - `Escape(selector)` — escape the element's tags (as text) but keep its children.
+    - `Empty(selector)` — remove all children of matching elements.
+    - `Edit(selector, func)` — run custom logic for matching elements.
+
+- Attribute-only transforms
+    - `EditAttrs(selector, func)` — rewrite attributes based on a callback (`RewriteAttrs` is an alias).
+    - `DropAttrs(selector, patterns=())` — drop attributes matching glob-like patterns (ex: `("data-*", "on*")`).
+    - `AllowlistAttrs(selector, allowed_attributes=...)` — keep only allowlisted attributes.
+
+- Text/cleanup
+    - `CollapseWhitespace(skip_tags=(...))` — collapse HTML whitespace runs in text nodes.
+    - `PruneEmpty(selector, strip_whitespace=True)` — recursively drop empty elements.
+
+- Sanitization and policy building blocks
+    - `Sanitize(policy=None)` — sanitize the in-memory tree (same sanitizer as `sanitize=True`).
+    - `DropComments()` — drop `#comment` nodes.
+    - `DropDoctype()` — drop `!doctype` nodes.
+    - `DropForeignNamespaces()` — drop elements in foreign namespaces (SVG/MathML).
+    - `DropUrlAttrs(selector, url_policy=...)` — validate/rewrite/drop URL-valued attributes.
+    - `AllowStyleAttrs(selector, allowed_css_properties=...)` — sanitize inline `style` attributes.
+    - `MergeAttrs(tag, attr=..., tokens=...)` — merge tokens into a whitespace-delimited attribute (ex: enforce `rel`).
+
+- Advanced building blocks
+    - `Decide(selector, func)` — keep/drop/unwrap/empty/escape based on a callback.
+    - `EditDocument(func)` — run once on the root container.
+    - `Stage([...])` — group transforms into explicit passes (advanced).
