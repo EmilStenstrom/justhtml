@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-01-28
+
+### Added
+- Parser: Add `scripting_enabled` option to `JustHTML(...)` for HTML5 scripting flag control (affects `<noscript>` handling).
+
+### Changed
+- Sanitization: Default URL handling now strips URL-like attributes unless explicitly allowed by `UrlPolicy` (see [URL Cleaning](docs/url-cleaning.md)).
+
+### Security
+- (Severity: Low) JustHTML's parsing used "scripting disabled" mode which opened the door for [differential parsing (mXSS)](https://www.sonarsource.com/blog/mxss-the-vulnerability-hiding-in-your-code/) attacks. In "scripting disabled" mode `<noscript>` tags could be handled differently in the sanitizer compared to when being parsed by browsers with scripting enabled. This could be used to bypass the allowed_tags sanitizer. **Fortunately, the serializer escaped `<` and `>` in style tags, with contained the attack vector completely**.
+
+  Example from justhtml==1.2.0:
+
+  ```python
+  from justhtml import JustHTML, SanitizationPolicy, UrlPolicy, UrlRule
+  xss = '<noscript><style></noscript><img src=x onerror="alert(1)">'
+  JustHTML(xss, fragment=True, scripting_enabled=False, policy=SanitizationPolicy(
+    allowed_tags=["noscript", "style"],
+    allowed_attributes={},
+  )).to_html()
+  # => <noscript>\n  <style>&lt;/noscript&gt;&lt;img src=x onerror="alert(1)"&gt;</style>\n</noscript>
+  ```
+
+  Example from justhtml==1.3.0. Note how the img tags is removed from by the sanitizer.
+
+  ```python
+  from justhtml import JustHTML, SanitizationPolicy, UrlPolicy, UrlRule
+  xss = '<noscript><style></noscript><img src=x onerror="alert(1)">'
+  JustHTML(xss, fragment=True, scripting_enabled=True, policy=SanitizationPolicy(
+    allowed_tags=["noscript", "style"],
+    allowed_attributes={},
+  )).to_html()
+  # => <noscript>&lt;style&gt;</noscript>
+  ```
+
 ## [1.2.0] - 2026-01-26
 
 ### Added
