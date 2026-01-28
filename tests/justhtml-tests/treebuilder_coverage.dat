@@ -232,6 +232,7 @@
 (1,1): expected-doctype-but-got-start-tag
 (1,31): unexpected-doctype
 
+#script-off
 #document
 | <html>
 |   <head>
@@ -239,13 +240,13 @@
 |   <body>
 
 
-#script-off
 #data
 <head><noscript></p></noscript>
 #errors
 (1,1): expected-doctype-but-got-start-tag
 (1,20): unexpected-end-tag
 
+#script-off
 #document
 | <html>
 |   <head>

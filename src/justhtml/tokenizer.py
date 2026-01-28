@@ -85,6 +85,7 @@ class TokenizerOpts:
         "exact_errors",
         "initial_rawtext_tag",
         "initial_state",
+        "scripting_enabled",
         "xml_coercion",
     )
 
@@ -92,6 +93,7 @@ class TokenizerOpts:
     exact_errors: bool
     initial_rawtext_tag: str | None
     initial_state: int | None
+    scripting_enabled: bool
     xml_coercion: bool
 
     def __init__(
@@ -101,6 +103,7 @@ class TokenizerOpts:
         emit_bogus_markup_as_text: bool = False,
         initial_state: int | None = None,
         initial_rawtext_tag: str | None = None,
+        scripting_enabled: bool = True,
         xml_coercion: bool = False,
     ) -> None:
         self.exact_errors = bool(exact_errors)
@@ -108,6 +111,7 @@ class TokenizerOpts:
         self.emit_bogus_markup_as_text = bool(emit_bogus_markup_as_text)
         self.initial_state = initial_state
         self.initial_rawtext_tag = initial_rawtext_tag
+        self.scripting_enabled = bool(scripting_enabled)
         self.xml_coercion = bool(xml_coercion)
 
 
@@ -1956,7 +1960,11 @@ class Tokenizer:
         switched_to_rawtext = False
         if self.current_tag_kind == Tag.START:
             self.last_start_tag_name = name
-            needs_rawtext_check = name in _RAWTEXT_SWITCH_TAGS or name == "plaintext"
+            needs_rawtext_check = (
+                name in _RAWTEXT_SWITCH_TAGS
+                or name == "plaintext"
+                or (name == "noscript" and self.opts.scripting_enabled)
+            )
             if needs_rawtext_check:
                 stack = self.sink.open_elements
                 current_node = stack[-1] if stack else None
@@ -1966,7 +1974,7 @@ class Tokenizer:
                         self.state = self.RCDATA
                         self.rawtext_tag_name = name
                         switched_to_rawtext = True
-                    elif name in _RAWTEXT_SWITCH_TAGS:
+                    elif name in _RAWTEXT_SWITCH_TAGS or name == "noscript":
                         self.state = self.RAWTEXT
                         self.rawtext_tag_name = name
                         switched_to_rawtext = True

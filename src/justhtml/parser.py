@@ -65,6 +65,7 @@ class JustHTML:
         fragment: bool = False,
         fragment_context: FragmentContext | None = None,
         iframe_srcdoc: bool = False,
+        scripting_enabled: bool = True,
         strict: bool = False,
         tokenizer_opts: TokenizerOpts | None = None,
         tree_builder: TreeBuilder | None = None,
@@ -133,9 +134,11 @@ class JustHTML:
             fragment_context=fragment_context,
             iframe_srcdoc=iframe_srcdoc,
             collect_errors=should_collect,
+            scripting_enabled=scripting_enabled,
             track_tag_spans=track_tag_spans,
         )
         opts = tokenizer_opts or TokenizerOpts()
+        opts.scripting_enabled = bool(scripting_enabled)
         if needs_escape_incomplete_tags:
             opts.emit_bogus_markup_as_text = True
 

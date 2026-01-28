@@ -210,7 +210,7 @@ class TestRunner:
         return None
 
     def _should_run_test(self, filename, index, test):
-        if test.script_directive == "script-on":
+        if test.script_directive == "script-on" and "<script" in test.data.lower():
             return False
 
         if self.config["test_specs"]:
@@ -315,6 +315,8 @@ class TestRunner:
         capture_debug = verbosity >= 2
         debug_output = ""
         opts = TokenizerOpts(xml_coercion=xml_coercion)
+        if test.script_directive in {"script-on", "script-off"}:
+            opts.scripting_enabled = test.script_directive == "script-on"
         if capture_debug:
             f = StringIO()
             with redirect_stdout(f):
@@ -324,6 +326,7 @@ class TestRunner:
                     fragment_context=test.fragment_context,
                     tokenizer_opts=opts,
                     iframe_srcdoc=test.iframe_srcdoc,
+                    scripting_enabled=opts.scripting_enabled,
                     collect_errors=True,
                     sanitize=False,
                 )
@@ -335,6 +338,7 @@ class TestRunner:
                 fragment_context=test.fragment_context,
                 tokenizer_opts=opts,
                 iframe_srcdoc=test.iframe_srcdoc,
+                scripting_enabled=opts.scripting_enabled,
                 collect_errors=True,
                 sanitize=False,
             )

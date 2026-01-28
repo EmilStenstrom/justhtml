@@ -198,9 +198,14 @@ class TreeBuilderModesMixin:
                 self.mode = InsertionMode.TEXT
                 return None
             if token.kind == Tag.START and token.name == "noscript":
-                # Scripting is disabled: parse noscript content as HTML
-                self._insert_element(token, push=True)
-                self.mode = InsertionMode.IN_HEAD_NOSCRIPT
+                if self.scripting_enabled:
+                    self._insert_element(token, push=True)
+                    self.original_mode = self.mode
+                    self.mode = InsertionMode.TEXT
+                else:
+                    # Scripting is disabled: parse noscript content as HTML
+                    self._insert_element(token, push=True)
+                    self.mode = InsertionMode.IN_HEAD_NOSCRIPT
                 return None
             if token.kind == Tag.END and token.name == "head":
                 self._pop_current()
@@ -941,9 +946,13 @@ class TreeBuilderModesMixin:
         if token.name == "plaintext":
             self.tokenizer_state_override = TokenSinkResult.Plaintext
         else:
-            # xmp, iframe, noembed, noframes, noscript (scripting disabled)
+            # xmp, iframe, noembed, noframes
             self.original_mode = self.mode
             self.mode = InsertionMode.TEXT
+        return
+
+    def _handle_body_start_noscript(self, token: Tag) -> None:
+        self._handle_body_start_default(token)
         return
 
     def _handle_body_start_textarea(self, token: Tag) -> None:
@@ -1995,6 +2004,7 @@ class TreeBuilderModesMixin:
         "meta": _handle_body_start_in_head,
         "nav": _handle_body_start_block_with_p,
         "nobr": _handle_body_start_formatting,
+        "noscript": _handle_body_start_noscript,
         "noframes": _handle_body_start_in_head,
         "object": _handle_body_start_applet_like,
         "ol": _handle_body_start_block_with_p,

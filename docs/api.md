@@ -30,6 +30,7 @@ JustHTML(html, *, sanitize=True, safe=None, policy=None, collect_errors=False, t
 | `encoding` | `str \| None` | `None` | Transport-supplied encoding label used as an override for byte input. See [Encoding & Byte Input](encoding.md). |
 | `fragment` | `bool` | `False` | Parse as a fragment in a default `<div>` context (convenience). |
 | `fragment_context` | `FragmentContext` | `None` | Parse as fragment inside this context element |
+| `scripting_enabled` | `bool` | `True` | While this library does not support executing javascript inside `<script>` tags, this flag controls how the HTML5 algorithm parses `noscript` tags. Do NOT set this flag to `False` while sanitizing untrusted input; disabling scripting increases [mXSS risk](https://www.sonarsource.com/blog/mxss-the-vulnerability-hiding-in-your-code/). |
 | `strict` | `bool` | `False` | Raise `StrictModeError` on the earliest parse error by source position |
 | `transforms` | `list[Transform] \| None` | `None` | Optional DOM transforms applied after parsing. See [Transforms](transforms.md). |
 | `iframe_srcdoc` | `bool` | `False` | Parse whole document as if it's inside an iframe `srcdoc` (HTML parsing quirk) |

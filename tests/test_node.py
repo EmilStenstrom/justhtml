@@ -129,6 +129,63 @@ class TestNode(unittest.TestCase):
         doc = JustHTML("<p>ok</p><script>alert(1)</script>", sanitize=False)
         assert doc.to_text() == "ok alert(1)"
 
+    def test_noscript_scripting_enabled_parses_as_rawtext(self):
+        doc = JustHTML(
+            "<noscript><b>Hi</b></noscript>",
+            fragment=True,
+            sanitize=False,
+            scripting_enabled=True,
+        )
+        root = doc.root
+        assert root.children is not None
+        assert len(root.children) == 1
+        noscript = root.children[0]
+        assert noscript.name == "noscript"
+        assert len(noscript.children) == 1
+        child = noscript.children[0]
+        assert child.name == "#text"
+        assert child.data == "<b>Hi</b>"
+
+    def test_noscript_scripting_disabled_parses_html(self):
+        doc = JustHTML(
+            "<noscript><b>Hi</b></noscript>",
+            fragment=True,
+            sanitize=False,
+            scripting_enabled=False,
+        )
+        root = doc.root
+        assert root.children is not None
+        assert len(root.children) == 1
+        noscript = root.children[0]
+        assert noscript.name == "noscript"
+        assert len(noscript.children) == 1
+        child = noscript.children[0]
+        assert child.name == "b"
+
+    def test_head_noscript_scripting_enabled_parses_as_rawtext(self):
+        doc = JustHTML(
+            "<head><noscript><b>Hi</b></noscript></head>",
+            sanitize=False,
+            scripting_enabled=True,
+        )
+        head = doc.query("head")[0]
+        noscript = next(c for c in head.children if c.name == "noscript")
+        assert len(noscript.children) == 1
+        child = noscript.children[0]
+        assert child.name == "#text"
+        assert child.data == "<b>Hi</b>"
+
+    def test_head_noscript_scripting_disabled_parses_html(self):
+        doc = JustHTML(
+            "<head><noscript><b>Hi</b></noscript></head>",
+            sanitize=False,
+            scripting_enabled=False,
+        )
+        head = doc.query("head")[0]
+        noscript = next(c for c in head.children if c.name == "noscript")
+        assert noscript.children == []
+        assert doc.query("b")
+
     def test_to_text_policy_override_can_preserve_script_text(self):
         # With a custom policy that *doesn't* treat <script> as a drop-content tag,
         # the sanitizer will strip the <script> element but keep its children.

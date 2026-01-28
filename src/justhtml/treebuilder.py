@@ -64,6 +64,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         "pending_table_text",
         "pending_table_text_should_error",
         "quirks_mode",
+        "scripting_enabled",
         "table_text_original_mode",
         "template_modes",
         "tokenizer",
@@ -97,6 +98,7 @@ class TreeBuilder(TreeBuilderModesMixin):
     pending_table_text: list[str]
     pending_table_text_should_error: bool
     quirks_mode: str
+    scripting_enabled: bool
     table_text_original_mode: InsertionMode | None  # type: ignore[assignment]
     template_modes: list[InsertionMode]
     tokenizer: Any | None
@@ -107,11 +109,13 @@ class TreeBuilder(TreeBuilderModesMixin):
         fragment_context: Any | None = None,
         iframe_srcdoc: bool = False,
         collect_errors: bool = False,
+        scripting_enabled: bool = True,
         track_tag_spans: bool = False,
     ) -> None:
         self.fragment_context = fragment_context
         self.iframe_srcdoc = iframe_srcdoc
         self.collect_errors = collect_errors
+        self.scripting_enabled = bool(scripting_enabled)
         self.track_tag_spans = bool(track_tag_spans)
         self.errors = []
         self.tokenizer = None  # Set by parser after tokenizer is created
