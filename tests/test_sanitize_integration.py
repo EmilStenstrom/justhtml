@@ -45,7 +45,11 @@ def _build_policy(spec: Any) -> SanitizationPolicy:
         tag = rule_spec["tag"]
         attr = rule_spec["attr"]
         proxy_url = rule_spec.get("proxy_url")
-        handling = "proxy" if proxy_url is not None else None
+        handling = rule_spec.get("handling")
+        if handling is None and proxy_url is not None:
+            handling = "proxy"
+        if handling is None:
+            handling = "allow"
 
         url_rules[(tag, attr)] = UrlRule(
             allow_fragment=rule_spec.get("allow_fragment", True),
@@ -66,7 +70,7 @@ def _build_policy(spec: Any) -> SanitizationPolicy:
 
     # Map the old test schema to the new API shape.
     url_policy = UrlPolicy(
-        default_handling="strip",
+        default_handling=str(spec.get("default_handling", "strip")),
         allow_rules=url_rules,
         url_filter=url_filter,
     )

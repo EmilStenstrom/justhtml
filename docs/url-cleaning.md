@@ -103,7 +103,7 @@ URL behavior is controlled by `UrlPolicy`:
 - `default_handling`: the default action for URL-like attributes.
 - `default_allow_relative`: whether **relative** URLs (like `/path`, `./path`, `../path`, `?q`) are allowed by default.
 
-For URL-like attributes that match an explicit `(tag, attr)` rule in `allow_rules`, URLs are kept by default once they pass validation. To strip or proxy a specific attribute, set `UrlRule.handling`.
+For URL-like attributes that match an explicit `(tag, attr)` rule in `allow_rules`, validated URLs are kept by default. To strip or proxy a specific attribute, set `UrlRule.handling`.
 
 Note: URL validation is always enforced by `UrlRule`.
 

@@ -944,7 +944,7 @@ class TestSanitizeDom(unittest.TestCase):
         out = JustHTML('<img src="/x">', fragment=True, policy=policy).to_html()
         assert out == "<img>"
 
-    def test_url_policy_remote_strip_blocks_remote_but_keeps_relative(self) -> None:
+    def test_url_rule_default_allows_even_when_policy_strip(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["img"],
             allowed_attributes={"*": [], "img": ["src"]},
