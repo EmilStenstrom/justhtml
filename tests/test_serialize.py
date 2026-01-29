@@ -486,13 +486,12 @@ class TestSerialize(unittest.TestCase):
         assert serialize_start_tag("span", {"title": "foo"}) == '<span title="foo">'
 
     def test_serialize_start_tag_unquoted_mode_and_escape_lt(self):
-        # In unquoted mode, escape '&' always and optionally '<' when configured.
+        # In unquoted mode, escape '&' and '<'.
         assert (
             serialize_start_tag(
                 "span",
                 {"title": "a<b&c"},
                 quote_attr_values=False,
-                escape_lt_in_attrs=True,
             )
             == "<span title=a&lt;b&amp;c>"
         )

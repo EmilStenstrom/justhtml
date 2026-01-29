@@ -349,7 +349,6 @@ def _serialize_serializer_token_stream(tokens, options=None):
                     quote_attr_values=bool(options.get("quote_attr_values")),
                     minimize_boolean_attributes=options.get("minimize_boolean_attributes", True),
                     quote_char=options.get("quote_char"),
-                    escape_lt_in_attrs=bool(options.get("escape_lt_in_attrs")),
                     use_trailing_solidus=bool(options.get("use_trailing_solidus")),
                     is_void=name in VOID_ELEMENTS,
                 )
@@ -388,7 +387,6 @@ def _serialize_serializer_token_stream(tokens, options=None):
                     quote_attr_values=bool(options.get("quote_attr_values")),
                     minimize_boolean_attributes=options.get("minimize_boolean_attributes", True),
                     quote_char=options.get("quote_char"),
-                    escape_lt_in_attrs=bool(options.get("escape_lt_in_attrs")),
                     use_trailing_solidus=bool(options.get("use_trailing_solidus")),
                     is_void=True,
                 )
@@ -485,7 +483,6 @@ def _run_serializer_tests(config):
             "use_trailing_solidus",
             "minimize_boolean_attributes",
             "quote_char",
-            "escape_lt_in_attrs",
             "escape_rcdata",
         }
 

@@ -33,14 +33,13 @@ def _choose_attr_quote(value: str | None, forced_quote_char: str | None = None) 
     return '"'
 
 
-def _escape_attr_value(value: str | None, quote_char: str, *, escape_lt_in_attrs: bool = False) -> str:
+def _escape_attr_value(value: str | None, quote_char: str) -> str:
     if value is None:
         return ""
     # value is assumed to be a string
     value = value.replace("&", "&amp;")
-    if escape_lt_in_attrs:
-        value = value.replace("<", "&lt;")
-    # Note: html5lib's default serializer does not escape '>' in attrs.
+    value = value.replace("<", "&lt;")
+    value = value.replace(">", "&gt;")
     if quote_char == '"':
         return value.replace('"', "&quot;")
     return value.replace("'", "&#39;")
@@ -70,7 +69,6 @@ def serialize_start_tag(
     quote_attr_values: bool = True,
     minimize_boolean_attributes: bool = True,
     quote_char: str | None = None,
-    escape_lt_in_attrs: bool = False,
     use_trailing_solidus: bool = False,
     is_void: bool = False,
 ) -> str:
@@ -94,12 +92,11 @@ def serialize_start_tag(
 
             if not quote_attr_values and _can_unquote_attr_value(value_str):
                 escaped = value_str.replace("&", "&amp;")
-                if escape_lt_in_attrs:
-                    escaped = escaped.replace("<", "&lt;")
+                escaped = escaped.replace("<", "&lt;")
                 parts.extend([" ", key, "=", escaped])
             else:
                 quote = _choose_attr_quote(value_str, quote_char)
-                escaped = _escape_attr_value(value_str, quote, escape_lt_in_attrs=escape_lt_in_attrs)
+                escaped = _escape_attr_value(value_str, quote)
                 parts.extend([" ", key, "=", quote, escaped, quote])
 
     if use_trailing_solidus and is_void:
