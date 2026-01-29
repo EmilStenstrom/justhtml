@@ -23,19 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ```python
   from justhtml import JustHTML, SanitizationPolicy, UrlPolicy, UrlRule
   xss = '<noscript><style></noscript><img src=x onerror="alert(1)">'
-  JustHTML(xss, fragment=True, scripting_enabled=False, policy=SanitizationPolicy(
+  JustHTML(xss, fragment=True, policy=SanitizationPolicy(
     allowed_tags=["noscript", "style"],
     allowed_attributes={},
   )).to_html()
   # => <noscript>\n  <style>&lt;/noscript&gt;&lt;img src=x onerror="alert(1)"&gt;</style>\n</noscript>
   ```
 
-  Example from justhtml==1.3.0. Note how the img tags is removed from by the sanitizer.
+  Example from justhtml==1.3.0. Note how the img tag is removed by the sanitizer.
 
   ```python
   from justhtml import JustHTML, SanitizationPolicy, UrlPolicy, UrlRule
   xss = '<noscript><style></noscript><img src=x onerror="alert(1)">'
-  JustHTML(xss, fragment=True, scripting_enabled=True, policy=SanitizationPolicy(
+  JustHTML(xss, fragment=True, policy=SanitizationPolicy(
     allowed_tags=["noscript", "style"],
     allowed_attributes={},
   )).to_html()
