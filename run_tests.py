@@ -126,6 +126,9 @@ def parse_args():
     if args.regressions and args.suite != "all":
         parser.error("--regressions requires --suite all")
 
+    if args.fail_fast and args.verbose == 0 and not args.quiet:
+        args.verbose = 1
+
     # Preserve each provided spec exactly so patterns like 'tests1.dat:1,2,3' remain intact.
     # Keeping the raw spec strings allows _should_run_test to parse the comma-separated index
     # list correctly.

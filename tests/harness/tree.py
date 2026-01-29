@@ -289,6 +289,17 @@ class TestRunner:
                     self._handle_failure(file_path, i, result)
 
                 if failed and self.config["fail_fast"]:
+                    relative_path = file_path.relative_to(self.test_dir)
+                    key = str(relative_path)
+                    if self.test_dir.name != "tests":
+                        key = f"{self.test_dir.name}/{key}"
+                    self.file_results[key] = {
+                        "passed": file_passed,
+                        "failed": file_failed,
+                        "skipped": file_skipped,
+                        "total": file_passed + file_failed + file_skipped,
+                        "test_indices": file_test_indices,
+                    }
                     return passed, failed, skipped
 
             if file_test_indices:
