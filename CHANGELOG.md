@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-02-02
+
+### Added
+- Serialization & Sanitization: Introduce additional serialization contexts, and update docs to talk about the importance of putting your sanitized content in the right context (see [docs/sanitization.md](docs/sanitization.md)).
+
+### Changed
+- Sanitization: Switch the sanitizer pipeline to be built up entirely of basic transform blocks (see [docs/transforms.md](docs/transforms.md)).
+
+### Changed
+- Tokenizer: Add fast-path handling for tag names and attribute parsing to reduce overhead in common cases.
+- Sanitization: Speed up URL normalization and scheme validation while preserving policy semantics (see [docs/url-cleaning.md](docs/url-cleaning.md)).
+- Transforms: Optimize sanitizer transform dispatch and attribute rewrite hot paths for lower per-node overhead (see [docs/transforms.md](docs/transforms.md)).
+
 ## [1.4.0] - 2026-01-29
 
 ### Changed
