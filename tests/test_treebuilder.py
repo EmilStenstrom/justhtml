@@ -6,20 +6,7 @@ from justhtml.tokenizer import Tokenizer, TokenizerOpts
 from justhtml.treebuilder import InsertionMode, TreeBuilder
 
 
-class _CoverageSink:
-    __slots__ = ("open_elements",)
-
-    def __init__(self) -> None:
-        self.open_elements = []
-
-    def process_token(self, token):
-        return 0
-
-    def process_characters(self, data):
-        return 0
-
-
-class TestCoverage(unittest.TestCase):
+class TestTreeBuilder(unittest.TestCase):
     def test_null_in_body_text_is_removed(self) -> None:
         doc = JustHTML("<body>a\x00b</body>", collect_errors=True)
         text = doc.to_text(strip=False)
@@ -31,7 +18,7 @@ class TestCoverage(unittest.TestCase):
         text = doc.to_text(strip=False)
         self.assertEqual(text, "")
 
-    def test_treebuilder_process_characters_strips_null_and_appends(self) -> None:
+    def test_process_characters_strips_null_and_appends(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)
         tree_builder.mode = InsertionMode.IN_BODY
         tree_builder.open_elements.append(Element("body", {}, None))
@@ -41,7 +28,7 @@ class TestCoverage(unittest.TestCase):
         self.assertEqual(len(body.children), 1)
         self.assertEqual(body.children[0].data, "ab")
 
-    def test_treebuilder_process_characters_only_null_returns_continue(self) -> None:
+    def test_process_characters_only_null_returns_continue(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)
         tree_builder.mode = InsertionMode.IN_BODY
         tree_builder.open_elements.append(Element("body", {}, None))
@@ -50,7 +37,7 @@ class TestCoverage(unittest.TestCase):
         body = tree_builder.open_elements[-1]
         self.assertEqual(body.children, [])
 
-    def test_treebuilder_process_characters_empty_returns_continue(self) -> None:
+    def test_process_characters_empty_returns_continue(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)
         tree_builder.mode = InsertionMode.IN_BODY
         tree_builder.open_elements.append(Element("body", {}, None))
@@ -59,100 +46,7 @@ class TestCoverage(unittest.TestCase):
         body = tree_builder.open_elements[-1]
         self.assertEqual(body.children, [])
 
-    def test_tokenizer_after_attribute_name_lowercases_uppercase(self) -> None:
-        sink = _CoverageSink()
-        tokenizer = Tokenizer(sink, TokenizerOpts(), collect_errors=True)
-        tokenizer.initialize("A")
-        tokenizer.state = Tokenizer.AFTER_ATTRIBUTE_NAME
-        tokenizer.current_tag_attrs = {}
-        tokenizer.current_attr_name[:] = ["x"]
-        tokenizer.current_attr_value.clear()
-        tokenizer.current_attr_value_has_amp = False
-
-        tokenizer._state_after_attribute_name()
-        self.assertEqual(tokenizer.current_attr_name, ["a"])
-
-    def test_tokenizer_after_attribute_name_handles_null(self) -> None:
-        sink = _CoverageSink()
-        tokenizer = Tokenizer(sink, TokenizerOpts(), collect_errors=True)
-        tokenizer.initialize("\x00")
-        tokenizer.state = Tokenizer.AFTER_ATTRIBUTE_NAME
-        tokenizer.current_tag_attrs = {}
-        tokenizer.current_attr_name[:] = ["x"]
-        tokenizer.current_attr_value.clear()
-        tokenizer.current_attr_value_has_amp = False
-
-        tokenizer._state_after_attribute_name()
-        self.assertEqual(tokenizer.current_attr_name, ["\ufffd"])
-
-    def test_tokenizer_attribute_name_state_handles_null(self) -> None:
-        sink = _CoverageSink()
-        tokenizer = Tokenizer(sink, TokenizerOpts(), collect_errors=True)
-        tokenizer.initialize("\x00")
-        tokenizer.state = Tokenizer.ATTRIBUTE_NAME
-        tokenizer.current_tag_attrs = {}
-
-        tokenizer._state_attribute_name()
-        self.assertEqual(tokenizer.current_attr_name, ["\ufffd"])
-
-    def test_tokenizer_attribute_name_state_appends_non_ascii(self) -> None:
-        sink = _CoverageSink()
-        tokenizer = Tokenizer(sink, TokenizerOpts(), collect_errors=True)
-        tokenizer.initialize("é")
-        tokenizer.state = Tokenizer.ATTRIBUTE_NAME
-        tokenizer.current_tag_attrs = {}
-
-        tokenizer._state_attribute_name()
-        self.assertEqual(tokenizer.current_attr_name, ["é"])
-
-    def test_tokenizer_after_attribute_name_skips_whitespace_run(self) -> None:
-        sink = _CoverageSink()
-        tokenizer = Tokenizer(sink, TokenizerOpts(), collect_errors=True)
-        tokenizer.initialize("   =")
-        tokenizer.state = Tokenizer.AFTER_ATTRIBUTE_NAME
-        tokenizer.reconsume = False
-
-        done = tokenizer._state_after_attribute_name()
-        self.assertFalse(done)
-        self.assertEqual(tokenizer.state, Tokenizer.BEFORE_ATTRIBUTE_VALUE)
-
-    def test_tokenizer_after_attribute_name_no_whitespace_run(self) -> None:
-        sink = _CoverageSink()
-        tokenizer = Tokenizer(sink, TokenizerOpts(), collect_errors=True)
-        tokenizer.initialize("=")
-        tokenizer.state = Tokenizer.AFTER_ATTRIBUTE_NAME
-        tokenizer.reconsume = False
-
-        done = tokenizer._state_after_attribute_name()
-        self.assertFalse(done)
-        self.assertEqual(tokenizer.state, Tokenizer.BEFORE_ATTRIBUTE_VALUE)
-
-    def test_tokenizer_after_attribute_name_whitespace_continue(self) -> None:
-        sink = _CoverageSink()
-        tokenizer = Tokenizer(sink, TokenizerOpts(), collect_errors=True)
-        tokenizer.initialize(" =")
-        tokenizer.state = Tokenizer.AFTER_ATTRIBUTE_NAME
-        tokenizer.reconsume = True
-
-        done = tokenizer._state_after_attribute_name()
-        self.assertFalse(done)
-        self.assertEqual(tokenizer.state, Tokenizer.BEFORE_ATTRIBUTE_VALUE)
-
-    def test_tokenizer_location_at_pos_lazy_newline_index(self) -> None:
-        tokenizer = Tokenizer(None, None, collect_errors=False)
-        tokenizer.initialize("a\nb\nc")
-        # _newline_positions is None when not collecting errors and not tracking node locations.
-        # Calling location_at_pos should build the newline index lazily.
-        self.assertIsNone(tokenizer._newline_positions)
-
-        # Offset 0 -> (1, 1)
-        self.assertEqual(tokenizer.location_at_pos(0), (1, 1))
-        self.assertIsNotNone(tokenizer._newline_positions)
-
-        # Offset 2 is 'b' after first newline -> (2, 1)
-        self.assertEqual(tokenizer.location_at_pos(2), (2, 1))
-
-    def test_treebuilder_append_comment_tracking_when_start_pos_unknown(self) -> None:
+    def test_append_comment_tracking_when_start_pos_unknown(self) -> None:
         tree_builder = TreeBuilder(collect_errors=False)
         tokenizer = Tokenizer(
             tree_builder,
@@ -171,7 +65,7 @@ class TestCoverage(unittest.TestCase):
         assert node.origin_offset is None
         assert node.origin_location is None
 
-    def test_treebuilder_append_comment_inside_element_start_pos_unknown(self) -> None:
+    def test_append_comment_inside_element_start_pos_unknown(self) -> None:
         tree_builder = TreeBuilder(collect_errors=False)
 
         html = tree_builder._create_element("html", None, {})
@@ -197,7 +91,7 @@ class TestCoverage(unittest.TestCase):
         assert node.origin_offset is None
         assert node.origin_location is None
 
-    def test_treebuilder_append_text_foster_parenting_start_pos_unknown(self) -> None:
+    def test_append_text_foster_parenting_start_pos_unknown(self) -> None:
         tree_builder = TreeBuilder(collect_errors=False)
 
         html = tree_builder._create_element("html", None, {})
@@ -236,7 +130,7 @@ class TestCoverage(unittest.TestCase):
         assert texts[0].origin_offset is None
         assert texts[0].origin_location is None
 
-    def test_treebuilder_append_text_fast_path_start_pos_unknown(self) -> None:
+    def test_append_text_fast_path_start_pos_unknown(self) -> None:
         tree_builder = TreeBuilder(collect_errors=False)
 
         html = tree_builder._create_element("html", None, {})

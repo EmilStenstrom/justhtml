@@ -38,6 +38,50 @@ class TestSanitizeTransform(unittest.TestCase):
         # Sanitize runs again after SetAttrs introduced a new unsafe URL.
         assert doc.to_html(pretty=False) == "<p><a>t</a></p>"
 
+    def test_sanitize_drops_comments_doctype_and_unsafe_content(self) -> None:
+        html = """<!doctype html>
+        <!--c-->
+        <div class="ok" id="x" title="t" lang="en" dir="ltr"></div>
+        <div onclick="x" srcdoc="y" data:bad="1" foo="bar"></div>
+        <foo><b>ok</b></foo>
+        <svg><circle /></svg>
+        <a href="//example.com/path">x</a>
+        <a href="javascript:alert(1)">x</a>
+        <img src="https://example.com/x.png">
+        """
+        doc = JustHTML(html, sanitize=True)
+
+        stack = [doc.root]
+        seen = set()
+        while stack:
+            node = stack.pop()
+            seen.add(node.name)
+            stack.extend(getattr(node, "children", None) or [])
+            tc = getattr(node, "template_content", None)
+            if tc is not None:
+                stack.append(tc)
+        assert "#comment" not in seen
+        assert "!doctype" not in seen
+
+        div1 = doc.root.query("div")[0]
+        assert div1.attrs == {"class": "ok", "id": "x", "title": "t", "lang": "en", "dir": "ltr"}
+
+        div2 = doc.root.query("div")[1]
+        assert div2.attrs == {}
+
+        b = doc.root.query("b")[0]
+        assert b.children[0].data == "ok"
+        assert not doc.root.query("foo")
+
+        assert not doc.root.query("svg")
+
+        a1 = doc.root.query("a")[0]
+        assert a1.attrs.get("href") == "https://example.com/path"
+        a2 = doc.root.query("a")[1]
+        assert "href" not in a2.attrs
+        img = doc.root.query("img")[0]
+        assert "src" not in img.attrs
+
     def test_sanitize_transform_makes_dom_safe_in_place(self) -> None:
         doc = JustHTML(
             '<p><a href="javascript:alert(1)" onclick="x()">x</a><script>alert(1)</script></p>',

@@ -28,11 +28,12 @@ _RAWTEXT_SWITCH_TAGS = {
 _ATTR_VALUE_DOUBLE_PATTERN = re.compile(r'["&\0]')
 _ATTR_VALUE_SINGLE_PATTERN = re.compile(r"['&\0]")
 _ATTR_VALUE_UNQUOTED_PATTERN = re.compile(f"[{re.escape(_ATTR_VALUE_UNQUOTED_TERMINATORS)}]")
+_ATTR_VALUE_UNQUOTED_END_PATTERN = re.compile(r"[ \t\n\f>]")
+_ATTR_VALUE_UNQUOTED_FAST_BAD_PATTERN = re.compile(r"""[\x00"'<=`]""")
 
 _TAG_NAME_RUN_PATTERN = re.compile(r"[^\t\n\f />\0]+")
 _ATTR_NAME_RUN_PATTERN = re.compile(r"[^\t\n\f />=\0\"'<]+")
 _COMMENT_RUN_PATTERN = re.compile(r"[^-\0]+")
-_WHITESPACE_PATTERN = re.compile(r"[ \t\n\f]+")
 
 # XML Coercion Regex
 _xml_invalid_single_chars = []
@@ -497,12 +498,47 @@ class Tokenizer:
                     self.current_attr_value_has_amp = False
                     self.current_tag_self_closing = False
 
-                    if "A" <= nc <= "Z":
-                        nc = chr(ord(nc) + 32)
-                    self.current_tag_name.append(nc)
-                    self.pos += 1
-                    self.state = self.TAG_NAME
-                    return self._state_tag_name()
+                    # Fast-path: consume the full tag name run here to avoid
+                    # the TAG_NAME handler overhead in the common case.
+                    name_match = _TAG_NAME_RUN_PATTERN.match(buffer, pos)
+                    if name_match:
+                        name = name_match.group(0)
+                        if not name.islower():
+                            name = name.translate(_ASCII_LOWER_TABLE)
+                        self.current_tag_name.append(name)
+                        pos = name_match.end()
+                        self.pos = pos
+
+                        if pos < length:
+                            next_char = buffer[pos]
+                            if next_char in (" ", "\t", "\n", "\f"):
+                                self.pos = pos + 1
+                                self.state = self.BEFORE_ATTRIBUTE_NAME
+                                return self._state_before_attribute_name()
+                            if next_char == ">":
+                                self.pos = pos + 1
+                                if not self._emit_current_tag():
+                                    self.state = self.DATA
+                                    pos = self.pos
+                                    continue
+                                return False
+                            if next_char == "/":
+                                self.pos = pos + 1
+                                self.state = self.SELF_CLOSING_START_TAG
+                                return self._state_self_closing_start_tag()
+
+                        # Fall back to TAG_NAME for rare cases (e.g. EOF or NUL).
+                        self.state = self.TAG_NAME
+                        return self._state_tag_name()
+
+                    # Defensive fallback: should not happen, but keep the old path.
+                    if not name_match:  # pragma: no cover
+                        if "A" <= nc <= "Z":
+                            nc = chr(ord(nc) + 32)
+                        self.current_tag_name.append(nc)
+                        self.pos += 1
+                        self.state = self.TAG_NAME
+                        return self._state_tag_name()
 
                 if nc == "!" and not self.opts.emit_bogus_markup_as_text:
                     # Optimization: Peek ahead for comments
@@ -527,12 +563,48 @@ class Tokenizer:
                             self.current_attr_value_has_amp = False
                             self.current_tag_self_closing = False
 
-                            if "A" <= nnc <= "Z":
-                                nnc = chr(ord(nnc) + 32)
-                            self.current_tag_name.append(nnc)
-                            self.pos += 2  # Consume / and nnc
-                            self.state = self.TAG_NAME
-                            return self._state_tag_name()
+                            # Fast-path: consume full end tag name run here.
+                            name_match = _TAG_NAME_RUN_PATTERN.match(buffer, pos + 1)
+                            if name_match:
+                                name = name_match.group(0)
+                                if not name.islower():
+                                    name = name.translate(_ASCII_LOWER_TABLE)
+                                self.current_tag_name.append(name)
+                                pos = name_match.end()
+                                self.pos = pos
+
+                                if pos < length:
+                                    next_char = buffer[pos]
+                                    if next_char in (" ", "\t", "\n", "\f"):
+                                        if self.opts.emit_bogus_markup_as_text:
+                                            return self._emit_raw_end_tag_as_text(pos)
+                                        self.pos = pos + 1
+                                        self.state = self.BEFORE_ATTRIBUTE_NAME
+                                        return self._state_before_attribute_name()
+                                    if next_char == ">":
+                                        self.pos = pos + 1
+                                        self._emit_current_tag()
+                                        self.state = self.DATA
+                                        pos = self.pos
+                                        continue
+                                    if next_char == "/":
+                                        if self.opts.emit_bogus_markup_as_text:
+                                            return self._emit_raw_end_tag_as_text(pos)
+                                        self.pos = pos + 1
+                                        self.state = self.SELF_CLOSING_START_TAG
+                                        return self._state_self_closing_start_tag()
+
+                                self.state = self.TAG_NAME
+                                return self._state_tag_name()
+
+                            # Defensive fallback: old path.
+                            if not name_match:  # pragma: no cover
+                                if "A" <= nnc <= "Z":
+                                    nnc = chr(ord(nnc) + 32)
+                                self.current_tag_name.append(nnc)
+                                self.pos += 2  # Consume / and nnc
+                                self.state = self.TAG_NAME
+                                return self._state_tag_name()
 
             self._flush_text()
             self.state = self.TAG_OPEN
@@ -698,47 +770,87 @@ class Tokenizer:
         buffer = self.buffer
         length = self.length
 
+        pos = self.pos
         while True:
-            # Optimization: Skip whitespace
-            if not self.reconsume:
-                if self.pos < length:
-                    # Check if current char is whitespace before running regex
-                    if buffer[self.pos] in " \t\n\f":
-                        match = _WHITESPACE_PATTERN.match(buffer, self.pos)
-                        if match:
-                            self.pos = match.end()
-
-            # Inline _get_char
-            if self.reconsume:  # pragma: no cover
+            if self.reconsume:
+                # Reconsume happens e.g. after attribute value (quoted) when
+                # there's missing whitespace between attributes.
                 self.reconsume = False
                 c = self.current_char
-            elif self.pos >= length:
-                c = None
-            else:
-                c = buffer[self.pos]
-                self.pos += 1
+                self.current_char = c
 
-            self.current_char = c
+                if c in (" ", "\n", "\t", "\f"):
+                    continue
 
-            if c in (" ", "\n", "\t", "\f"):
+                if c is None:
+                    self.pos = length
+                    self._emit_error("eof-in-tag")
+                    self._emit_incomplete_tag_as_text()
+                    self._flush_text()
+                    self._emit_token(EOFToken())
+                    return True
+
+                if c == "/":
+                    self.state = self.SELF_CLOSING_START_TAG
+                    return False
+                if c == ">":
+                    self._finish_attribute()
+                    if not self._emit_current_tag():
+                        self.state = self.DATA
+                    return False
+                if c == "=":
+                    self._emit_error("unexpected-equals-sign-before-attribute-name")
+                    self.current_attr_name.clear()
+                    self.current_attr_value.clear()
+                    self.current_attr_value_has_amp = False
+                    self.current_attr_name.append("=")
+                    self.state = self.ATTRIBUTE_NAME
+                    return False  # Let main loop dispatch to avoid recursion
+
+                self.current_attr_name.clear()
+                self.current_attr_value.clear()
+                self.current_attr_value_has_amp = False
+                if c == "\0":
+                    self._emit_error("unexpected-null-character")
+                    c = "\ufffd"
+                elif "A" <= c <= "Z":
+                    c = chr(ord(c) + 32)
+                self.current_attr_name.append(c)
+                self.state = self.ATTRIBUTE_NAME
+                return False  # Let main loop dispatch to avoid recursion
+
+            # Optimization: Skip whitespace (common).
+            if pos < length and buffer[pos] in " \t\n\f":
+                # ASCII whitespace runs between attributes are typically short
+                # (often a single space), so a tight Python loop outperforms
+                # the regex matcher here.
+                while pos < length and buffer[pos] in " \t\n\f":
+                    pos += 1
                 continue
 
-            if c is None:
+            if pos >= length:
+                self.pos = length
                 self._emit_error("eof-in-tag")
                 self._emit_incomplete_tag_as_text()
                 self._flush_text()
                 self._emit_token(EOFToken())
                 return True
 
+            c = buffer[pos]
+            self.current_char = c
+
             if c == "/":
+                self.pos = pos + 1
                 self.state = self.SELF_CLOSING_START_TAG
                 return False
             if c == ">":
+                self.pos = pos + 1
                 self._finish_attribute()
                 if not self._emit_current_tag():
                     self.state = self.DATA
                 return False
             if c == "=":
+                self.pos = pos + 1
                 self._emit_error("unexpected-equals-sign-before-attribute-name")
                 self.current_attr_name.clear()
                 self.current_attr_value.clear()
@@ -747,18 +859,155 @@ class Tokenizer:
                 self.state = self.ATTRIBUTE_NAME
                 return False  # Let main loop dispatch to avoid recursion
 
+            # Do not consume the first attribute character here. Let
+            # ATTRIBUTE_NAME consume the full run so we avoid building a 2-part
+            # name buffer in the common case.
             self.current_attr_name.clear()
             self.current_attr_value.clear()
             self.current_attr_value_has_amp = False
-            if c == "\0":
-                self._emit_error("unexpected-null-character")
-                c = "\ufffd"
-            elif "A" <= c <= "Z":
-                c = chr(ord(c) + 32)
 
-            self.current_attr_name.append(c)
+            # Fast-path: consume the full attribute name run here to avoid the
+            # ATTRIBUTE_NAME handler overhead in the common case.
+            name_match = _ATTR_NAME_RUN_PATTERN.match(buffer, pos)
+            if name_match:
+                name = name_match.group(0)
+                if not name.islower():
+                    name = name.translate(_ASCII_LOWER_TABLE)
+                attrs = self.current_tag_attrs
+                is_duplicate = name in attrs
+                pos = name_match.end()
+                self.pos = pos
+
+                if pos < length:
+                    next_char = buffer[pos]
+                    if next_char == "=":
+                        # Fast-path: common quoted attribute values like
+                        # `class="..."`. Avoid bouncing through
+                        # BEFORE_ATTRIBUTE_VALUE -> ATTRIBUTE_VALUE_* ->
+                        # AFTER_ATTRIBUTE_VALUE_QUOTED when we don't need
+                        # error-precise behavior.
+                        if not self.collect_errors:
+                            value_pos = pos + 1
+                            if value_pos < length and buffer[value_pos] in " \t\n\f":
+                                while value_pos < length and buffer[value_pos] in " \t\n\f":
+                                    value_pos += 1
+
+                            if value_pos < length:
+                                quote = buffer[value_pos]
+                                if quote in ('"', "'"):
+                                    end_quote = buffer.find(quote, value_pos + 1)
+                                    if end_quote != -1:
+                                        raw_value = buffer[value_pos + 1 : end_quote]
+                                        if "\0" in raw_value:
+                                            raw_value = raw_value.replace("\0", "\ufffd")
+                                        if not is_duplicate:
+                                            value = raw_value
+                                            if "&" in value:
+                                                value = decode_entities_in_text(
+                                                    value, in_attribute=True, report_error=None
+                                                )
+                                            attrs[name] = value
+                                        self.pos = end_quote + 1
+
+                                        # Inline _state_after_attribute_value_quoted()
+                                        if self.pos >= length:
+                                            self.current_char = None
+                                            self._emit_error("eof-in-tag")
+                                            self._emit_incomplete_tag_as_text()
+                                            self._flush_text()
+                                            self._emit_token(EOFToken())
+                                            return True
+
+                                        c2 = buffer[self.pos]
+                                        self.pos += 1
+                                        self.current_char = c2
+
+                                        if c2 in ("\t", "\n", "\f", " "):
+                                            self.state = self.BEFORE_ATTRIBUTE_NAME
+                                            pos = self.pos
+                                            continue
+                                        if c2 == "/":
+                                            self.state = self.SELF_CLOSING_START_TAG
+                                            return self._state_self_closing_start_tag()
+                                        if c2 == ">":
+                                            if not self._emit_current_tag():
+                                                self.state = self.DATA
+                                            return False
+
+                                        self._emit_error("missing-whitespace-between-attributes")
+                                        self._reconsume_current()
+                                        self.state = self.BEFORE_ATTRIBUTE_NAME
+                                        return False
+                                else:
+                                    # Fast-path: unquoted attribute values like `id=foo`.
+                                    # Only handle values that don't contain characters that
+                                    # require error handling in the spec ("'<=>` and NUL).
+                                    end_match = _ATTR_VALUE_UNQUOTED_END_PATTERN.search(buffer, value_pos)
+                                    end_pos = end_match.start() if end_match else length
+                                    raw_value = buffer[value_pos:end_pos]
+                                    if not _ATTR_VALUE_UNQUOTED_FAST_BAD_PATTERN.search(raw_value):
+                                        if not is_duplicate:
+                                            value = raw_value
+                                            if "&" in value:
+                                                value = decode_entities_in_text(
+                                                    value, in_attribute=True, report_error=None
+                                                )
+                                            attrs[name] = value
+
+                                        self.pos = end_pos
+                                        pos = end_pos
+                                        if end_pos >= length:
+                                            continue
+
+                                        end_char = buffer[end_pos]
+                                        if end_char in ("\t", "\n", "\f", " "):
+                                            self.pos = end_pos + 1
+                                            self.state = self.BEFORE_ATTRIBUTE_NAME
+                                            pos = self.pos
+                                            continue
+
+                                        # end_char == ">"
+                                        self.pos = end_pos + 1
+                                        if not self._emit_current_tag():
+                                            self.state = self.DATA
+                                        return False
+
+                        # Fallback: let the dedicated state handlers deal with
+                        # unquoted values and edge cases.
+                        self.current_attr_name.append(name)
+                        self.pos = pos + 1
+                        self.state = self.BEFORE_ATTRIBUTE_VALUE
+                        return self._state_before_attribute_value()
+                    if next_char in (" ", "\t", "\n", "\f"):
+                        self.pos = pos + 1
+                        if not is_duplicate:
+                            attrs[name] = ""
+                        self.state = self.AFTER_ATTRIBUTE_NAME
+                        return False
+                    if next_char == ">":
+                        self.pos = pos + 1
+                        if not is_duplicate:
+                            attrs[name] = ""
+                        if not self._emit_current_tag():
+                            self.state = self.DATA
+                        return False
+                    if next_char == "/":
+                        self.pos = pos + 1
+                        if not is_duplicate:
+                            attrs[name] = ""
+                        self.state = self.SELF_CLOSING_START_TAG
+                        return self._state_self_closing_start_tag()
+
+                # Rare cases (EOF, NUL, etc.): fall back to ATTRIBUTE_NAME to
+                # finish parsing the attribute name and proceed.
+                self.current_attr_name.append(name)
+                self.state = self.ATTRIBUTE_NAME
+                return self._state_attribute_name()
+
+            # Fallback: let ATTRIBUTE_NAME handle invalid starts.
+            self.pos = pos
             self.state = self.ATTRIBUTE_NAME
-            return False  # Let main loop dispatch to avoid recursion
+            return self._state_attribute_name()
 
     def _state_attribute_name(self) -> bool:
         replacement = "\ufffd"
@@ -856,7 +1105,10 @@ class Tokenizer:
             if not self.reconsume:
                 if self.pos < length:
                     if buffer[self.pos] in " \t\n\f":
-                        self.pos = _WHITESPACE_PATTERN.match(buffer, self.pos).end()  # type: ignore[union-attr]
+                        p = self.pos
+                        while p < length and buffer[p] in " \t\n\f":
+                            p += 1
+                        self.pos = p
 
             # Inline _get_char
             if self.pos >= length:
@@ -1992,9 +2244,6 @@ class Tokenizer:
             self.state = self.PLAINTEXT
             switched_to_rawtext = True
 
-        self.current_tag_name.clear()
-        self.current_attr_name.clear()
-        self.current_attr_value.clear()
         self.current_tag_self_closing = False
         self.current_tag_kind = Tag.START
         return switched_to_rawtext

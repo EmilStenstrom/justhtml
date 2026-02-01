@@ -86,8 +86,8 @@ class TestTransforms(unittest.TestCase):
             return out
 
         compiled = compile_transforms([EditAttrs("*", cb1), EditAttrs("*", cb2)])
-        # Fused into a single rewrite-attrs transform.
-        assert sum(1 for t in compiled if getattr(t, "kind", None) == "rewrite_attrs") == 1
+        # Fused into a single rewrite_attrs_chain transform.
+        assert sum(1 for t in compiled if getattr(t, "kind", None) == "rewrite_attrs_chain") == 1
 
         apply_compiled_transforms(root, compiled)
         assert root.children[0].attrs == {"a": "1", "b": "2", "c": "3"}

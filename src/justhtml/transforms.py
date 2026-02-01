@@ -891,6 +891,81 @@ class _CompiledRewriteAttrsTransform:
     func: EditAttrsCallback
 
 
+class _CompiledRewriteAttrsChain:
+    """Optimized chain of attribute transforms using a flat list instead of nested closures.
+
+    This avoids the call-stack depth and allocation overhead of nested `_chained` closures.
+    For N attribute transforms, nested closures have O(N) call depth; this has O(1).
+    """
+
+    __slots__ = ("all_nodes", "funcs", "kind", "selector", "selector_str")
+
+    kind: Literal["rewrite_attrs_chain"]
+    selector_str: str
+    selector: ParsedSelector | None
+    all_nodes: bool
+    funcs: list[EditAttrsCallback]
+
+    def __init__(
+        self,
+        selector_str: str,
+        selector: ParsedSelector | None,
+        all_nodes: bool,
+        funcs: list[EditAttrsCallback],
+    ) -> None:
+        self.kind = "rewrite_attrs_chain"
+        self.selector_str = selector_str
+        self.selector = selector
+        self.all_nodes = all_nodes
+        self.funcs = funcs
+
+
+class _CompiledDecideChain:
+    """Optimized chain of decide transforms using a flat list instead of separate transforms.
+
+    This avoids repeated selector matching and callback overhead for multiple decide transforms
+    targeting the same selector. Each callback is called in order, short-circuiting on non-KEEP.
+    """
+
+    __slots__ = ("all_nodes", "callbacks", "kind", "selector", "selector_str")
+
+    kind: Literal["decide_chain"]
+    selector_str: str
+    selector: ParsedSelector | None
+    all_nodes: bool
+    callbacks: list[Callable[[Node], DecideAction]]
+
+    def __init__(
+        self,
+        selector_str: str,
+        selector: ParsedSelector | None,
+        all_nodes: bool,
+        callbacks: list[Callable[[Node], DecideAction]],
+    ) -> None:
+        self.kind = "decide_chain"
+        self.selector_str = selector_str
+        self.selector = selector
+        self.all_nodes = all_nodes
+        self.callbacks = callbacks
+
+
+class _CompiledDecideElementsChain:
+    """Optimized decide chain that runs only on element/template nodes.
+
+    Used internally by the sanitizer to avoid calling decide callbacks for
+    text/comment/doctype/container nodes.
+    """
+
+    __slots__ = ("callbacks", "kind")
+
+    kind: Literal["decide_elements_chain"]
+    callbacks: list[Callable[[Node], DecideAction]]
+
+    def __init__(self, callbacks: list[Callable[[Node], DecideAction]]) -> None:
+        self.kind = "decide_elements_chain"
+        self.callbacks = callbacks
+
+
 @dataclass(frozen=True, slots=True)
 class _CompiledDropCommentsTransform:
     kind: Literal["drop_comments"]
@@ -926,7 +1001,10 @@ class _CompiledStageHookTransform:
 CompiledTransform = (
     _CompiledSelectorTransform
     | _CompiledDecideTransform
+    | _CompiledDecideChain
+    | _CompiledDecideElementsChain
     | _CompiledRewriteAttrsTransform
+    | _CompiledRewriteAttrsChain
     | _CompiledLinkifyTransform
     | _CompiledCollapseWhitespaceTransform
     | _CompiledPruneEmptyTransform
@@ -1054,43 +1132,45 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
     compiled: list[CompiledTransform] = []
 
     def _append_compiled(item: CompiledTransform) -> None:
-        # Optimization: fuse adjacent EditAttrs transforms that target the
-        # same selector. This preserves left-to-right semantics but reduces
-        # per-node selector matching and callback overhead.
-        if (
-            compiled
-            and isinstance(item, _CompiledRewriteAttrsTransform)
-            and isinstance(compiled[-1], _CompiledRewriteAttrsTransform)
-        ):
+        # Optimization: fuse adjacent EditAttrs transforms that target the same
+        # selector into a flat chain. This avoids nested closure overhead.
+        if compiled and isinstance(item, _CompiledRewriteAttrsTransform):
             prev = compiled[-1]
-            if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
-                prev_cb = prev.func
-                next_cb = item.func
+            # Extend existing chain
+            if isinstance(prev, _CompiledRewriteAttrsChain):
+                if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
+                    prev.funcs.append(item.func)
+                    return
+            # Start new chain from two single transforms
+            if isinstance(prev, _CompiledRewriteAttrsTransform):
+                if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
+                    compiled[-1] = _CompiledRewriteAttrsChain(
+                        selector_str=prev.selector_str,
+                        selector=prev.selector,
+                        all_nodes=prev.all_nodes,
+                        funcs=[prev.func, item.func],
+                    )
+                    return
 
-                def _chained(
-                    node: Node,
-                    prev_cb: Callable[[Node], dict[str, str | None] | None] = prev_cb,
-                    next_cb: Callable[[Node], dict[str, str | None] | None] = next_cb,
-                ) -> dict[str, str | None] | None:
-                    changed = False
-                    out = prev_cb(node)
-                    if out is not None:  # pragma: no cover
-                        node.attrs = out
-                        changed = True
-                    out = next_cb(node)
-                    if out is not None:
-                        node.attrs = out
-                        changed = True
-                    return node.attrs if changed else None
-
-                compiled[-1] = _CompiledRewriteAttrsTransform(
-                    kind="rewrite_attrs",
-                    selector_str=prev.selector_str,
-                    selector=prev.selector,
-                    all_nodes=prev.all_nodes,
-                    func=_chained,
-                )
-                return
+        # Optimization: fuse adjacent Decide transforms that target the same
+        # selector into a flat chain. This avoids repeated dispatch overhead.
+        if compiled and isinstance(item, _CompiledDecideTransform):
+            prev = compiled[-1]
+            # Extend existing chain
+            if isinstance(prev, _CompiledDecideChain):
+                if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
+                    prev.callbacks.append(item.callback)
+                    return
+            # Start new chain from two single transforms
+            if isinstance(prev, _CompiledDecideTransform):
+                if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
+                    compiled[-1] = _CompiledDecideChain(
+                        selector_str=prev.selector_str,
+                        selector=prev.selector,
+                        all_nodes=prev.all_nodes,
+                        callbacks=[prev.callback, item.callback],
+                    )
+                    return
 
         compiled.append(item)
 
@@ -1271,31 +1351,38 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             on_hook = t.callback
             on_report = t.report
 
-            def _wrapped_decide(
-                node: Node,
-                decide_func: Callable[[Node], DecideAction] = decide_func,
-                selector_str: str = selector_str,
-                on_hook: NodeCallback | None = on_hook,
-                on_report: ReportCallback | None = on_report,
-            ) -> DecideAction:
-                action = decide_func(node)
-                if action is DecideAction.KEEP:
-                    return action
-                if on_hook is not None:
-                    on_hook(node)
-                if on_report is not None:
-                    nm = node.name
-                    label = str(nm).lower() if not nm.startswith("#") and nm != "!doctype" else str(nm)
-                    on_report(f"Decide -> {action.value} '{label}' (matched selector '{selector_str}')", node=node)
-                return action
+            # Optimization: skip wrapper when there are no callbacks
+            if on_hook is None and on_report is None:
+                effective_callback = decide_func
+            else:
 
-            compiled.append(
+                def _wrapped_decide(
+                    node: Node,
+                    decide_func: Callable[[Node], DecideAction] = decide_func,
+                    selector_str: str = selector_str,
+                    on_hook: NodeCallback | None = on_hook,
+                    on_report: ReportCallback | None = on_report,
+                ) -> DecideAction:
+                    action = decide_func(node)
+                    if action is DecideAction.KEEP:
+                        return action
+                    if on_hook is not None:
+                        on_hook(node)
+                    if on_report is not None:
+                        nm = node.name
+                        label = str(nm).lower() if not nm.startswith("#") and nm != "!doctype" else str(nm)
+                        on_report(f"Decide -> {action.value} '{label}' (matched selector '{selector_str}')", node=node)
+                    return action
+
+                effective_callback = _wrapped_decide
+
+            _append_compiled(
                 _CompiledDecideTransform(
                     kind="decide",
                     selector_str=selector_str,
                     selector=None if all_nodes else parse_selector(selector_str),
                     all_nodes=all_nodes,
-                    callback=_wrapped_decide,
+                    callback=effective_callback,
                 )
             )
             continue
@@ -1446,8 +1533,48 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 if not patterns:
                     return None
 
-                out: dict[str, str | None] = {}
-                changed = False
+                # Hot-path used by the sanitizer: ("*:*", "on*", "srcdoc").
+                # Avoid regex and avoid building a new dict when nothing matches.
+                if patterns == ("*:*", "on*", "srcdoc"):
+                    to_drop = [key for key in attrs if key.startswith("on") or key == "srcdoc" or ":" in key]
+                    if not to_drop:
+                        return None
+
+                    out = dict(attrs)
+                    for key in to_drop:
+                        if on_report is not None:  # pragma: no cover
+                            if key == "srcdoc":
+                                found_pat = "srcdoc"
+                            elif ":" in key:
+                                found_pat = "*:*"
+                            else:
+                                found_pat = "on*"
+                            on_report(
+                                f"Unsafe attribute '{key}' (matched forbidden pattern '{found_pat}')",
+                                node=node,
+                            )
+                        out.pop(key, None)
+                    if on_hook is not None:
+                        on_hook(node)  # pragma: no cover
+                    return out
+
+                # Generic path: avoid allocating unless something changes.
+                # Note: `compiled_regex` is always set here (we return early when
+                # `patterns` is empty, and the sanitizer hot-path is handled above).
+                if compiled_regex is None:  # pragma: no cover
+                    return None
+                for raw_key in attrs:
+                    if not raw_key or not str(raw_key).strip():
+                        continue
+                    key = raw_key
+                    if not key.islower():
+                        key = key.lower()
+                    if compiled_regex.match(key):
+                        break
+                else:
+                    return None
+
+                out2: dict[str, str | None] = {}
                 for raw_key, value in attrs.items():
                     if not raw_key or not str(raw_key).strip():
                         continue
@@ -1455,7 +1582,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     if not key.islower():
                         key = key.lower()
 
-                    if compiled_regex and compiled_regex.match(key):
+                    if compiled_regex.match(key):
                         if on_report is not None:
                             # Re-check to report which pattern matched (rare path)
                             found_pat = "?"
@@ -1467,16 +1594,13 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                                 f"Unsafe attribute '{key}' (matched forbidden pattern '{found_pat}')",
                                 node=node,
                             )
-                        changed = True
                         continue
 
-                    out[key] = value
+                    out2[key] = value
 
-                if not changed:
-                    return None
                 if on_hook is not None:
                     on_hook(node)  # pragma: no cover
-                return out
+                return out2
 
             selector_str = t.selector
             all_nodes = selector_str.strip() == "*"
@@ -1512,13 +1636,24 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 attrs = node.attrs
                 if not attrs:
                     return None
-                tag = str(node.name).lower()
+                tag = str(node.name)
+                if not tag.islower():
+                    tag = tag.lower()
                 allowed = allowed_by_tag.get(tag, allowed_global)
+
+                # Fast path: attrs already normalized and allowed.
+                for key in attrs:
+                    if type(key) is not str:
+                        break
+                    if not key or not key.islower() or key not in allowed:
+                        break
+                else:
+                    return None
 
                 changed = False
                 out: dict[str, str | None] = {}
                 for raw_key, value in attrs.items():
-                    raw_key_str = str(raw_key)
+                    raw_key_str = raw_key if type(raw_key) is str else str(raw_key)
                     if not raw_key_str.strip():
                         # Drop invalid attribute names like '' or whitespace-only.
                         changed = True
@@ -1567,18 +1702,24 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 if not attrs:
                     return None
 
-                tag = str(node.name).lower()
-                out = dict(attrs)
+                tag: str | None = None
                 changed = False
-                for key in list(out.keys()):
+                to_drop: list[str] = []
+                to_set: dict[str, str] = {}
+
+                # Most nodes have no URL-like attrs; avoid allocations in that case.
+                for key, raw_value in attrs.items():
                     if key not in _URL_LIKE_ATTRS:
                         continue
+                    if tag is None:
+                        tag = str(node.name)
+                        if not tag.islower():
+                            tag = tag.lower()
 
-                    raw_value = out.get(key)
                     if raw_value is None:
                         if on_report is not None:  # pragma: no cover
                             on_report(f"Unsafe URL in attribute '{key}'", node=node)
-                        out.pop(key, None)
+                        to_drop.append(key)
                         changed = True
                         continue
 
@@ -1586,7 +1727,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     if rule is None:
                         if on_report is not None:  # pragma: no cover
                             on_report(f"Unsafe URL in attribute '{key}' (no rule)", node=node)
-                        out.pop(key, None)
+                        to_drop.append(key)
                         changed = True
                         continue
 
@@ -1614,17 +1755,26 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     if sanitized is None:
                         if on_report is not None:
                             on_report(f"Unsafe URL in attribute '{key}'", node=node)
-                        out.pop(key, None)
+                        to_drop.append(key)
                         changed = True
                         continue
 
-                    out[key] = sanitized
-
                     if raw_value != sanitized:
+                        to_set[key] = sanitized
                         changed = True
+
+                if tag is None:
+                    return None
 
                 if not changed:
                     return None
+
+                out = dict(attrs)
+                for key in to_drop:
+                    out.pop(key, None)
+                if to_set:
+                    out.update(to_set)
+
                 if on_hook is not None:
                     on_hook(node)
                 return out
@@ -1682,9 +1832,12 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                         on_hook(node)
                     return out
 
+                if raw_value == sanitized_style:
+                    return None
+
                 out = dict(attrs)
                 out["style"] = sanitized_style
-                if raw_value != sanitized_style and on_hook is not None:
+                if on_hook is not None:
                     on_hook(node)
                 return out
 
@@ -1748,10 +1901,9 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 cb: NodeCallback | None = cb_sanitize,
                 rep: ReportCallback | None = rep_sanitize,
             ) -> DecideAction:
-                name = node.name
-                if name.startswith("#") or name == "!doctype":
-                    return DecideAction.KEEP
-                tag = str(name).lower()
+                # This callback is used with an elements-only dispatcher; tag
+                # names produced by the tokenizer are already ASCII-lowercased.
+                tag = str(node.name)
 
                 if tag in allowed_tags:
                     return DecideAction.KEEP
@@ -1795,13 +1947,51 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     new_allowed["a"] = a_attrs
                     effective_allowed_attrs = new_allowed
 
-            sub: list[TransformSpec] = [
-                DropComments(enabled=policy.drop_comments, callback=t.callback, report=t.report),
-                DropDoctype(enabled=policy.drop_doctype, callback=t.callback, report=t.report),
-                DropForeignNamespaces(
-                    enabled=policy.drop_foreign_namespaces, callback=t.callback, report=_report_unsafe
-                ),
-                Decide(selector="*", func=_sanitize_node_decision),
+            # Drop comments/doctype early (mirrors the old pipeline order).
+            if policy.drop_comments:
+                _append_compiled(
+                    _CompiledDropCommentsTransform(
+                        kind="drop_comments",
+                        callback=t.callback,
+                        report=t.report,
+                    )
+                )
+            if policy.drop_doctype:
+                _append_compiled(
+                    _CompiledDropDoctypeTransform(
+                        kind="drop_doctype",
+                        callback=t.callback,
+                        report=t.report,
+                    )
+                )
+
+            # Decide (elements-only) chain to avoid spending time on text/container nodes.
+            decide_callbacks: list[Callable[[Node], DecideAction]] = []
+
+            if policy.drop_foreign_namespaces:
+                cb_foreign = t.callback
+                rep_foreign = _report_unsafe
+
+                def _drop_foreign_namespace(
+                    node: Node,
+                    cb: NodeCallback | None = cb_foreign,
+                    rep: ReportCallback = rep_foreign,
+                ) -> DecideAction:
+                    ns = node.namespace
+                    if ns not in (None, "html"):
+                        if cb is not None:
+                            cb(node)
+                        rep(f"Unsafe tag '{node.name}' (foreign namespace)", node=node)
+                        return DecideAction.DROP
+                    return DecideAction.KEEP
+
+                decide_callbacks.append(_drop_foreign_namespace)
+
+            decide_callbacks.append(_sanitize_node_decision)
+            _append_compiled(_CompiledDecideElementsChain(callbacks=decide_callbacks))
+
+            # Attributes pipeline (compiled normally so we can reuse fusion logic).
+            sub_attrs: list[TransformSpec] = [
                 DropAttrs(
                     selector="*",
                     patterns=("on*", "srcdoc", "*:*"),
@@ -1837,8 +2027,8 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 ),
             ]
 
-            # Recursive compile to enable optimization (RewriteAttrs fusion)
-            for sub_t in compile_transforms(sub):
+            # Recursive compile to enable optimization (RewriteAttrs fusion).
+            for sub_t in compile_transforms(sub_attrs):
                 _append_compiled(sub_t)
 
             continue
@@ -1999,14 +2189,18 @@ def apply_compiled_transforms(
                 if not children:
                     return
 
+                wt_len = len(walk_transforms)
                 i = 0
                 while i < len(children):
                     node = children[i]
                     name = node.name
 
                     changed = False
-                    start_at = created_start_index.get(id(node), 0)
-                    for idx in range(start_at, len(walk_transforms)):
+                    if created_start_index:
+                        start_at = created_start_index.get(id(node), 0)
+                    else:
+                        start_at = 0
+                    for idx in range(start_at, wt_len):
                         t = walk_transforms[idx]
                         # Dispatch based on 'kind' string to avoid expensive isinstance/class hierarchy checks
                         # in this hot loop (50k nodes * 10 transforms = 500k type checks otherwise).
@@ -2192,7 +2386,131 @@ def apply_compiled_transforms(
                             changed = True
                             break
 
-                        # EditAttrs (rewrite_attrs)
+                        # Decide chain - flat list iteration (optimized)
+                        if k == "decide_chain":
+                            if TYPE_CHECKING:
+                                t = cast("_CompiledDecideChain", t)
+                            if t.all_nodes:
+                                # Iterate through callbacks until one returns non-KEEP
+                                action = DecideAction.KEEP
+                                for chain_cb in t.callbacks:
+                                    action = chain_cb(node)
+                                    if action is not DecideAction.KEEP:
+                                        break
+                            else:
+                                if name.startswith("#") or name == "!doctype":
+                                    continue
+                                sel = t.selector
+                                if TYPE_CHECKING:
+                                    sel = cast("ParsedSelector", sel)
+                                if not matcher.matches(node, sel):
+                                    continue
+                                action = DecideAction.KEEP
+                                for chain_cb in t.callbacks:
+                                    action = chain_cb(node)
+                                    if action is not DecideAction.KEEP:
+                                        break
+
+                            if action is DecideAction.KEEP:
+                                continue
+
+                            if action is DecideAction.EMPTY:
+                                if name != "#text" and node.children:
+                                    for child in node.children:
+                                        child.parent = None
+                                    node.children = []
+                                if type(node) is Template and node.template_content is not None:
+                                    tc = node.template_content
+                                    for child in tc.children or []:
+                                        child.parent = None
+                                    tc.children = []
+                                continue
+
+                            if action is DecideAction.UNWRAP:
+                                moved_nodes_chain: list[Node] = []
+                                if name != "#text" and node.children:
+                                    moved_nodes_chain.extend(list(node.children))
+                                    node.children = []
+                                if type(node) is Template and node.template_content is not None:
+                                    tc = node.template_content
+                                    if tc.children:
+                                        moved_nodes_chain.extend(list(tc.children))
+                                        tc.children = []
+                                if moved_nodes_chain:
+                                    for child in moved_nodes_chain:
+                                        _mark_start(child, idx)
+                                        parent.insert_before(child, node)
+                                parent.remove_child(node)
+                                changed = True
+                                break
+
+                            if action is DecideAction.ESCAPE:
+                                _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx)
+                                changed = True
+                                break
+
+                            # action == DROP (and any invalid value)
+                            parent.remove_child(node)
+                            changed = True
+                            break
+
+                        # Decide (elements-only) chain - flat list iteration (optimized)
+                        if k == "decide_elements_chain":
+                            if name.startswith("#") or name == "!doctype":
+                                continue
+                            if TYPE_CHECKING:
+                                t = cast("_CompiledDecideElementsChain", t)
+
+                            action = DecideAction.KEEP
+                            for chain_cb in t.callbacks:
+                                action = chain_cb(node)
+                                if action is not DecideAction.KEEP:
+                                    break
+
+                            if action is DecideAction.KEEP:
+                                continue
+
+                            if action is DecideAction.EMPTY:
+                                if name != "#text" and node.children:
+                                    for child in node.children:
+                                        child.parent = None
+                                    node.children = []
+                                if type(node) is Template and node.template_content is not None:
+                                    tc = node.template_content
+                                    for child in tc.children or []:
+                                        child.parent = None
+                                    tc.children = []
+                                continue
+
+                            if action is DecideAction.UNWRAP:
+                                moved_nodes_chain2: list[Node] = []
+                                if name != "#text" and node.children:
+                                    moved_nodes_chain2.extend(list(node.children))
+                                    node.children = []
+                                if type(node) is Template and node.template_content is not None:
+                                    tc = node.template_content
+                                    if tc.children:
+                                        moved_nodes_chain2.extend(list(tc.children))
+                                        tc.children = []
+                                if moved_nodes_chain2:
+                                    for child in moved_nodes_chain2:
+                                        _mark_start(child, idx)
+                                        parent.insert_before(child, node)
+                                parent.remove_child(node)
+                                changed = True
+                                break
+
+                            if action is DecideAction.ESCAPE:
+                                _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx)
+                                changed = True
+                                break
+
+                            # action == DROP (and any invalid value)
+                            parent.remove_child(node)
+                            changed = True
+                            break
+
+                        # EditAttrs (rewrite_attrs) - single function
                         if k == "rewrite_attrs":
                             if name.startswith("#") or name == "!doctype":
                                 continue
@@ -2207,6 +2525,25 @@ def apply_compiled_transforms(
                             new_attrs = t.func(node)
                             if new_attrs is not None:
                                 node.attrs = new_attrs
+                            continue
+
+                        # EditAttrs chain - flat list iteration (optimized)
+                        if k == "rewrite_attrs_chain":
+                            if name.startswith("#") or name == "!doctype":
+                                continue
+                            if TYPE_CHECKING:
+                                t = cast("_CompiledRewriteAttrsChain", t)
+                            if not t.all_nodes:
+                                sel = t.selector
+                                if TYPE_CHECKING:
+                                    sel = cast("ParsedSelector", sel)
+                                if not matcher.matches(node, sel):
+                                    continue
+                            # Inline the chain iteration to avoid method-call overhead
+                            for chain_func in t.funcs:
+                                chain_out = chain_func(node)
+                                if chain_out is not None:
+                                    node.attrs = chain_out
                             continue
 
                         # Selector transforms
@@ -2319,9 +2656,15 @@ def apply_compiled_transforms(
                         if node.children:
                             apply_to_children(node, skip_linkify=skip_linkify, skip_whitespace=skip_whitespace)
                     else:
-                        tag = node.name.lower()
-                        child_skip = skip_linkify or (tag in linkify_skip_tags)
-                        child_skip_ws = skip_whitespace or (tag in whitespace_skip_tags)
+                        if linkify_skip_tags or whitespace_skip_tags:
+                            tag = node.name.lower()
+                            child_skip = skip_linkify or (tag in linkify_skip_tags)
+                            child_skip_ws = skip_whitespace or (tag in whitespace_skip_tags)
+                        else:
+                            # Common case (including default sanitization): no Linkify/CollapseWhitespace
+                            # transforms are present, so skip-set checks are unnecessary.
+                            child_skip = skip_linkify
+                            child_skip_ws = skip_whitespace
 
                         if node.children:
                             apply_to_children(node, skip_linkify=child_skip, skip_whitespace=child_skip_ws)
@@ -2416,7 +2759,10 @@ def apply_compiled_transforms(
                 (
                     _CompiledSelectorTransform,
                     _CompiledDecideTransform,
+                    _CompiledDecideChain,
+                    _CompiledDecideElementsChain,
                     _CompiledRewriteAttrsTransform,
+                    _CompiledRewriteAttrsChain,
                     _CompiledLinkifyTransform,
                     _CompiledCollapseWhitespaceTransform,
                     _CompiledDropCommentsTransform,

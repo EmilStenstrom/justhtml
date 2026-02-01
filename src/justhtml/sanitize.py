@@ -429,6 +429,7 @@ class SanitizationPolicy:
 
 _URL_NORMALIZE_STRIP_TABLE = {i: None for i in range(0x21)}
 _URL_NORMALIZE_STRIP_TABLE[0x7F] = None
+_URL_NORMALIZE_STRIP_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x20\x7f]")
 
 _ATTR_DROP_PATTERNS: tuple[str, ...] = ("on*", "srcdoc", "*:*")
 _ATTR_DROP_REGEX: re.Pattern[str] = re.compile(
@@ -854,6 +855,10 @@ def _normalize_url_for_checking(value: str) -> str:
     # Strip whitespace/control chars commonly used for scheme obfuscation.
     # Note: do not strip backslashes; they are not whitespace/control chars,
     # and removing them can turn invalid schemes into valid ones.
+    #
+    # Fast path: most URLs contain no control/space chars, so avoid allocating.
+    if not _URL_NORMALIZE_STRIP_REGEX.search(value):
+        return value
     return value.translate(_URL_NORMALIZE_STRIP_TABLE)
 
 
@@ -868,10 +873,11 @@ def _is_valid_scheme(scheme: str) -> bool:
     return True
 
 
-def _has_scheme(value: str) -> bool:
+def _get_scheme(value: str) -> str | None:
+    """Return the URL scheme (lowercased) if present and valid, else None."""
     idx = value.find(":")
     if idx <= 0:
-        return False
+        return None
     # Scheme must appear before any path/query/fragment separator.
     end = len(value)
     for sep in ("/", "?", "#"):
@@ -879,8 +885,11 @@ def _has_scheme(value: str) -> bool:
         if j != -1 and j < end:
             end = j
     if idx >= end:
-        return False
-    return _is_valid_scheme(value[:idx])
+        return None
+    scheme = value[:idx]
+    if not _is_valid_scheme(scheme):
+        return None
+    return scheme.lower()
 
 
 def _has_invalid_scheme_like_prefix(value: str) -> bool:
@@ -933,7 +942,7 @@ def _sanitize_url_value_with_rule(
             return None
         v = rewritten
 
-    stripped = str(v).strip()
+    stripped = v.strip()
     normalized = _normalize_url_for_checking(stripped)
     if not normalized:
         # If normalization removes everything, the value was empty/whitespace/
@@ -961,13 +970,11 @@ def _sanitize_url_value_with_rule(
         # Resolve to absolute URL for checking.
         resolved_scheme = rule.resolve_protocol_relative.lower()
         resolved_url = f"{resolved_scheme}:{normalized}"
-
-        parsed = urlsplit(resolved_url)
-        scheme = (parsed.scheme or "").lower()
-        if scheme not in rule.allowed_schemes:
+        if resolved_scheme not in rule.allowed_schemes:
             return None
 
         if rule.allowed_hosts is not None:
+            parsed = urlsplit(resolved_url)
             host = (parsed.hostname or "").lower()
             if not host or host not in rule.allowed_hosts:
                 return None
@@ -978,12 +985,12 @@ def _sanitize_url_value_with_rule(
             return None if proxy is None else _proxy_url_value(proxy=proxy, value=resolved_url)
         return resolved_url
 
-    if _has_scheme(normalized):
-        parsed = urlsplit(normalized)
-        scheme = (parsed.scheme or "").lower()
+    scheme = _get_scheme(normalized)
+    if scheme is not None:
         if scheme not in rule.allowed_schemes:
             return None
         if rule.allowed_hosts is not None:
+            parsed = urlsplit(normalized)
             host = (parsed.hostname or "").lower()
             if not host or host not in rule.allowed_hosts:
                 return None
