@@ -916,15 +916,6 @@ class _CompiledMergeAttrTokensTransform:
 
 
 @dataclass(frozen=True, slots=True)
-class _CompiledSanitizeTransform:
-    kind: Literal["sanitize"]
-    policy: SanitizationPolicy
-    attr_drop_regex: re.Pattern[str] | None
-    callback: NodeCallback | None
-    report: ReportCallback | None
-
-
-@dataclass(frozen=True, slots=True)
 class _CompiledStageHookTransform:
     kind: Literal["stage_hook"]
     index: int
@@ -943,7 +934,6 @@ CompiledTransform = (
     | _CompiledDropCommentsTransform
     | _CompiledDropDoctypeTransform
     | _CompiledMergeAttrTokensTransform
-    | _CompiledSanitizeTransform
     | _CompiledStageHookTransform
     | _CompiledStageBoundary
 )
@@ -1474,7 +1464,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                                     found_pat = pat
                                     break
                             on_report(
-                                f"Unsafe attribute '{key}' (matched pattern '{found_pat}')",
+                                f"Unsafe attribute '{key}' (matched forbidden pattern '{found_pat}')",
                                 node=node,
                             )
                         changed = True
@@ -1726,22 +1716,131 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             )
             continue
 
-        if isinstance(t, Sanitize):  # pragma: no branch
+        if isinstance(t, Sanitize):
             policy = t.policy or DEFAULT_POLICY
 
-            # Hardcoded patterns from original usage
-            attr_patterns = ("on*", "srcdoc", "*:*")
-            attr_regex = _compile_patterns_to_regex(attr_patterns)
+            # Wrapper to trigger policy.handle_unsafe on security findings
+            cb_sanitize = t.callback
+            rep_sanitize = t.report
 
-            _append_compiled(
-                _CompiledSanitizeTransform(
-                    kind="sanitize",
-                    policy=policy,
-                    attr_drop_regex=attr_regex,
+            def _report_unsafe(
+                msg: str,
+                *,
+                node: Any | None = None,
+                policy: SanitizationPolicy = policy,
+                rep_sanitize: ReportCallback | None = rep_sanitize,
+            ) -> None:
+                policy.handle_unsafe(msg, node=node)
+                if rep_sanitize:
+                    rep_sanitize(msg, node=node)
+
+            # Pre-calc parsing logic
+            allowed_tags = frozenset(policy.allowed_tags)
+            drop_content_tags = frozenset(policy.drop_content_tags)
+            handling = policy.disallowed_tag_handling
+
+            def _sanitize_node_decision(
+                node: Node,
+                allowed_tags: frozenset[str] = allowed_tags,
+                drop_content_tags: frozenset[str] = drop_content_tags,
+                handling: str = handling,
+                policy: SanitizationPolicy = policy,
+                cb: NodeCallback | None = cb_sanitize,
+                rep: ReportCallback | None = rep_sanitize,
+            ) -> DecideAction:
+                name = node.name
+                if name.startswith("#") or name == "!doctype":
+                    return DecideAction.KEEP
+                tag = str(name).lower()
+
+                if tag in allowed_tags:
+                    return DecideAction.KEEP
+
+                if tag in drop_content_tags:
+                    msg = f"Unsafe tag '{tag}' (dropped content)"
+                    policy.handle_unsafe(msg, node=node)
+                    if cb:
+                        cb(node)
+                    if rep:
+                        rep(msg, node=node)
+                    return DecideAction.DROP
+
+                # Not allowed
+                msg_unsafe = f"Unsafe tag '{tag}' (not allowed)"
+                policy.handle_unsafe(msg_unsafe, node=node)
+                if cb:
+                    cb(node)
+                if rep:
+                    rep(msg_unsafe, node=node)
+
+                if handling == "drop":
+                    return DecideAction.DROP
+                if handling == "unwrap":
+                    return DecideAction.UNWRAP
+                if handling == "escape":
+                    return DecideAction.ESCAPE
+                return DecideAction.DROP  # pragma: no cover
+
+            # Pre-calc attributes logic
+            effective_allowed_attrs = policy.allowed_attributes
+            if policy.force_link_rel:
+                # If force_link_rel is set, we must allow 'rel' on 'a' to preserve existing tokens.
+                new_allowed = dict(policy.allowed_attributes)
+                a_attrs = set(new_allowed.get("a", []))
+                # Also check global allowed attrs
+                global_attrs = set(new_allowed.get("*", []))
+
+                if "rel" not in a_attrs and "rel" not in global_attrs:
+                    a_attrs.add("rel")
+                    new_allowed["a"] = a_attrs
+                    effective_allowed_attrs = new_allowed
+
+            sub: list[TransformSpec] = [
+                DropComments(enabled=policy.drop_comments, callback=t.callback, report=t.report),
+                DropDoctype(enabled=policy.drop_doctype, callback=t.callback, report=t.report),
+                DropForeignNamespaces(
+                    enabled=policy.drop_foreign_namespaces, callback=t.callback, report=_report_unsafe
+                ),
+                Decide(selector="*", func=_sanitize_node_decision),
+                DropAttrs(
+                    selector="*",
+                    patterns=("on*", "srcdoc", "*:*"),
+                    callback=t.callback,
+                    report=_report_unsafe,
+                ),
+                AllowlistAttrs(
+                    selector="*",
+                    allowed_attributes=dict(effective_allowed_attrs),
+                    callback=t.callback,
+                    report=_report_unsafe,
+                ),
+                DropUrlAttrs(
+                    selector="*",
+                    url_policy=policy.url_policy,
+                    callback=t.callback,
+                    report=_report_unsafe,
+                ),
+                AllowStyleAttrs(
+                    selector="*",
+                    allowed_css_properties=policy.allowed_css_properties,
+                    enabled=bool(policy.allowed_css_properties),
+                    callback=t.callback,
+                    report=_report_unsafe,
+                ),
+                MergeAttrs(
+                    tag="a",
+                    attr="rel",
+                    tokens=policy.force_link_rel,
+                    enabled=bool(policy.force_link_rel),
                     callback=t.callback,
                     report=t.report,
-                )
-            )
+                ),
+            ]
+
+            # Recursive compile to enable optimization (RewriteAttrs fusion)
+            for sub_t in compile_transforms(sub):
+                _append_compiled(sub_t)
+
             continue
 
         raise TypeError(f"Unsupported transform: {type(t).__name__}")  # pragma: no cover
@@ -1895,285 +1994,6 @@ def apply_compiled_transforms(
 
                 parent.remove_child(node)
 
-            def _apply_fused_sanitize(
-                node: Node,
-                t: _CompiledSanitizeTransform,
-                parent: Node,
-                idx: int,
-            ) -> bool:
-                policy = t.policy
-                report = t.report
-                callback = t.callback
-                name = node.name
-
-                # 1. Drop Nodes (Comments, Doctype, Foreign)
-                if name.startswith("#") or name == "!doctype":
-                    if name == "#comment":
-                        if policy.drop_comments:
-                            if callback:
-                                callback(node)
-                            if report:
-                                report("Dropped comment", node=node)
-                            parent.remove_child(node)
-                            return True
-                        return False
-                    if name == "!doctype":
-                        if policy.drop_doctype:
-                            if callback:
-                                callback(node)
-                            if report:
-                                report("Dropped doctype", node=node)
-                            parent.remove_child(node)
-                            return True
-                        return False
-                    return False
-
-                # 2. Drop Foreign
-                ns = node.namespace
-                if ns and ns != "html":
-                    if policy.drop_foreign_namespaces:
-                        if callback:
-                            callback(node)
-                        tag = str(name).lower()
-                        msg = f"Unsafe tag '{tag}' (foreign namespace)"
-                        policy.handle_unsafe(msg, node=node)
-                        if report:
-                            report(msg, node=node)
-                        parent.remove_child(node)
-                        return True
-
-                # Element tag
-                tag = str(name).lower()
-
-                # 3. Allowed Tags
-                if tag in policy.allowed_tags:
-                    pass
-                elif tag in policy.drop_content_tags:
-                    msg = f"Unsafe tag '{tag}' (dropped content)"
-                    policy.handle_unsafe(msg, node=node)
-                    if report:
-                        report(msg, node=node)
-                    if callback:
-                        callback(node)
-                    parent.remove_child(node)
-                    return True
-                else:
-                    msg = f"Unsafe tag '{tag}' (not allowed)"
-                    policy.handle_unsafe(msg, node=node)
-                    if report:
-                        report(msg, node=node)
-                    if callback:
-                        callback(node)
-
-                    handling = policy.disallowed_tag_handling
-                    if handling == "drop":
-                        parent.remove_child(node)
-                        return True
-                    if handling == "escape":
-                        raw_start = _raw_tag_text(node, "_start_tag_start", "_start_tag_end")
-                        if raw_start is None:
-                            raw_start = _reconstruct_start_tag(node)
-                        raw_end = _raw_tag_text(node, "_end_tag_start", "_end_tag_end")
-                        if raw_end is None:
-                            raw_end = _reconstruct_end_tag(node)
-
-                        if raw_start:  # pragma: no cover
-                            sn = Text(raw_start)
-                            _mark_start(sn, idx)
-                            parent.insert_before(sn, node)
-
-                        moved: list[Node] = []
-                        if node.children:
-                            moved.extend(list(node.children))
-                            node.children = []
-                        if type(node) is Template and node.template_content:
-                            tc = node.template_content
-                            if tc.children:
-                                moved.extend(list(tc.children))
-                                tc.children = []
-
-                        if moved:
-                            for child in moved:
-                                _mark_start(child, idx)
-                                parent.insert_before(child, node)
-
-                        if raw_end:
-                            en = Text(raw_end)
-                            _mark_start(en, idx)
-                            parent.insert_before(en, node)
-
-                        parent.remove_child(node)
-                        return True
-
-                    # UNWRAP
-                    moved_nodes: list[Node] = []
-                    if node.children:
-                        moved_nodes.extend(list(node.children))
-                        node.children = []
-                    if type(node) is Template and node.template_content:
-                        tc = node.template_content
-                        if tc.children:
-                            moved_nodes.extend(list(tc.children))
-                            tc.children = []
-
-                    if moved_nodes:
-                        for child in moved_nodes:
-                            _mark_start(child, idx)
-                            parent.insert_before(child, node)
-                    parent.remove_child(node)
-                    return True
-
-                # 4. Attributes
-                attrs = node.attrs
-                if not attrs:
-                    return False
-
-                changed_attrs = False
-                out_attrs: dict[str, str | None] = {}
-
-                capture_rel = tag == "a" and bool(policy.force_link_rel)
-                rel_input_value: str | None = None
-
-                # Optimized: pre-calc allowlist for this tag
-                # Note: allowed_attributes values are sets.
-                allowed_attr_set = policy._allowed_attrs_by_tag.get(tag, policy._allowed_attrs_global)
-
-                drop_regex = t.attr_drop_regex
-
-                for raw_key, original_value in attrs.items():
-                    value = original_value
-                    key = str(raw_key)
-                    if not key.strip():
-                        changed_attrs = True
-                        continue
-                    key_lower = key.lower() if not key.islower() else key
-
-                    if capture_rel and key_lower == "rel":
-                        rel_input_value = str(value or "")
-
-                    # DropAttrs
-                    if drop_regex and drop_regex.match(key_lower):
-                        msg = f"Unsafe attribute '{key_lower}' (matched forbidden pattern)"
-                        policy.handle_unsafe(msg, node=node)
-                        if report:
-                            report(msg, node=node)
-                        changed_attrs = True
-                        continue
-
-                    # Allowlist
-                    if key_lower not in allowed_attr_set:
-                        msg = f"Unsafe attribute '{key_lower}' (not allowed)"
-                        policy.handle_unsafe(msg, node=node)
-                        changed_attrs = True
-                        continue
-
-                    # DropUrlAttrs
-                    if key_lower in _URL_LIKE_ATTRS:
-                        url_rule = policy.url_policy.allow_rules.get((tag, key_lower))
-                        if url_rule is None:
-                            msg = f"Unsafe URL in attribute '{key_lower}' (no rule)"
-                            policy.handle_unsafe(msg, node=node)
-                            if report:
-                                report(msg, node=node)
-                            changed_attrs = True
-                            continue
-
-                        val_str = str(value or "")
-                        if key_lower == "srcset":
-                            sanitized = _sanitize_srcset_value(
-                                url_policy=policy.url_policy,
-                                rule=url_rule,
-                                tag=tag,
-                                attr=key_lower,
-                                value=val_str,
-                            )
-                        else:
-                            sanitized = _sanitize_url_value_with_rule(
-                                rule=url_rule,
-                                value=val_str,
-                                tag=tag,
-                                attr=key_lower,
-                                handling=_effective_url_handling(url_policy=policy.url_policy, rule=url_rule),
-                                allow_relative=_effective_allow_relative(url_policy=policy.url_policy, rule=url_rule),
-                                proxy=_effective_proxy(url_policy=policy.url_policy, rule=url_rule),
-                                url_filter=policy.url_policy.url_filter,
-                                apply_filter=True,
-                            )
-
-                        if sanitized is None:
-                            msg = f"Unsafe URL in attribute '{key_lower}'"
-                            policy.handle_unsafe(msg, node=node)
-                            if report:  # pragma: no cover
-                                report(msg, node=node)
-                            changed_attrs = True
-                            continue
-
-                        if sanitized != val_str:
-                            changed_attrs = True
-                            value = sanitized
-
-                    # AllowStyleAttrs
-                    if key_lower == "style" and policy.allowed_css_properties:
-                        val_str = str(value or "")
-                        sanitized_style = _sanitize_inline_style(
-                            allowed_css_properties=policy.allowed_css_properties,
-                            value=val_str,
-                            tag=tag,
-                            url_policy=policy.url_policy,
-                        )
-                        if sanitized_style is None:
-                            msg = "Unsafe inline style in attribute 'style'"
-                            policy.handle_unsafe(msg, node=node)
-                            if report:
-                                report(msg, node=node)
-                            changed_attrs = True
-                            continue
-
-                        if sanitized_style != val_str:
-                            changed_attrs = True
-                            value = sanitized_style
-
-                    # Ensure we flag changes if the key case is normalized
-                    if key != key_lower:
-                        changed_attrs = True
-
-                    out_attrs[key_lower] = value
-
-                # MergeAttrs (a rel)
-                if capture_rel:
-                    rel_attr = "rel"
-                    existing_raw = out_attrs.get(rel_attr)
-                    if existing_raw is None and rel_input_value is not None:
-                        existing_raw = rel_input_value
-
-                    existing: list[str] = []
-                    if isinstance(existing_raw, str) and existing_raw:
-                        for tok in existing_raw.split():
-                            tt = tok.strip().lower()
-                            if tt and tt not in existing:
-                                existing.append(tt)
-
-                    rel_changed = False
-                    # Ensure deterministic order for forced tokens
-                    for tok in sorted(policy.force_link_rel):
-                        if tok not in existing:
-                            existing.append(tok)
-                            rel_changed = True
-
-                    normalized = " ".join(existing)
-                    if rel_changed or (existing_raw != normalized):
-                        out_attrs[rel_attr] = normalized
-                        changed_attrs = True
-                        if report and rel_changed:  # pragma: no cover
-                            report("Merged tokens into attribute 'rel' on <a>", node=node)
-
-                if changed_attrs:
-                    node.attrs = out_attrs
-                    if callback:
-                        callback(node)
-
-                return False
-
             def apply_to_children(parent: Node, *, skip_linkify: bool, skip_whitespace: bool) -> None:
                 children = parent.children
                 if not children:
@@ -2191,15 +2011,6 @@ def apply_compiled_transforms(
                         # Dispatch based on 'kind' string to avoid expensive isinstance/class hierarchy checks
                         # in this hot loop (50k nodes * 10 transforms = 500k type checks otherwise).
                         k: str = t.kind
-
-                        # Sanitize (Fused output for performance)
-                        if k == "sanitize":
-                            if TYPE_CHECKING:
-                                t = cast("_CompiledSanitizeTransform", t)
-                            if _apply_fused_sanitize(node, t, parent, idx):
-                                changed = True
-                                break
-                            continue
 
                         # DropComments
                         if k == "drop_comments":
@@ -2371,8 +2182,8 @@ def apply_compiled_transforms(
                                 break
 
                             if action is DecideAction.ESCAPE:
-                                # Mark created/hoisted nodes to start at the next transform.
-                                _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx + 1)
+                                # Mark created/hoisted nodes to start at the current transform to support recursive rules.
+                                _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx)
                                 changed = True
                                 break
 
@@ -2469,7 +2280,7 @@ def apply_compiled_transforms(
                                 tag = str(node.name).lower()
                                 t.report(f"Escaped <{tag}> (matched selector '{t.selector_str}')", node=node)
 
-                            _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx + 1)
+                            _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx)
                             changed = True
                             break
 
@@ -2611,7 +2422,6 @@ def apply_compiled_transforms(
                     _CompiledDropCommentsTransform,
                     _CompiledDropDoctypeTransform,
                     _CompiledMergeAttrTokensTransform,
-                    _CompiledSanitizeTransform,
                 ),
             ):
                 pending_walk.append(t)

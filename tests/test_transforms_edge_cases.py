@@ -206,7 +206,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         JustHTML('<div data-foo="1"></div>', transforms=[t], sanitize=False)
 
         self.assertTrue(called_hook, "DropAttrs hook not called")
-        self.assertTrue(any("matched pattern 'data-*'" in m for m in reported))
+        self.assertTrue(any("matched forbidden pattern 'data-*'" in m for m in reported))
 
     def test_drop_url_attrs_wrapper_coverage(self):
         """
