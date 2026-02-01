@@ -12,7 +12,7 @@ from .sanitize import (
     sanitize_dom,
 )
 from .selector import SelectorError, matches, query
-from .serialize import to_html, to_test_format
+from .serialize import HTMLContext, to_html, to_test_format
 from .stream import stream
 from .tokens import ParseError
 from .transforms import (
@@ -64,6 +64,7 @@ __all__ = [
     "Element",
     "Empty",
     "Escape",
+    "HTMLContext",
     "JustHTML",
     "Linkify",
     "MergeAttrs",

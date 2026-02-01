@@ -16,10 +16,13 @@ from justhtml.sanitize import (
     _css_value_contains_disallowed_functions,
     _css_value_has_disallowed_resource_functions,
     _css_value_may_load_external_resource,
+    _effective_allow_relative,
+    _effective_proxy,
+    _effective_url_handling,
     _is_valid_css_property_name,
     _sanitize_css_url_functions,
     _sanitize_inline_style,
-    _sanitize_url_value,
+    _sanitize_url_value_with_rule,
     sanitize_dom,
 )
 from justhtml.sanitize import _sanitize as sanitize
@@ -37,6 +40,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         assert isinstance(DEFAULT_POLICY, SanitizationPolicy)
         assert "sanitize" not in justhtml.__all__
         assert "Sanitize" in justhtml.__all__
+        assert "HTMLContext" in justhtml.__all__
         assert callable(sanitize)
 
     def test_urlproxy_rejects_empty_url(self) -> None:
@@ -928,11 +932,32 @@ class TestSanitizeDom(unittest.TestCase):
         policy = DEFAULT_POLICY
         rule = UrlRule(allowed_schemes=[])
         assert (
-            _sanitize_url_value(url_policy=policy.url_policy, rule=rule, tag="img", attr="src", value="/x.png")
+            _sanitize_url_value_with_rule(
+                rule=rule,
+                value="/x.png",
+                tag="img",
+                attr="src",
+                handling=_effective_url_handling(url_policy=policy.url_policy, rule=rule),
+                allow_relative=_effective_allow_relative(url_policy=policy.url_policy, rule=rule),
+                proxy=_effective_proxy(url_policy=policy.url_policy, rule=rule),
+                url_filter=policy.url_policy.url_filter,
+                apply_filter=True,
+            )
             == "/x.png"
         )
         assert (
-            _sanitize_url_value(url_policy=policy.url_policy, rule=rule, tag="img", attr="src", value="\x00") is None
+            _sanitize_url_value_with_rule(
+                rule=rule,
+                value="\x00",
+                tag="img",
+                attr="src",
+                handling=_effective_url_handling(url_policy=policy.url_policy, rule=rule),
+                allow_relative=_effective_allow_relative(url_policy=policy.url_policy, rule=rule),
+                proxy=_effective_proxy(url_policy=policy.url_policy, rule=rule),
+                url_filter=policy.url_policy.url_filter,
+                apply_filter=True,
+            )
+            is None
         )
 
     def test_url_like_attributes_require_explicit_rules(self) -> None:

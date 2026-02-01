@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import re
+from enum import Enum
 from typing import Any
+from urllib.parse import quote as url_quote
 
 from .constants import FOREIGN_ATTRIBUTE_ADJUSTMENTS, SPECIAL_ELEMENTS, VOID_ELEMENTS, WHITESPACE_PRESERVING_ELEMENTS
 
@@ -15,11 +17,73 @@ from .constants import FOREIGN_ATTRIBUTE_ADJUSTMENTS, SPECIAL_ELEMENTS, VOID_ELE
 _UNQUOTED_ATTR_VALUE_INVALID = re.compile(r'[ \t\n\f\r"\'=>]')
 
 
+class HTMLContext(str, Enum):
+    HTML = "html"
+    # Serialize node to HTML markup, then JS-string escape the resulting HTML.
+    # Use this when embedding HTML markup into a JavaScript string literal.
+    JS_STRING = "js_string"
+    # Serialize node to HTML markup, then escape it for a quoted HTML attribute value.
+    # This is useful for attributes that are later parsed as HTML (e.g. iframe[srcdoc]).
+    HTML_ATTR_VALUE = "html_attr_value"
+    # Serialize node to text, then percent-encode it.
+    # Use this for URL attributes like href or src.
+    URL = "url"
+
+
 def _escape_text(text: str | None) -> str:
     if not text:
         return ""
     # Minimal, but matches html5lib serializer expectations in core cases.
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _escape_html_text(value: str) -> str:
+    if not value:
+        return ""
+    return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _escape_js_string(value: str, *, quote: str = '"') -> str:
+    if quote not in {'"', "'"}:
+        raise ValueError("quote must be ' or \"")
+
+    if not value:
+        return ""
+
+    out: list[str] = []
+    for ch in value:
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == quote:
+            out.append("\\" + quote)
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\r":
+            out.append("\\r")
+        elif ch == "\t":
+            out.append("\\t")
+        elif ch == "\b":
+            out.append("\\b")
+        elif ch == "\f":
+            out.append("\\f")
+        elif ch == "<":
+            out.append("\\u003c")
+        elif ch == ">":
+            out.append("\\u003e")
+        elif ch == "\u2028":
+            out.append("\\u2028")
+        elif ch == "\u2029":
+            out.append("\\u2029")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _escape_url_value(value: str) -> str:
+    if not value:
+        return ""
+    # Preserve common URL separators while percent-encoding other characters.
+    return url_quote(value, safe="/:@?&=#+-._~")
 
 
 def _choose_attr_quote(value: str | None, forced_quote_char: str | None = None) -> str:
@@ -116,6 +180,8 @@ def to_html(
     indent_size: int = 2,
     *,
     pretty: bool = True,
+    context: HTMLContext | None = None,
+    quote: str = '"',
 ) -> str:
     """Convert node to HTML string."""
     if node.name == "#document":
@@ -123,8 +189,36 @@ def to_html(
         parts: list[str] = []
         for child in node.children or []:
             parts.append(_node_to_html(child, indent, indent_size, pretty, in_pre=False))
-        return "\n".join(parts) if pretty else "".join(parts)
-    return _node_to_html(node, indent, indent_size, pretty, in_pre=False)
+        html = "\n".join(parts) if pretty else "".join(parts)
+    else:
+        html = _node_to_html(node, indent, indent_size, pretty, in_pre=False)
+
+    if context is None:
+        context = HTMLContext.HTML
+
+    if not isinstance(context, HTMLContext):
+        raise TypeError(f"Unknown serialization context: {context}")
+
+    if context == HTMLContext.HTML:
+        return html
+
+    if context == HTMLContext.JS_STRING:
+        return _escape_js_string(html, quote=quote)
+
+    if context == HTMLContext.HTML_ATTR_VALUE:
+        if quote not in {'"', "'"}:
+            raise ValueError("quote must be ' or \"")
+        return _escape_attr_value(html, quote)
+
+    if context == HTMLContext.URL:
+        # For URL context, we assume the node content is the URL.
+        # We strip surrounding whitespace and percent-encode.
+
+        # First get text content (URLs shouldn't have markup)
+        text = node.to_text() if hasattr(node, "to_text") else html
+        return url_quote(text.strip(), safe="/:@?&=#+-._~")
+
+    raise TypeError(f"Unknown serialization context: {context}")  # pragma: no cover
 
 
 def _collapse_html_whitespace(text: str) -> str:

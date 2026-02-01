@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from .context import FragmentContext
 from .encoding import decode_html
+from .sanitize import UrlRule, _sanitize_url_value_with_rule
 from .tokenizer import Tokenizer, TokenizerOpts
 from .transforms import apply_compiled_transforms, compile_transforms
 from .treebuilder import TreeBuilder
@@ -13,6 +14,7 @@ from .treebuilder import TreeBuilder
 if TYPE_CHECKING:
     from .node import Node
     from .sanitize import SanitizationPolicy
+    from .serialize import HTMLContext
     from .tokens import ParseError
     from .transforms import TransformSpec
 
@@ -210,6 +212,8 @@ class JustHTML:
                     if isinstance(t, Sanitize):
                         t_policy = t.policy
                         if t_policy is not None and t_policy.unsafe_handling == "collect":
+                            if t_policy._unsafe_handler.sink is transform_errors:
+                                continue
                             transform_errors.extend(t_policy.collected_security_errors())
 
         if should_collect:
@@ -223,6 +227,92 @@ class JustHTML:
         # In strict mode, raise on first error
         if strict and self.errors:
             raise StrictModeError(self.errors[0])
+
+    @staticmethod
+    def escape_js_string(value: str, *, quote: str = '"') -> str:
+        """Escape a value for safe inclusion in a JavaScript string literal."""
+        from .serialize import _escape_js_string  # noqa: PLC0415
+
+        return _escape_js_string(value, quote=quote)
+
+    @staticmethod
+    def escape_attr_value(value: str, *, quote: str = '"') -> str:
+        """Escape a value for safe inclusion in a quoted HTML attribute value."""
+        if quote not in {'"', "'"}:
+            raise ValueError("quote must be ' or \"")
+
+        from .serialize import _escape_attr_value  # noqa: PLC0415
+
+        return _escape_attr_value(value, quote)
+
+    @staticmethod
+    def escape_url_value(value: str) -> str:
+        """Percent-encode a URL value (useful before embedding into non-URL contexts)."""
+        from .serialize import _escape_url_value  # noqa: PLC0415
+
+        return _escape_url_value(value)
+
+    @staticmethod
+    def clean_url_value(*, value: str, url_rule: UrlRule) -> str | None:
+        """Validate and rewrite a URL value according to an explicit UrlRule.
+
+        This is URL *cleaning* (allowlisting, scheme/host checks, optional proxying),
+        not URL escaping. It returns `None` if the URL is disallowed.
+        """
+        if not isinstance(url_rule, UrlRule):
+            raise TypeError("url_rule must be a UrlRule")
+
+        # Keep consistent validation with UrlPolicy.__post_init__ for proxy rules.
+        if url_rule.handling == "proxy" and url_rule.proxy is None:
+            raise ValueError("UrlRule.handling='proxy' requires a per-rule UrlRule.proxy")
+
+        cleaned = _sanitize_url_value_with_rule(
+            rule=url_rule,
+            value=value,
+            tag="*",
+            attr="*",
+            handling=url_rule.handling if url_rule.handling is not None else "allow",
+            allow_relative=url_rule.allow_relative if url_rule.allow_relative is not None else True,
+            proxy=url_rule.proxy,
+            url_filter=None,
+            apply_filter=False,
+        )
+        if cleaned is None:
+            return None
+        return JustHTML.escape_url_value(cleaned)
+
+    @staticmethod
+    def escape_url_in_js_string(value: str, *, quote: str = '"') -> str:
+        """Escape a URL value for inclusion in a JavaScript string literal."""
+        return JustHTML.escape_js_string(JustHTML.escape_url_value(value), quote=quote)
+
+    @staticmethod
+    def clean_url_in_js_string(
+        *,
+        value: str,
+        url_rule: UrlRule,
+        quote: str = '"',
+    ) -> str | None:
+        """Clean a URL using an explicit UrlRule, then make it JS-string-safe.
+
+        Returns `None` if the URL is disallowed by the policy.
+        """
+        cleaned = JustHTML.clean_url_value(value=value, url_rule=url_rule)
+        if cleaned is None:
+            return None
+        # cleaned is already percent-encoded by clean_url_value
+        return JustHTML.escape_js_string(cleaned, quote=quote)
+
+    @staticmethod
+    def escape_html_text_in_js_string(value: str, *, quote: str = '"') -> str:
+        """Escape plain text for assigning to innerHTML from a JavaScript string.
+
+        This produces a JS-string-safe value that, when assigned to innerHTML,
+        will be interpreted as text (not markup).
+        """
+        from .serialize import _escape_html_text  # noqa: PLC0415
+
+        return JustHTML.escape_js_string(_escape_html_text(value), quote=quote)
 
     def query(self, selector: str) -> list[Any]:
         """Query the document using a CSS selector. Delegates to root.query()."""
@@ -247,6 +337,9 @@ class JustHTML:
         self,
         pretty: bool = True,
         indent_size: int = 2,
+        *,
+        context: HTMLContext | None = None,
+        quote: str = '"',
     ) -> str:
         """Serialize the document to HTML.
 
@@ -256,6 +349,8 @@ class JustHTML:
             indent=0,
             indent_size=indent_size,
             pretty=pretty,
+            context=context,
+            quote=quote,
         )
 
     def to_text(

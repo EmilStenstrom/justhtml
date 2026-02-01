@@ -1,6 +1,7 @@
 import textwrap
 import unittest
 
+from justhtml import HTMLContext, UrlRule
 from justhtml import JustHTML as _JustHTML
 from justhtml.context import FragmentContext
 from justhtml.node import Comment, DocumentFragment, Node, Template, Text
@@ -97,6 +98,89 @@ class TestSerialize(unittest.TestCase):
         div.append_child(Text("a<b&c"))
         output = to_html(frag, pretty=False)
         assert output == "<div>a&lt;b&amp;c</div>"
+
+    def test_to_html_context_url(self):
+        # Test serialization with HTMLContext.URL
+        # Case 1: Simple text node
+        node = Text("https://example.com/foo bar")
+        output = to_html(node, context=HTMLContext.URL)
+        # Expect percent encoding of space
+        self.assertEqual(output, "https://example.com/foo%20bar")
+
+        # Case 2: Element with text content
+        div = Node("div")
+        div.append_child(Text("  /path/to/thing?q=a b  "))
+        # to_html with URL context should strip whitespace and encode
+        output = to_html(div, context=HTMLContext.URL)
+        self.assertEqual(output, "/path/to/thing?q=a%20b")
+
+    def test_to_html_inner_html_js_context(self):
+        output = _JustHTML.escape_html_text_in_js_string('<div a="b">Hi &amp; <b>world</b></div>')
+        # & escapes to \u0026
+        # " escapes to \"
+        # <, > were already escaped to &lt;, &gt; by html escaping, then the & in those is escaped
+        # but let's see. &lt; -> \u0026lt;
+        # Actually, let's just make it exact.
+        expected = r"&lt;div a=\"b\"&gt;Hi &amp;amp; &lt;b&gt;world&lt;/b&gt;&lt;/div&gt;"
+        assert output == expected
+
+    def test_to_html_inner_html_js_context_single_quote(self):
+        output = _JustHTML.escape_html_text_in_js_string("<p>It's ok</p>", quote="'")
+        expected = r"&lt;p&gt;It\'s ok&lt;/p&gt;"
+        assert output == expected
+
+    def test_to_html_js_string_context(self):
+        doc = JustHTML("<b>Hi</b>", fragment=True)
+        output = doc.to_html(pretty=False, context=HTMLContext.JS_STRING)
+        # < -> \u003c, > -> \u003e
+        assert output == r"\u003cb\u003eHi\u003c/b\u003e"
+
+    def test_escape_url_in_js_string(self):
+        output = _JustHTML.escape_url_in_js_string("/path with space?x=1&y=2")
+        # = -> \u003d, & -> \u0026
+        assert output == r"/path%20with%20space?x=1&y=2"
+
+    def test_clean_url_value_requires_rule(self):
+        rule = UrlRule(allowed_schemes={"https"})
+        assert _JustHTML.clean_url_value(value="https://example.com/x", url_rule=rule) == "https://example.com/x"
+
+        assert _JustHTML.clean_url_value(value="javascript:alert(1)", url_rule=rule) is None
+
+    def test_clean_url_in_js_string(self):
+        rule = UrlRule(allowed_schemes={"https"})
+        output = _JustHTML.clean_url_in_js_string(
+            value="https://example.com/path with space?x=1&y=2",
+            url_rule=rule,
+        )
+        assert output == r"https://example.com/path%20with%20space?x=1&y=2"
+
+        # Test disallowed URL returns None
+        assert _JustHTML.clean_url_in_js_string(value="javascript:alert(1)", url_rule=rule) is None
+
+    def test_escape_attr_value(self):
+        output = _JustHTML.escape_attr_value('" onerror="alert(1)', quote='"')
+        assert output == "&quot; onerror=&quot;alert(1)"
+
+    def test_to_html_html_attr_value_context(self):
+        doc = JustHTML("<b>Hi</b>", fragment=True)
+        output = doc.to_html(pretty=False, context=HTMLContext.HTML_ATTR_VALUE, quote='"')
+        assert output == "&lt;b&gt;Hi&lt;/b&gt;"
+
+    def test_to_html_html_attr_value_context_escapes_quotes(self):
+        doc = JustHTML('<p class="x">Hi</p>', fragment=True)
+        output = doc.to_html(pretty=False, context=HTMLContext.HTML_ATTR_VALUE, quote='"')
+        assert output == "&lt;p class=&quot;x&quot;&gt;Hi&lt;/p&gt;"
+
+    def test_to_html_html_js_string_context_escapes_quotes(self):
+        doc = JustHTML('<p class="x">Hi</p>', fragment=True)
+        output = doc.to_html(pretty=False, context=HTMLContext.JS_STRING)
+        # <u003c p class=\u003d\"x\"\u003e...
+        assert output == r"\u003cp class=\"x\"\u003eHi\u003c/p\u003e"
+
+    def test_to_html_unknown_context_raises(self):
+        doc = JustHTML("<p>Hi</p>", fragment=True)
+        with self.assertRaises(TypeError):
+            _ = doc.to_html(pretty=False, context="nope")
 
     def test_void_elements(self):
         html = "<br><hr><img>"
@@ -900,6 +984,42 @@ class TestSerialize(unittest.TestCase):
         assert '|   id="t1"' in output
         assert "|   content" in output
         assert "|     <p>" in output
+
+    def test_escape_js_string_invalid_quote(self):
+        with self.assertRaises(ValueError):
+            _JustHTML.escape_js_string("test", quote="x")
+
+    def test_escape_attr_value_invalid_quote(self):
+        with self.assertRaises(ValueError):
+            _JustHTML.escape_attr_value("test", quote="x")
+
+    def test_to_html_html_attr_value_context_invalid_quote(self):
+        doc = JustHTML("<b>Hi</b>", fragment=True)
+        with self.assertRaises(ValueError):
+            doc.to_html(pretty=False, context=HTMLContext.HTML_ATTR_VALUE, quote="x")
+
+    def test_clean_url_value_not_urlrule(self):
+        with self.assertRaises(TypeError):
+            _JustHTML.clean_url_value(value="https://example.com/", url_rule="not a rule")
+
+    def test_clean_url_value_proxy_without_config(self):
+        with self.assertRaises(ValueError):
+            rule = UrlRule(allowed_schemes={"https"}, handling="proxy")
+            _JustHTML.clean_url_value(value="https://example.com/", url_rule=rule)
+
+    def test_escape_js_string_special_chars(self):
+        # Test all special escape sequences
+        result = _JustHTML.escape_js_string("\\back\nline\rret\ttab\bbell\fform\u2028ls\u2029ps", quote='"')
+        assert result == "\\\\back\\nline\\rret\\ttab\\bbell\\fform\\u2028ls\\u2029ps"
+
+        # Test empty string
+        assert _JustHTML.escape_js_string("", quote='"') == ""
+
+    def test_escape_html_text_in_js_string_empty(self):
+        assert _JustHTML.escape_html_text_in_js_string("", quote='"') == ""
+
+    def test_escape_url_value_empty(self):
+        assert _JustHTML.escape_url_value("") == ""
 
 
 if __name__ == "__main__":

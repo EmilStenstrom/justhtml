@@ -11,13 +11,28 @@ The main parser class.
 ```python
 from justhtml import JustHTML
 ```
-
 ### Constructor
 
 ```python
-JustHTML(html, *, sanitize=True, safe=None, policy=None, collect_errors=False, track_node_locations=False, debug=False, encoding=None, fragment=False, fragment_context=None, iframe_srcdoc=False, strict=False, tokenizer_opts=None, tree_builder=None, transforms=None)
+JustHTML(
+    html,
+    *,
+    sanitize=True,
+    safe=None,
+    policy=None,
+    collect_errors=False,
+    track_node_locations=False,
+    debug=False,
+    encoding=None,
+    fragment=False,
+    fragment_context=None,
+    iframe_srcdoc=False,
+    strict=False,
+    tokenizer_opts=None,
+    tree_builder=None,
+    transforms=None,
+)
 ```
-
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `html` | `str \| bytes \| bytearray \| memoryview` | required | HTML input to parse. Bytes are decoded using HTML encoding sniffing. |
@@ -45,6 +60,100 @@ JustHTML(html, *, sanitize=True, safe=None, policy=None, collect_errors=False, t
 | `errors` | `list[ParseError]` | Parse errors, ordered by source position (only if `collect_errors=True`) |
 
 ### Methods
+
+#### `to_html(pretty=True, indent_size=2, context=None, quote='"')`
+
+Serialize the document to HTML.
+
+```python
+from justhtml import HTMLContext, JustHTML
+
+doc = JustHTML("<p>Hello</p>")
+doc.to_html()  # Pretty-printed HTML
+doc.to_html(pretty=False)  # Compact HTML
+doc.to_html(context=HTMLContext.JS_STRING)  # HTML -> JS string literal
+
+# With enum:
+# from justhtml import HTMLContext
+# doc.to_html(context=HTMLContext.JS_STRING)
+```
+
+Parameters:
+
+- `pretty` (default: `True`): pretty-print with newlines/indent
+- `indent_size` (default: `2`): indent size for pretty output
+- `context` (default: `None`/`HTMLContext.HTML`): output encoding context
+- `quote` (default: `"`): quote used for JS string escaping
+
+#### `escape_js_string(value, quote='"')`
+
+Escape a value for safe inclusion in a JavaScript string literal.
+
+```python
+from justhtml import JustHTML
+
+JustHTML.escape_js_string('He said "hi"')
+# => He said \"hi\"
+```
+
+#### `escape_attr_value(value, quote='"')`
+
+Escape a value for safe inclusion in a quoted HTML attribute value.
+
+```python
+from justhtml import JustHTML
+
+JustHTML.escape_attr_value('" onerror="alert(1)')
+# => &quot; onerror=&quot;alert(1)
+```
+
+#### `escape_url_value(value)`
+
+Percent-encode a URL value.
+
+```python
+from justhtml import JustHTML
+
+JustHTML.escape_url_value('/path with space?x=1&y=2')
+# => /path%20with%20space?x=1&y=2
+```
+
+#### `escape_url_in_js_string(value, quote='"')`
+
+Convenience helper: URL-encode, then JS-string escape.
+
+```python
+from justhtml import JustHTML
+
+JustHTML.escape_url_in_js_string('/path with space?x=1&y=2')
+# => /path%20with%20space?x=1&y=2
+```
+
+#### `clean_url_value(value, url_rule)`
+
+Validate and rewrite a URL value using an explicit `UrlRule`.
+Returns `None` if the URL is disallowed.
+
+```python
+from justhtml import JustHTML, UrlRule
+
+url_rule = UrlRule(allowed_schemes={"https"})
+JustHTML.clean_url_value(value="https://example.com/", url_rule=url_rule)
+# => https://example.com/
+```
+
+#### `clean_url_in_js_string(value, url_rule, quote='"')`
+
+Convenience helper: clean a URL, then percent-encode it and JS-string escape it.
+Returns `None` if the URL is disallowed.
+
+```python
+from justhtml import JustHTML, UrlRule
+
+url_rule = UrlRule(allowed_schemes={"https"})
+JustHTML.clean_url_in_js_string(value="https://example.com/a b", url_rule=url_rule)
+# => https://example.com/a%20b
+```
 
 #### `to_text()`
 
@@ -129,15 +238,38 @@ the construction pipeline.
 
 ### Methods
 
-#### `to_html(indent=0, indent_size=2, pretty=True)`
+#### `to_html(indent=0, indent_size=2, pretty=True, context=None, quote='"')`
 
 Serialize the node to HTML string.
 
 ```python
+from justhtml import HTMLContext
+
 node.to_html()                      # Pretty-printed HTML
 node.to_html(pretty=False)          # Compact HTML
 node.to_html(indent_size=4)         # 4-space indent
 node.to_html(indent=2, indent_size=4)  # Start with 2 indents
+node.to_html(context=HTMLContext.JS_STRING)  # HTML -> JS string literal
+
+# Or use the enum from the public namespace:
+# from justhtml import HTMLContext
+# node.to_html(context=HTMLContext.JS_STRING)
+
+# Context options:
+# - HTMLContext.HTML (default): no extra escaping
+# - HTMLContext.JS_STRING: JS-string escape (serialized HTML markup)
+# - HTMLContext.HTML_ATTR_VALUE: escape the serialized HTML for a quoted HTML attribute value
+#
+# If you need to put plain text into `innerHTML` via a JS string, use:
+# - JustHTML.escape_html_text_in_js_string(...)
+#
+# For escaping plain strings (no DOM required), use:
+# - JustHTML.escape_js_string(...)
+# - JustHTML.escape_attr_value(...)
+# - JustHTML.escape_url_value(...)
+# - JustHTML.escape_url_in_js_string(...)
+# - JustHTML.clean_url_value(...)
+# - JustHTML.clean_url_in_js_string(...)
 
 # Safety happens at construction time:
 # - default: JustHTML(..., sanitize=True)
@@ -241,6 +373,7 @@ from justhtml import sanitize_dom
 
 sanitize_dom(doc.root)  # In-place for document roots
 ```
+
 
 ### `DEFAULT_POLICY`
 
@@ -429,13 +562,31 @@ if matches(node, "div.active"):
     ...
 ```
 
-### `to_html(node, indent=0, indent_size=2, pretty=True)`
+### `to_html(node, indent=0, indent_size=2, pretty=True, context=None, quote='"')`
 
 Serialize a node to HTML.
 
 ```python
-from justhtml import to_html
+from justhtml import HTMLContext, to_html
 html_string = to_html(node)
+escaped = to_html(node, context=HTMLContext.JS_STRING)
+
+# With enum:
+# from justhtml import HTMLContext
+# escaped = to_html(node, context=HTMLContext.JS_STRING)
+
+# Context options:
+# - HTMLContext.HTML (default)
+# - HTMLContext.JS_STRING
+# - HTMLContext.HTML_ATTR_VALUE
+#
+# For escaping plain strings (no DOM required), use:
+# - JustHTML.escape_js_string(...)
+# - JustHTML.escape_attr_value(...)
+# - JustHTML.escape_url_value(...)
+# - JustHTML.escape_url_in_js_string(...)
+# - JustHTML.clean_url_value(...)
+# - JustHTML.clean_url_in_js_string(...)
 ```
 
 ---

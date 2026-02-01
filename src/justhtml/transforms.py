@@ -26,9 +26,12 @@ from .sanitize import (
     DEFAULT_POLICY,
     SanitizationPolicy,
     UrlPolicy,
+    _effective_allow_relative,
+    _effective_proxy,
+    _effective_url_handling,
     _sanitize_inline_style,
     _sanitize_srcset_value,
-    _sanitize_url_value,
+    _sanitize_url_value_with_rule,
 )
 from .selector import SelectorMatcher, parse_selector
 from .serialize import serialize_end_tag, serialize_start_tag
@@ -1606,12 +1609,16 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                             value=str(raw_value),
                         )
                     else:
-                        sanitized = _sanitize_url_value(
-                            url_policy=url_policy,
+                        sanitized = _sanitize_url_value_with_rule(
                             rule=rule,
+                            value=str(raw_value),
                             tag=tag,
                             attr=key,
-                            value=str(raw_value),
+                            handling=_effective_url_handling(url_policy=url_policy, rule=rule),
+                            allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
+                            proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+                            url_filter=url_policy.url_filter,
+                            apply_filter=True,
                         )
 
                     if sanitized is None:
@@ -2081,12 +2088,16 @@ def apply_compiled_transforms(
                                 value=val_str,
                             )
                         else:
-                            sanitized = _sanitize_url_value(
-                                url_policy=policy.url_policy,
+                            sanitized = _sanitize_url_value_with_rule(
                                 rule=url_rule,
+                                value=val_str,
                                 tag=tag,
                                 attr=key_lower,
-                                value=val_str,
+                                handling=_effective_url_handling(url_policy=policy.url_policy, rule=url_rule),
+                                allow_relative=_effective_allow_relative(url_policy=policy.url_policy, rule=url_rule),
+                                proxy=_effective_proxy(url_policy=policy.url_policy, rule=url_rule),
+                                url_filter=policy.url_policy.url_filter,
+                                apply_filter=True,
                             )
 
                         if sanitized is None:

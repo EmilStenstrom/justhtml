@@ -8,6 +8,7 @@ policy-driven.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
@@ -429,6 +430,11 @@ class SanitizationPolicy:
 _URL_NORMALIZE_STRIP_TABLE = {i: None for i in range(0x21)}
 _URL_NORMALIZE_STRIP_TABLE[0x7F] = None
 
+_ATTR_DROP_PATTERNS: tuple[str, ...] = ("on*", "srcdoc", "*:*")
+_ATTR_DROP_REGEX: re.Pattern[str] = re.compile(
+    "^(?:" + "|".join(re.escape(p).replace(r"\*", ".*").replace(r"\?", ".") for p in _ATTR_DROP_PATTERNS) + ")$"
+)
+
 
 DEFAULT_POLICY: SanitizationPolicy = SanitizationPolicy(
     allowed_tags=[
@@ -761,12 +767,15 @@ def _sanitize_css_url_functions(*, url_policy: UrlPolicy, tag: str, prop: str, v
             if not (ord(nxt) <= 0x20 or nxt in {",", "/"}):
                 return None
 
-        sanitized = _sanitize_url_value_inner(
-            url_policy=url_policy,
+        sanitized = _sanitize_url_value_with_rule(
             rule=rule,
+            value=url_raw,
             tag=tag,
             attr=f"style:{prop}",
-            value=url_raw,
+            handling=_effective_url_handling(url_policy=url_policy, rule=rule),
+            allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
+            proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+            url_filter=url_policy.url_filter,
             apply_filter=True,
         )
         if sanitized is None:
@@ -890,19 +899,6 @@ def _has_invalid_scheme_like_prefix(value: str) -> bool:
     return not _is_valid_scheme(value[:idx])
 
 
-def _sanitize_url_value(
-    *,
-    url_policy: UrlPolicy,
-    rule: UrlRule,
-    tag: str,
-    attr: str,
-    value: str,
-) -> str | None:
-    return _sanitize_url_value_inner(
-        url_policy=url_policy, rule=rule, tag=tag, attr=attr, value=value, apply_filter=True
-    )
-
-
 def _effective_proxy(*, url_policy: UrlPolicy, rule: UrlRule) -> UrlProxy | None:
     return rule.proxy if rule.proxy is not None else url_policy.proxy
 
@@ -917,21 +913,22 @@ def _effective_allow_relative(*, url_policy: UrlPolicy, rule: UrlRule) -> bool:
     return rule.allow_relative if rule.allow_relative is not None else url_policy.default_allow_relative
 
 
-def _sanitize_url_value_inner(
+def _sanitize_url_value_with_rule(
     *,
-    url_policy: UrlPolicy,
     rule: UrlRule,
+    value: str,
     tag: str,
     attr: str,
-    value: str,
+    handling: UrlHandling,
+    allow_relative: bool,
+    proxy: UrlProxy | None,
+    url_filter: UrlFilter | None,
     apply_filter: bool,
 ) -> str | None:
     v = value
-    mode = _effective_url_handling(url_policy=url_policy, rule=rule)
-    allow_relative = _effective_allow_relative(url_policy=url_policy, rule=rule)
 
-    if apply_filter and url_policy.url_filter is not None:
-        rewritten = url_policy.url_filter(tag, attr, v)
+    if apply_filter and url_filter is not None:
+        rewritten = url_filter(tag, attr, v)
         if rewritten is None:
             return None
         v = rewritten
@@ -946,14 +943,13 @@ def _sanitize_url_value_inner(
     if normalized.startswith("#"):
         if not rule.allow_fragment:
             return None
-        if mode == "strip":
+        if handling == "strip":
             return None
-        if mode == "proxy":
-            proxy = _effective_proxy(url_policy=url_policy, rule=rule)
+        if handling == "proxy":
             return None if proxy is None else _proxy_url_value(proxy=proxy, value=stripped)
         return stripped
 
-    if mode == "proxy" and _has_invalid_scheme_like_prefix(normalized):
+    if handling == "proxy" and _has_invalid_scheme_like_prefix(normalized):
         # If proxying is enabled, do not treat scheme-obfuscation as a relative URL.
         # Some user agents normalize backslashes and other characters during navigation.
         return None
@@ -976,10 +972,9 @@ def _sanitize_url_value_inner(
             if not host or host not in rule.allowed_hosts:
                 return None
 
-        if mode == "strip":
+        if handling == "strip":
             return None
-        if mode == "proxy":
-            proxy = _effective_proxy(url_policy=url_policy, rule=rule)
+        if handling == "proxy":
             return None if proxy is None else _proxy_url_value(proxy=proxy, value=resolved_url)
         return resolved_url
 
@@ -992,20 +987,18 @@ def _sanitize_url_value_inner(
             host = (parsed.hostname or "").lower()
             if not host or host not in rule.allowed_hosts:
                 return None
-        if mode == "strip":
+        if handling == "strip":
             return None
-        if mode == "proxy":
-            proxy = _effective_proxy(url_policy=url_policy, rule=rule)
+        if handling == "proxy":
             return None if proxy is None else _proxy_url_value(proxy=proxy, value=stripped)
         return stripped
 
     if not allow_relative:
         return None
 
-    if mode == "strip":
+    if handling == "strip":
         return None
-    if mode == "proxy":
-        proxy = _effective_proxy(url_policy=url_policy, rule=rule)
+    if handling == "proxy":
         return None if proxy is None else _proxy_url_value(proxy=proxy, value=stripped)
     return stripped
 
@@ -1040,12 +1033,15 @@ def _sanitize_srcset_value(
         url_token = parts[0]
         desc = parts[1].strip() if len(parts) == 2 else ""
 
-        sanitized_url = _sanitize_url_value_inner(
-            url_policy=url_policy,
+        sanitized_url = _sanitize_url_value_with_rule(
             rule=rule,
+            value=url_token,
             tag=tag,
             attr=attr,
-            value=url_token,
+            handling=_effective_url_handling(url_policy=url_policy, rule=rule),
+            allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
+            proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+            url_filter=None,
             apply_filter=False,
         )
         if sanitized_url is None:

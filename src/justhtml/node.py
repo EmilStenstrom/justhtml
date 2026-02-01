@@ -7,6 +7,7 @@ from .selector import query
 from .serialize import to_html
 
 if TYPE_CHECKING:
+    from .serialize import HTMLContext
     from .tokens import Doctype
 
 
@@ -272,9 +273,12 @@ class Node:
         indent: int = 0,
         indent_size: int = 2,
         pretty: bool = True,
+        *,
+        context: HTMLContext | None = None,
+        quote: str = '"',
     ) -> str:
         """Convert node to HTML string."""
-        return to_html(self, indent, indent_size, pretty=pretty)
+        return to_html(self, indent, indent_size, pretty=pretty, context=context, quote=quote)
 
     def query(self, selector: str) -> list[Any]:
         """
