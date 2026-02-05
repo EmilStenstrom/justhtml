@@ -121,6 +121,46 @@ class TestNode(unittest.TestCase):
         assert doc.to_text() == "Hello World"
         assert doc.to_text(separator="", strip=True) == "HelloWorld"
 
+    def test_to_text_separator_blocks_only_avoids_inline_separators(self):
+        doc = JustHTML("<p>hi</p><p>Hello <b>world</b></p>")
+        assert doc.to_text(separator="\n") == "hi\nHello\nworld"
+        assert doc.to_text(separator="\n", separator_blocks_only=True) == "hi\nHello world"
+
+    def test_to_text_separator_blocks_only_ignores_empty_text_and_breaks_on_br(self):
+        root = Node("div")
+        root.append_child(Text("A"))
+        root.append_child(Node("br"))
+        root.append_child(Text(""))
+        root.append_child(Text("   "))
+        root.append_child(Text(None))
+        root.append_child(Text("B"))
+
+        assert root.to_text(separator="\n", separator_blocks_only=True) == "A\nB"
+
+    def test_to_text_separator_blocks_only_includes_template_content(self):
+        root = Node("div")
+        root.append_child(Text("A"))
+        template = Template("template", namespace="html")
+        template.template_content.append_child(Text("Inside"))
+        root.append_child(template)
+        root.append_child(Text("B"))
+
+        assert root.to_text(separator="\n", separator_blocks_only=True) == "A Inside B"
+
+    def test_to_text_separator_blocks_only_strip_false_preserves_whitespace(self):
+        root = Node("div")
+        root.append_child(Text("  A  "))
+        root.append_child(Node("br"))
+        root.append_child(Text(" B "))
+
+        assert root.to_text(separator="|", separator_blocks_only=True, strip=False) == "  A  | B "
+
+    def test_to_text_separator_blocks_only_empty_subtree(self):
+        root = Node("div")
+        root.append_child(Text("   "))
+
+        assert root.to_text(separator="\n", separator_blocks_only=True) == ""
+
     def test_to_text_sanitizes_by_default(self):
         doc = JustHTML("<p>ok</p><script>alert(1)</script>")
         assert doc.to_text() == "ok"

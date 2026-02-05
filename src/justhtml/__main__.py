@@ -97,6 +97,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=" ",
         help="Text-only: join string between text nodes (default: a single space)",
     )
+    parser.add_argument(
+        "--separator-blocks-only",
+        action="store_true",
+        help="Text-only: only apply --separator between block-level elements (avoid separators inside inline tags)",
+    )
     strip_group = parser.add_mutually_exclusive_group()
     strip_group.add_argument(
         "--strip",
@@ -220,14 +225,32 @@ def main() -> None:
             # Keep these branches explicit so coverage will highlight untested CLI options.
             if args.separator == " ":
                 if args.strip:
-                    outputs = [node.to_text(strip=True) for node in nodes]
+                    outputs = [
+                        node.to_text(strip=True, separator_blocks_only=args.separator_blocks_only) for node in nodes
+                    ]
                 else:
-                    outputs = [node.to_text(strip=False) for node in nodes]
+                    outputs = [
+                        node.to_text(strip=False, separator_blocks_only=args.separator_blocks_only) for node in nodes
+                    ]
             else:
                 if args.strip:
-                    outputs = [node.to_text(separator=args.separator, strip=True) for node in nodes]
+                    outputs = [
+                        node.to_text(
+                            separator=args.separator,
+                            strip=True,
+                            separator_blocks_only=args.separator_blocks_only,
+                        )
+                        for node in nodes
+                    ]
                 else:
-                    outputs = [node.to_text(separator=args.separator, strip=False) for node in nodes]
+                    outputs = [
+                        node.to_text(
+                            separator=args.separator,
+                            strip=False,
+                            separator_blocks_only=args.separator_blocks_only,
+                        )
+                        for node in nodes
+                    ]
             out.write("\n".join(outputs))
             out.write("\n")
             return

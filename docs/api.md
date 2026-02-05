@@ -168,6 +168,7 @@ Parameters:
 
 - `separator` (default: `" "`): join string between text nodes
 - `strip` (default: `True`): strip each text node and drop empties
+- `separator_blocks_only` (default: `False`): only apply `separator` between block-level elements (avoid separators inside inline tags)
 
 Sanitization happens at construction time. Use `JustHTML(..., sanitize=False)` for trusted input or `JustHTML(..., policy=...)` to customize the policy.
 
@@ -292,6 +293,12 @@ Return the node's concatenated text.
 ```python
 node.to_text()
 ```
+
+Parameters:
+
+- `separator` (default: `" "`): join string between text nodes
+- `strip` (default: `True`): strip each text node and drop empties
+- `separator_blocks_only` (default: `False`): only apply `separator` between block-level elements (avoid separators inside inline tags)
 
 Text extraction is safe-by-default when you build documents with `JustHTML(..., sanitize=True)` (the default). Use `sanitize=False` at construction for trusted input.
 

@@ -59,6 +59,33 @@ print(doc.to_text(separator="", strip=True))
 # => Helloworld
 ```
 
+### Block-only separators
+
+If you use a separator like `"\n"` to get one “line” per block element, inline elements can split text into multiple nodes and produce extra separators:
+
+```python
+from justhtml import JustHTML
+
+doc = JustHTML("<p>hi</p><p>Hello <b>world</b></p>")
+
+print(doc.to_text(separator="\n"))
+# => hi
+# => Hello
+# => world
+```
+
+Use `separator_blocks_only=True` to apply `separator` only between block-level elements:
+
+```python
+from justhtml import JustHTML
+
+doc = JustHTML("<p>hi</p><p>Hello <b>world</b></p>")
+
+print(doc.to_text(separator="\n", separator_blocks_only=True))
+# => hi
+# => Hello world
+```
+
 ## 2) `to_markdown()` (GitHub Flavored Markdown)
 
 `to_markdown()` outputs a pragmatic subset of GitHub Flavored Markdown (GFM) that aims to be readable and stable for common HTML.

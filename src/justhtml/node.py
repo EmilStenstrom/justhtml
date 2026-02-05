@@ -186,6 +186,99 @@ def _to_text_collect(node: Any, parts: list[str], strip: bool) -> None:
             stack.extend(reversed(children))
 
 
+_TEXT_BLOCK_ELEMENTS: frozenset[str] = frozenset(
+    {
+        "address",
+        "article",
+        "aside",
+        "blockquote",
+        "body",
+        "dd",
+        "div",
+        "dl",
+        "dt",
+        "fieldset",
+        "figcaption",
+        "figure",
+        "footer",
+        "form",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "header",
+        "hr",
+        "html",
+        "li",
+        "main",
+        "nav",
+        "ol",
+        "p",
+        "pre",
+        "section",
+        "table",
+        "tbody",
+        "td",
+        "tfoot",
+        "th",
+        "thead",
+        "tr",
+        "ul",
+    }
+)
+
+_TEXT_BREAK_ELEMENTS: frozenset[str] = frozenset({"br"})
+
+
+def _to_text_break(chunks: list[list[str]]) -> None:
+    if chunks and chunks[-1]:
+        chunks.append([])
+
+
+def _to_text_collect_block_chunks(node: Any, chunks: list[list[str]], strip: bool) -> None:
+    # Depth-first walk that inserts chunk boundaries for block-level elements.
+    # This lets callers join chunks with a separator (e.g. "\n") without
+    # introducing separators inside inline elements like <b> or <span>.
+    stack: list[tuple[Any, int]] = [(node, 0)]  # (node, state), state: 0=enter, 1=exit
+    while stack:
+        current, state = stack.pop()
+        name: str = current.name
+
+        if state == 1:
+            _to_text_break(chunks)
+            continue
+
+        if name == "#text":
+            data: str | None = current.data
+            if not data:
+                continue
+            if strip:
+                data = data.strip()
+                if not data:
+                    continue
+            chunks[-1].append(data)
+            continue
+
+        if name in _TEXT_BREAK_ELEMENTS:
+            _to_text_break(chunks)
+            continue
+
+        if name in _TEXT_BLOCK_ELEMENTS:
+            _to_text_break(chunks)
+            stack.append((current, 1))
+
+        # Preserve the same traversal order as the recursive implementation:
+        # children first, then template content.
+        if type(current) is Template and current.template_content:
+            stack.append((current.template_content, 0))
+
+        children = current.children
+        if children:
+            stack.extend((child, 0) for child in reversed(children))
+
+
 class Node:
     __slots__ = (
         "_origin_col",
@@ -314,19 +407,38 @@ class Node:
         self,
         separator: str = " ",
         strip: bool = True,
+        *,
+        separator_blocks_only: bool = False,
     ) -> str:
         """Return the concatenated text of this node's descendants.
 
         - `separator` controls how text nodes are joined (default: a single space).
         - `strip=True` strips each text node and drops empty segments.
+        - `separator_blocks_only=True` only applies `separator` between block-level
+          elements, avoiding separators inside inline elements (like `<b>`).
         Template element contents are included via `template_content`.
         """
         node: Any = self
-        parts: list[str] = []
-        _to_text_collect(node, parts, strip=strip)
-        if not parts:
+        if not separator_blocks_only:
+            parts: list[str] = []
+            _to_text_collect(node, parts, strip=strip)
+            if not parts:
+                return ""
+            return separator.join(parts)
+
+        chunks: list[list[str]] = [[]]
+        _to_text_collect_block_chunks(node, chunks, strip=strip)
+
+        intra_sep = " " if strip else ""
+        texts: list[str] = []
+        for chunk in chunks:
+            if not chunk:
+                continue
+            texts.append(intra_sep.join(chunk))
+
+        if not texts:
             return ""
-        return separator.join(parts)
+        return separator.join(texts)
 
     def to_markdown(self, html_passthrough: bool = False) -> str:
         """Return a GitHub Flavored Markdown representation of this subtree.
@@ -633,8 +745,11 @@ class Text:
         self,
         separator: str = " ",
         strip: bool = True,
+        *,
+        separator_blocks_only: bool = False,
     ) -> str:
         _ = separator
+        _ = separator_blocks_only
         if self.data is None:
             return ""
         if strip:

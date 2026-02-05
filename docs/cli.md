@@ -90,6 +90,7 @@ curl -s https://example.com | justhtml - --format html --cleanup
 When using `--format text`, you can control whitespace handling:
 
 - `--separator "..."` (default: a single space) joins text nodes
+- `--separator-blocks-only` applies `--separator` only between block-level elements (avoid separators inside inline tags)
 - `--strip` / `--no-strip` controls whether each text node is stripped and empty segments dropped
 
 Example:

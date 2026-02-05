@@ -114,6 +114,16 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(out, "Hi there\nBye\n")
         self.assertEqual(err, "")
 
+    def test_format_text_separator_blocks_only(self):
+        html = "<p>hi</p><p>Hello <b>world</b></p>"
+        code, out, err = self._run_cli(
+            ["-", "--format", "text", "--separator", "\n", "--separator-blocks-only"],
+            stdin_text=html,
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "hi\nHello world\n")
+        self.assertEqual(err, "")
+
     def test_format_text_sanitizes_by_default(self):
         html = "<p>Hello<script>alert(1)</script>World</p>"
         code, out, err = self._run_cli(["-", "--format", "text"], stdin_text=html)

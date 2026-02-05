@@ -357,9 +357,15 @@ class JustHTML:
         self,
         separator: str = " ",
         strip: bool = True,
+        *,
+        separator_blocks_only: bool = False,
     ) -> str:
         """Return the document's concatenated text."""
-        return self.root.to_text(separator=separator, strip=strip)
+        return self.root.to_text(
+            separator=separator,
+            strip=strip,
+            separator_blocks_only=separator_blocks_only,
+        )
 
     def to_markdown(self, html_passthrough: bool = False) -> str:
         """Return a GitHub Flavored Markdown representation."""
