@@ -71,6 +71,7 @@ async function installJusthtmlFromLocalRepo(pyodideInstance) {
 		"serialize.py",
 		"stream.py",
 		"transforms.py",
+		"transforms_spec.py",
 		"tokenizer.py",
 		"tokens.py",
 		"treebuilder.py",
