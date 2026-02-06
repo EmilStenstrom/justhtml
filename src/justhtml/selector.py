@@ -928,7 +928,11 @@ class SelectorMatcher:
 
 
 def parse_selector(selector_string: str) -> ParsedSelector:
-    """Parse a CSS selector string into an AST."""
+    """Parse a CSS selector string into an AST.
+
+    Note: parsing is cached internally via an LRU cache (see
+    `_parse_selector_cached`) to keep repeated selector use cheap.
+    """
     if not selector_string or not selector_string.strip():
         raise SelectorError("Empty selector")
 
@@ -1020,6 +1024,11 @@ def query(root: Any, selector_string: str) -> list[Any]:
 
     Returns:
         A list of matching nodes
+
+    Performance notes:
+    - Simple tag-only selectors like "div" use a fast descendant-scan path.
+    - Other selectors are parsed via an internal LRU cache (up to 512 distinct
+      selector strings) to reduce repeated parse overhead.
     """
     selector_string = selector_string.strip()
     if not selector_string:

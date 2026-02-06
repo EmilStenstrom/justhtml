@@ -4,6 +4,12 @@
 
 JustHTML supports a comprehensive subset of CSS selectors for querying the DOM.
 
+## Performance Notes
+
+- Selector parsing is cached internally (LRU, up to 512 distinct selector strings). Repeating the same selector across many calls avoids re-parsing overhead.
+- Simple tag-only selectors like `"div"` use a fast path (descendant scan without running the full selector matcher).
+- If you generate lots of unique selectors dynamically, expect some parse overhead once the cache churns.
+
 ## Basic Selectors
 
 | Selector | Example | Description |
