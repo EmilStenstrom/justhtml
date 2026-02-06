@@ -115,6 +115,23 @@ class TokenizerOpts:
         self.scripting_enabled = bool(scripting_enabled)
         self.xml_coercion = bool(xml_coercion)
 
+    def copy(self) -> TokenizerOpts:
+        """Return a shallow copy of these options.
+
+        JustHTML may adjust some tokenizer options at runtime (based on e.g.
+        fragment context and escape-mode sanitization). Copying avoids mutating
+        a caller-provided TokenizerOpts instance.
+        """
+        return TokenizerOpts(
+            exact_errors=self.exact_errors,
+            discard_bom=self.discard_bom,
+            emit_bogus_markup_as_text=self.emit_bogus_markup_as_text,
+            initial_state=self.initial_state,
+            initial_rawtext_tag=self.initial_rawtext_tag,
+            scripting_enabled=self.scripting_enabled,
+            xml_coercion=self.xml_coercion,
+        )
+
 
 class Tokenizer:
     DATA = 0

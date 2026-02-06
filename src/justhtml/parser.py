@@ -139,7 +139,7 @@ class JustHTML:
             scripting_enabled=scripting_enabled,
             track_tag_spans=track_tag_spans,
         )
-        opts = tokenizer_opts or TokenizerOpts()
+        opts = tokenizer_opts.copy() if tokenizer_opts is not None else TokenizerOpts()
         opts.scripting_enabled = bool(scripting_enabled)
         if needs_escape_incomplete_tags:
             opts.emit_bogus_markup_as_text = True
