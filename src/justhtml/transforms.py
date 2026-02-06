@@ -1536,12 +1536,16 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 # Hot-path used by the sanitizer: ("*:*", "on*", "srcdoc").
                 # Avoid regex and avoid building a new dict when nothing matches.
                 if patterns == ("*:*", "on*", "srcdoc"):
-                    to_drop = [key for key in attrs if key.startswith("on") or key == "srcdoc" or ":" in key]
-                    if not to_drop:
+                    for key in attrs:
+                        if key.startswith("on") or key == "srcdoc" or ":" in key:
+                            break
+                    else:
                         return None
 
                     out = dict(attrs)
-                    for key in to_drop:
+                    for key in attrs:
+                        if not (key.startswith("on") or key == "srcdoc" or ":" in key):
+                            continue
                         if on_report is not None:  # pragma: no cover
                             if key == "srcdoc":
                                 found_pat = "srcdoc"
@@ -1636,16 +1640,24 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 attrs = node.attrs
                 if not attrs:
                     return None
-                tag = str(node.name)
-                if not tag.islower():
-                    tag = tag.lower()
-                allowed = allowed_by_tag.get(tag, allowed_global)
+                tag = node.name
+                if type(tag) is not str:  # pragma: no cover
+                    tag = str(tag)
+
+                # Most tags fall back to global allowed attrs. Avoid tag
+                # normalization work unless we actually have tag-specific rules.
+                allowed = allowed_by_tag.get(tag)
+                if allowed is None:
+                    if not tag.islower():  # pragma: no cover
+                        allowed = allowed_by_tag.get(tag.lower())
+                    if allowed is None:
+                        allowed = allowed_global
 
                 # Fast path: attrs already normalized and allowed.
                 for key in attrs:
                     if type(key) is not str:
                         break
-                    if not key or not key.islower() or key not in allowed:
+                    if not key or key not in allowed:
                         break
                 else:
                     return None
@@ -1659,15 +1671,23 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                         changed = True
                         continue
                     key = raw_key_str
-                    if not key.islower():
-                        key = key.lower()
-                        changed = True  # pragma: no cover
                     if key in allowed:
                         out[key] = value
-                    else:
-                        changed = True
-                        if on_report is not None:
-                            on_report(f"Unsafe attribute '{key}' (not allowed)", node=node)
+                        continue
+
+                    # Mixed-case keys (e.g. user-constructed trees): normalize
+                    # only when necessary.
+                    if not key.islower():
+                        lowered = key.lower()
+                        if lowered in allowed:
+                            out[lowered] = value
+                            changed = True
+                            continue
+                        key = lowered
+
+                    changed = True
+                    if on_report is not None:
+                        on_report(f"Unsafe attribute '{key}' (not allowed)", node=node)
                 if not changed:
                     return None
                 if on_hook is not None:
@@ -1704,8 +1724,8 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
 
                 tag: str | None = None
                 changed = False
-                to_drop: list[str] = []
-                to_set: dict[str, str] = {}
+                to_drop: list[str] | None = None
+                to_set: dict[str, str] | None = None
 
                 # Most nodes have no URL-like attrs; avoid allocations in that case.
                 for key, raw_value in attrs.items():
@@ -1719,6 +1739,8 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     if raw_value is None:
                         if on_report is not None:  # pragma: no cover
                             on_report(f"Unsafe URL in attribute '{key}'", node=node)
+                        if to_drop is None:
+                            to_drop = []
                         to_drop.append(key)
                         changed = True
                         continue
@@ -1727,6 +1749,8 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     if rule is None:
                         if on_report is not None:  # pragma: no cover
                             on_report(f"Unsafe URL in attribute '{key}' (no rule)", node=node)
+                        if to_drop is None:
+                            to_drop = []
                         to_drop.append(key)
                         changed = True
                         continue
@@ -1755,11 +1779,15 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     if sanitized is None:
                         if on_report is not None:
                             on_report(f"Unsafe URL in attribute '{key}'", node=node)
+                        if to_drop is None:
+                            to_drop = []
                         to_drop.append(key)
                         changed = True
                         continue
 
                     if raw_value != sanitized:
+                        if to_set is None:
+                            to_set = {}
                         to_set[key] = sanitized
                         changed = True
 
@@ -1770,9 +1798,10 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     return None
 
                 out = dict(attrs)
-                for key in to_drop:
-                    out.pop(key, None)
-                if to_set:
+                if to_drop is not None:
+                    for key in to_drop:
+                        out.pop(key, None)
+                if to_set is not None:
                     out.update(to_set)
 
                 if on_hook is not None:
@@ -1947,24 +1976,6 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     new_allowed["a"] = a_attrs
                     effective_allowed_attrs = new_allowed
 
-            # Drop comments/doctype early (mirrors the old pipeline order).
-            if policy.drop_comments:
-                _append_compiled(
-                    _CompiledDropCommentsTransform(
-                        kind="drop_comments",
-                        callback=t.callback,
-                        report=t.report,
-                    )
-                )
-            if policy.drop_doctype:
-                _append_compiled(
-                    _CompiledDropDoctypeTransform(
-                        kind="drop_doctype",
-                        callback=t.callback,
-                        report=t.report,
-                    )
-                )
-
             # Decide (elements-only) chain to avoid spending time on text/container nodes.
             decide_callbacks: list[Callable[[Node], DecideAction]] = []
 
@@ -2030,6 +2041,25 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             # Recursive compile to enable optimization (RewriteAttrs fusion).
             for sub_t in compile_transforms(sub_attrs):
                 _append_compiled(sub_t)
+
+            # Drop comments/doctype late so we also catch nodes hoisted by
+            # disallowed-tag handling (unwrap/escape) in the same walk.
+            if policy.drop_comments:
+                _append_compiled(
+                    _CompiledDropCommentsTransform(
+                        kind="drop_comments",
+                        callback=t.callback,
+                        report=t.report,
+                    )
+                )
+            if policy.drop_doctype:
+                _append_compiled(
+                    _CompiledDropDoctypeTransform(
+                        kind="drop_doctype",
+                        callback=t.callback,
+                        report=t.report,
+                    )
+                )
 
             continue
 
@@ -2139,8 +2169,16 @@ def apply_compiled_transforms(
             created_start_index: dict[int, int] = {}
 
             def _mark_start(n: object, start_index: int) -> None:
+                # Most pipelines (including default sanitization) only ever
+                # mark nodes with start_index=0, which is also the implicit
+                # default. Avoid storing those entries so we can skip a hot
+                # per-node dict lookup in the walker.
+                if start_index <= 0:
+                    return
                 key = id(n)
-                created_start_index[key] = max(created_start_index.get(key, 0), start_index)
+                prev = created_start_index.get(key)
+                if prev is None or start_index > prev:  # pragma: no branch
+                    created_start_index[key] = start_index
 
             def _escape_node(
                 node: Node,
@@ -2185,15 +2223,24 @@ def apply_compiled_transforms(
                 parent.remove_child(node)
 
             def apply_to_children(parent: Node, *, skip_linkify: bool, skip_whitespace: bool) -> None:
-                children = parent.children
-                if not children:
-                    return
-
+                # Iterative traversal avoids recursion overhead on large trees.
+                # Semantics match the recursive implementation: depth-first, left-to-right.
                 wt_len = len(walk_transforms)
-                i = 0
-                while i < len(children):
+                stack: list[tuple[Node, int, bool, bool]] = [(parent, 0, skip_linkify, skip_whitespace)]
+
+                while stack:
+                    parent, i, skip_linkify, skip_whitespace = stack[-1]
+                    children = parent.children
+                    if not children or i >= len(children):
+                        stack.pop()
+                        continue
+
                     node = children[i]
                     name = node.name
+                    is_special = name[0] == "#"
+                    is_doctype = name == "!doctype"
+                    is_text = name == "#text"
+                    is_comment = name == "#comment"
 
                     changed = False
                     if created_start_index:
@@ -2208,7 +2255,7 @@ def apply_compiled_transforms(
 
                         # DropComments
                         if k == "drop_comments":
-                            if name == "#comment":
+                            if is_comment:
                                 if TYPE_CHECKING:
                                     t = cast("_CompiledDropCommentsTransform", t)
                                 if t.callback is not None:
@@ -2222,7 +2269,7 @@ def apply_compiled_transforms(
 
                         # DropDoctype
                         if k == "drop_doctype":
-                            if name == "!doctype":
+                            if is_doctype:
                                 if TYPE_CHECKING:
                                     t = cast("_CompiledDropDoctypeTransform", t)
                                 if t.callback is not None:
@@ -2236,7 +2283,7 @@ def apply_compiled_transforms(
 
                         # MergeAttrs
                         if k == "merge_attr_tokens":
-                            if not name.startswith("#") and name != "!doctype":
+                            if not is_special and not is_doctype:
                                 if TYPE_CHECKING:
                                     t = cast("_CompiledMergeAttrTokensTransform", t)
                                 if str(name).lower() == t.tag:
@@ -2272,7 +2319,7 @@ def apply_compiled_transforms(
 
                         # CollapseWhitespace
                         if k == "collapse_whitespace":
-                            if name == "#text" and not skip_whitespace:
+                            if is_text and not skip_whitespace:
                                 if TYPE_CHECKING:
                                     t = cast("_CompiledCollapseWhitespaceTransform", t)
                                 text_data: str = str(getattr(node, "data", "") or "")
@@ -2288,7 +2335,7 @@ def apply_compiled_transforms(
 
                         # Linkify
                         if k == "linkify":
-                            if name == "#text" and not skip_linkify:
+                            if is_text and not skip_linkify:
                                 if TYPE_CHECKING:
                                     t = cast("_CompiledLinkifyTransform", t)
                                 linkify_text: str = str(getattr(node, "data", "") or "")
@@ -2333,7 +2380,7 @@ def apply_compiled_transforms(
                             if t.all_nodes:
                                 action = t.callback(node)
                             else:
-                                if name.startswith("#") or name == "!doctype":
+                                if is_special or is_doctype:
                                     continue
                                 sel = t.selector
                                 if TYPE_CHECKING:
@@ -2398,7 +2445,7 @@ def apply_compiled_transforms(
                                     if action is not DecideAction.KEEP:
                                         break
                             else:
-                                if name.startswith("#") or name == "!doctype":
+                                if is_special or is_doctype:
                                     continue
                                 sel = t.selector
                                 if TYPE_CHECKING:
@@ -2456,7 +2503,7 @@ def apply_compiled_transforms(
 
                         # Decide (elements-only) chain - flat list iteration (optimized)
                         if k == "decide_elements_chain":
-                            if name.startswith("#") or name == "!doctype":
+                            if is_special or is_doctype:
                                 continue
                             if TYPE_CHECKING:
                                 t = cast("_CompiledDecideElementsChain", t)
@@ -2512,7 +2559,7 @@ def apply_compiled_transforms(
 
                         # EditAttrs (rewrite_attrs) - single function
                         if k == "rewrite_attrs":
-                            if name.startswith("#") or name == "!doctype":
+                            if is_special or is_doctype:
                                 continue
                             if TYPE_CHECKING:
                                 t = cast("_CompiledRewriteAttrsTransform", t)
@@ -2529,7 +2576,7 @@ def apply_compiled_transforms(
 
                         # EditAttrs chain - flat list iteration (optimized)
                         if k == "rewrite_attrs_chain":
-                            if name.startswith("#") or name == "!doctype":
+                            if is_special or is_doctype:
                                 continue
                             if TYPE_CHECKING:
                                 t = cast("_CompiledRewriteAttrsChain", t)
@@ -2549,7 +2596,7 @@ def apply_compiled_transforms(
                         # Selector transforms
                         if TYPE_CHECKING:
                             t = cast("_CompiledSelectorTransform", t)
-                        if name.startswith("#") or name == "!doctype":
+                        if is_special or is_doctype:
                             continue
 
                         if not matcher.matches(node, t.selector):
@@ -2650,31 +2697,34 @@ def apply_compiled_transforms(
                     if changed:
                         continue
 
-                    if name.startswith("#"):
+                    # No mutation: advance sibling index before descending.
+                    stack[-1] = (parent, i + 1, skip_linkify, skip_whitespace)
+
+                    if is_special:
                         # Document containers (e.g. nested #document-fragment) should
                         # still be traversed to reach their element descendants.
-                        if node.children:
-                            apply_to_children(node, skip_linkify=skip_linkify, skip_whitespace=skip_whitespace)
+                        #
+                        # Text nodes implement `children` as a property that
+                        # allocates an empty list; avoid touching it.
+                        if not is_text and not is_comment and node.children:
+                            stack.append((node, 0, skip_linkify, skip_whitespace))
+                        continue
+
+                    if linkify_skip_tags or whitespace_skip_tags:
+                        tag = node.name.lower()
+                        child_skip = skip_linkify or (tag in linkify_skip_tags)
+                        child_skip_ws = skip_whitespace or (tag in whitespace_skip_tags)
                     else:
-                        if linkify_skip_tags or whitespace_skip_tags:
-                            tag = node.name.lower()
-                            child_skip = skip_linkify or (tag in linkify_skip_tags)
-                            child_skip_ws = skip_whitespace or (tag in whitespace_skip_tags)
-                        else:
-                            # Common case (including default sanitization): no Linkify/CollapseWhitespace
-                            # transforms are present, so skip-set checks are unnecessary.
-                            child_skip = skip_linkify
-                            child_skip_ws = skip_whitespace
+                        # Common case (including default sanitization): no Linkify/CollapseWhitespace
+                        # transforms are present, so skip-set checks are unnecessary.
+                        child_skip = skip_linkify
+                        child_skip_ws = skip_whitespace
 
-                        if node.children:
-                            apply_to_children(node, skip_linkify=child_skip, skip_whitespace=child_skip_ws)
-
-                        if type(node) is Template and node.template_content is not None:
-                            apply_to_children(
-                                node.template_content, skip_linkify=child_skip, skip_whitespace=child_skip_ws
-                            )
-
-                    i += 1
+                    # Traverse node children first, then template_content (matches recursive order).
+                    if type(node) is Template and node.template_content is not None and node.template_content.children:
+                        stack.append((node.template_content, 0, child_skip, child_skip_ws))
+                    if node.children:
+                        stack.append((node, 0, child_skip, child_skip_ws))
 
             if type(root_node) is not Text:
                 apply_to_children(root_node, skip_linkify=False, skip_whitespace=False)

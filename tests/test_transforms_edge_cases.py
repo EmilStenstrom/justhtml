@@ -358,6 +358,14 @@ class TestTransformsEdgeCases(unittest.TestCase):
         res = to_html(JustHTML(html, transforms=[t]).root)
         self.assertNotIn("comment", res)
 
+    def test_sanitize_drops_comments_inside_unwrapped_disallowed_tags(self):
+        policy = SanitizationPolicy(allowed_tags={"b"}, allowed_attributes={}, drop_comments=True)
+        t = Sanitize(policy)
+        html = "<foo><!-- comment --><b>hi</b></foo>"
+        res = to_html(JustHTML(html, fragment=True, transforms=[t]).root)
+        self.assertNotIn("comment", res)
+        self.assertIn("<b>hi</b>", res)
+
     def test_unwrap_simple(self):
         """Cover Unwrap transform compilation and execution."""
         t = Unwrap("div")

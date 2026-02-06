@@ -930,6 +930,54 @@ class TestTransforms(unittest.TestCase):
         assert "href" not in a_bad.attrs
         assert len(policy.collected_security_errors()) == 3
 
+    def test_dropurlattrs_reuses_drop_list_for_multiple_issues(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("a", "href"): UrlRule(allowed_schemes={"http", "https"}),
+                ("a", "ping"): UrlRule(allowed_schemes={"https"}),
+            },
+        )
+
+        root = DocumentFragment()
+        a = Element(
+            "a",
+            {
+                "href": None,
+                "data": None,
+                "src": "https://example.com/x.png",
+                "ping": "javascript:alert(1)",
+            },
+            "html",
+        )
+        root.append_child(a)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert a.attrs == {}
+
+    def test_dropurlattrs_reuses_set_map_for_multiple_updates(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("a", "href"): UrlRule(allowed_schemes={"https"}),
+                ("a", "ping"): UrlRule(allowed_schemes={"https"}),
+            },
+        )
+
+        root = DocumentFragment()
+        a = Element(
+            "a",
+            {
+                "href": " https://example.com ",
+                "ping": " https://example.com/ping ",
+            },
+            "html",
+        )
+        root.append_child(a)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert a.attrs == {"href": "https://example.com", "ping": "https://example.com/ping"}
+
     def test_dropurlattrs_works_without_on_unsafe_callback(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",
