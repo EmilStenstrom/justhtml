@@ -423,6 +423,14 @@ class SanitizationPolicy:
     def collected_security_errors(self) -> list[ParseError]:
         return self._unsafe_handler.collected()
 
+    def collects_security_errors_into(self, sink: list[ParseError]) -> bool:
+        """Return True if security findings are being collected into `sink`.
+
+        This is intentionally a small helper to avoid other modules depending
+        on the private UnsafeHandler implementation details.
+        """
+        return self._unsafe_handler.sink is sink
+
     def handle_unsafe(self, msg: str, *, node: Any | None = None) -> None:
         self._unsafe_handler.handle(msg, node=node)
 

@@ -212,7 +212,7 @@ class JustHTML:
                     if isinstance(t, Sanitize):
                         t_policy = t.policy
                         if t_policy is not None and t_policy.unsafe_handling == "collect":
-                            if t_policy._unsafe_handler.sink is transform_errors:
+                            if t_policy.collects_security_errors_into(transform_errors):
                                 continue
                             transform_errors.extend(t_policy.collected_security_errors())
 
