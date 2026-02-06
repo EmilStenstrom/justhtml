@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-02-06
+
+### Added
+- Text extraction: Add `separator_blocks_only` to `to_text()` (and CLI `--separator-blocks-only`) to only apply `separator` between block-level elements.
+
+### Changed
+- Transforms: Improve performance of URL attribute handling and comment sanitization when applying DOM transforms.
+
 ## [1.5.0] - 2026-02-02
 
 ### Added
