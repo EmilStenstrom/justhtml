@@ -607,8 +607,12 @@ class TreeBuilder(TreeBuilderModesMixin):
             node._origin_pos = self.tokenizer.last_token_start_pos
             if node._origin_pos is not None:
                 node._origin_line, node._origin_col = self.tokenizer.location_at_pos(node._origin_pos)
-        reference_node = parent.children[position] if position < len(parent.children) else None
-        parent.insert_before(node, reference_node)
+        children = parent.children
+        if position < len(children):
+            children.insert(position, node)
+        else:
+            children.append(node)
+        node.parent = parent
 
     def _current_node_or_html(self) -> Any:
         if self.open_elements:
@@ -890,10 +894,12 @@ class TreeBuilder(TreeBuilderModesMixin):
             index += 1
 
     def _insert_node_at(self, parent: Any, index: int, node: Any) -> None:
-        reference_node = None
-        if index is not None and index < len(parent.children):
-            reference_node = parent.children[index]
-        parent.insert_before(node, reference_node)
+        children = parent.children
+        if index is not None and index < len(children):
+            children.insert(index, node)
+        else:
+            children.append(node)
+        node.parent = parent
 
     def _find_last_on_stack(self, name: str) -> Any | None:
         for node in reversed(self.open_elements):

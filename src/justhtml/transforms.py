@@ -1592,7 +1592,7 @@ def apply_compiled_transforms(
                 node: Node,
                 *,
                 parent: Node,
-                idx: int,
+                child_index: int,
                 mark_new_start_index: int,
             ) -> None:
                 """Escape a node by emitting its tags as text and hoisting its children."""
@@ -1603,32 +1603,47 @@ def apply_compiled_transforms(
                 if raw_end is None:
                     raw_end = _reconstruct_end_tag(node)
 
+                replacement: list[Any] = []
+
                 if raw_start:
                     start_node = Text(raw_start)
                     _mark_start(start_node, mark_new_start_index)
-                    parent.insert_before(start_node, node)
+                    start_node.parent = parent
+                    replacement.append(start_node)
 
-                moved: list[Node] = []
+                moved: list[Any] = []
                 if node.name != "#text" and node.children:
-                    moved.extend(list(node.children))
+                    moved = node.children
                     node.children = []
                 if type(node) is Template and node.template_content is not None:
                     tc = node.template_content
-                    tc_children = tc.children or []
-                    moved.extend(tc_children)
-                    tc.children = []
+                    if tc.children:
+                        if moved:
+                            moved.extend(tc.children)
+                        else:
+                            moved = tc.children
+                        tc.children = []
 
                 if moved:
                     for child in moved:
                         _mark_start(child, mark_new_start_index)
-                        parent.insert_before(child, node)
+                        child.parent = parent
+                    replacement.extend(moved)
 
                 if raw_end:
                     end_node = Text(raw_end)
                     _mark_start(end_node, mark_new_start_index)
-                    parent.insert_before(end_node, node)
+                    end_node.parent = parent
+                    replacement.append(end_node)
 
-                parent.remove_child(node)
+                children = parent.children
+                if children is None:  # pragma: no cover
+                    raise ValueError(f"Node {parent.name} cannot have children")  # pragma: no cover
+                if replacement:
+                    children[child_index : child_index + 1] = replacement
+                else:
+                    children.pop(child_index)
+                node.parent = None
 
             def apply_to_children(parent: Node, *, skip_linkify: bool, skip_whitespace: bool) -> None:
                 # Iterative traversal avoids recursion overhead on large trees.
@@ -1759,26 +1774,32 @@ def apply_compiled_transforms(
                                                 f"Linkified {len(matches)} link(s) in text node",
                                                 node=node,
                                             )
+                                        ns = parent.namespace or "html"
+                                        replacement: list[Any] = []
+
                                         cursor = 0
                                         for m in matches:
                                             if m.start > cursor:
                                                 txt = Text(linkify_text[cursor : m.start])
                                                 _mark_start(txt, idx + 1)
-                                                parent.insert_before(txt, node)
+                                                txt.parent = parent
+                                                replacement.append(txt)
 
-                                            ns = parent.namespace or "html"
                                             a = Element("a", {"href": m.href}, ns)
                                             a.append_child(Text(m.text))
                                             _mark_start(a, idx + 1)
-                                            parent.insert_before(a, node)
+                                            a.parent = parent
+                                            replacement.append(a)
                                             cursor = m.end
 
                                         if cursor < len(linkify_text):
                                             tail = Text(linkify_text[cursor:])
                                             _mark_start(tail, idx + 1)
-                                            parent.insert_before(tail, node)
+                                            tail.parent = parent
+                                            replacement.append(tail)
 
-                                        parent.remove_child(node)
+                                        children[i : i + 1] = replacement
+                                        node.parent = None
                                         changed = True
                                         break
                             continue
@@ -1815,26 +1836,33 @@ def apply_compiled_transforms(
                                 continue
 
                             if action is DecideAction.UNWRAP:
-                                moved_nodes: list[Node] = []
+                                moved_nodes: list[Any] = []
                                 if name != "#text" and node.children:
-                                    moved_nodes.extend(list(node.children))
+                                    moved_nodes = node.children
                                     node.children = []
                                 if type(node) is Template and node.template_content is not None:
                                     tc = node.template_content
                                     if tc.children:
-                                        moved_nodes.extend(list(tc.children))
+                                        if moved_nodes:
+                                            moved_nodes.extend(tc.children)
+                                        else:
+                                            moved_nodes = tc.children
                                         tc.children = []
+
                                 if moved_nodes:
                                     for child in moved_nodes:
                                         _mark_start(child, idx)
-                                        parent.insert_before(child, node)
-                                parent.remove_child(node)
+                                        child.parent = parent
+                                    children[i : i + 1] = moved_nodes
+                                else:
+                                    children.pop(i)
+                                node.parent = None
                                 changed = True
                                 break
 
                             if action is DecideAction.ESCAPE:
                                 # Mark created/hoisted nodes to start at the current transform to support recursive rules.
-                                _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx)
+                                _escape_node(node, parent=parent, child_index=i, mark_new_start_index=idx)
                                 changed = True
                                 break
 
@@ -1885,30 +1913,38 @@ def apply_compiled_transforms(
                                 continue
 
                             if action is DecideAction.UNWRAP:
-                                moved_nodes_chain: list[Node] = []
+                                moved_nodes_chain: list[Any] = []
                                 if name != "#text" and node.children:
-                                    moved_nodes_chain.extend(list(node.children))
+                                    moved_nodes_chain = node.children
                                     node.children = []
                                 if type(node) is Template and node.template_content is not None:
                                     tc = node.template_content
                                     if tc.children:
-                                        moved_nodes_chain.extend(list(tc.children))
+                                        if moved_nodes_chain:
+                                            moved_nodes_chain.extend(tc.children)
+                                        else:
+                                            moved_nodes_chain = tc.children
                                         tc.children = []
+
                                 if moved_nodes_chain:
                                     for child in moved_nodes_chain:
                                         _mark_start(child, idx)
-                                        parent.insert_before(child, node)
-                                parent.remove_child(node)
+                                        child.parent = parent
+                                    children[i : i + 1] = moved_nodes_chain
+                                else:
+                                    children.pop(i)
+                                node.parent = None
                                 changed = True
                                 break
 
                             if action is DecideAction.ESCAPE:
-                                _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx)
+                                _escape_node(node, parent=parent, child_index=i, mark_new_start_index=idx)
                                 changed = True
                                 break
 
                             # action == DROP (and any invalid value)
-                            parent.remove_child(node)
+                            children.pop(i)
+                            node.parent = None
                             changed = True
                             break
 
@@ -1962,7 +1998,7 @@ def apply_compiled_transforms(
                                 break
 
                             if action is DecideAction.ESCAPE:
-                                _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx)
+                                _escape_node(node, parent=parent, child_index=i, mark_new_start_index=idx)
                                 changed = True
                                 break
 
@@ -2068,7 +2104,8 @@ def apply_compiled_transforms(
                             if t.report is not None:
                                 tag = str(node.name).lower()
                                 t.report(f"Dropped <{tag}> (matched selector '{t.selector_str}')", node=node)
-                            parent.remove_child(node)
+                            children.pop(i)
+                            node.parent = None
                             changed = True
                             break
 
@@ -2079,7 +2116,7 @@ def apply_compiled_transforms(
                                 tag = str(node.name).lower()
                                 t.report(f"Escaped <{tag}> (matched selector '{t.selector_str}')", node=node)
 
-                            _escape_node(node, parent=parent, idx=idx, mark_new_start_index=idx)
+                            _escape_node(node, parent=parent, child_index=i, mark_new_start_index=idx)
                             changed = True
                             break
 
@@ -2090,22 +2127,28 @@ def apply_compiled_transforms(
                             tag = str(node.name).lower()
                             t.report(f"Unwrapped <{tag}> (matched selector '{t.selector_str}')", node=node)
 
-                        moved_nodes_unwrap: list[Node] = []
+                        moved_nodes_unwrap: list[Any] = []
                         if node.children:
-                            moved_nodes_unwrap.extend(list(node.children))
+                            moved_nodes_unwrap = node.children
                             node.children = []
 
                         if type(node) is Template and node.template_content is not None:
                             tc = node.template_content
-                            tc_children = tc.children or []
-                            moved_nodes_unwrap.extend(tc_children)
-                            tc.children = []
+                            if tc.children:
+                                if moved_nodes_unwrap:
+                                    moved_nodes_unwrap.extend(tc.children)
+                                else:
+                                    moved_nodes_unwrap = tc.children
+                                tc.children = []
 
                         if moved_nodes_unwrap:
                             for child in moved_nodes_unwrap:
                                 _mark_start(child, idx + 1)
-                                parent.insert_before(child, node)
-                        parent.remove_child(node)
+                                child.parent = parent
+                            children[i : i + 1] = moved_nodes_unwrap
+                        else:
+                            children.pop(i)
+                        node.parent = None
                         changed = True
                         break
 

@@ -386,6 +386,27 @@ class TestTransforms(unittest.TestCase):
         assert "template" in called
         assert any("Unwrapped" in c for c in called)
 
+    def test_unwrap_hoists_template_children_and_template_content(self) -> None:
+        root = DocumentFragment()
+        tpl = Template("template", attrs={}, namespace="html")
+        assert tpl.template_content is not None
+        tpl.append_child(Element("i", {}, "html"))
+        tpl.template_content.append_child(Element("b", {}, "html"))
+        root.append_child(tpl)
+
+        apply_compiled_transforms(root, compile_transforms([Unwrap("template")]))
+        assert root.to_html(pretty=False) == "<i></i><b></b>"
+
+    def test_unwrap_template_without_template_content_children(self) -> None:
+        root = DocumentFragment()
+        tpl = Template("template", attrs={}, namespace="html")
+        assert tpl.template_content is not None
+        tpl.append_child(Element("i", {}, "html"))
+        root.append_child(tpl)
+
+        apply_compiled_transforms(root, compile_transforms([Unwrap("template")]))
+        assert root.to_html(pretty=False) == "<i></i>"
+
     def test_decide_escape_covers_reconstruction_branches(self) -> None:
         def decide(n: Node) -> DecideAction:
             if n.name in {"#comment", "x", "y"}:
@@ -710,6 +731,34 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([Decide("template", lambda n: Decide.UNWRAP)]))
         assert root.to_html(pretty=False) == "<b></b>"
 
+    def test_decide_unwrap_hoists_template_children_and_template_content(self) -> None:
+        root = DocumentFragment()
+        tpl = Template("template", attrs={}, namespace="html")
+        assert tpl.template_content is not None
+        tpl.append_child(Element("i", {}, "html"))
+        tpl.template_content.append_child(Element("b", {}, "html"))
+        root.append_child(tpl)
+
+        apply_compiled_transforms(root, compile_transforms([Decide("template", lambda n: Decide.UNWRAP)]))
+        assert root.to_html(pretty=False) == "<i></i><b></b>"
+
+    def test_decide_chain_unwrap_can_hoist_template_content(self) -> None:
+        root = DocumentFragment()
+        tpl = Template("template", attrs={}, namespace="html")
+        assert tpl.template_content is not None
+        tpl.template_content.append_child(Element("b", {}, "html"))
+        root.append_child(tpl)
+
+        compiled = compile_transforms(
+            [
+                Decide("template", lambda n: Decide.KEEP),
+                Decide("template", lambda n: Decide.UNWRAP),
+            ]
+        )
+        assert any(getattr(t, "kind", None) == "decide_chain" for t in compiled)
+        apply_compiled_transforms(root, compiled)
+        assert root.to_html(pretty=False) == "<b></b>"
+
     def test_decide_escape_hoists_template_content(self) -> None:
         root = DocumentFragment()
         tpl = Template("template", attrs={}, namespace="html")
@@ -719,6 +768,17 @@ class TestTransforms(unittest.TestCase):
 
         apply_compiled_transforms(root, compile_transforms([Decide("template", lambda n: Decide.ESCAPE)]))
         assert root.to_html(pretty=False) == "&lt;template&gt;<b></b>"
+
+    def test_escape_hoists_template_children_and_template_content(self) -> None:
+        root = DocumentFragment()
+        tpl = Template("template", attrs={}, namespace="html")
+        assert tpl.template_content is not None
+        tpl.append_child(Element("i", {}, "html"))
+        tpl.template_content.append_child(Element("b", {}, "html"))
+        root.append_child(tpl)
+
+        apply_compiled_transforms(root, compile_transforms([Escape("template")]))
+        assert root.to_html(pretty=False) == "&lt;template&gt;<i></i><b></b>"
 
     def test_empty_and_drop_selector_hooks(self) -> None:
         calls: list[str] = []
