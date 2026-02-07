@@ -33,6 +33,8 @@ class HTMLContext(str, Enum):
 def _escape_text(text: str | None) -> str:
     if not text:
         return ""
+    if "&" not in text and "<" not in text and ">" not in text:
+        return text
     # Minimal, but matches html5lib serializer expectations in core cases.
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -40,6 +42,8 @@ def _escape_text(text: str | None) -> str:
 def _escape_html_text(value: str) -> str:
     if not value:
         return ""
+    if "&" not in value and "<" not in value and ">" not in value:
+        return value
     return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
@@ -100,13 +104,12 @@ def _choose_attr_quote(value: str | None, forced_quote_char: str | None = None) 
 def _escape_attr_value(value: str | None, quote_char: str) -> str:
     if value is None:
         return ""
-    # value is assumed to be a string
-    value = value.replace("&", "&amp;")
-    value = value.replace("<", "&lt;")
-    value = value.replace(">", "&gt;")
+    if "&" not in value and "<" not in value and ">" not in value and quote_char not in value:
+        return value
+    escaped = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     if quote_char == '"':
-        return value.replace('"', "&quot;")
-    return value.replace("'", "&#39;")
+        return escaped.replace('"', "&quot;")
+    return escaped.replace("'", "&#39;")
 
 
 def _can_unquote_attr_value(value: str | None) -> bool:
@@ -114,16 +117,6 @@ def _can_unquote_attr_value(value: str | None) -> bool:
         return False
     # Optimization: use regex instead of loop
     return not _UNQUOTED_ATTR_VALUE_INVALID.search(value)
-
-
-def _serializer_minimize_attr_value(name: str, value: str | None, minimize_boolean_attributes: bool) -> bool:
-    if not minimize_boolean_attributes:
-        return False
-    if value is None or value == "":
-        return True
-    if value == name:
-        return True
-    return value.lower() == name
 
 
 def serialize_start_tag(
@@ -136,32 +129,30 @@ def serialize_start_tag(
     use_trailing_solidus: bool = False,
     is_void: bool = False,
 ) -> str:
-    attrs = attrs or {}
     parts: list[str] = ["<", name]
     if attrs:
+        parts_append = parts.append
         for key, value in attrs.items():
-            if _serializer_minimize_attr_value(key, value, minimize_boolean_attributes):
-                parts.extend([" ", key])
+            if minimize_boolean_attributes:
+                if value is None or value == "" or value == key:
+                    parts_append(" " + key)
+                    continue
+                if len(value) == len(key) and value.lower() == key:
+                    parts_append(" " + key)
+                    continue
+
+            if value is None or value == "":
+                parts_append(f' {key}=""')
                 continue
 
-            if value is None:
-                parts.extend([" ", key, '=""'])
+            if not quote_attr_values and _can_unquote_attr_value(value):
+                escaped = value.replace("&", "&amp;").replace("<", "&lt;")
+                parts_append(f" {key}={escaped}")
                 continue
 
-            # value is guaranteed to be a string here because attrs is dict[str, str | None]
-            value_str = value
-            if value_str == "":
-                parts.extend([" ", key, '=""'])
-                continue
-
-            if not quote_attr_values and _can_unquote_attr_value(value_str):
-                escaped = value_str.replace("&", "&amp;")
-                escaped = escaped.replace("<", "&lt;")
-                parts.extend([" ", key, "=", escaped])
-            else:
-                quote = _choose_attr_quote(value_str, quote_char)
-                escaped = _escape_attr_value(value_str, quote)
-                parts.extend([" ", key, "=", quote, escaped, quote])
+            quote = _choose_attr_quote(value, quote_char)
+            escaped = _escape_attr_value(value, quote)
+            parts_append(f" {key}={quote}{escaped}{quote}")
 
     if use_trailing_solidus and is_void:
         parts.append(" />")

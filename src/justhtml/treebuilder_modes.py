@@ -614,12 +614,14 @@ class TreeBuilderModesMixin:
 
             # 7. Find furthest block
             furthest_block = None
+            furthest_block_index = None
             formatting_element_in_open_index = self.open_elements.index(formatting_element)
 
             for i in range(formatting_element_in_open_index + 1, len(self.open_elements)):
-                node = self.open_elements[i]
-                if self._is_special_element(node):
-                    furthest_block = node
+                candidate = self.open_elements[i]
+                if self._is_special_element(candidate):
+                    furthest_block = candidate
+                    furthest_block_index = i
                     break
 
             if furthest_block is None:
@@ -630,13 +632,14 @@ class TreeBuilderModesMixin:
                         break
                 self._remove_formatting_entry(formatting_element_index)
                 return
+            assert furthest_block_index is not None
 
             # 8. Bookmark
             bookmark = formatting_element_index + 1
 
             # 9. Node and Last Node
-            node = furthest_block
             last_node = furthest_block
+            node_index = furthest_block_index
 
             # 10. Inner loop
             inner_loop_counter = 0
@@ -644,8 +647,8 @@ class TreeBuilderModesMixin:
                 inner_loop_counter += 1
 
                 # 10.1 Node = element above node
-                node_index = self.open_elements.index(node)
-                node = self.open_elements[node_index - 1]
+                node_index -= 1
+                node = self.open_elements[node_index]
 
                 # 10.2 If node is formatting element, break
                 if node is formatting_element:
@@ -661,9 +664,7 @@ class TreeBuilderModesMixin:
                     node_formatting_index = None
 
                 if node_formatting_index is None:
-                    node_index = self.open_elements.index(node)
-                    self.open_elements.remove(node)
-                    node = self.open_elements[node_index]
+                    del self.open_elements[node_index]
                     continue
 
                 # 10.4 Replace entry with new element
@@ -674,7 +675,7 @@ class TreeBuilderModesMixin:
                     new_element._origin_line = entry["node"].origin_line
                     new_element._origin_col = entry["node"].origin_col
                 entry["node"] = new_element
-                self.open_elements[self.open_elements.index(node)] = new_element
+                self.open_elements[node_index] = new_element
                 node = new_element
 
                 # 10.5 If last node is furthest block, update bookmark
@@ -713,9 +714,9 @@ class TreeBuilderModesMixin:
             entry["node"] = new_formatting_element
 
             # 13. Move children of furthest block
-            while furthest_block.has_child_nodes():
-                child = furthest_block.children[0]
-                furthest_block.remove_child(child)
+            moved_children = furthest_block.children
+            furthest_block.children = []
+            for child in moved_children:
                 new_formatting_element.append_child(child)
 
             furthest_block.append_child(new_formatting_element)

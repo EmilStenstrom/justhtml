@@ -367,6 +367,8 @@ class Tokenizer:
         self._tag_token.name = ""
         self._tag_token.attrs = {}
         self._tag_token.self_closing = False
+        self._tag_token.start_pos = None
+        self._tag_token.end_pos = None
 
         initial_state = self.opts.initial_state
         if isinstance(initial_state, int):
@@ -2091,7 +2093,7 @@ class Tokenizer:
 
     def _append_text(self, text: str) -> None:
         """Append text to buffer, recording start position if this is the first chunk."""
-        if not self.text_buffer:
+        if not self.text_buffer and (self.collect_errors or self.track_node_locations):
             # Record where text started (current position before this chunk)
             self.text_start_pos = self.pos
         self.text_buffer.append(text)
@@ -2107,13 +2109,12 @@ class Tokenizer:
         else:
             data = "".join(self.text_buffer)
 
-        # Calculate raw text length before any processing for position tracking
-        raw_len = len(data)
+        raw_len = len(data) if self.collect_errors else 0
 
         self.text_buffer.clear()
         # U+0000 NULL is a parse error in text.
         # Emit one error per NULL at the *actual* character position.
-        if "\0" in data:
+        if self.collect_errors and "\0" in data:
             base_pos = self.text_start_pos
             search_from = 0
             while True:
@@ -2164,7 +2165,8 @@ class Tokenizer:
         # Record position at END of raw text (1-indexed column = raw_len)
         if self.collect_errors:
             self._record_text_end_position(raw_len)
-        self.last_token_start_pos = self.text_start_pos
+        if self.track_node_locations:
+            self.last_token_start_pos = self.text_start_pos
         self.sink.process_characters(data)
         # Note: process_characters never returns Plaintext or RawData
         # State switches happen via _emit_current_tag instead
@@ -2219,12 +2221,11 @@ class Tokenizer:
         tag.attrs = attrs
         tag.self_closing = self.current_tag_self_closing
         if self.track_tag_positions:
-            tag.start_pos = self.current_token_start_pos
+            start_pos = self.current_token_start_pos
+            tag.start_pos = start_pos
             tag.end_pos = self.pos
-        else:
-            tag.start_pos = None
-            tag.end_pos = None
-        self.last_token_start_pos = tag.start_pos
+            if self.track_node_locations:
+                self.last_token_start_pos = start_pos
 
         switched_to_rawtext = False
         if self.current_tag_kind == Tag.START:
@@ -2296,8 +2297,9 @@ class Tokenizer:
         if self.opts.xml_coercion:
             data = _coerce_comment_for_xml(data)
         self._comment_token.data = data
-        self._comment_token.start_pos = self.current_token_start_pos
-        self.last_token_start_pos = self._comment_token.start_pos
+        if self.track_node_locations:
+            self._comment_token.start_pos = self.current_token_start_pos
+            self.last_token_start_pos = self._comment_token.start_pos
         self._emit_token(self._comment_token)
 
     def _emit_doctype(self) -> None:

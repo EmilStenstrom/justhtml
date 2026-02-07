@@ -144,6 +144,10 @@ class TestSerialize(unittest.TestCase):
         expected = r"&lt;p&gt;It\'s ok&lt;/p&gt;"
         assert output == expected
 
+    def test_escape_html_text_in_js_string_noop_when_no_html_chars(self):
+        # Covers the fast-path in _escape_html_text().
+        assert _JustHTML.escape_html_text_in_js_string("plain text") == "plain text"
+
     def test_to_html_js_string_context(self):
         doc = JustHTML("<b>Hi</b>", fragment=True)
         output = doc.to_html(pretty=False, context=HTMLContext.JS_STRING)
@@ -571,6 +575,10 @@ class TestSerialize(unittest.TestCase):
         doc = JustHTML(html)
         output = doc.to_html()
         assert "<div data-val></div>" in output
+
+    def test_boolean_attribute_value_case_insensitive_minimization(self):
+        # Attribute values that match the attribute name case-insensitively should be minimized.
+        assert serialize_start_tag("input", {"disabled": "DISABLED"}) == "<input disabled>"
 
     def test_serialize_start_tag_quotes(self):
         # Prefer single quotes if the value contains a double quote but no single quote

@@ -238,12 +238,15 @@ class TreeBuilder(TreeBuilderModesMixin):
     ) -> bool:
         if terminators is None:
             terminators = DEFAULT_SCOPE_TERMINATORS
-        for node in reversed(self.open_elements):
-            if node.name == target:
+        open_elements = self.open_elements
+        for i in range(len(open_elements) - 1, -1, -1):
+            node = open_elements[i]
+            name = node.name
+            if name == target:
                 return True
             ns = node.namespace
             if ns == "html" or ns is None:
-                if node.name in terminators:
+                if name in terminators:
                     return False
             elif check_integration_points and (
                 self._is_html_integration_point(node) or self._is_mathml_text_integration_point(node)
@@ -321,22 +324,8 @@ class TreeBuilder(TreeBuilderModesMixin):
                             if current_token.kind == 0:  # Tag.START
                                 name = current_token.name
                                 if name == "div" or name == "ul" or name == "ol":
-                                    # Inline _handle_body_start_block_with_p
-                                    # Check if p is in button scope (html always terminates)
-                                    has_p = False
-                                    idx = len(self.open_elements) - 1
-                                    while idx >= 0:  # pragma: no branch
-                                        node = self.open_elements[idx]
-                                        if node.name == "p":
-                                            has_p = True
-                                            break
-                                        if node.namespace in {None, "html"} and node.name in BUTTON_SCOPE_TERMINATORS:
-                                            break
-                                        idx -= 1
-
-                                    if has_p:
-                                        self._close_p_element()
-
+                                    # Close <p> if it's in button scope.
+                                    self._close_p_element()
                                     self._insert_element(current_token, push=True)
                                     result = None
                                 elif name == "p":
@@ -356,20 +345,7 @@ class TreeBuilder(TreeBuilderModesMixin):
                                     self.frameset_ok = False
                                     result = None
                                 elif name == "hr":
-                                    has_p = False
-                                    idx = len(self.open_elements) - 1
-                                    while idx >= 0:  # pragma: no branch
-                                        node = self.open_elements[idx]
-                                        if node.name == "p":
-                                            has_p = True
-                                            break
-                                        if node.namespace in {None, "html"} and node.name in BUTTON_SCOPE_TERMINATORS:
-                                            break
-                                        idx -= 1
-
-                                    if has_p:
-                                        self._close_p_element()
-
+                                    self._close_p_element()
                                     self._insert_element(current_token, push=False)
                                     self.frameset_ok = False
                                     result = None
