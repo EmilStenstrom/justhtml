@@ -488,15 +488,58 @@ def _should_pretty_indent_children(children: list[Any]) -> bool:
 
 def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool = True, *, in_pre: bool) -> str:
     """Helper to convert a node to HTML."""
-    prefix = " " * (indent * indent_size) if pretty and not in_pre else ""
     name: str = node.name
+
+    if not pretty:
+        # Compact mode: no indentation/newlines. Keep this hot path tight.
+
+        if name == "#text":
+            return _escape_text(node.data) if node.data else ""
+
+        if name == "#comment":
+            return f"<!--{node.data or ''}-->"
+
+        if name == "!doctype":
+            return "<!DOCTYPE html>"
+
+        if name == "#document-fragment":
+            compact_parts: list[str] = []
+            for child in node.children or []:
+                if child is None:  # pragma: no cover
+                    continue
+                compact_parts.append(_node_to_html(child, 0, indent_size, pretty=False, in_pre=False))
+            return "".join(compact_parts)
+
+        compact_attrs: dict[str, str | None] = node.attrs or {}
+        open_tag = serialize_start_tag(name, compact_attrs)
+
+        if name in VOID_ELEMENTS:
+            return open_tag
+
+        if name == "template" and node.namespace in {None, "html"} and node.template_content is not None:
+            compact_children: list[Any] = node.template_content.children or []
+        else:
+            compact_children = node.children or []
+
+        if not compact_children:
+            return f"{open_tag}{serialize_end_tag(name)}"
+
+        compact_parts = [open_tag]
+        for child in compact_children:
+            if child is None:  # pragma: no cover
+                continue
+            compact_parts.append(_node_to_html(child, 0, indent_size, pretty=False, in_pre=False))
+        compact_parts.append(serialize_end_tag(name))
+        return "".join(compact_parts)
+
+    prefix = " " * (indent * indent_size) if not in_pre else ""
     content_pre = in_pre or name in WHITESPACE_PRESERVING_ELEMENTS
-    newline = "\n" if pretty and not content_pre else ""
+    newline = "\n" if not content_pre else ""
 
     # Text node
     if name == "#text":
         text: str | None = node.data
-        if pretty and not in_pre:
+        if not in_pre:
             text = text.strip() if text else ""
             if text:
                 return f"{prefix}{_escape_text(text)}"
@@ -518,7 +561,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
             child_html = _node_to_html(child, indent, indent_size, pretty, in_pre=in_pre)
             if child_html:
                 parts.append(child_html)
-        return newline.join(parts) if pretty else "".join(parts)
+        return newline.join(parts)
 
     # Element node
     attrs: dict[str, str | None] = node.attrs or {}
@@ -539,23 +582,24 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
     if not children:
         return f"{prefix}{open_tag}{serialize_end_tag(name)}"
 
-    # Check if all children are text-only (inline rendering)
-    all_text = True
-    for child in children:
-        if child is None:
-            continue
-        if child.name != "#text":
-            all_text = False
-            break
+    if not content_pre:
+        # Check if all children are text-only (inline rendering)
+        all_text = True
+        for child in children:
+            if child is None:
+                continue
+            if child.name != "#text":
+                all_text = False
+                break
 
-    if all_text and pretty and not content_pre:
-        # Serializer controls sanitization at the to_html() entry point; avoid
-        # implicit re-sanitization during rendering.
-        text_content = node.to_text(separator="", strip=False)
-        text_content = _collapse_html_whitespace(text_content)
-        return f"{prefix}{open_tag}{_escape_text(text_content)}{serialize_end_tag(name)}"
+        if all_text:
+            # Serializer controls sanitization at the to_html() entry point; avoid
+            # implicit re-sanitization during rendering.
+            text_content = node.to_text(separator="", strip=False)
+            text_content = _collapse_html_whitespace(text_content)
+            return f"{prefix}{open_tag}{_escape_text(text_content)}{serialize_end_tag(name)}"
 
-    if pretty and content_pre:
+    if content_pre:
         inner = "".join(
             _node_to_html(child, indent + 1, indent_size, pretty, in_pre=True)
             for child in children
@@ -563,7 +607,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
         )
         return f"{prefix}{open_tag}{inner}{serialize_end_tag(name)}"
 
-    if pretty and not content_pre and name in SPECIAL_ELEMENTS:
+    if not content_pre and name in SPECIAL_ELEMENTS:
         # For block-ish containers that only have element children (and/or
         # whitespace-only text nodes), prefer a multiline layout for readability
         # even when children are inline elements.
@@ -685,7 +729,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
                 if can_apply and smart_lines:
                     return f"{prefix}{open_tag}\n" + "\n".join(smart_lines) + f"\n{prefix}{serialize_end_tag(name)}"
 
-    if pretty and not content_pre and not _should_pretty_indent_children(children):
+    if not content_pre and not _should_pretty_indent_children(children):
         # For block-ish elements that contain only element children and whitespace-only
         # text nodes, we can still format each child on its own line (only when there
         # is already whitespace separating element siblings).
@@ -862,13 +906,12 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
     # Render with child indentation
     parts = [f"{prefix}{open_tag}"]
     for child in children:
-        if pretty and not content_pre and _is_whitespace_text_node(child):
+        if not content_pre and _is_whitespace_text_node(child):
             continue
         child_html = _node_to_html(child, indent + 1, indent_size, pretty, in_pre=content_pre)
-        if child_html:
-            parts.append(child_html)
+        parts.append(child_html)
     parts.append(f"{prefix}{serialize_end_tag(name)}")
-    return newline.join(parts) if pretty else "".join(parts)
+    return newline.join(parts)
 
 
 def to_test_format(node: Any, indent: int = 0) -> str:

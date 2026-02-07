@@ -61,6 +61,21 @@ class TestSerialize(unittest.TestCase):
         output = doc.to_html(pretty=False)
         assert output == "<tr><td>cell</td></tr>"
 
+    def test_pretty_template_serializes_template_content(self):
+        frag = DocumentFragment()
+        template = Template("template", namespace="html")
+        frag.append_child(template)
+
+        p = Node("p")
+        p.append_child(Text("x"))
+        assert template.template_content is not None
+        template.template_content.append_child(p)
+
+        out = to_html(frag, pretty=True)
+        assert "<template>" in out
+        assert "<p>" in out
+        assert out.index("<template>") < out.index("<p>") < out.index("</template>")
+
     def test_collapse_html_whitespace_vertical_tab(self):
         # \v is not HTML whitespace, so it should be preserved as a non-whitespace character
         # while surrounding whitespace is collapsed.

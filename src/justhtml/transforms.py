@@ -1413,7 +1413,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             sub_attrs: list[TransformSpec] = [
                 DropAttrs(
                     selector="*",
-                    patterns=("on*", "srcdoc", "*:*"),
+                    patterns=("*:*", "on*", "srcdoc"),
                     callback=t.callback,
                     report=_report_unsafe,
                 ),
@@ -1670,7 +1670,8 @@ def apply_compiled_transforms(
                                     t.callback(node)
                                 if t.report is not None:
                                     t.report("Dropped comment", node=node)
-                                parent.remove_child(node)
+                                children.pop(i)
+                                node.parent = None
                                 changed = True
                                 break
                             continue
@@ -1684,7 +1685,8 @@ def apply_compiled_transforms(
                                     t.callback(node)  # pragma: no cover
                                 if t.report is not None:
                                     t.report("Dropped doctype", node=node)  # pragma: no cover
-                                parent.remove_child(node)
+                                children.pop(i)
+                                node.parent = None
                                 changed = True
                                 break
                             continue
@@ -1837,7 +1839,8 @@ def apply_compiled_transforms(
                                 break
 
                             # action == DROP (and any invalid value)
-                            parent.remove_child(node)
+                            children.pop(i)
+                            node.parent = None
                             changed = True
                             break
 
@@ -1950,8 +1953,11 @@ def apply_compiled_transforms(
                                 if moved_nodes_chain2:
                                     for child in moved_nodes_chain2:
                                         _mark_start(child, idx)
-                                        parent.insert_before(child, node)
-                                parent.remove_child(node)
+                                        child.parent = parent
+                                    children[i : i + 1] = moved_nodes_chain2
+                                else:
+                                    children.pop(i)
+                                node.parent = None
                                 changed = True
                                 break
 
@@ -1961,7 +1967,8 @@ def apply_compiled_transforms(
                                 break
 
                             # action == DROP (and any invalid value)
-                            parent.remove_child(node)
+                            children.pop(i)
+                            node.parent = None
                             changed = True
                             break
 
