@@ -190,7 +190,7 @@ class JustHTML:
 
             # Auto-append a final Sanitize step only if the user didn't include
             # Sanitize anywhere in their transform list.
-            if sanitize_enabled and not any(isinstance(t, Sanitize) for t in final_transforms):
+            if sanitize_enabled and not has_sanitize_transform:
                 effective_policy = (
                     policy
                     if policy is not None
@@ -202,7 +202,18 @@ class JustHTML:
                 final_transforms.append(Sanitize(policy=effective_policy))
 
             if final_transforms:
-                compiled_transforms = compile_transforms(tuple(final_transforms))
+                compiled_transforms = None
+                if len(final_transforms) == 1 and isinstance(final_transforms[0], Sanitize):
+                    only = final_transforms[0]
+                    p = only.policy
+                    if only.enabled and only.callback is None and only.report is None and p is not None:
+                        compiled_transforms = p._compiled_sanitize_transforms
+                        if compiled_transforms is None:
+                            compiled_transforms = compile_transforms((only,))
+                            object.__setattr__(p, "_compiled_sanitize_transforms", compiled_transforms)
+
+                if compiled_transforms is None:
+                    compiled_transforms = compile_transforms(tuple(final_transforms))
                 apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
 
                 # Merge collected security errors into the document error list.
@@ -310,9 +321,9 @@ class JustHTML:
         This produces a JS-string-safe value that, when assigned to innerHTML,
         will be interpreted as text (not markup).
         """
-        from .serialize import _escape_html_text  # noqa: PLC0415
+        from .serialize import _escape_text  # noqa: PLC0415
 
-        return JustHTML.escape_js_string(_escape_html_text(value), quote=quote)
+        return JustHTML.escape_js_string(_escape_text(value), quote=quote)
 
     def query(self, selector: str) -> list[Any]:
         """Query the document using a CSS selector. Delegates to root.query()."""

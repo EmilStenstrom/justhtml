@@ -39,14 +39,6 @@ def _escape_text(text: str | None) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _escape_html_text(value: str) -> str:
-    if not value:
-        return ""
-    if "&" not in value and "<" not in value and ">" not in value:
-        return value
-    return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def _escape_js_string(value: str, *, quote: str = '"') -> str:
     if quote not in {'"', "'"}:
         raise ValueError("quote must be ' or \"")
@@ -131,28 +123,28 @@ def serialize_start_tag(
 ) -> str:
     parts: list[str] = ["<", name]
     if attrs:
-        parts_append = parts.append
+        parts_extend = parts.extend
         for key, value in attrs.items():
             if minimize_boolean_attributes:
                 if value is None or value == "" or value == key:
-                    parts_append(" " + key)
+                    parts_extend((" ", key))
                     continue
                 if len(value) == len(key) and value.lower() == key:
-                    parts_append(" " + key)
+                    parts_extend((" ", key))
                     continue
 
             if value is None or value == "":
-                parts_append(f' {key}=""')
+                parts_extend((" ", key, '=""'))
                 continue
 
             if not quote_attr_values and _can_unquote_attr_value(value):
                 escaped = value.replace("&", "&amp;").replace("<", "&lt;")
-                parts_append(f" {key}={escaped}")
+                parts_extend((" ", key, "=", escaped))
                 continue
 
             quote = _choose_attr_quote(value, quote_char)
             escaped = _escape_attr_value(value, quote)
-            parts_append(f" {key}={quote}{escaped}{quote}")
+            parts_extend((" ", key, "=", quote, escaped, quote))
 
     if use_trailing_solidus and is_void:
         parts.append(" />")
@@ -178,7 +170,7 @@ def to_html(
     if node.name == "#document":
         # Document root - just render children
         parts: list[str] = []
-        for child in node.children or []:
+        for child in node.children:
             parts.append(_node_to_html(child, indent, indent_size, pretty, in_pre=False))
         html = "\n".join(parts) if pretty else "".join(parts)
     else:
@@ -315,7 +307,7 @@ def _is_blocky_element(node: Any) -> bool:
         return True
 
     try:
-        children = node.children or []
+        children = node.children
     except AttributeError:
         return False
     if not children:
@@ -412,7 +404,7 @@ def _is_layout_blocky_element(node: Any) -> bool:
         return True
 
     try:
-        children = node.children or []
+        children = node.children
     except AttributeError:
         return False
     if not children:
@@ -495,22 +487,21 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
 
         if name == "#document-fragment":
             compact_parts: list[str] = []
-            for child in node.children or []:
+            for child in node.children:
                 if child is None:  # pragma: no cover
                     continue
                 compact_parts.append(_node_to_html(child, 0, indent_size, pretty=False, in_pre=False))
             return "".join(compact_parts)
 
-        compact_attrs: dict[str, str | None] = node.attrs or {}
-        open_tag = serialize_start_tag(name, compact_attrs)
+        open_tag = serialize_start_tag(name, node.attrs)
 
         if name in VOID_ELEMENTS:
             return open_tag
 
         if name == "template" and node.namespace in {None, "html"} and node.template_content is not None:
-            compact_children: list[Any] = node.template_content.children or []
+            compact_children: list[Any] = node.template_content.children
         else:
-            compact_children = node.children or []
+            compact_children = node.children
 
         if not compact_children:
             return f"{open_tag}{serialize_end_tag(name)}"
@@ -548,17 +539,14 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
     # Document fragment
     if name == "#document-fragment":
         parts: list[str] = []
-        for child in node.children or []:
+        for child in node.children:
             child_html = _node_to_html(child, indent, indent_size, pretty, in_pre=in_pre)
             if child_html:
                 parts.append(child_html)
         return newline.join(parts)
 
     # Element node
-    attrs: dict[str, str | None] = node.attrs or {}
-
-    # Build opening tag
-    open_tag = serialize_start_tag(name, attrs)
+    open_tag = serialize_start_tag(name, node.attrs)
 
     # Void elements
     if name in VOID_ELEMENTS:
@@ -567,9 +555,9 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
     # Elements with children
     # Template special handling: HTML templates store contents in `template_content`.
     if name == "template" and node.namespace in {None, "html"} and node.template_content is not None:
-        children: list[Any] = node.template_content.children or []
+        children: list[Any] = node.template_content.children
     else:
-        children = node.children or []
+        children = node.children
     if not children:
         return f"{prefix}{open_tag}{serialize_end_tag(name)}"
 

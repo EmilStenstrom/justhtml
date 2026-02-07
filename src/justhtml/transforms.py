@@ -1671,7 +1671,7 @@ def apply_compiled_transforms(
                     else:
                         start_at = 0
                     for idx in range(start_at, wt_len):
-                        t = walk_transforms[idx]
+                        t: Any = walk_transforms[idx]
                         # Dispatch based on 'kind' string to avoid expensive isinstance/class hierarchy checks
                         # in this hot loop (50k nodes * 10 transforms = 500k type checks otherwise).
                         k: str = t.kind
@@ -1679,8 +1679,6 @@ def apply_compiled_transforms(
                         # DropComments
                         if k == "drop_comments":
                             if is_comment:
-                                if TYPE_CHECKING:
-                                    t = cast("_CompiledDropCommentsTransform", t)
                                 if t.callback is not None:
                                     t.callback(node)
                                 if t.report is not None:
@@ -1694,8 +1692,6 @@ def apply_compiled_transforms(
                         # DropDoctype
                         if k == "drop_doctype":
                             if is_doctype:
-                                if TYPE_CHECKING:
-                                    t = cast("_CompiledDropDoctypeTransform", t)
                                 if t.callback is not None:
                                     t.callback(node)  # pragma: no cover
                                 if t.report is not None:
@@ -1709,8 +1705,6 @@ def apply_compiled_transforms(
                         # MergeAttrs
                         if k == "merge_attr_tokens":
                             if not is_special and not is_doctype:
-                                if TYPE_CHECKING:
-                                    t = cast("_CompiledMergeAttrTokensTransform", t)
                                 if str(name).lower() == t.tag:
                                     attrs = node.attrs
                                     existing_raw = attrs.get(t.attr)
@@ -1745,8 +1739,6 @@ def apply_compiled_transforms(
                         # CollapseWhitespace
                         if k == "collapse_whitespace":
                             if is_text and not skip_whitespace:
-                                if TYPE_CHECKING:
-                                    t = cast("_CompiledCollapseWhitespaceTransform", t)
                                 text_data: str = str(getattr(node, "data", "") or "")
                                 if text_data:
                                     collapsed = _collapse_html_space_characters(text_data)
@@ -1761,8 +1753,6 @@ def apply_compiled_transforms(
                         # Linkify
                         if k == "linkify":
                             if is_text and not skip_linkify:
-                                if TYPE_CHECKING:
-                                    t = cast("_CompiledLinkifyTransform", t)
                                 linkify_text: str = str(getattr(node, "data", "") or "")
                                 if linkify_text:
                                     matches = find_links_with_config(linkify_text, t.config)
@@ -1806,16 +1796,12 @@ def apply_compiled_transforms(
 
                         # Decide
                         if k == "decide":
-                            if TYPE_CHECKING:
-                                t = cast("_CompiledDecideTransform", t)
                             if t.all_nodes:
                                 action = t.callback(node)
                             else:
                                 if is_special or is_doctype:
                                     continue
                                 sel = t.selector
-                                if TYPE_CHECKING:
-                                    sel = cast("ParsedSelector", sel)
                                 if not matcher.matches(node, sel):
                                     continue
                                 action = t.callback(node)
@@ -1830,7 +1816,7 @@ def apply_compiled_transforms(
                                     node.children = []
                                 if type(node) is Template and node.template_content is not None:
                                     tc = node.template_content
-                                    for child in tc.children or []:
+                                    for child in tc.children or ():
                                         child.parent = None
                                     tc.children = []
                                 continue
@@ -1874,8 +1860,6 @@ def apply_compiled_transforms(
 
                         # Decide chain - flat list iteration (optimized)
                         if k == "decide_chain":
-                            if TYPE_CHECKING:
-                                t = cast("_CompiledDecideChain", t)
                             if t.all_nodes:
                                 # Iterate through callbacks until one returns non-KEEP
                                 action = DecideAction.KEEP
@@ -1887,8 +1871,6 @@ def apply_compiled_transforms(
                                 if is_special or is_doctype:
                                     continue
                                 sel = t.selector
-                                if TYPE_CHECKING:
-                                    sel = cast("ParsedSelector", sel)
                                 if not matcher.matches(node, sel):
                                     continue
                                 action = DecideAction.KEEP
@@ -1907,7 +1889,7 @@ def apply_compiled_transforms(
                                     node.children = []
                                 if type(node) is Template and node.template_content is not None:
                                     tc = node.template_content
-                                    for child in tc.children or []:
+                                    for child in tc.children or ():
                                         child.parent = None
                                     tc.children = []
                                 continue
@@ -1952,8 +1934,6 @@ def apply_compiled_transforms(
                         if k == "decide_elements_chain":
                             if is_special or is_doctype:
                                 continue
-                            if TYPE_CHECKING:
-                                t = cast("_CompiledDecideElementsChain", t)
 
                             action = DecideAction.KEEP
                             for chain_cb in t.callbacks:
@@ -1971,7 +1951,7 @@ def apply_compiled_transforms(
                                     node.children = []
                                 if type(node) is Template and node.template_content is not None:
                                     tc = node.template_content
-                                    for child in tc.children or []:
+                                    for child in tc.children or ():
                                         child.parent = None
                                     tc.children = []
                                 continue
@@ -2012,12 +1992,8 @@ def apply_compiled_transforms(
                         if k == "rewrite_attrs":
                             if is_special or is_doctype:
                                 continue
-                            if TYPE_CHECKING:
-                                t = cast("_CompiledRewriteAttrsTransform", t)
                             if not t.all_nodes:
                                 sel = t.selector
-                                if TYPE_CHECKING:
-                                    sel = cast("ParsedSelector", sel)
                                 if not matcher.matches(node, sel):
                                     continue
                             new_attrs = t.func(node)
@@ -2029,12 +2005,8 @@ def apply_compiled_transforms(
                         if k == "rewrite_attrs_chain":
                             if is_special or is_doctype:
                                 continue
-                            if TYPE_CHECKING:
-                                t = cast("_CompiledRewriteAttrsChain", t)
                             if not t.all_nodes:
                                 sel = t.selector
-                                if TYPE_CHECKING:
-                                    sel = cast("ParsedSelector", sel)
                                 if not matcher.matches(node, sel):
                                     continue
                             # Inline the chain iteration to avoid method-call overhead
@@ -2045,8 +2017,6 @@ def apply_compiled_transforms(
                             continue
 
                         # Selector transforms
-                        if TYPE_CHECKING:
-                            t = cast("_CompiledSelectorTransform", t)
                         if is_special or is_doctype:
                             continue
 
@@ -2054,7 +2024,7 @@ def apply_compiled_transforms(
                             continue
 
                         if t.kind == "setattrs":
-                            patch = cast("dict[str, str | None]", t.payload)
+                            patch = t.payload
                             attrs = node.attrs
                             changed_any = False
                             for k, v in patch.items():
@@ -2074,7 +2044,7 @@ def apply_compiled_transforms(
                             continue
 
                         if t.kind == "edit":
-                            cb = cast("NodeCallback", t.payload)
+                            cb = t.payload
                             cb(node)
                             continue
 
@@ -2087,7 +2057,7 @@ def apply_compiled_transforms(
                             if type(node) is Template and node.template_content is not None:
                                 tc = node.template_content
                                 had_children = had_children or bool(tc.children)
-                                for child in tc.children or []:
+                                for child in tc.children or ():
                                     child.parent = None
                                 tc.children = []
                             if had_children:
@@ -2231,7 +2201,7 @@ def apply_compiled_transforms(
                 if not visited:
                     stack.append((node, True))
 
-                    children = node.children or []
+                    children = node.children or ()
                     stack.extend((child, False) for child in reversed(children) if isinstance(child, Node))
 
                     if type(node) is Template and node.template_content is not None:

@@ -1004,7 +1004,7 @@ def _to_markdown_walk(
             builder.ensure_newlines(2 if builder._buf else 0)
             ordered = tag == "ol"
             idx = 1
-            for child in node.children or []:
+            for child in node.children or ():
                 if child.name.lower() != "li":
                     continue
                 if idx > 1:
@@ -1014,7 +1014,7 @@ def _to_markdown_walk(
                 builder.raw(indent)
                 builder.raw(marker)
                 # Render list item content inline-ish.
-                for li_child in child.children or []:
+                for li_child in child.children or ():
                     _to_markdown_walk(
                         li_child,
                         builder,
@@ -1027,11 +1027,11 @@ def _to_markdown_walk(
             builder.ensure_newlines(2)
         else:
             # Flatten list inside link
-            for child in node.children or []:
+            for child in node.children or ():
                 if child.name.lower() != "li":
                     continue
                 builder.raw(" ")
-                for li_child in child.children or []:
+                for li_child in child.children or ():
                     _to_markdown_walk(
                         li_child,
                         builder,
@@ -1045,7 +1045,7 @@ def _to_markdown_walk(
     # Emphasis/strong.
     if tag in {"em", "i"}:
         inner = _MarkdownBuilder()
-        for child in node.children or []:
+        for child in node.children or ():
             _to_markdown_walk(
                 child,
                 inner,
@@ -1064,7 +1064,7 @@ def _to_markdown_walk(
 
     if tag in {"strong", "b"}:
         inner = _MarkdownBuilder()
-        for child in node.children or []:
+        for child in node.children or ():
             _to_markdown_walk(
                 child,
                 inner,
@@ -1089,7 +1089,7 @@ def _to_markdown_walk(
 
         # Capture inner text to strip whitespace.
         inner_builder = _MarkdownBuilder()
-        for child in node.children or []:
+        for child in node.children or ():
             _to_markdown_walk(
                 child,
                 inner_builder,

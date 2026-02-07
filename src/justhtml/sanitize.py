@@ -1108,7 +1108,7 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
                 current = stack.pop()
                 current_source_html = getattr(current, "_source_html", None) or root_source_html
 
-                children = getattr(current, "children", None) or []
+                children = getattr(current, "children", None) or ()
                 for child in children:
                     # Text does not have _source_html.
                     if getattr(child, "name", "") == "#text":
@@ -1147,7 +1147,7 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     wrapper.append_child(node.clone_node(deep=True))
     apply_compiled_transforms(wrapper, compiled, errors=None)
 
-    children = wrapper.children or []
+    children = cast("list[Any]", wrapper.children)
     if len(children) == 1:
         only = children[0]
         only.parent = None
@@ -1191,7 +1191,7 @@ def sanitize_dom(
     wrapper.append_child(node)
     apply_compiled_transforms(wrapper, compiled, errors=errors)
 
-    children = wrapper.children or []
+    children = cast("list[Any]", wrapper.children)
     if len(children) == 1:
         only = children[0]
         only.parent = None

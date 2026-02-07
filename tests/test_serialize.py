@@ -145,7 +145,7 @@ class TestSerialize(unittest.TestCase):
         assert output == expected
 
     def test_escape_html_text_in_js_string_noop_when_no_html_chars(self):
-        # Covers the fast-path in _escape_html_text().
+        # Covers the HTML-escaping fast-path for plain text.
         assert _JustHTML.escape_html_text_in_js_string("plain text") == "plain text"
 
     def test_to_html_js_string_context(self):

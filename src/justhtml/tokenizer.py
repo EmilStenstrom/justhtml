@@ -449,9 +449,6 @@ class Tokenizer:
             return self.buffer[peek_pos]
         return None
 
-    def _append_text_chunk(self, chunk: str) -> None:
-        self._append_text(chunk)
-
     # ---------------------
     # State handlers
     # ---------------------
@@ -1255,12 +1252,12 @@ class Tokenizer:
                 self.state = self.AFTER_ATTRIBUTE_VALUE_QUOTED
                 return self._state_after_attribute_value_quoted()
             if c == "&":
-                self._append_attr_value_char("&")
+                self.current_attr_value.append("&")
                 self.current_attr_value_has_amp = True
             else:
                 # c == "\0" - the only remaining possibility after fast-path
                 self._emit_error("unexpected-null-character")
-                self._append_attr_value_char(replacement)
+                self.current_attr_value.append(replacement)
 
     def _state_attribute_value_single(self) -> bool:
         replacement = "\ufffd"
@@ -1311,12 +1308,12 @@ class Tokenizer:
                 self.state = self.AFTER_ATTRIBUTE_VALUE_QUOTED
                 return self._state_after_attribute_value_quoted()
             if c == "&":
-                self._append_attr_value_char("&")
+                self.current_attr_value.append("&")
                 self.current_attr_value_has_amp = True
             else:
                 # c == "\0" - the only remaining possibility after fast-path
                 self._emit_error("unexpected-null-character")
-                self._append_attr_value_char(replacement)
+                self.current_attr_value.append(replacement)
 
     def _state_attribute_value_unquoted(self) -> bool:
         replacement = "\ufffd"
@@ -1365,16 +1362,16 @@ class Tokenizer:
                     self.state = self.DATA
                 return False
             if c == "&":
-                self._append_attr_value_char("&")
+                self.current_attr_value.append("&")
                 self.current_attr_value_has_amp = True
                 continue
             if c in ('"', "'", "<", "=", "`"):
                 self._emit_error("unexpected-character-in-unquoted-attribute-value")
             if c == "\0":
                 self._emit_error("unexpected-null-character")
-                self._append_attr_value_char(replacement)
+                self.current_attr_value.append(replacement)
                 continue
-            self._append_attr_value_char(c)
+            self.current_attr_value.append(c)
 
     def _state_after_attribute_value_quoted(self) -> bool:
         """After attribute value (quoted) state per HTML5 spec §13.2.5.42"""
@@ -2093,7 +2090,7 @@ class Tokenizer:
 
     def _append_text(self, text: str) -> None:
         """Append text to buffer, recording start position if this is the first chunk."""
-        if not self.text_buffer and (self.collect_errors or self.track_node_locations):
+        if (self.collect_errors or self.track_node_locations) and not self.text_buffer:
             # Record where text started (current position before this chunk)
             self.text_start_pos = self.pos
         self.text_buffer.append(text)
@@ -2170,9 +2167,6 @@ class Tokenizer:
         self.sink.process_characters(data)
         # Note: process_characters never returns Plaintext or RawData
         # State switches happen via _emit_current_tag instead
-
-    def _append_attr_value_char(self, c: str) -> None:
-        self.current_attr_value.append(c)
 
     def _finish_attribute(self) -> None:
         attr_name_buffer = self.current_attr_name
@@ -2510,7 +2504,7 @@ class Tokenizer:
             # Consume everything up to the special character
             if next_special > pos:
                 chunk = buffer[pos:next_special]
-                self._append_text_chunk(chunk)
+                self._append_text(chunk)
                 pos = next_special
                 self.pos = pos
 
@@ -2636,7 +2630,7 @@ class Tokenizer:
             if null_index != -1 and null_index < next_special:
                 if null_index > pos:
                     chunk = buffer[pos:null_index]
-                    self._append_text_chunk(chunk)
+                    self._append_text(chunk)
                 self._emit_error("unexpected-null-character")
                 self._append_text("\ufffd")
                 pos = null_index + 1
@@ -2645,14 +2639,14 @@ class Tokenizer:
             if lt_index == -1:
                 if pos < length:
                     chunk = buffer[pos:length]
-                    self._append_text_chunk(chunk)
+                    self._append_text(chunk)
                 self.pos = length
                 self._flush_text()
                 self._emit_token(EOFToken())
                 return True
             if lt_index > pos:
                 chunk = buffer[pos:lt_index]
-                self._append_text_chunk(chunk)
+                self._append_text(chunk)
             pos = lt_index + 1
             self.pos = pos
             # Handle script escaped transition before treating '<' as markup boundary

@@ -648,7 +648,9 @@ class SelectorMatcher:
 
     def _matches_attribute(self, node: Any, selector: SimpleSelector) -> bool:
         """Match an attribute selector."""
-        attrs = node.attrs or {}
+        attrs = node.attrs
+        if not attrs:
+            return False
         attr_name = (selector.name or "").lower()  # Attribute names are case-insensitive in HTML
 
         # Check if attribute exists (for any case)
