@@ -199,6 +199,14 @@ doc.query("div.container > p")  # Returns list of matching nodes
 doc.query(":comment")           # Returns comment nodes
 ```
 
+#### `query_one(selector)`
+
+Return the first matching descendant for a CSS selector, or `None`.
+
+```python
+node = doc.query_one("div.container > p")
+```
+
 ---
 
 ## Node
@@ -284,6 +292,14 @@ Find descendants matching a CSS selector.
 
 ```python
 div.query("p.intro")  # Search within this node
+```
+
+#### `query_one(selector)`
+
+Return the first matching descendant for a CSS selector, or `None`.
+
+```python
+p = div.query_one("p.intro")
 ```
 
 #### `to_text()`

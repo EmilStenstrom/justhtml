@@ -30,6 +30,8 @@ justhtml page.html --selector "p" --format text
 
 # Only output the first match
 justhtml page.html --selector "main p" --format text --first
+
+# In Python, this corresponds to: doc.query_one("main p")
 ```
 
 ## Fragments

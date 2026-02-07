@@ -325,6 +325,26 @@ class TestAttributeContains(SelectorTestCase):
         assert len(result) == 0
 
 
+class TestQueryOne(SelectorTestCase):
+    def test_query_one_returns_first_match_or_none(self) -> None:
+        doc = JustHTML('<div><p id="a">A</p><p id="b">B</p></div>', fragment=True)
+
+        first = doc.query_one("p")
+        assert first is not None
+        assert first.name == "p"
+        assert (first.attrs or {}).get("id") == "a"
+
+        assert doc.query_one("article") is None
+
+    def test_query_one_does_not_match_self(self) -> None:
+        doc = JustHTML("<div><span>ok</span></div>", fragment=True)
+        div = cast("Any", doc.root.children[0])
+        assert div.name == "div"
+
+        # query() / query_one() match descendants (querySelectorAll semantics), not the node itself.
+        assert div.query_one("div") is None
+
+
 class TestDescendantCombinator(SelectorTestCase):
     """Test descendant combinator (space)."""
 

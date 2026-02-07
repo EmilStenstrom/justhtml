@@ -21,6 +21,8 @@ JustHTML supports a comprehensive subset of CSS selectors for querying the DOM.
 
 ```python
 doc.query("div")       # All <div> elements
+doc.query_one("div")   # First matching <div>, or None
+
 doc.query(".intro")    # All elements with class="intro"
 doc.query("#main")     # Element with id="main"
 doc.query("*")         # All elements

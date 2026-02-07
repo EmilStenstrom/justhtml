@@ -318,6 +318,10 @@ class JustHTML:
         """Query the document using a CSS selector. Delegates to root.query()."""
         return self.root.query(selector)
 
+    def query_one(self, selector: str) -> Any | None:
+        """Return the first matching descendant for a CSS selector, or None."""
+        return self.root.query_one(selector)
+
     @staticmethod
     def _sorted_errors(errors: list[ParseError]) -> list[ParseError]:
         indexed_errors = enumerate(errors)

@@ -389,6 +389,13 @@ class Node:
         result: list[Any] = query(self, selector)
         return result
 
+    def query_one(self, selector: str) -> Any | None:
+        """Return the first matching descendant for a CSS selector, or None."""
+        matches = self.query(selector)
+        if not matches:
+            return None
+        return matches[0]
+
     @property
     def text(self) -> str:
         """Return the node's own text value.

@@ -41,7 +41,7 @@ A pure Python HTML5 parser that just works. No C extensions to compile. No syste
   JustHTML(
       "<div><p class=\"x\">Hi</p><p>Bye</p></div>",
       fragment=True,
-  ).query("div p.x")[0].to_html(pretty=False)
+  ).query_one("div p.x").to_html(pretty=False)
   # => <p class="x">Hi</p>
   ```
 

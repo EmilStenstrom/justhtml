@@ -79,7 +79,7 @@ Use familiar CSS syntax to find elements:
 paragraphs = doc.query("p")
 
 # Find by ID
-main_div = doc.query("#main")[0]
+main_div = doc.query_one("#main")
 
 # Complex selectors
 links = doc.query("nav > ul li a.active")
@@ -97,7 +97,7 @@ from justhtml import JustHTML
 
 html = "<html><body><div id='main'><p>Hello, <b>world</b>!</p></div></body></html>"
 doc = JustHTML(html)
-div = doc.query("#main")[0]
+div = doc.query_one("#main")
 
 print(div.to_html(indent_size=4))
 ```
