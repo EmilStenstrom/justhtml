@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-02-08
+
+### Added
+- Selectors: Add `query_one()` on `JustHTML` and `Node` for retrieving the first match (or `None`).
+
+### Fixed
+- Packaging: Include `py.typed` in wheels for PEP 561 type hinting support.
+
+### Changed
+- Performance: ~9% faster `JustHTML(...).to_html(pretty=False)` than 1.6.0 on the `web100k` `justhtml_to_html` benchmark (200 files x 3 iterations): 7.244s -> 6.571s (median).
+- Performance: Multiple internal speedups in serializer, tokenizer, tree builder, and transforms for lower per-document overhead.
+
+### Docs
+- Expand API and selector documentation (including performance notes).
+
 ## [1.6.0] - 2026-02-06
 
 ### Added
