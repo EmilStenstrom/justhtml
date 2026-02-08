@@ -1676,30 +1676,77 @@ def apply_compiled_transforms(
                         # in this hot loop (50k nodes * 10 transforms = 500k type checks otherwise).
                         k: str = t.kind
 
-                        # DropComments
-                        if k == "drop_comments":
-                            if is_comment:
-                                if t.callback is not None:
-                                    t.callback(node)
-                                if t.report is not None:
-                                    t.report("Dropped comment", node=node)
-                                children.pop(i)
-                                node.parent = None
-                                changed = True
-                                break
-                            continue
+                        # Decide (elements-only) chain - flat list iteration (optimized)
+                        if k == "decide_elements_chain":
+                            if is_special or is_doctype:
+                                continue
 
-                        # DropDoctype
-                        if k == "drop_doctype":
-                            if is_doctype:
-                                if t.callback is not None:
-                                    t.callback(node)  # pragma: no cover
-                                if t.report is not None:
-                                    t.report("Dropped doctype", node=node)  # pragma: no cover
-                                children.pop(i)
+                            action = DecideAction.KEEP
+                            for chain_cb in t.callbacks:
+                                action = chain_cb(node)
+                                if action is not DecideAction.KEEP:
+                                    break
+
+                            if action is DecideAction.KEEP:
+                                continue
+
+                            if action is DecideAction.EMPTY:
+                                if name != "#text" and node.children:
+                                    for child in node.children:
+                                        child.parent = None
+                                    node.children = []
+                                if type(node) is Template and node.template_content is not None:
+                                    tc = node.template_content
+                                    for child in tc.children or ():
+                                        child.parent = None
+                                    tc.children = []
+                                continue
+
+                            if action is DecideAction.UNWRAP:
+                                moved_nodes_chain2: list[Node] = []
+                                if name != "#text" and node.children:
+                                    moved_nodes_chain2.extend(list(node.children))
+                                    node.children = []
+                                if type(node) is Template and node.template_content is not None:
+                                    tc = node.template_content
+                                    if tc.children:
+                                        moved_nodes_chain2.extend(list(tc.children))
+                                        tc.children = []
+                                if moved_nodes_chain2:
+                                    for child in moved_nodes_chain2:
+                                        _mark_start(child, idx)
+                                        child.parent = parent
+                                    children[i : i + 1] = moved_nodes_chain2
+                                else:
+                                    children.pop(i)
                                 node.parent = None
                                 changed = True
                                 break
+
+                            if action is DecideAction.ESCAPE:
+                                _escape_node(node, parent=parent, child_index=i, mark_new_start_index=idx)
+                                changed = True
+                                break
+
+                            # action == DROP (and any invalid value)
+                            children.pop(i)
+                            node.parent = None
+                            changed = True
+                            break
+
+                        # EditAttrs chain - flat list iteration (optimized)
+                        if k == "rewrite_attrs_chain":
+                            if is_special or is_doctype:
+                                continue
+                            if not t.all_nodes:
+                                sel = t.selector
+                                if not matcher.matches(node, sel):
+                                    continue
+                            # Inline the chain iteration to avoid method-call overhead
+                            for chain_func in t.funcs:
+                                chain_out = chain_func(node)
+                                if chain_out is not None:
+                                    node.attrs = chain_out
                             continue
 
                         # MergeAttrs
@@ -1734,6 +1781,32 @@ def apply_compiled_transforms(
                                                 f"Merged tokens into attribute '{t.attr}' on <{t.tag}>",
                                                 node=node,
                                             )
+                            continue
+
+                        # DropComments
+                        if k == "drop_comments":
+                            if is_comment:
+                                if t.callback is not None:
+                                    t.callback(node)
+                                if t.report is not None:
+                                    t.report("Dropped comment", node=node)
+                                children.pop(i)
+                                node.parent = None
+                                changed = True
+                                break
+                            continue
+
+                        # DropDoctype
+                        if k == "drop_doctype":
+                            if is_doctype:
+                                if t.callback is not None:
+                                    t.callback(node)  # pragma: no cover
+                                if t.report is not None:
+                                    t.report("Dropped doctype", node=node)  # pragma: no cover
+                                children.pop(i)
+                                node.parent = None
+                                changed = True
+                                break
                             continue
 
                         # CollapseWhitespace
@@ -1930,64 +2003,6 @@ def apply_compiled_transforms(
                             changed = True
                             break
 
-                        # Decide (elements-only) chain - flat list iteration (optimized)
-                        if k == "decide_elements_chain":
-                            if is_special or is_doctype:
-                                continue
-
-                            action = DecideAction.KEEP
-                            for chain_cb in t.callbacks:
-                                action = chain_cb(node)
-                                if action is not DecideAction.KEEP:
-                                    break
-
-                            if action is DecideAction.KEEP:
-                                continue
-
-                            if action is DecideAction.EMPTY:
-                                if name != "#text" and node.children:
-                                    for child in node.children:
-                                        child.parent = None
-                                    node.children = []
-                                if type(node) is Template and node.template_content is not None:
-                                    tc = node.template_content
-                                    for child in tc.children or ():
-                                        child.parent = None
-                                    tc.children = []
-                                continue
-
-                            if action is DecideAction.UNWRAP:
-                                moved_nodes_chain2: list[Node] = []
-                                if name != "#text" and node.children:
-                                    moved_nodes_chain2.extend(list(node.children))
-                                    node.children = []
-                                if type(node) is Template and node.template_content is not None:
-                                    tc = node.template_content
-                                    if tc.children:
-                                        moved_nodes_chain2.extend(list(tc.children))
-                                        tc.children = []
-                                if moved_nodes_chain2:
-                                    for child in moved_nodes_chain2:
-                                        _mark_start(child, idx)
-                                        child.parent = parent
-                                    children[i : i + 1] = moved_nodes_chain2
-                                else:
-                                    children.pop(i)
-                                node.parent = None
-                                changed = True
-                                break
-
-                            if action is DecideAction.ESCAPE:
-                                _escape_node(node, parent=parent, child_index=i, mark_new_start_index=idx)
-                                changed = True
-                                break
-
-                            # action == DROP (and any invalid value)
-                            children.pop(i)
-                            node.parent = None
-                            changed = True
-                            break
-
                         # EditAttrs (rewrite_attrs) - single function
                         if k == "rewrite_attrs":
                             if is_special or is_doctype:
@@ -1999,21 +2014,6 @@ def apply_compiled_transforms(
                             new_attrs = t.func(node)
                             if new_attrs is not None:
                                 node.attrs = new_attrs
-                            continue
-
-                        # EditAttrs chain - flat list iteration (optimized)
-                        if k == "rewrite_attrs_chain":
-                            if is_special or is_doctype:
-                                continue
-                            if not t.all_nodes:
-                                sel = t.selector
-                                if not matcher.matches(node, sel):
-                                    continue
-                            # Inline the chain iteration to avoid method-call overhead
-                            for chain_func in t.funcs:
-                                chain_out = chain_func(node)
-                                if chain_out is not None:
-                                    node.attrs = chain_out
                             continue
 
                         # Selector transforms

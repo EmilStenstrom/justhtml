@@ -24,6 +24,10 @@ if TYPE_CHECKING:
     ModeResultTuple = tuple[str, InsertionMode, AnyToken] | tuple[str, InsertionMode, AnyToken, bool]
     "Result is (instruction, mode, token) or (instruction, mode, token, force_html)"
 
+_CLEAR_STACK_UNTIL_TABLE_TEMPLATE_HTML = frozenset(("table", "template", "html"))
+_CLEAR_STACK_UNTIL_TBODY_TFOOT_THEAD_TEMPLATE_HTML = frozenset(("tbody", "tfoot", "thead", "template", "html"))
+_CLEAR_STACK_UNTIL_TR_TEMPLATE_HTML = frozenset(("tr", "template", "html"))
+
 
 class TreeBuilderModesMixin:
     def _handle_doctype(self, token: DoctypeToken) -> Literal[0]:
@@ -555,7 +559,7 @@ class TreeBuilderModesMixin:
         self.frameset_ok = False
         self._close_p_element()
         if self._has_in_list_item_scope("li"):
-            self._pop_until_any_inclusive({"li"})
+            self._pop_until_inclusive("li")
         self._insert_element(token, push=True)
         return
 
@@ -565,14 +569,14 @@ class TreeBuilderModesMixin:
         name = token.name
         if name == "dd":
             if self._has_in_definition_scope("dd"):
-                self._pop_until_any_inclusive({"dd"})
+                self._pop_until_inclusive("dd")
             if self._has_in_definition_scope("dt"):
-                self._pop_until_any_inclusive({"dt"})
+                self._pop_until_inclusive("dt")
         else:
             if self._has_in_definition_scope("dt"):
-                self._pop_until_any_inclusive({"dt"})
+                self._pop_until_inclusive("dt")
             if self._has_in_definition_scope("dd"):
-                self._pop_until_any_inclusive({"dd"})
+                self._pop_until_inclusive("dd")
         self._insert_element(token, push=True)
         return
 
@@ -819,7 +823,7 @@ class TreeBuilderModesMixin:
         if not self._has_in_list_item_scope("li"):
             self._parse_error("unexpected-end-tag", tag_name=token.name)
             return
-        self._pop_until_any_inclusive({"li"})
+        self._pop_until_inclusive("li")
         return
 
     def _handle_body_end_dd_dt(self, token: Tag) -> None:
@@ -827,7 +831,11 @@ class TreeBuilderModesMixin:
         if not self._has_in_definition_scope(name):
             self._parse_error("unexpected-end-tag", tag_name=name)
             return
-        self._pop_until_any_inclusive({"dd", "dt"})
+        # Callers guarantee one of these is present on the stack.
+        while self.open_elements:  # pragma: no branch
+            node = self._pop_current()
+            if node.name in ("dd", "dt"):  # pragma: no branch
+                break
 
     def _handle_body_end_form(self, token: Tag) -> None:
         if self.form_element is None:
@@ -875,7 +883,7 @@ class TreeBuilderModesMixin:
         self._generate_implied_end_tags()
         if self.open_elements and self.open_elements[-1].name != name:
             self._parse_error("end-tag-too-early", tag_name=name)
-        self._pop_until_any_inclusive({name})
+        self._pop_until_inclusive(name)
         return
 
     def _handle_body_end_template(self, token: Tag) -> None:
@@ -1049,29 +1057,29 @@ class TreeBuilderModesMixin:
             name = token.name
             if token.kind == Tag.START:
                 if name == "caption":
-                    self._clear_stack_until({"table", "template", "html"})
+                    self._clear_stack_until(_CLEAR_STACK_UNTIL_TABLE_TEMPLATE_HTML)
                     self._push_formatting_marker()
                     self._insert_element(token, push=True)
                     self.mode = InsertionMode.IN_CAPTION
                     return None
                 if name == "colgroup":
-                    self._clear_stack_until({"table", "template", "html"})
+                    self._clear_stack_until(_CLEAR_STACK_UNTIL_TABLE_TEMPLATE_HTML)
                     self._insert_element(token, push=True)
                     self.mode = InsertionMode.IN_COLUMN_GROUP
                     return None
                 if name == "col":
-                    self._clear_stack_until({"table", "template", "html"})
+                    self._clear_stack_until(_CLEAR_STACK_UNTIL_TABLE_TEMPLATE_HTML)
                     implied = Tag(Tag.START, "colgroup", {}, False)
                     self._insert_element(implied, push=True)
                     self.mode = InsertionMode.IN_COLUMN_GROUP
                     return ("reprocess", InsertionMode.IN_COLUMN_GROUP, token)
                 if name in {"tbody", "tfoot", "thead"}:
-                    self._clear_stack_until({"table", "template", "html"})
+                    self._clear_stack_until(_CLEAR_STACK_UNTIL_TABLE_TEMPLATE_HTML)
                     self._insert_element(token, push=True)
                     self.mode = InsertionMode.IN_TABLE_BODY
                     return None
                 if name in {"td", "th", "tr"}:
-                    self._clear_stack_until({"table", "template", "html"})
+                    self._clear_stack_until(_CLEAR_STACK_UNTIL_TABLE_TEMPLATE_HTML)
                     implied = Tag(Tag.START, "tbody", {}, False)
                     self._insert_element(implied, push=True)
                     self.mode = InsertionMode.IN_TABLE_BODY
@@ -1325,13 +1333,13 @@ class TreeBuilderModesMixin:
             name = token.name
             if token.kind == Tag.START:
                 if name == "tr":
-                    self._clear_stack_until({"tbody", "tfoot", "thead", "template", "html"})
+                    self._clear_stack_until(_CLEAR_STACK_UNTIL_TBODY_TFOOT_THEAD_TEMPLATE_HTML)
                     self._insert_element(token, push=True)
                     self.mode = InsertionMode.IN_ROW
                     return None
                 if name in {"td", "th"}:
                     self._parse_error("unexpected-cell-in-table-body")
-                    self._clear_stack_until({"tbody", "tfoot", "thead", "template", "html"})
+                    self._clear_stack_until(_CLEAR_STACK_UNTIL_TBODY_TFOOT_THEAD_TEMPLATE_HTML)
                     implied = Tag(Tag.START, "tr", {}, False)
                     self._insert_element(implied, push=True)
                     self.mode = InsertionMode.IN_ROW
@@ -1364,7 +1372,7 @@ class TreeBuilderModesMixin:
                 if not self._has_in_table_scope(name):
                     self._parse_error("unexpected-end-tag", tag_name=name)
                     return None
-                self._clear_stack_until({"tbody", "tfoot", "thead", "template", "html"})
+                self._clear_stack_until(_CLEAR_STACK_UNTIL_TBODY_TFOOT_THEAD_TEMPLATE_HTML)
                 self._pop_current()
                 self.mode = InsertionMode.IN_TABLE
                 return None
@@ -1401,7 +1409,7 @@ class TreeBuilderModesMixin:
             name = token.name
             if token.kind == Tag.START:
                 if name in {"td", "th"}:
-                    self._clear_stack_until({"tr", "template", "html"})
+                    self._clear_stack_until(_CLEAR_STACK_UNTIL_TR_TEMPLATE_HTML)
                     self._insert_element(token, push=True)
                     self._push_formatting_marker()
                     self.mode = InsertionMode.IN_CELL
@@ -1444,7 +1452,7 @@ class TreeBuilderModesMixin:
         return self._mode_in_table(token)
 
     def _end_tr_element(self) -> None:
-        self._clear_stack_until({"tr", "template", "html"})
+        self._clear_stack_until(_CLEAR_STACK_UNTIL_TR_TEMPLATE_HTML)
         # Pop tr if on top (may not be if stack was exhausted)
         if self.open_elements and self.open_elements[-1].name == "tr":
             self._pop_current()
@@ -1542,13 +1550,13 @@ class TreeBuilderModesMixin:
                 if name == "select":
                     self._parse_error("unexpected-select-in-select")
                     # select is always in scope in IN_SELECT mode
-                    self._pop_until_any_inclusive({"select"})
+                    self._pop_until_inclusive("select")
                     self._reset_insertion_mode()
                     return None
                 if name in {"input", "textarea"}:
                     self._parse_error("unexpected-start-tag-in-select", tag_name=name)
                     # select is always in scope in IN_SELECT mode
-                    self._pop_until_any_inclusive({"select"})
+                    self._pop_until_inclusive("select")
                     self._reset_insertion_mode()
                     return ("reprocess", self.mode, token)
                 if name == "keygen":
@@ -1558,7 +1566,7 @@ class TreeBuilderModesMixin:
                 if name in {"caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr", "table"}:
                     self._parse_error("unexpected-start-tag-in-select", tag_name=name)
                     # select is always in scope in IN_SELECT mode
-                    self._pop_until_any_inclusive({"select"})
+                    self._pop_until_inclusive("select")
                     self._reset_insertion_mode()
                     return ("reprocess", self.mode, token)
                 if name in {"script", "template"}:
@@ -1624,7 +1632,7 @@ class TreeBuilderModesMixin:
                 return None
             if name == "select":
                 # In IN_SELECT mode, select is always in scope - pop to it
-                self._pop_until_any_inclusive({"select"})
+                self._pop_until_inclusive("select")
                 self._reset_insertion_mode()
                 return None
             # Handle end tags for allowed HTML elements in select
@@ -1666,7 +1674,7 @@ class TreeBuilderModesMixin:
             if name in {"caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr", "table"}:
                 self._parse_error("unexpected-end-tag-in-select", tag_name=name)
                 # select is always in scope in IN_SELECT mode
-                self._pop_until_any_inclusive({"select"})
+                self._pop_until_inclusive("select")
                 self._reset_insertion_mode()
                 return ("reprocess", self.mode, token)
             # Any other end tag: parse error, ignore

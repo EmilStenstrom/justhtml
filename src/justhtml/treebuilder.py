@@ -264,13 +264,6 @@ class TreeBuilder(TreeBuilderModesMixin):
             if node.name == name:
                 break
 
-    def _pop_until_any_inclusive(self, names: set[str]) -> None:
-        # Pop elements until we find one in names (callers ensure element exists)
-        while self.open_elements:
-            node = self._pop_current()
-            if node.name in names:
-                return
-
     def _close_p_element(self) -> bool:
         if self._has_element_in_button_scope("p"):
             self._generate_implied_end_tags("p")
@@ -611,15 +604,17 @@ class TreeBuilder(TreeBuilderModesMixin):
         return node
 
     def _insert_element(self, tag: Any, *, push: bool, namespace: str = "html") -> Any:
+        name = tag.name
+        attrs = tag.attrs
         node: Element | Template
-        if tag.name == "template" and namespace == "html":
-            node = Template(tag.name, attrs=tag.attrs, namespace=namespace)
+        if name == "template" and namespace == "html":
+            node = Template(name, attrs=attrs, namespace=namespace)
         else:
-            node = Element(tag.name, attrs=tag.attrs, namespace=namespace)
+            node = Element(name, attrs=attrs, namespace=namespace)
         if self.track_tag_spans:
             node._start_tag_start = tag.start_pos
             node._start_tag_end = tag.end_pos
-        node._self_closing = bool(getattr(tag, "self_closing", False))
+        node._self_closing = tag.self_closing
 
         if self.tokenizer is not None and self.tokenizer.track_node_locations:
             node._origin_pos = tag.start_pos
@@ -628,7 +623,8 @@ class TreeBuilder(TreeBuilderModesMixin):
 
         # Fast path for common case: not inserting from table
         if not self.insert_from_table:
-            target = self._current_node_or_html()
+            open_elements = self.open_elements
+            target = open_elements[-1] if open_elements else self._current_node_or_html()
 
             # Handle template content insertion
             if type(target) is Template:
@@ -883,7 +879,7 @@ class TreeBuilder(TreeBuilderModesMixin):
                 return node
         return None
 
-    def _clear_stack_until(self, names: set[str]) -> None:
+    def _clear_stack_until(self, names: set[str] | frozenset[str]) -> None:
         # All callers include "html" in names, so this always terminates via break
         while self.open_elements:
             node = self.open_elements[-1]
