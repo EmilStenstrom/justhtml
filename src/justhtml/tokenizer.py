@@ -793,7 +793,6 @@ class Tokenizer:
                 # there's missing whitespace between attributes.
                 self.reconsume = False
                 c = self.current_char
-                self.current_char = c
 
                 if c in (" ", "\n", "\t", "\f"):
                     continue

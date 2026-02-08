@@ -157,6 +157,79 @@ def serialize_end_tag(name: str) -> str:
     return f"</{name}>"
 
 
+def _node_to_html_compact(node: Any) -> str:
+    """Serialize a node subtree to compact HTML (no newlines/indentation).
+
+    This is a hot path for `to_html(..., pretty=False)`, so it is implemented
+    iteratively to avoid recursion overhead and per-node list allocations.
+    """
+
+    parts: list[str] = []
+    append = parts.append
+    stack: list[Any] = [node]
+    _end = object()
+    stack_append = stack.append
+    stack_pop = stack.pop
+
+    void_elements = VOID_ELEMENTS
+    escape_text = _escape_text
+    serialize_start_tag_ = serialize_start_tag
+
+    while stack:
+        item = stack_pop()
+        if type(item) is tuple and item and item[0] is _end:
+            append("</" + item[1] + ">")
+            continue
+
+        name: str = item.name
+
+        if name == "#text":
+            data = item.data
+            if data:
+                append(escape_text(data))
+            continue
+
+        if name == "#comment":
+            append(f"<!--{item.data or ''}-->")
+            continue
+
+        if name == "!doctype":
+            append("<!DOCTYPE html>")
+            continue
+
+        if name == "#document" or name == "#document-fragment":
+            doc_children = item.children
+            if doc_children:
+                for child in reversed(doc_children):
+                    if child is not None:  # pragma: no branch
+                        stack_append(child)
+            continue
+
+        # Element node.
+        append(serialize_start_tag_(name, item.attrs))
+
+        if name in void_elements:
+            continue
+
+        # Template special handling: HTML templates store contents in `template_content`.
+        children: list[Any] = item.children
+        if name == "template":
+            tc = item.template_content
+            ns = item.namespace
+            if tc is not None and (ns is None or ns == "html"):
+                children = tc.children
+
+        # Push an end-tag marker, then children in reverse so they serialize
+        # left-to-right.
+        stack_append((_end, name))
+        if children:
+            for child in reversed(children):
+                if child is not None:  # pragma: no branch
+                    stack_append(child)
+
+    return "".join(parts)
+
+
 def to_html(
     node: Any,
     indent: int = 0,
@@ -167,14 +240,10 @@ def to_html(
     quote: str = '"',
 ) -> str:
     """Convert node to HTML string."""
-    if node.name == "#document":
-        # Document root - just render children
-        parts: list[str] = []
-        for child in node.children:
-            parts.append(_node_to_html(child, indent, indent_size, pretty, in_pre=False))
-        html = "\n".join(parts) if pretty else "".join(parts)
+    if pretty:
+        html = _node_to_html(node, indent, indent_size, in_pre=False)
     else:
-        html = _node_to_html(node, indent, indent_size, pretty, in_pre=False)
+        html = _node_to_html_compact(node)
 
     if context is None:
         context = HTMLContext.HTML
@@ -469,50 +538,16 @@ def _should_pretty_indent_children(children: list[Any]) -> bool:
     return True
 
 
-def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool = True, *, in_pre: bool) -> str:
+def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: bool) -> str:
     """Helper to convert a node to HTML."""
     name: str = node.name
 
-    if not pretty:
-        # Compact mode: no indentation/newlines. Keep this hot path tight.
-
-        if name == "#text":
-            return _escape_text(node.data) if node.data else ""
-
-        if name == "#comment":
-            return f"<!--{node.data or ''}-->"
-
-        if name == "!doctype":
-            return "<!DOCTYPE html>"
-
-        if name == "#document-fragment":
-            compact_parts: list[str] = []
-            for child in node.children:
-                if child is None:  # pragma: no cover
-                    continue
-                compact_parts.append(_node_to_html(child, 0, indent_size, pretty=False, in_pre=False))
-            return "".join(compact_parts)
-
-        open_tag = serialize_start_tag(name, node.attrs)
-
-        if name in VOID_ELEMENTS:
-            return open_tag
-
-        if name == "template" and node.namespace in {None, "html"} and node.template_content is not None:
-            compact_children: list[Any] = node.template_content.children
-        else:
-            compact_children = node.children
-
-        if not compact_children:
-            return f"{open_tag}{serialize_end_tag(name)}"
-
-        compact_parts = [open_tag]
-        for child in compact_children:
-            if child is None:  # pragma: no cover
-                continue
-            compact_parts.append(_node_to_html(child, 0, indent_size, pretty=False, in_pre=False))
-        compact_parts.append(serialize_end_tag(name))
-        return "".join(compact_parts)
+    if name == "#document":
+        # Document root - just render children (with newlines in pretty mode).
+        doc_parts: list[str] = []
+        for child in node.children:
+            doc_parts.append(_node_to_html(child, indent, indent_size, in_pre=False))
+        return "\n".join(doc_parts)
 
     prefix = " " * (indent * indent_size) if not in_pre else ""
     content_pre = in_pre or name in WHITESPACE_PRESERVING_ELEMENTS
@@ -538,12 +573,12 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
 
     # Document fragment
     if name == "#document-fragment":
-        parts: list[str] = []
+        frag_parts: list[str] = []
         for child in node.children:
-            child_html = _node_to_html(child, indent, indent_size, pretty, in_pre=in_pre)
+            child_html = _node_to_html(child, indent, indent_size, in_pre=in_pre)
             if child_html:
-                parts.append(child_html)
-        return newline.join(parts)
+                frag_parts.append(child_html)
+        return newline.join(frag_parts)
 
     # Element node
     open_tag = serialize_start_tag(name, node.attrs)
@@ -580,9 +615,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
 
     if content_pre:
         inner = "".join(
-            _node_to_html(child, indent + 1, indent_size, pretty, in_pre=True)
-            for child in children
-            if child is not None
+            _node_to_html(child, indent + 1, indent_size, in_pre=True) for child in children if child is not None
         )
         return f"{prefix}{open_tag}{inner}{serialize_end_tag(name)}"
 
@@ -608,7 +641,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
                     continue
                 if _is_whitespace_text_node(child):
                     continue
-                child_html = _node_to_html(child, indent + 1, indent_size, pretty, in_pre=content_pre)
+                child_html = _node_to_html(child, indent + 1, indent_size, in_pre=content_pre)
                 if child_html:
                     inner_lines.append(child_html)
 
@@ -681,7 +714,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
                         break
 
                     if len(run) == 1 and run[0].name != "#text":
-                        child_html = _node_to_html(run[0], indent + 1, indent_size, pretty=True, in_pre=content_pre)
+                        child_html = _node_to_html(run[0], indent + 1, indent_size, in_pre=content_pre)
                         smart_lines.append(child_html)
                         continue
 
@@ -700,7 +733,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
                             continue
 
                         # Render inline elements without their own leading indentation.
-                        child_html = _node_to_html(c, 0, indent_size, pretty=True, in_pre=content_pre)
+                        child_html = _node_to_html(c, 0, indent_size, in_pre=content_pre)
                         run_parts.append(child_html)
 
                     smart_lines.append(f"{' ' * ((indent + 1) * indent_size)}{''.join(run_parts)}")
@@ -773,12 +806,12 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
                         if _is_layout_blocky_element(child):
                             flush_inline()
                             mixed_multiline_lines.append(
-                                _node_to_html(child, indent + 1, indent_size, pretty=True, in_pre=content_pre)
+                                _node_to_html(child, indent + 1, indent_size, in_pre=content_pre)
                             )
                             continue
 
                         # Inline element: keep it in the current line without leading indentation.
-                        inline_parts.append(_node_to_html(child, 0, indent_size, pretty=True, in_pre=content_pre))
+                        inline_parts.append(_node_to_html(child, 0, indent_size, in_pre=content_pre))
 
                     flush_inline()
                     inner = "\n".join(line for line in mixed_multiline_lines if line)
@@ -838,7 +871,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
                         if text:
                             element_multiline_lines.append(f"{' ' * ((indent + 1) * indent_size)}{_escape_text(text)}")
                         continue
-                    child_html = _node_to_html(child, indent + 1, indent_size, pretty=True, in_pre=content_pre)
+                    child_html = _node_to_html(child, indent + 1, indent_size, in_pre=content_pre)
                     if child_html:
                         element_multiline_lines.append(child_html)
                 if element_multiline_lines:
@@ -876,7 +909,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
             else:
                 # Even when we can't safely insert whitespace *between* siblings, we can
                 # still pretty-print each element subtree to improve readability.
-                child_html = _node_to_html(child, 0, indent_size, pretty=True, in_pre=content_pre)
+                child_html = _node_to_html(child, 0, indent_size, in_pre=content_pre)
             if child_html:
                 inner_parts.append(child_html)
 
@@ -887,7 +920,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, pretty: bool
     for child in children:
         if not content_pre and _is_whitespace_text_node(child):
             continue
-        child_html = _node_to_html(child, indent + 1, indent_size, pretty, in_pre=content_pre)
+        child_html = _node_to_html(child, indent + 1, indent_size, in_pre=content_pre)
         parts.append(child_html)
     parts.append(f"{prefix}{serialize_end_tag(name)}")
     return newline.join(parts)

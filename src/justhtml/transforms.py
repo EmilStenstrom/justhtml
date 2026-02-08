@@ -1072,7 +1072,8 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
 
                 changed = False
                 out: dict[str, str | None] = {}
-                for raw_key, value in attrs.items():
+                for raw_key in attrs:
+                    value = attrs[raw_key]
                     raw_key_str = raw_key if type(raw_key) is str else str(raw_key)
                     if not raw_key_str.strip():
                         # Drop invalid attribute names like '' or whitespace-only.
@@ -1131,14 +1132,14 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     return None
 
                 tag: str | None = None
-                changed = False
                 to_drop: list[str] | None = None
                 to_set: dict[str, str] | None = None
 
                 # Most nodes have no URL-like attrs; avoid allocations in that case.
-                for key, raw_value in attrs.items():
+                for key in attrs:
                     if key not in _URL_LIKE_ATTRS:
                         continue
+                    raw_value = attrs[key]
                     if tag is None:
                         tag = str(node.name)
                         if not tag.islower():
@@ -1150,7 +1151,6 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                         if to_drop is None:
                             to_drop = []
                         to_drop.append(key)
-                        changed = True
                         continue
 
                     rule = url_policy.allow_rules.get((tag, key))
@@ -1160,7 +1160,6 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                         if to_drop is None:
                             to_drop = []
                         to_drop.append(key)
-                        changed = True
                         continue
 
                     if key == "srcset":
@@ -1190,19 +1189,14 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                         if to_drop is None:
                             to_drop = []
                         to_drop.append(key)
-                        changed = True
                         continue
 
                     if raw_value != sanitized:
                         if to_set is None:
                             to_set = {}
                         to_set[key] = sanitized
-                        changed = True
 
-                if tag is None:
-                    return None
-
-                if not changed:
+                if to_drop is None and to_set is None:
                     return None
 
                 out = dict(attrs)

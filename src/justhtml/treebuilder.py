@@ -632,8 +632,11 @@ class TreeBuilder(TreeBuilderModesMixin):
             else:
                 parent = target
 
-            if parent is not None:  # pragma: no branch
-                parent.append_child(node)
+            # Inline append_child() in this hot path.
+            children = parent.children if parent is not None else None
+            if children is not None:  # pragma: no branch
+                children.append(node)
+                node.parent = parent
 
             if push:
                 self.open_elements.append(node)
