@@ -142,7 +142,7 @@ justhtml index.html --selector "a" --format html
 
 ```bash
 # Example: extract Markdown from GitHub README HTML
-curl -s https://github.com/EmilStenstrom/justhtml/ | justhtml - --selector '.markdown-body' --format markdown | head -n 15
+curl -s https://github.com/EmilStenstrom/justhtml/ | justhtml - --selector '.markdown-body' --format markdown --unsafe | head -n 8
 ```
 
 Output:
@@ -154,13 +154,7 @@ Output:
 
 A pure Python HTML5 parser that just works. No C extensions to compile. No system dependencies to install. No complex API to learn.
 
-**[📖 Read the full documentation here](/EmilStenstrom/justhtml/blob/main/docs/index.md)**
-
-## Why use JustHTML?
-
-- **Just... Correct ✅** — Spec-perfect HTML5 parsing with browser-grade error recovery — passes the official 9k+ [html5lib-tests](https://github.com/html5lib/html5lib-tests) suite, with 100% line+branch coverage. ([Correctness](/EmilStenstrom/justhtml/blob/main/docs/correctness.md))
-- **Just... Python 🐍** — Pure Python, zero dependencies — no C extensions or system libraries, easy to debug, and works anywhere Python runs (including PyPy and Pyodide). ([Quickstart](/EmilStenstrom/justhtml/blob/main/docs/quickstart.md))
-- **Just... Secure 🔒** — Safe-by-default sanitization at construction time — built-in Bleach-style allowlist sanitization on `JustHTML(...)` (disable with `safe=False`), plus URL/CSS rules. ([Sanitization & Security](/EmilStenstrom/justhtml/blob/main/docs/sanitization.md))
+[📖 Full documentation](https://emilstenstrom.github.io/justhtml/) | [🛝 Try it in the Playground](https://emilstenstrom.github.io/justhtml/playground/)
 ```
 
 ## Security
