@@ -34,6 +34,7 @@ class TestCLI(unittest.TestCase):
         self.assertIn("--selector", out)
         self.assertIn("--format", out)
         self.assertIn("--cleanup", out)
+        self.assertIn("--strict", out)
         self.assertEqual(err, "")
 
     def test_version(self):
@@ -220,3 +221,17 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(out, "Hello world\n")
         self.assertEqual(err, "")
+
+    def test_strict_valid_html_exits_0(self):
+        html = "<!DOCTYPE html><html><head></head><body><p>Hello</p></body></html>"
+        code, out, err = self._run_cli(["-", "--strict"], stdin_text=html)
+        self.assertEqual(code, 0)
+        self.assertIn("<p>", out)
+        self.assertEqual(err, "")
+
+    def test_strict_invalid_html_exits_2_and_writes_stderr(self):
+        html = "</b>"
+        code, out, err = self._run_cli(["-", "--strict", "--fragment"], stdin_text=html)
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        self.assertNotEqual(err, "")

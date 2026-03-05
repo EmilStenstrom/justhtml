@@ -10,7 +10,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING, TextIO, cast
 
-from . import JustHTML
+from . import JustHTML, StrictModeError
 from .context import FragmentContext
 from .selector import SelectorError
 
@@ -90,6 +90,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--fragment",
         action="store_true",
         help="Parse input as an HTML fragment (context: <div>)",
+    )
+
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Strict mode: exit with code 2 and print an error on any parse error",
     )
 
     parser.add_argument(
@@ -194,13 +200,18 @@ def main() -> None:
         transforms_list.append(PruneEmpty("*"))
         transforms = transforms_list
 
-    doc = JustHTML(
-        html,
-        fragment_context=fragment_context,
-        sanitize=safe,
-        policy=policy,
-        transforms=transforms,
-    )
+    try:
+        doc = JustHTML(
+            html,
+            fragment_context=fragment_context,
+            sanitize=safe,
+            policy=policy,
+            transforms=transforms,
+            strict=args.strict,
+        )
+    except StrictModeError as e:
+        print(str(e), file=sys.stderr)
+        raise SystemExit(2) from e
 
     try:
         nodes = doc.query(args.selector) if args.selector else [doc.root]
