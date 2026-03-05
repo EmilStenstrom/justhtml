@@ -42,6 +42,16 @@ Use `--fragment` to parse the input as an HTML fragment (instead of a full docum
 echo '<li>Hi</li>' | justhtml - --fragment
 ```
 
+## Strict Mode
+
+Use `--strict` to fail immediately and print an error to `stderr` if the input HTML contains parsing errors or is otherwise malformed according to the WHATWG specification.
+
+```bash
+echo '</b>' | justhtml - --strict --fragment
+# Exits with code 2 and prints:
+# StrictModeError: Element 'b' has no matching start tag
+```
+
 ## Output formats
 
 `--format` controls what is printed:
@@ -105,7 +115,7 @@ justhtml page.html --selector "main" --format text --separator "" --no-strip
 
 - `0`: success
 - `1`: missing input path or no matches for the selector
-- `2`: invalid selector
+- `2`: invalid selector, or a parse error when `--strict` is enabled
 
 ## Real-world example
 
