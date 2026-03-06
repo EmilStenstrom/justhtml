@@ -21,6 +21,7 @@ benchmark = [
     "beautifulsoup4",
     "selectolax",
     "html5-parser",
+    "markupever",
 ]
 dev = [
     "ruff==0.14.7",
