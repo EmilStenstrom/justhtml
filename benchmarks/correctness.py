@@ -17,7 +17,7 @@ from justhtml import JustHTML, to_test_format
 from justhtml.context import FragmentContext
 
 # Available parsers
-PARSERS = ["justhtml", "html5lib", "html5_parser", "lxml", "bs4", "html.parser", "selectolax"]
+PARSERS = ["justhtml", "html5lib", "html5_parser", "lxml", "bs4", "html.parser", "selectolax", "markupever"]
 
 
 def check_parser_available(parser_name):
@@ -57,6 +57,13 @@ def check_parser_available(parser_name):
     if parser_name == "html5_parser":
         try:
             import html5_parser  # noqa: F401
+
+            return True
+        except ImportError:
+            return False
+    if parser_name == "markupever":
+        try:
+            import markupever  # noqa: F401
 
             return True
         except ImportError:
@@ -403,6 +410,22 @@ def run_test_html5_parser(html, fragment_context, expected, xml_coercion=False, 
         # Use sanitize_names=False to preserve invalid chars in tag/attr names
         doc = html5_parser.parse(html, treebuilder="lxml", namespace_elements=True, sanitize_names=False)
         actual = _html5_parser_to_test_format(doc, etree, html)
+        passed = compare_outputs(expected, actual)
+        return passed, actual, None
+    except Exception as e:
+        return False, "", str(e)
+
+
+def run_test_markupever(html, fragment_context, expected, xml_coercion=False, iframe_srcdoc=False):
+    """Run a single test with MarkupEver."""
+    import markupever
+
+    try:
+        if fragment_context:
+            nodes = markupever.parse(html, markupever.HtmlOptions(full_document=False)).root().first_child.children()
+        else:
+            nodes = [markupever.parse(html).root()]
+        actual = _markupever_to_test_format(nodes)
         passed = compare_outputs(expected, actual)
         return passed, actual, None
     except Exception as e:
@@ -794,6 +817,66 @@ def _selectolax_to_test_format(tree):
     return "\n".join(walk(root, 0))
 
 
+def _markupever_to_test_format(nodes):
+    """Convert MarkupEver DOM to test format."""
+    import markupever
+    import markupever.dom
+
+    def process(node, indent):
+        prefix = " " * indent
+        match node:
+            case markupever.dom.Document():
+                for child in node.children():
+                    yield from process(child, indent)
+            case markupever.dom.Doctype():
+                if node.public_id or node.system_id:
+                    yield f'| <!DOCTYPE {node.name} "{node.public_id}" "{node.system_id}">\n'
+                else:
+                    yield f"| <!DOCTYPE {node.name}>\n"
+            case markupever.dom.Element():
+                if node.name.ns == NS_SVG:
+                    tag_name = f"svg {node.name.local}"
+                elif node.name.ns == NS_MATHML:
+                    tag_name = f"math {node.name.local}"
+                elif node.name.ns == NS_HTML:
+                    tag_name = node.name.local
+                else:
+                    tag_name = f"{node.name.ns} {node.name.local}"
+                yield f"| {prefix}<{tag_name}>\n"
+
+                attrs = []
+                for qual_name, value in zip(node.attrs.keys(), node.attrs.values(), strict=True):
+                    if qual_name.ns == NS_XLINK:
+                        attr_name = f"xlink {qual_name.local}"
+                    elif qual_name.ns == NS_XML:
+                        attr_name = f"xml {qual_name.local}"
+                    elif qual_name.ns == NS_XMLNS:
+                        attr_name = f"xmlns {qual_name.local}"
+                    elif qual_name.ns == "":
+                        attr_name = qual_name.local
+                    else:
+                        attr_name = f"{qual_name.ns} {qual_name.local}"
+                    attrs.append((attr_name, value))
+                for attr_name, value in sorted(attrs):
+                    yield f'| {prefix}  {attr_name}="{value}"\n'
+
+                if node.name.ns == NS_HTML and node.name.local == "template":
+                    yield f"| {prefix}  content\n"
+                    for child in node.children():
+                        yield from process(child, indent + 4)
+                else:
+                    for child in node.children():
+                        yield from process(child, indent + 2)
+            case markupever.dom.Text():
+                yield f'| {prefix}"{node.content}"\n'
+            case markupever.dom.Comment():
+                yield f"| {prefix}<!-- {node.content} -->\n"
+            case _:
+                raise ValueError(f"Unknown node type {type(node)}")
+
+    return "".join(line for node in nodes for line in process(node, 0))
+
+
 # Parser dispatch
 PARSER_RUNNERS = {
     "justhtml": run_test_justhtml,
@@ -803,6 +886,7 @@ PARSER_RUNNERS = {
     "bs4": run_test_bs4,
     "html.parser": run_test_html_parser,
     "selectolax": run_test_selectolax,
+    "markupever": run_test_markupever,
 }
 
 

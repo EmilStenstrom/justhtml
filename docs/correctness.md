@@ -58,12 +58,13 @@ We run the same test suite against other Python parsers to compare compliance:
 | Parser | Tests Passed | Compliance | Notes |
 |--------|-------------|------------|-------|
 | **JustHTML** | 1743/1743 | **100%** | Full spec compliance |
+| markupever | 1652/1743 | 95% | Rust-based (html5ever), correct |
 | html5lib | 1538/1743 | 88% | Reference implementation, but incomplete |
 | html5_parser | 1462/1743 | 84% | C-based (Gumbo), mostly correct |
 | selectolax | 1187/1743 | 68% | C-based (Lexbor), fast but less compliant |
-| BeautifulSoup | 78/1743 | 4% | Uses html.parser, not HTML5 compliant |
-| html.parser | 77/1743 | 4% | Python stdlib, basic error recovery only |
-| lxml | 13/1743 | 1% | XML-based, not HTML5 compliant |
+| BeautifulSoup | 79/1743 | 5% | Uses html.parser, not HTML5 compliant |
+| html.parser | 78/1743 | 4% | Python stdlib, basic error recovery only |
+| lxml | 44/1743 | 3% | XML-based, not HTML5 compliant |
 
 *Run `python benchmarks/correctness.py` to reproduce these results.*
 

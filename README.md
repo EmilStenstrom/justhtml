@@ -80,12 +80,13 @@ A pure Python HTML5 parser that just works. No C extensions to compile. No syste
 | **Chromium**<br>browser engine | ✅ **99%** | 🚀&nbsp;Very&nbsp;Fast | — | — | — |
 | **WebKit**<br>browser engine | ✅ **98%** | 🚀 Very Fast | — | — | — |
 | **Firefox**<br>browser engine | ✅ **97%** | 🚀 Very Fast | — | — | — |
+| **`markupever`**<br>Python wrapper of Rust-based html5ever | ✅ **95%** | 🚀 Very Fast | ✅ CSS selectors | ❌ Needs sanitization | Fast and correct. |
 | **`html5lib`**<br>Pure Python | 🟡 88% | 🐢 Slow | 🟡 XPath (lxml) | 🔴 [Deprecated](https://github.com/html5lib/html5lib-python/issues/443) | Unmaintained. Reference implementation;  Correct but quite slow. |
 | **`html5_parser`**<br>Python wrapper of C-based Gumbo | 🟡 84% | 🚀 Very Fast | 🟡 XPath (lxml) | ❌ Needs sanitization | Fast and mostly correct. |
 | **`selectolax`**<br>Python wrapper of C-based Lexbor | 🟡 68% | 🚀 Very Fast | ✅ CSS selectors | ❌ Needs sanitization | Very fast but less compliant. |
+| **`BeautifulSoup`**<br>Pure Python | 🔴 5% (default) | 🐢 Slow | 🟡 Custom API | ❌ Needs sanitization | Wraps `html.parser` (default). Can use lxml or html5lib. |
 | **`html.parser`**<br>Python stdlib | 🔴 4% | ⚡ Fast | ❌ None | ❌ Needs sanitization | Standard library. Chokes on malformed HTML. |
-| **`BeautifulSoup`**<br>Pure Python | 🔴 4% (default) | 🐢 Slow | 🟡 Custom API | ❌ Needs sanitization | Wraps `html.parser` (default). Can use lxml or html5lib. |
-| **`lxml`**<br>Python wrapper of C-based libxml2 | 🔴 1% | 🚀 Very Fast | 🟡 XPath | ❌ Needs sanitization | Fast but not HTML5 compliant. Don't use the old lxml.html.clean module! |
+| **`lxml`**<br>Python wrapper of C-based libxml2 | 🔴 3% | 🚀 Very Fast | 🟡 XPath | ❌ Needs sanitization | Fast but not HTML5 compliant. Don't use the old lxml.html.clean module! |
 
 [1]: Parser compliance scores are from a strict run of the [html5lib-tests](https://github.com/html5lib/html5lib-tests) tree-construction fixtures (1,743 non-script tests). See [docs/correctness.md](docs/correctness.md) for details.
 
