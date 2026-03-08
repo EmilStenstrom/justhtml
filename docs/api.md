@@ -35,7 +35,7 @@ JustHTML(
 ```
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `html` | `str \| bytes \| bytearray \| memoryview` | required | HTML input to parse. Bytes are decoded using HTML encoding sniffing. |
+| `html` | `str \| bytes \| bytearray \| memoryview \| Node \| Text` | required | HTML input to parse, or a built node to normalize by serializing and reparsing. Bytes are decoded using HTML encoding sniffing. |
 | `sanitize` | `bool` | `True` | Sanitize untrusted HTML during construction |
 | `safe` | `bool \| None` | `None` | Backwards-compatible alias for `sanitize` (prefer `sanitize`) |
 | `policy` | `SanitizationPolicy \| None` | `None` | Override the default sanitization policy |
@@ -172,6 +172,10 @@ Parameters:
 
 Sanitization happens at construction time. Use `JustHTML(..., sanitize=False)` for trusted input or `JustHTML(..., policy=...)` to customize the policy.
 
+Built node inputs are normalized through the same parser path as string inputs.
+This means `JustHTML(...)` serializes the attempted node tree to HTML and reparses
+it using the normal HTML5 parser.
+
 #### `to_markdown(html_passthrough=False)`
 
 Return a pragmatic subset of GitHub Flavored Markdown (GFM).
@@ -224,6 +228,74 @@ Node types:
 
 `Template` nodes expose a `template_content` document fragment (HTML namespace only),
 which holds the template’s children.
+
+---
+
+## Builder
+
+The optional builder API lives in a separate submodule so programmatic HTML
+construction is explicit at the import site.
+
+For a tutorial-style guide, see [Building HTML](building.md).
+
+```python
+from justhtml.builder import comment, doctype, element, text
+```
+
+The builder constructs nodes directly. To normalize built nodes using HTML5
+parsing rules, pass them to `JustHTML(...)`.
+
+```python
+from justhtml import JustHTML
+from justhtml.builder import element
+
+doc = JustHTML(element("p", "Hello"), fragment=True)
+```
+
+### `element(name, attrs=None, *children, namespace="html")`
+
+Create an element node.
+
+- `name`: tag name, for example `"div"` or `"a"`
+- `attrs`: optional attribute dictionary
+- `children`: zero or more child values
+- `namespace`: optional namespace, default `"html"`; allowed values are `"html"`, `"svg"`, and `"mathml"` (`"math"` is also accepted as the internal alias)
+
+`attrs` is optional. If the second positional argument is not a mapping, it is
+treated as the first child.
+
+Examples:
+
+```python
+element("p", "Hello")
+element("a", {"href": "/docs"}, "Docs")
+element("input[type=email][required]")
+```
+
+The `name` parameter supports a restricted attribute shorthand:
+
+- `tag[attr]`
+- `tag[attr=value]`
+- `tag[attr="value"]`
+- `tag[attr='value']`
+
+This shorthand is optional convenience. The explicit attrs dict remains the
+canonical form.
+
+### `text(value)`
+
+Create a text node.
+
+### `comment(value)`
+
+Create a comment node.
+
+### `doctype(name="html", public_id=None, system_id=None, *, force_quirks=False)`
+
+Create a doctype node.
+
+`JustHTML(...)` preserves the doctype name and identifiers when it normalizes a
+built document tree.
 
 ### Recommended mutation path
 

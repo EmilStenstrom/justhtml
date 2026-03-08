@@ -111,6 +111,34 @@ def _can_unquote_attr_value(value: str | None) -> bool:
     return not _UNQUOTED_ATTR_VALUE_INVALID.search(value)
 
 
+def _serialize_doctype(node: Any) -> str:
+    doctype = node.data
+    name = "html"
+    public_id = None
+    system_id = None
+
+    if isinstance(doctype, str):
+        name = doctype
+    elif doctype is not None:
+        name = doctype.name or ""
+        public_id = doctype.public_id
+        system_id = doctype.system_id
+
+    parts: list[str] = ["<!DOCTYPE"]
+    if name:
+        parts.extend((" ", name))
+
+    if public_id is not None:
+        parts.extend((' PUBLIC "', _escape_attr_value(public_id, '"'), '"'))
+        if system_id is not None:
+            parts.extend((' "', _escape_attr_value(system_id, '"'), '"'))
+    elif system_id is not None:
+        parts.extend((' SYSTEM "', _escape_attr_value(system_id, '"'), '"'))
+
+    parts.append(">")
+    return "".join(parts)
+
+
 def serialize_start_tag(
     name: str,
     attrs: dict[str, str | None] | None,
@@ -194,7 +222,7 @@ def _node_to_html_compact(node: Any) -> str:
             continue
 
         if name == "!doctype":
-            append("<!DOCTYPE html>")
+            append(_serialize_doctype(item))
             continue
 
         if name == "#document" or name == "#document-fragment":
@@ -569,7 +597,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
 
     # Doctype
     if name == "!doctype":
-        return f"{prefix}<!DOCTYPE html>"
+        return f"{prefix}{_serialize_doctype(node)}"
 
     # Document fragment
     if name == "#document-fragment":

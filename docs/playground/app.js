@@ -58,6 +58,7 @@ async function installJusthtmlFromLocalRepo(pyodideInstance) {
 	const files = [
 		"__init__.py",
 		"__main__.py",
+		"builder.py",
 		"constants.py",
 		"context.py",
 		"encoding.py",

@@ -169,6 +169,7 @@ End: p
 
 ## Next Steps
 
+- [Building HTML](building.md) - Programmatically build node trees and normalize them with `JustHTML(...)`
 - [API Reference](api.md) - Complete API documentation
 - [CSS Selectors](selectors.md) - All supported selectors
 - [Error Codes](errors.md) - Understanding parse errors

@@ -15,12 +15,14 @@ from justhtml.serialize import (
     _is_formatting_whitespace_text,
     _is_layout_blocky_element,
     _normalize_formatting_whitespace,
+    _serialize_doctype,
     _should_pretty_indent_children,
     serialize_end_tag,
     serialize_start_tag,
     to_html,
     to_test_format,
 )
+from justhtml.tokens import Doctype
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802
@@ -47,6 +49,33 @@ class TestSerialize(unittest.TestCase):
         doc = JustHTML("<!DOCTYPE html><html><head></head><body><p>Hi</p></body></html>")
         output = doc.to_html(pretty=False)
         assert output == "<!DOCTYPE html><html><head></head><body><p>Hi</p></body></html>"
+
+    def test_compact_serialization_preserves_non_html_doctype(self):
+        doc = JustHTML("<!DOCTYPE svg><html><head></head><body></body></html>", sanitize=False)
+        output = doc.to_html(pretty=False)
+        assert output == "<!DOCTYPE svg><html><head></head><body></body></html>"
+
+    def test_compact_serialization_preserves_public_and_system_doctype_identifiers(self):
+        html = '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"><html><head></head><body></body></html>'
+        doc = JustHTML(html, sanitize=False)
+        output = doc.to_html(pretty=False)
+        assert output == html
+
+    def test_serialize_doctype_defaults_to_html_when_data_is_missing(self):
+        node = Node("!doctype", data=None)
+        assert _serialize_doctype(node) == "<!DOCTYPE html>"
+
+    def test_serialize_doctype_supports_legacy_string_data(self):
+        node = Node("!doctype", data="svg")
+        assert _serialize_doctype(node) == "<!DOCTYPE svg>"
+
+    def test_serialize_doctype_supports_public_identifier_without_system_identifier(self):
+        node = Node("!doctype", data=Doctype(name="html", public_id="-//Example//DTD HTML//EN"))
+        assert _serialize_doctype(node) == '<!DOCTYPE html PUBLIC "-//Example//DTD HTML//EN">'
+
+    def test_serialize_doctype_supports_system_identifier_without_name(self):
+        node = Node("!doctype", data=Doctype(name="", system_id="about:legacy-compat"))
+        assert _serialize_doctype(node) == '<!DOCTYPE SYSTEM "about:legacy-compat">'
 
     def test_fragment_parameter_default_context(self):
         doc = JustHTML("<p>Hi</p>", fragment=True)

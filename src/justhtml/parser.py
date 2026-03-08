@@ -6,13 +6,14 @@ from typing import TYPE_CHECKING, Any
 
 from .context import FragmentContext
 from .encoding import decode_html
+from .node import Node, Text
 from .sanitize import UrlRule, _sanitize_url_value_with_rule
+from .serialize import to_html as serialize_html
 from .tokenizer import Tokenizer, TokenizerOpts
 from .transforms import apply_compiled_transforms, compile_transforms
 from .treebuilder import TreeBuilder
 
 if TYPE_CHECKING:
-    from .node import Node
     from .sanitize import SanitizationPolicy
     from .serialize import HTMLContext
     from .tokens import ParseError
@@ -55,7 +56,7 @@ class JustHTML:
 
     def __init__(
         self,
-        html: str | bytes | bytearray | memoryview | None,
+        html: str | bytes | bytearray | memoryview | Node | Text | None,
         *,
         sanitize: bool | None = None,
         safe: bool | None = None,
@@ -120,7 +121,9 @@ class JustHTML:
         self.encoding = None
 
         html_str: str
-        if isinstance(html, (bytes, bytearray, memoryview)):
+        if isinstance(html, (Node, Text)):
+            html_str = serialize_html(html, pretty=False)
+        elif isinstance(html, (bytes, bytearray, memoryview)):
             html_str, chosen = decode_html(bytes(html), transport_encoding=encoding)
             self.encoding = chosen
         elif html is not None:
