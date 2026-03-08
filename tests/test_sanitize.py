@@ -60,7 +60,7 @@ class TestSanitizePlumbing(unittest.TestCase):
             force_link_rel=["noopener"],
             allowed_css_properties=["color"],
         )
-        assert isinstance(policy.allowed_tags, set)
+        assert isinstance(policy.allowed_tags, frozenset)
         assert isinstance(policy.allowed_attributes, dict)
         assert isinstance(policy.drop_content_tags, set)
         assert isinstance(policy.force_link_rel, set)

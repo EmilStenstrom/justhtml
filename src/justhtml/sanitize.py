@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import quote, urlsplit
 
 from .tokens import ParseError
@@ -258,8 +258,25 @@ class SanitizationPolicy:
     All tag and attribute names are expected to be ASCII-lowercase.
     """
 
-    allowed_tags: Collection[str]
+    allowed_tags: frozenset[str]
     allowed_attributes: Mapping[str, Collection[str]]
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            allowed_tags: Collection[str],
+            allowed_attributes: Mapping[str, Collection[str]],
+            url_policy: UrlPolicy = ...,
+            drop_comments: bool = True,
+            drop_doctype: bool = True,
+            drop_foreign_namespaces: bool = True,
+            drop_content_tags: Collection[str] = ...,
+            allowed_css_properties: Collection[str] = ...,
+            force_link_rel: Collection[str] = ...,
+            unsafe_handling: UnsafeHandling = "strip",
+            disallowed_tag_handling: DisallowedTagHandling = "unwrap",
+        ) -> None: ...
 
     # URL handling.
     url_policy: UrlPolicy = field(default_factory=UrlPolicy)
@@ -351,7 +368,7 @@ class SanitizationPolicy:
                     f"(e.g. {{'{tag}': ['class', 'id']}}), not a string"
                 )
 
-        normalized_tags = {str(t).strip().lower() for t in self.allowed_tags if str(t).strip()}
+        normalized_tags = frozenset(str(t).strip().lower() for t in self.allowed_tags if str(t).strip())
         object.__setattr__(self, "allowed_tags", normalized_tags)
 
         normalized_attrs: dict[str, set[str]] = {}
