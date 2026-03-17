@@ -171,6 +171,7 @@ Parameters:
 - `separator_blocks_only` (default: `False`): only apply `separator` between block-level elements (avoid separators inside inline tags)
 
 Sanitization happens at construction time. Use `JustHTML(..., sanitize=False)` for trusted input or `JustHTML(..., policy=...)` to customize the policy.
+If you use explicit transform pipelines, note that `Sanitize(...)` only guarantees safety at its position in the pipeline; later transforms can reintroduce unsafe content. See [Transforms](transforms.md#safety-model).
 
 Built node inputs are normalized through the same parser path as string inputs.
 This means `JustHTML(...)` serializes the attempted node tree to HTML and reparses

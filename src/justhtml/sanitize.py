@@ -586,6 +586,133 @@ DEFAULT_DOCUMENT_POLICY: SanitizationPolicy = SanitizationPolicy(
 )
 
 
+_RAWTEXT_SERIALIZATION_ELEMENTS: frozenset[str] = frozenset({"script", "style"})
+
+
+def _neutralize_rawtext_end_tag_sequences(text: str, tag_name: str) -> tuple[str, bool]:
+    if not text:
+        return text, False
+
+    lower_text = text.lower()
+    needle = f"</{tag_name}"
+    needle_len = len(needle)
+    out: list[str] = []
+    start = 0
+    changed = False
+
+    while True:
+        idx = lower_text.find(needle, start)
+        if idx == -1:
+            break
+
+        boundary = idx + needle_len
+        if boundary == len(text) or text[boundary] in " \t\n\r\f/>":
+            out.append(text[start:idx])
+            out.append("&lt;")
+            start = idx + 1
+            changed = True
+            continue
+
+        start = idx + 1
+
+    if not changed:
+        return text, False
+
+    out.append(text[start:])
+    return "".join(out), True
+
+
+def _record_rawtext_security_issue(
+    *,
+    policy: SanitizationPolicy,
+    errors: list[ParseError] | None,
+    code: str,
+    message: str,
+    node: Any,
+) -> None:
+    policy.handle_unsafe(message, node=node)
+    if errors is None:
+        return
+    errors.append(
+        ParseError(
+            code,
+            line=node.origin_line,
+            column=node.origin_col,
+            category="security",
+            message=message,
+        )
+    )
+
+
+def _sanitize_rawtext_element_contents(
+    node: Any,
+    *,
+    policy: SanitizationPolicy,
+    errors: list[ParseError] | None,
+) -> None:
+    from .node import Template  # noqa: PLC0415
+
+    stack: list[Any] = [node]
+
+    while stack:
+        current = stack.pop()
+        name = current.name
+
+        if name in _RAWTEXT_SERIALIZATION_ELEMENTS:
+            children = current.children
+            if not children:
+                continue
+
+            text_children: list[Any] = []
+            text_parts: list[str] = []
+            for child in children:
+                if child.name == "#text":
+                    text_children.append(child)
+                    text_parts.append(child.data or "")
+                    continue
+
+                _record_rawtext_security_issue(
+                    policy=policy,
+                    errors=errors,
+                    code="unsafe-rawtext-child",
+                    message=f"Unsafe non-text child inside <{name}> was dropped",
+                    node=child,
+                )
+                child.parent = None
+
+            if not text_children:
+                current.children = []
+                continue
+
+            combined_text = "".join(text_parts)
+            sanitized_text, changed = _neutralize_rawtext_end_tag_sequences(combined_text, str(name))
+
+            if changed:
+                primary_text = text_children[0]
+                _record_rawtext_security_issue(
+                    policy=policy,
+                    errors=errors,
+                    code="unsafe-rawtext-end-tag",
+                    message=f"Unsafe raw text inside <{name}> contains a closing tag sequence",
+                    node=primary_text,
+                )
+                primary_text.data = sanitized_text
+                for extra_text in text_children[1:]:
+                    extra_text.parent = None
+                current.children = [primary_text] if sanitized_text else []
+                continue
+
+            current.children = text_children
+            continue
+
+        children = current.children
+        if children:
+            stack.extend(reversed(children))
+
+        if type(current) is Template and current.template_content is not None:
+            stack.append(current.template_content)
+
+
 def _is_valid_css_property_name(name: str) -> bool:
     # Conservative: allow only ASCII letters/digits/hyphen.
     # This keeps parsing deterministic and avoids surprises with escapes.
@@ -1178,6 +1305,7 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     if node.name in {"#document", "#document-fragment"}:
         cloned = node.clone_node(deep=True)
         apply_compiled_transforms(cloned, compiled, errors=None)
+        _sanitize_rawtext_element_contents(cloned, policy=policy, errors=None)
         return cloned
 
     from .node import DocumentFragment  # noqa: PLC0415
@@ -1185,6 +1313,7 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     wrapper = DocumentFragment()
     wrapper.append_child(node.clone_node(deep=True))
     apply_compiled_transforms(wrapper, compiled, errors=None)
+    _sanitize_rawtext_element_contents(wrapper, policy=policy, errors=None)
 
     children = cast("list[Any]", wrapper.children)
     if len(children) == 1:
@@ -1222,6 +1351,7 @@ def sanitize_dom(
 
     if node.name in {"#document", "#document-fragment"}:
         apply_compiled_transforms(node, compiled, errors=errors)
+        _sanitize_rawtext_element_contents(node, policy=policy, errors=errors)
         return node
 
     from .node import DocumentFragment  # noqa: PLC0415
@@ -1229,6 +1359,7 @@ def sanitize_dom(
     wrapper = DocumentFragment()
     wrapper.append_child(node)
     apply_compiled_transforms(wrapper, compiled, errors=errors)
+    _sanitize_rawtext_element_contents(wrapper, policy=policy, errors=errors)
 
     children = cast("list[Any]", wrapper.children)
     if len(children) == 1:

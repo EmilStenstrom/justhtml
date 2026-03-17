@@ -20,8 +20,10 @@ from justhtml.sanitize import (
     _effective_proxy,
     _effective_url_handling,
     _is_valid_css_property_name,
+    _neutralize_rawtext_end_tag_sequences,
     _sanitize_css_url_functions,
     _sanitize_inline_style,
+    _sanitize_rawtext_element_contents,
     _sanitize_url_value_with_rule,
     sanitize_dom,
 )
@@ -1579,6 +1581,152 @@ class TestSanitizeDom(unittest.TestCase):
         tpl_no_content = Template("template", namespace=None)
         assert to_html(sanitize(tpl_no_content, policy=template_policy), pretty=False) == "<template></template>"
 
+    def test_sanitize_dom_neutralizes_style_end_tag_sequences(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style", "img"],
+            allowed_attributes={"img": ["src", "alt"]},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        frag = DocumentFragment()
+        style = Node("style")
+        style.append_child(Text("</style><img src=x onerror=1>"))
+        frag.append_child(style)
+
+        sanitize_dom(frag, policy=policy)
+
+        out = to_html(frag, pretty=False)
+        assert out == "<style>&lt;/style><img src=x onerror=1></style>"
+        reparsed = JustHTML(out, fragment=True, sanitize=False)
+        assert reparsed.query("img") == []
+
+    def test_sanitize_dom_neutralizes_split_style_end_tag_sequences(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style", "img"],
+            allowed_attributes={"img": ["src", "alt"]},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        frag = DocumentFragment()
+        style = Node("style")
+        style.append_child(Text("</sty"))
+        style.append_child(Text("le><img src=x onerror=1>"))
+        frag.append_child(style)
+
+        sanitize_dom(frag, policy=policy)
+
+        out = to_html(frag, pretty=False)
+        assert out == "<style>&lt;/style><img src=x onerror=1></style>"
+        reparsed = JustHTML(out, fragment=True, sanitize=False)
+        assert reparsed.query("img") == []
+
+    def test_sanitize_dom_neutralizes_script_end_tag_sequences(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["script"],
+            allowed_attributes={},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        frag = DocumentFragment()
+        script = Node("script")
+        script.append_child(Text("</script><img src=x onerror=1>"))
+        frag.append_child(script)
+
+        sanitize_dom(frag, policy=policy)
+
+        out = to_html(frag, pretty=False)
+        assert out == "<script>&lt;/script><img src=x onerror=1></script>"
+        reparsed = JustHTML(out, fragment=True, sanitize=False)
+        assert reparsed.query("img") == []
+
+    def test_sanitize_dom_drops_non_text_children_inside_rawtext_elements(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style", "span"],
+            allowed_attributes={"span": []},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        frag = DocumentFragment()
+        style = Node("style")
+        child = Node("span")
+        child.append_child(Text("x"))
+        style.append_child(child)
+        frag.append_child(style)
+
+        sanitize_dom(frag, policy=policy)
+
+        assert to_html(frag, pretty=False) == "<style></style>"
+
+    def test_neutralize_rawtext_end_tag_sequences_edge_cases(self) -> None:
+        assert _neutralize_rawtext_end_tag_sequences("", "style") == ("", False)
+        assert _neutralize_rawtext_end_tag_sequences("</stylex>", "style") == ("</stylex>", False)
+        assert _neutralize_rawtext_end_tag_sequences("</style", "style") == ("&lt;/style", True)
+
+    def test_sanitize_rawtext_element_contents_handles_no_text_children(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style", "span"],
+            allowed_attributes={"span": []},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        style = Node("style")
+        child = Node("span")
+        style.append_child(child)
+
+        _sanitize_rawtext_element_contents(style, policy=policy, errors=[])
+
+        assert style.children == []
+        assert child.parent is None
+
+    def test_sanitize_rawtext_element_contents_handles_empty_rawtext_element(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style"],
+            allowed_attributes={},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        style = Node("style")
+
+        _sanitize_rawtext_element_contents(style, policy=policy, errors=[])
+
+        assert style.children == []
+
+    def test_sanitize_rawtext_element_contents_preserves_safe_text_children(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style"],
+            allowed_attributes={},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        style = Node("style")
+        first = Text("body {")
+        second = Text(" color: red; }")
+        style.append_child(first)
+        style.append_child(second)
+
+        _sanitize_rawtext_element_contents(style, policy=policy, errors=[])
+
+        assert style.children == [first, second]
+        assert first.parent is style
+        assert second.parent is style
+
+    def test_sanitize_rawtext_element_contents_traverses_template_content(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["template", "style"],
+            allowed_attributes={"template": []},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        template = Template("template", namespace="html")
+        assert template.template_content is not None
+        style = Node("style")
+        style.append_child(Text("</style><img src=x>"))
+        template.template_content.append_child(style)
+
+        _sanitize_rawtext_element_contents(template, policy=policy, errors=[])
+
+        assert to_html(template, pretty=False) == "<template><style>&lt;/style><img src=x></style></template>"
+
 
 class TestSanitizeUnsafe(unittest.TestCase):
     def test_unsafe_handler_collect_initializes_on_first_use(self) -> None:
@@ -1693,6 +1841,63 @@ class TestSanitizeUnsafe(unittest.TestCase):
         assert errors[0].category == "security"
         assert errors[0].code == "unsafe-html"
         assert "Unsafe tag 'script'" in errors[0].message
+
+    def test_sanitize_dom_collects_rawtext_invariant_violations(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style"],
+            allowed_attributes={},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+            unsafe_handling="collect",
+        )
+        policy.reset_collected_security_errors()
+        frag = DocumentFragment()
+        style = Node("style")
+        style.append_child(Text("</style><b>x</b>"))
+        frag.append_child(style)
+
+        sanitize_dom(frag, policy=policy)
+
+        errors = policy.collected_security_errors()
+        assert len(errors) == 1
+        assert errors[0].category == "security"
+        assert errors[0].code == "unsafe-html"
+        assert "Unsafe raw text inside <style>" in errors[0].message
+
+    def test_justhtml_node_input_sanitize_true_hardens_rawtext_before_parse(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style", "p"],
+            allowed_attributes={},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        frag = DocumentFragment()
+        style = Node("style")
+        style.append_child(Text("</style><p>x</p>"))
+        frag.append_child(style)
+
+        doc = JustHTML(frag, fragment=True, policy=policy)
+
+        assert doc.query("p") == []
+        assert "&lt;/style><p>x</p>" in doc.to_html(pretty=False)
+
+    def test_justhtml_node_input_sanitize_true_hardens_split_rawtext_before_parse(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style", "p"],
+            allowed_attributes={},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        frag = DocumentFragment()
+        style = Node("style")
+        style.append_child(Text("</sty"))
+        style.append_child(Text("le><p>x</p>"))
+        frag.append_child(style)
+
+        doc = JustHTML(frag, fragment=True, policy=policy)
+
+        assert doc.query("p") == []
+        assert "&lt;/style><p>x</p>" in doc.to_html(pretty=False)
 
     def test_collect_mode_merges_into_doc_errors(self) -> None:
         html = "<p>\x00</p><script>alert(1)</script>"

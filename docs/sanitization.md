@@ -26,6 +26,7 @@ Therefore, you must choose the correct output method when embedding data in cont
 ### 1. Safety for Standard HTML
 
 If you are rendering HTML into the body of a page (server-side rendering), JustHTML safeguards you automatically. By default, `JustHTML(...)` sanitizes input using a conservative policy (strips scripts, allowlists safe tags).
+If you build a custom transform pipeline, remember that `Sanitize(...)` only guarantees the tree state at the point where it runs; transforms placed after it can reintroduce unsafe content. See [Transforms](transforms.md#safety-model).
 
 #### Fragments (Snippets)
 

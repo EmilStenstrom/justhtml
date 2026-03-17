@@ -95,6 +95,7 @@ class JustHTML:
 
         track_tag_spans = False
         has_sanitize_transform = False
+        explicit_sanitize_policy: SanitizationPolicy | None = None
         needs_escape_incomplete_tags = False
         if transforms:
             from .sanitize import DEFAULT_POLICY  # noqa: PLC0415
@@ -103,6 +104,8 @@ class JustHTML:
             for t in transforms:
                 if isinstance(t, Sanitize):
                     has_sanitize_transform = True
+                    if explicit_sanitize_policy is None:
+                        explicit_sanitize_policy = t.policy
                     effective = t.policy or DEFAULT_POLICY
                     if effective.disallowed_tag_handling == "escape":
                         track_tag_spans = True
@@ -122,7 +125,22 @@ class JustHTML:
 
         html_str: str
         if isinstance(html, (Node, Text)):
-            html_str = serialize_html(html, pretty=False)
+            html_for_serialization = html
+            if sanitize_enabled or has_sanitize_transform:
+                from .sanitize import (  # noqa: PLC0415
+                    DEFAULT_DOCUMENT_POLICY,
+                    DEFAULT_POLICY,
+                    _sanitize_rawtext_element_contents,
+                )
+
+                html_for_serialization = html.clone_node(deep=True)
+                effective_policy = explicit_sanitize_policy or policy
+                if effective_policy is None:
+                    effective_policy = (
+                        DEFAULT_DOCUMENT_POLICY if html_for_serialization.name == "#document" else DEFAULT_POLICY
+                    )
+                _sanitize_rawtext_element_contents(html_for_serialization, policy=effective_policy, errors=None)
+            html_str = serialize_html(html_for_serialization, pretty=False)
         elif isinstance(html, (bytes, bytearray, memoryview)):
             html_str, chosen = decode_html(bytes(html), transport_encoding=encoding)
             self.encoding = chosen
