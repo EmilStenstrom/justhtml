@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.11.0] - Unreleased
+## [1.12.0] - 2026-03-17
+
+### Security
+- (Severity: High) Markdown output now HTML-escapes text-node content before applying Markdown escaping, preventing attacker-controlled text such as `<script>` from turning into raw HTML when `to_markdown()` output is rendered.
+- (Severity: Moderate) Sanitization now hardens `script` and `style` raw-text content by neutralizing embedded closing-tag sequences and dropping non-text children, preventing sanitized DOM trees from serializing into breakout HTML.
+
+## [1.11.0] - 2026-03-15
 
 ### Added
 - Sanitization: Add `SanitizationPolicy.strip_invisible_unicode` to strip invisible Unicode used for obfuscation from text and attribute values before other sanitizer checks run.
