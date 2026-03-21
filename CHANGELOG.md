@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-03-21
+
+### Security
+- (Severity: High): Harden fenced code generation in `to_markdown()` by choosing backtick delimiters longer than any run inside `<pre>` content, preventing attacker-controlled backticks from breaking out of code blocks and exposing raw HTML to downstream Markdown renderers.
+- (Severity: Low): Treat text that starts at the beginning of a rendered Markdown line as text, not block syntax, by escaping line-leading headings, blockquotes, list markers, thematic breaks, setext underlines, and fenced-code delimiters from untrusted HTML content.
+
 ## [1.12.0] - 2026-03-17
 
 ### Security
