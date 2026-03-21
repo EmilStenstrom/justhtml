@@ -34,6 +34,17 @@ def _markdown_code_span(s: str | None) -> str:
     if s is None:
         s = ""
     # Use a backtick fence longer than any run of backticks inside.
+    fence = _markdown_backtick_fence(s, minimum=1)
+    # CommonMark requires a space if the content starts/ends with backticks.
+    needs_space = s.startswith("`") or s.endswith("`")
+    if needs_space:
+        return f"{fence} {s} {fence}"
+    return f"{fence}{s}{fence}"
+
+
+def _markdown_backtick_fence(s: str | None, *, minimum: int) -> str:
+    if s is None:
+        s = ""
     longest = 0
     run = 0
     for ch in s:
@@ -43,12 +54,7 @@ def _markdown_code_span(s: str | None) -> str:
                 longest = run
         else:
             run = 0
-    fence = "`" * (longest + 1)
-    # CommonMark requires a space if the content starts/ends with backticks.
-    needs_space = s.startswith("`") or s.endswith("`")
-    if needs_space:
-        return f"{fence} {s} {fence}"
-    return f"{fence}{s}{fence}"
+    return "`" * max(minimum, longest + 1)
 
 
 def _markdown_link_destination(url: str) -> str:
@@ -936,13 +942,14 @@ def _to_markdown_walk(
                 if current_in_link:
                     current_builder.raw(_markdown_code_span(code))
                 else:
+                    fence = _markdown_backtick_fence(code, minimum=3)
                     current_builder.ensure_newlines(2 if current_builder._buf else 0)
-                    current_builder.raw("```")
+                    current_builder.raw(fence)
                     current_builder.newline(1)
                     if code:
                         current_builder.raw(code.rstrip("\n"))
                         current_builder.newline(1)
-                    current_builder.raw("```")
+                    current_builder.raw(fence)
                     current_builder.ensure_newlines(2)
                 continue
 

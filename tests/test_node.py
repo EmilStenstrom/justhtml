@@ -8,6 +8,7 @@ from justhtml.node import (
     Node,
     Template,
     Text,
+    _markdown_backtick_fence,
     _markdown_code_span,
     _markdown_link_destination,
     _MarkdownBuilder,
@@ -557,6 +558,12 @@ class TestNode(unittest.TestCase):
         # Exercise backtick runs that don't increase the longest run.
         assert _markdown_code_span("a`b`") == "`` a`b` ``"
 
+    def test_markdown_backtick_fence_helper_edge_cases(self):
+        assert _markdown_backtick_fence(None, minimum=3) == "```"
+        assert _markdown_backtick_fence("", minimum=3) == "```"
+        assert _markdown_backtick_fence("```", minimum=3) == "````"
+        assert _markdown_backtick_fence("````", minimum=3) == "`````"
+
     def test_markdown_link_destination_helper_edge_cases(self):
         assert _markdown_link_destination("") == ""
         assert _markdown_link_destination("   ") == ""
@@ -565,6 +572,14 @@ class TestNode(unittest.TestCase):
     def test_to_markdown_pre_rstrips_trailing_spaces_before_newline(self):
         doc = JustHTML("<pre>X   \n</pre>")
         assert doc.to_markdown() == "```\nX\n```"
+
+    def test_to_markdown_pre_uses_longer_fence_than_content(self):
+        doc = JustHTML("<pre>&#96;&#96;&#96;\n&lt;img src=x onerror=alert(1)&gt;</pre>", fragment=True)
+        assert doc.to_markdown() == "````\n```\n<img src=x onerror=alert(1)>\n````"
+
+    def test_to_markdown_pre_uses_longer_fence_for_longer_runs(self):
+        doc = JustHTML("<pre>&#96;&#96;&#96;&#96;\n&lt;img src=x onerror=alert(1)&gt;</pre>", fragment=True)
+        assert doc.to_markdown() == "`````\n````\n<img src=x onerror=alert(1)>\n`````"
 
     def test_to_markdown_document_container_direct(self):
         doc = Document()
