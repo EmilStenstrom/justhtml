@@ -10,7 +10,9 @@ from justhtml.node import (
     Text,
     _markdown_backtick_fence,
     _markdown_code_span,
+    _markdown_escape_line_start,
     _markdown_link_destination,
+    _markdown_thematic_or_setext_line,
     _MarkdownBuilder,
     _to_markdown_walk,
 )
@@ -564,6 +566,32 @@ class TestNode(unittest.TestCase):
         assert _markdown_backtick_fence("```", minimum=3) == "````"
         assert _markdown_backtick_fence("````", minimum=3) == "`````"
 
+    def test_markdown_escape_line_start_helper_edge_cases(self):
+        assert _markdown_escape_line_start("") is None
+        assert _markdown_escape_line_start("# heading") == (r"\#", 1)
+        assert _markdown_escape_line_start("#heading") is None
+        assert _markdown_escape_line_start("> quote") == (r"\>", 1)
+        assert _markdown_escape_line_start("- item") == (r"\-", 1)
+        assert _markdown_escape_line_start("-x") is None
+        assert _markdown_escape_line_start("+ item") == (r"\+", 1)
+        assert _markdown_escape_line_start("+item") is None
+        assert _markdown_escape_line_start("1. item") == (r"1\.", 2)
+        assert _markdown_escape_line_start("2) item") == (r"2\)", 2)
+        assert _markdown_escape_line_start("12. item") == (r"12\.", 3)
+        assert _markdown_escape_line_start("~~~") == (r"\~", 1)
+        assert _markdown_escape_line_start("~~") is None
+        assert _markdown_escape_line_start("```") == (r"\`", 1)
+        assert _markdown_escape_line_start("``") is None
+        assert _markdown_escape_line_start("---") == (r"\-", 1)
+        assert _markdown_escape_line_start("===") == (r"\=", 1)
+        assert _markdown_escape_line_start("=x") is None
+        assert _markdown_escape_line_start("plain text") is None
+
+    def test_markdown_thematic_or_setext_line_helper_edge_cases(self):
+        assert _markdown_thematic_or_setext_line("   ", "-", minimum_markers=3) is False
+        assert _markdown_thematic_or_setext_line("- - -", "-", minimum_markers=3) is True
+        assert _markdown_thematic_or_setext_line("- - x", "-", minimum_markers=3) is False
+
     def test_markdown_link_destination_helper_edge_cases(self):
         assert _markdown_link_destination("") == ""
         assert _markdown_link_destination("   ") == ""
@@ -580,6 +608,22 @@ class TestNode(unittest.TestCase):
     def test_to_markdown_pre_uses_longer_fence_for_longer_runs(self):
         doc = JustHTML("<pre>&#96;&#96;&#96;&#96;\n&lt;img src=x onerror=alert(1)&gt;</pre>", fragment=True)
         assert doc.to_markdown() == "`````\n````\n<img src=x onerror=alert(1)>\n`````"
+
+    def test_to_markdown_escapes_heading_marker_after_line_break(self):
+        doc = JustHTML("<p>a<br># heading</p>", fragment=True)
+        assert doc.to_markdown() == "a\n\\# heading"
+
+    def test_to_markdown_escapes_blockquote_marker_after_line_break(self):
+        doc = JustHTML("<p>a<br>> quote</p>", fragment=True)
+        assert doc.to_markdown() == "a\n\\> quote"
+
+    def test_to_markdown_escapes_list_markers_after_line_break(self):
+        doc = JustHTML("<p>a<br>- item<br>+ next<br>1. ordered<br>2) ordered<br>12. multi</p>", fragment=True)
+        assert doc.to_markdown() == "a\n\\- item\n\\+ next\n1\\. ordered\n2\\) ordered\n12\\. multi"
+
+    def test_to_markdown_escapes_fence_and_rule_markers_after_line_break(self):
+        doc = JustHTML("<p>a<br>~~~<br>```<br>---<br>===</p>", fragment=True)
+        assert doc.to_markdown() == "a\n\\~~~\n\\`\\`\\`\n\\---\n\\==="
 
     def test_to_markdown_document_container_direct(self):
         doc = Document()

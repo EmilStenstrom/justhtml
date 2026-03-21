@@ -57,6 +57,69 @@ def _markdown_backtick_fence(s: str | None, *, minimum: int) -> str:
     return "`" * max(minimum, longest + 1)
 
 
+def _markdown_thematic_or_setext_line(s: str, marker: str, *, minimum_markers: int) -> bool:
+    stripped = s.rstrip(" \t")
+    if not stripped:
+        return False
+
+    count = 0
+    for ch in stripped:
+        if ch in " \t":
+            continue
+        if ch != marker:
+            return False
+        count += 1
+    return count >= minimum_markers
+
+
+def _markdown_escape_line_start(s: str) -> tuple[str, int] | None:
+    if not s:
+        return None
+
+    first = s[0]
+    if first == "#":
+        if len(s) == 1 or s[1] in " \t":
+            return r"\#", 1
+        return None
+
+    if first == ">":
+        return r"\>", 1
+
+    if first == "-":
+        if (len(s) > 1 and s[1] in " \t") or _markdown_thematic_or_setext_line(s, "-", minimum_markers=3):
+            return r"\-", 1
+        return None
+
+    if first == "+":
+        if len(s) > 1 and s[1] in " \t":
+            return r"\+", 1
+        return None
+
+    if first == "=":
+        if _markdown_thematic_or_setext_line(s, "=", minimum_markers=1):
+            return r"\=", 1
+        return None
+
+    if first == "~":
+        if len(s) >= 3 and s.startswith("~~~"):
+            return r"\~", 1
+        return None
+
+    if first == "`":
+        if len(s) >= 3 and s.startswith("```"):
+            return r"\`", 1
+        return None
+
+    if first.isdigit():
+        end = 1
+        while end < len(s) and s[end].isdigit():
+            end += 1
+        if end < len(s) and s[end] in ".)" and end + 1 < len(s) and s[end + 1] in " \t":
+            return f"{s[:end]}\\{s[end]}", end + 1
+
+    return None
+
+
 def _markdown_link_destination(url: str) -> str:
     """Return a Markdown-safe link destination.
 
@@ -148,9 +211,13 @@ class _MarkdownBuilder:
             self.raw(s)
             return
 
-        for ch in s:
+        index = 0
+        length = len(s)
+        while index < length:
+            ch = s[index]
             if ch in " \t\n\r\f":
                 self._pending_space = True
+                index += 1
                 continue
 
             if self._pending_space:
@@ -158,8 +225,18 @@ class _MarkdownBuilder:
                     self._buf.append(" ")
                 self._pending_space = False
 
+            if not self._buf or self._newline_count > 0:
+                escaped_prefix = _markdown_escape_line_start(s[index:])
+                if escaped_prefix is not None:
+                    replacement, consumed = escaped_prefix
+                    self._buf.append(replacement)
+                    self._newline_count = 0
+                    index += consumed
+                    continue
+
             self._buf.append(ch)
             self._newline_count = 0
+            index += 1
 
     def finish(self) -> str:
         out = "".join(self._buf)
