@@ -193,7 +193,7 @@ doc.to_markdown()  # => # Title
 doc.to_markdown(html_passthrough=True)
 ```
 
-Sanitization happens at construction time. `JustHTML(..., sanitize=True)` (the default) makes the DOM safe before Markdown serialization runs. Markdown output may still contain sanitized raw HTML for elements such as tables and images, so use `to_text()` instead if you need plain text with no HTML output at all. Use `JustHTML(..., sanitize=False)` only for trusted input, or `JustHTML(..., policy=...)` to customize the policy.
+Sanitization happens at construction time. `JustHTML(..., sanitize=True)` (the default) makes the DOM safe before Markdown serialization runs. The returned Markdown is generated from that sanitized DOM, but it is still Markdown source, not escaped HTML. Render it with a compliant Markdown renderer before embedding it into a page, or escape it first if you need to display the raw Markdown source inside HTML. Markdown output may still contain sanitized raw HTML for elements such as tables and images, so use `to_text()` instead if you need plain text with no HTML output at all. Use `JustHTML(..., sanitize=False)` only for trusted input, or `JustHTML(..., policy=...)` to customize the policy.
 
 #### `query(selector)`
 
@@ -400,8 +400,7 @@ node.to_markdown()
 node.to_markdown(html_passthrough=True)
 ```
 
-Markdown output is safe-by-default when you build documents with `JustHTML(..., sanitize=True)` (the default). Use `sanitize=False` at construction for trusted input.
-It may still include sanitized raw HTML for elements such as tables and images. Use `to_text()` if you need plain text output with no HTML.
+When you build documents with `JustHTML(..., sanitize=True)` (the default), this Markdown is generated from the sanitized DOM. The safety guarantee applies to the rendered Markdown output, assuming you render it with a compliant Markdown renderer. The returned Markdown string is not escaped HTML and should not be injected directly into a page without rendering or escaping first. It may still include sanitized raw HTML for elements such as tables and images. Use `to_text()` if you need plain text output with no HTML.
 
 #### `append_child(node)`
 

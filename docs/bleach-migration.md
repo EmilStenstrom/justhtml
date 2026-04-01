@@ -114,7 +114,7 @@ Mapping:
 
 JustHTML also supports `disallowed_tag_handling="drop"` to drop the entire disallowed subtree.
 
-If you need to display untrusted HTML with no HTML in the output, prefer `to_text()`, or escape the output before embedding it into an HTML page. `to_markdown()` runs on the sanitized DOM when `sanitize=True` (the default), but it may still include sanitized raw HTML for elements such as tables and images.
+If you need to display untrusted HTML with no HTML in the output, prefer `to_text()`, or escape the output before embedding it into an HTML page. `to_markdown()` runs on the sanitized DOM when `sanitize=True` (the default), but the value it returns is still Markdown source, not escaped HTML. Render it with a compliant Markdown renderer before embedding it into a page, or escape it first if you want to show the raw Markdown source. It may still include sanitized raw HTML for elements such as tables and images.
 
 If you need additional structural cleanup beyond policy decisions, prefer doing it explicitly with transforms.
 

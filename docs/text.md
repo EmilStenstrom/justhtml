@@ -94,7 +94,10 @@ print(doc.to_text(separator="\n", separator_blocks_only=True))
 - Keeps tables (`<table>`) and images (`<img>`) as raw HTML.
 - Drops `<script>`, `<style>`, and `<textarea>` by default; pass
   `html_passthrough=True` to include them and their contents.
-- When the document was built with `JustHTML(..., sanitize=True)` (the default), the Markdown is generated from the sanitized DOM. It may still include sanitized raw HTML for tables and images.
+- When the document was built with `JustHTML(..., sanitize=True)` (the default), the Markdown is generated from the sanitized DOM.
+- The safety guarantee applies to the HTML produced by rendering that Markdown with a compliant Markdown renderer.
+- The returned Markdown string is Markdown source, not escaped HTML. If you want to embed the raw Markdown source into an HTML page, escape it first.
+- It may still include sanitized raw HTML for tables and images.
 
 ```python
 from justhtml import JustHTML
