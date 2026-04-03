@@ -21,7 +21,7 @@ On this page:
 
 The parsed DOM is **sanitized by default** at construction time (`JustHTML(..., sanitize=True)`), and serialization is a pure output step.
 
-If you want to sanitize **after** other transforms or after direct DOM edits, apply the `Sanitize(...)` transform to sanitize the in-memory tree.
+If you want to sanitize **after** other transforms or after direct DOM edits, apply the `Sanitize(...)` transform to sanitize the in-memory tree. If your transform list already includes `Sanitize(...)`, that explicit position becomes the sanitize point; later transforms can reintroduce unsafe content.
 
 ## Safe-by-default construction
 

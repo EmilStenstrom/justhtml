@@ -4,7 +4,7 @@ import unittest
 
 from justhtml import JustHTML, SetAttrs
 from justhtml.context import FragmentContext
-from justhtml.transforms import Linkify
+from justhtml.transforms import Linkify, Sanitize
 
 
 class TestTransformsSanitizeIntegration(unittest.TestCase):
@@ -74,3 +74,22 @@ class TestTransformsSanitizeIntegration(unittest.TestCase):
             fragment=True,
         )
         assert safe_doc.to_html(pretty=False) == "<p><a>xy</a></p>"
+
+    def test_explicit_sanitize_disables_implicit_final_sanitize(self) -> None:
+        doc = JustHTML(
+            '<img src="/x">',
+            fragment=True,
+            transforms=[Sanitize(), SetAttrs("img", onerror="alert(1)")],
+        )
+
+        assert doc.to_html(pretty=False) == '<img src="/x" onerror="alert(1)">'
+        assert doc.to_markdown() == '<img src="/x" onerror="alert(1)">'
+
+    def test_explicit_sanitize_allows_later_transforms_to_reintroduce_unsafe_attrs(self) -> None:
+        doc = JustHTML(
+            "<p>x</p>",
+            fragment=True,
+            transforms=[Sanitize(), SetAttrs("p", onclick="alert(1)")],
+        )
+
+        assert doc.to_html(pretty=False) == '<p onclick="alert(1)">x</p>'

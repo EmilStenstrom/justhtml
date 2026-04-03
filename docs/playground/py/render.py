@@ -105,7 +105,8 @@ def render(
             sanitize_policy = replace(base, unsafe_handling="collect")
 
         if cleanup:
-            # When sanitize=True, sanitization normally runs last (auto-appended).
+            # When sanitize=True and no explicit Sanitize() is present,
+            # sanitization normally runs last (auto-appended).
             # For cleanup UX, we want cleanup rules to apply to the sanitized tree
             # (e.g. <a> with unsafe href stripped, or <img> whose src was stripped).
             if safe:

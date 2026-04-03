@@ -118,7 +118,7 @@ doc = JustHTML(
 
 ## Interaction with sanitization
 
-Transforms mutate the in-memory DOM. `JustHTML(..., sanitize=True)` appends a final `Sanitize(...)` step unless you include one yourself.
+Transforms mutate the in-memory DOM. `JustHTML(..., sanitize=True)` appends a final `Sanitize(...)` step only when your transform list does not already include `Sanitize()`. If you include `Sanitize()` explicitly, that explicit position becomes the sanitize point and later transforms can reintroduce unsafe content.
 
 This matters for Linkify because sanitization policies can remove or rewrite attributes on the generated `<a>` when the final sanitizer runs:
 

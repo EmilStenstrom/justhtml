@@ -46,9 +46,10 @@ print(doc.to_html(pretty=False))
 - JustHTML is safe-by-default by sanitizing at construction (`JustHTML(..., sanitize=True)`).
 - Serialization (`to_html`/`to_text`/`to_markdown`) is serialize-only; earlier versions accepted `safe=` or `policy=` when serializing. This is no longer needed.
 
-> **Important:** When `sanitize=True`, JustHTML ensures the in-memory tree is sanitized by running a `Sanitize(...)` step **after parsing and after your custom transforms**.
+> **Important:** When `sanitize=True`, JustHTML appends a final `Sanitize(...)` step **only if your transform list does not already include `Sanitize()`**.
 >
-> This means your transforms see the *unsanitized* tree, and sanitization may rewrite it afterwards (for example, stripping unsafe `href`/`src` values).
+> This means your transforms usually see the *unsanitized* tree, and sanitization may rewrite it afterwards (for example, stripping unsafe `href`/`src` values).
+> If you include `Sanitize()` explicitly, that explicit position becomes the sanitize point and JustHTML does **not** append another implicit final sanitize step. Any transforms after it can reintroduce unsafe content.
 > If you want a transform to operate on the sanitized tree, include `Sanitize()` explicitly in your transform list and place later transforms after it:
 >
 > ```python
@@ -64,6 +65,8 @@ print(doc.to_html(pretty=False))
 > print(doc.to_html())
 > # => Hello
 > ```
+>
+> If you need both a sanitized intermediate tree and sanitized final output, place `Sanitize()` twice: once where later transforms should see clean DOM, and once again at the end.
 
 Raw output is available by disabling sanitization:
 

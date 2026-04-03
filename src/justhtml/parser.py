@@ -192,7 +192,9 @@ class JustHTML:
 
         # Apply transforms after parse.
         # Safety model: when sanitize=True, the in-memory tree is sanitized exactly once
-        # during construction by ensuring a Sanitize transform runs.
+        # during construction by ensuring a Sanitize transform runs. If the user
+        # places an explicit Sanitize() in the transform list, that explicit
+        # position becomes the sanitize point (no extra final pass is appended).
         if transforms or sanitize_enabled:
             from .sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
             from .transforms import Sanitize  # noqa: PLC0415
