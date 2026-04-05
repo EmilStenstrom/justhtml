@@ -4,6 +4,9 @@ import unittest
 
 from justhtml import JustHTML, SetAttrs
 from justhtml.context import FragmentContext
+from justhtml.node import DocumentFragment, Element, Template
+from justhtml.parser import JustHTML as ParserJustHTML
+from justhtml.sanitize import SanitizationPolicy, UrlPolicy, UrlRule
 from justhtml.transforms import Linkify, Sanitize
 
 
@@ -93,3 +96,59 @@ class TestTransformsSanitizeIntegration(unittest.TestCase):
         )
 
         assert doc.to_html(pretty=False) == '<p onclick="alert(1)">x</p>'
+
+    def test_constructor_time_sanitization_stabilizes_foreign_namespace_mxss(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"form", "math", "mtext", "mglyph", "style", "img"},
+            allowed_attributes={"*": set(), "img": {"src"}},
+            url_policy=UrlPolicy(
+                allow_rules={("img", "src"): UrlRule(allowed_schemes={"http", "https"}, allow_relative=True)}
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        doc = JustHTML(
+            "<form><math><mtext></form><form><mglyph><style></math><img src onerror=alert(1)>",
+            fragment=True,
+            policy=policy,
+        )
+
+        assert (
+            doc.to_html(pretty=False)
+            == "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
+        )
+
+        reparsed = JustHTML(doc.to_html(pretty=False), fragment=True, sanitize=False)
+        imgs = reparsed.query("img")
+        assert len(imgs) == 1
+        assert imgs[0].attrs == {}
+        assert "onerror" not in doc.to_markdown(html_passthrough=True)
+
+    def test_terminal_sanitize_policy_returns_none_for_empty_or_non_terminal_sanitize(self) -> None:
+        policy = SanitizationPolicy(allowed_tags={"p"}, allowed_attributes={})
+
+        assert ParserJustHTML._terminal_sanitize_policy([], default_policy=policy) is None
+        assert ParserJustHTML._terminal_sanitize_policy([Linkify()], default_policy=policy) is None
+        assert (
+            ParserJustHTML._terminal_sanitize_policy(
+                [Sanitize(enabled=False)],
+                default_policy=policy,
+            )
+            is None
+        )
+
+    def test_has_foreign_nodes_handles_templates_and_pure_html(self) -> None:
+        root = DocumentFragment()
+        html_div = Element("div", {}, "html")
+        root.append_child(html_div)
+
+        assert ParserJustHTML._has_foreign_nodes(root) is False
+
+        template = Template("template", namespace="html")
+        assert template.template_content is not None
+        svg = Element("svg", {}, "svg")
+        template.template_content.append_child(svg)
+        root.append_child(template)
+
+        assert ParserJustHTML._has_foreign_nodes(root) is True
