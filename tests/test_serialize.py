@@ -229,6 +229,11 @@ class TestSerialize(unittest.TestCase):
         assert _JustHTML.clean_url_value(value=r"\\evil.example/x", url_rule=rule) is None
         assert _JustHTML.clean_url_value(value=r"/\evil.example/x", url_rule=rule) is None
 
+    def test_clean_url_value_returns_none_for_malformed_bracketed_host(self):
+        rule = UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}, allow_relative=True)
+        assert _JustHTML.clean_url_value(value="https://[evil.example]/x", url_rule=rule) is None
+        assert _JustHTML.clean_url_value(value="https://ex[ample].com/x", url_rule=rule) is None
+
     def test_clean_url_in_js_string(self):
         rule = UrlRule(allowed_schemes={"https"})
         output = _JustHTML.clean_url_in_js_string(

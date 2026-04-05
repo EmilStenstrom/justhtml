@@ -1032,6 +1032,42 @@ class TestSanitizeDom(unittest.TestCase):
             is None
         )
 
+    def test_sanitize_url_value_rejects_malformed_bracket_hosts_when_host_allowlist_is_enabled(self) -> None:
+        policy = UrlPolicy(
+            allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"})}
+        )
+        rule = policy.allow_rules[("a", "href")]
+
+        assert (
+            _sanitize_url_value_with_rule(
+                rule=rule,
+                value="//[evil.example]/x",
+                tag="a",
+                attr="href",
+                handling=_effective_url_handling(url_policy=policy, rule=rule),
+                allow_relative=_effective_allow_relative(url_policy=policy, rule=rule),
+                proxy=_effective_proxy(url_policy=policy, rule=rule),
+                url_filter=policy.url_filter,
+                apply_filter=True,
+            )
+            is None
+        )
+
+        assert (
+            _sanitize_url_value_with_rule(
+                rule=rule,
+                value="https://[evil.example]/x",
+                tag="a",
+                attr="href",
+                handling=_effective_url_handling(url_policy=policy, rule=rule),
+                allow_relative=_effective_allow_relative(url_policy=policy, rule=rule),
+                proxy=_effective_proxy(url_policy=policy, rule=rule),
+                url_filter=policy.url_filter,
+                apply_filter=True,
+            )
+            is None
+        )
+
     def test_url_like_attributes_require_explicit_rules(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["img"],
@@ -1198,6 +1234,26 @@ class TestSanitizeDom(unittest.TestCase):
 
         out = JustHTML('<img src="//example.com/x">', fragment=True, policy=policy).to_html()
         assert out == '<img src="/proxy?url=https%3A%2F%2Fexample.com%2Fx">'
+
+    def test_url_rule_allowed_hosts_rejects_malformed_bracket_host_without_raising(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("a", "href"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                },
+            ),
+        )
+
+        out = JustHTML('<a href="https://[evil.example]/x">x</a>', fragment=True, policy=policy).to_html()
+        assert out == "<a>x</a>"
+
+        out = JustHTML('<a href="https://ex[ample].com/x">x</a>', fragment=True, policy=policy).to_html()
+        assert out == "<a>x</a>"
 
     def test_url_policy_remote_proxy_global_and_img_override(self) -> None:
         policy = SanitizationPolicy(

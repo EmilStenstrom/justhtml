@@ -1155,7 +1155,10 @@ def _sanitize_url_value_with_rule(
             return None
 
         if rule.allowed_hosts is not None:
-            parsed = urlsplit(resolved_url)
+            try:
+                parsed = urlsplit(resolved_url)
+            except ValueError:
+                return None
             host = (parsed.hostname or "").lower()
             if not host or host not in rule.allowed_hosts:
                 return None
@@ -1171,7 +1174,10 @@ def _sanitize_url_value_with_rule(
         if scheme not in rule.allowed_schemes:
             return None
         if rule.allowed_hosts is not None:
-            parsed = urlsplit(normalized)
+            try:
+                parsed = urlsplit(normalized)
+            except ValueError:
+                return None
             host = (parsed.hostname or "").lower()
             if not host or host not in rule.allowed_hosts:
                 return None
