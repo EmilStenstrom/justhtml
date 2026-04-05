@@ -1014,6 +1014,24 @@ class TestSanitizeDom(unittest.TestCase):
             is None
         )
 
+    def test_sanitize_url_value_proxy_rejects_invalid_scheme_like_prefix_without_backslash(self) -> None:
+        policy = UrlPolicy(proxy=UrlProxy(url="/proxy"), allow_rules={("img", "src"): UrlRule(handling="proxy")})
+        rule = policy.allow_rules[("img", "src")]
+        assert (
+            _sanitize_url_value_with_rule(
+                rule=rule,
+                value="1http:foo",
+                tag="img",
+                attr="src",
+                handling=_effective_url_handling(url_policy=policy, rule=rule),
+                allow_relative=_effective_allow_relative(url_policy=policy, rule=rule),
+                proxy=_effective_proxy(url_policy=policy, rule=rule),
+                url_filter=policy.url_filter,
+                apply_filter=True,
+            )
+            is None
+        )
+
     def test_url_like_attributes_require_explicit_rules(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["img"],
@@ -1097,6 +1115,28 @@ class TestSanitizeDom(unittest.TestCase):
 
         out = JustHTML('<img src="/x">', fragment=True, policy=policy).to_html()
         assert out == '<img src="/x">'
+
+    def test_url_rule_relative_only_rejects_backslash_urls_that_browsers_treat_as_remote(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["img"],
+            allowed_attributes={"*": [], "img": ["src"]},
+            url_policy=UrlPolicy(
+                default_handling="allow",
+                default_allow_relative=True,
+                allow_rules={
+                    ("img", "src"): UrlRule(
+                        allowed_schemes=set(),
+                        resolve_protocol_relative=None,
+                    )
+                },
+            ),
+        )
+
+        out = JustHTML(r'<img src="\\evil.example/x">', fragment=True, policy=policy).to_html()
+        assert out == "<img>"
+
+        out = JustHTML(r'<img src="/\evil.example/x">', fragment=True, policy=policy).to_html()
+        assert out == "<img>"
 
     def test_url_rule_can_override_global_strip(self) -> None:
         policy = SanitizationPolicy(

@@ -224,6 +224,11 @@ class TestSerialize(unittest.TestCase):
         )
         assert output == "https://example.com/search?q=alpha&lang=en"
 
+    def test_clean_url_value_rejects_backslash_urls(self):
+        rule = UrlRule(allowed_schemes=set(), resolve_protocol_relative=None, allow_relative=True)
+        assert _JustHTML.clean_url_value(value=r"\\evil.example/x", url_rule=rule) is None
+        assert _JustHTML.clean_url_value(value=r"/\evil.example/x", url_rule=rule) is None
+
     def test_clean_url_in_js_string(self):
         rule = UrlRule(allowed_schemes={"https"})
         output = _JustHTML.clean_url_in_js_string(

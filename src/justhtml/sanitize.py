@@ -1123,6 +1123,13 @@ def _sanitize_url_value_with_rule(
         # control-only. Drop it rather than keeping weird control characters.
         return None
 
+    if "\\" in normalized:
+        # Browsers normalize backslashes during navigation and resource loading.
+        # Values like "\\evil.example/x" or "/\\evil.example/x" can become
+        # remote network requests even though Python's URL parsing treats them
+        # as relative or hostless. Reject them conservatively.
+        return None
+
     if normalized.startswith("#"):
         if not rule.allow_fragment:
             return None
