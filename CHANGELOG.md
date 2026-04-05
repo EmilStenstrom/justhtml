@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-04-05
+
+### Security
+- (Severity: Moderate) Harden constructor-time sanitization against mutation XSS in custom policies that preserve foreign namespaces such as MathML or SVG. Previously, crafted markup could sanitize into output that looked safe but became active HTML when reparsed by a browser or downstream parser.
+
 ## [1.13.0] - 2026-03-21
 
 ### Security
