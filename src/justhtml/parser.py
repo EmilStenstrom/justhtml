@@ -379,6 +379,13 @@ class JustHTML:
         if url_rule.handling == "proxy" and url_rule.proxy is None:
             raise ValueError("UrlRule.handling='proxy' requires a per-rule UrlRule.proxy")
 
+        if "&" in value:
+            from .entities import decode_entities_in_text  # noqa: PLC0415
+
+            # Match HTML attribute parsing so the helper cannot accept a URL that
+            # only turns into a disallowed scheme after embedding into markup.
+            value = decode_entities_in_text(value, in_attribute=True)
+
         cleaned = _sanitize_url_value_with_rule(
             rule=url_rule,
             value=value,

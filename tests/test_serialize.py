@@ -213,6 +213,16 @@ class TestSerialize(unittest.TestCase):
         assert _JustHTML.clean_url_value(value="https://example.com/x", url_rule=rule) == "https://example.com/x"
 
         assert _JustHTML.clean_url_value(value="javascript:alert(1)", url_rule=rule) is None
+        assert _JustHTML.clean_url_value(value="javascript&#58alert(1)", url_rule=rule) is None
+        assert _JustHTML.clean_url_value(value="javascript&#0000058alert(1)", url_rule=rule) is None
+
+    def test_clean_url_value_decodes_html_character_references_before_validating(self):
+        rule = UrlRule(allowed_schemes={"https", "mailto"})
+        output = _JustHTML.clean_url_value(
+            value="https://example.com/search?q=alpha&amp;lang=en",
+            url_rule=rule,
+        )
+        assert output == "https://example.com/search?q=alpha&lang=en"
 
     def test_clean_url_in_js_string(self):
         rule = UrlRule(allowed_schemes={"https"})
