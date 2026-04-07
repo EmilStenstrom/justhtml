@@ -1995,6 +1995,25 @@ class TestSanitizeUnsafe(unittest.TestCase):
         assert doc.query("p") == []
         assert "&lt;/style><p>x</p>" in doc.to_html(pretty=False)
 
+    def test_sanitized_textarea_markdown_passthrough_does_not_break_out(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["textarea", "img"],
+            allowed_attributes={"*": [], "img": ["src", "alt"]},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        doc = JustHTML(
+            "<textarea>&lt;/textarea&gt;&lt;img src=x onerror=alert(1)&gt;</textarea>",
+            fragment=True,
+            policy=policy,
+        )
+
+        markdown = doc.to_markdown(html_passthrough=True)
+        reparsed = JustHTML(markdown, fragment=True, sanitize=False)
+
+        assert "&lt;/textarea&gt;" in markdown
+        assert reparsed.query("img") == []
+
     def test_collect_mode_merges_into_doc_errors(self) -> None:
         html = "<p>\x00</p><script>alert(1)</script>"
         policy = SanitizationPolicy(

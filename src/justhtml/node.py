@@ -982,14 +982,7 @@ def _to_markdown_walk(
             if tag in {"table", "script", "style", "textarea"}:
                 if not current_in_link:
                     current_builder.ensure_newlines(2 if current_builder._buf else 0)
-                if tag in {"script", "style", "textarea"}:
-                    if html_passthrough:
-                        current_builder.raw(f"<{tag}>")
-                        content = current.to_text(separator="", strip=False)
-                        if content:
-                            current_builder.raw(content)
-                        current_builder.raw(f"</{tag}>")
-                else:
+                if tag == "table" or html_passthrough:
                     current_builder.raw(current.to_html(indent=0, indent_size=2, pretty=False))
                 if not current_in_link:
                     current_builder.ensure_newlines(2)

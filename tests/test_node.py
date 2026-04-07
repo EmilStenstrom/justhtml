@@ -414,6 +414,26 @@ class TestNode(unittest.TestCase):
         root.append_child(Node("script"))
         assert root.to_markdown(html_passthrough=True) == "<script></script>"
 
+    def test_to_markdown_textarea_passthrough_uses_canonical_html_serializer(self):
+        root = Node("div")
+        textarea = Node("textarea")
+        textarea.attrs["data-x"] = "1&2"
+        textarea.append_child(Text("</textarea><img src=x onerror=alert(1)>"))
+        root.append_child(textarea)
+
+        assert (
+            root.to_markdown(html_passthrough=True)
+            == '<textarea data-x="1&amp;2">&lt;/textarea&gt;&lt;img src=x onerror=alert(1)&gt;</textarea>'
+        )
+
+    def test_to_markdown_script_passthrough_preserves_attributes(self):
+        root = Node("div")
+        script = Node("script")
+        script.attrs["data-x"] = "1&2"
+        root.append_child(script)
+
+        assert root.to_markdown(html_passthrough=True) == '<script data-x="1&amp;2"></script>'
+
     def test_to_markdown_script_drops_content_by_default(self):
         root = Node("div")
         script = Node("script")
