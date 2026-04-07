@@ -685,10 +685,10 @@ def _sanitize_rawtext_element_contents(
                 continue
 
             combined_text = "".join(text_parts)
+            primary_text = text_children[0]
             sanitized_text, changed = _neutralize_rawtext_end_tag_sequences(combined_text, str(name))
 
             if changed:
-                primary_text = text_children[0]
                 _record_rawtext_security_issue(
                     policy=policy,
                     errors=errors,
@@ -700,9 +700,20 @@ def _sanitize_rawtext_element_contents(
                 for extra_text in text_children[1:]:
                     extra_text.parent = None
                 current.children = [primary_text] if sanitized_text else []
-                continue
+            else:
+                current.children = text_children
 
-            current.children = text_children
+            if name == "style" and sanitized_text and _css_value_may_load_external_resource(sanitized_text):
+                _record_rawtext_security_issue(
+                    policy=policy,
+                    errors=errors,
+                    code="unsafe-style-resource",
+                    message="Unsafe CSS inside <style> contains resource-loading constructs",
+                    node=primary_text,
+                )
+                for child in current.children:
+                    child.parent = None
+                current.children = []
             continue
 
         children = current.children
@@ -769,6 +780,9 @@ def _css_value_contains_disallowed_functions(value: str, *, allow_url: bool) -> 
         buf.append(lower_ch)
         if len(buf) > max_len:
             buf.pop(0)
+
+        if len(buf) >= 7 and buf[-7:] == ["@", "i", "m", "p", "o", "r", "t"]:
+            return True
 
         # Check for url( and image-set( anywhere in the normalized stream.
         if not allow_url and len(buf) >= 4 and buf[-4:] == ["u", "r", "l", "("]:

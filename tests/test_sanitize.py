@@ -684,6 +684,7 @@ class TestSanitizeDom(unittest.TestCase):
     def test_css_value_has_disallowed_resource_functions_allows_closed_comment_then_url(self) -> None:
         # Exercise the comment-skip "break" path.
         assert _css_value_has_disallowed_resource_functions("/*x*/ url('/x.png')") is False
+        assert _css_value_may_load_external_resource("@import '/x.css'") is True
 
     def test_sanitize_css_url_functions_rejects_url_filter_empty_string(self) -> None:
         # Coverage for `if not sanitized:`.
@@ -1821,6 +1822,38 @@ class TestSanitizeDom(unittest.TestCase):
         assert out == "<style>&lt;/style><img src=x onerror=1></style>"
         reparsed = JustHTML(out, fragment=True, sanitize=False)
         assert reparsed.query("img") == []
+
+    def test_sanitize_dom_drops_style_content_with_resource_loading_css(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style"],
+            allowed_attributes={},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        frag = DocumentFragment()
+        style = Node("style")
+        style.append_child(Text('@import "https://evil.example/x.css"; body{background-image:url(/x.png)}'))
+        frag.append_child(style)
+
+        sanitize_dom(frag, policy=policy)
+
+        assert to_html(frag, pretty=False) == "<style></style>"
+
+    def test_sanitize_dom_preserves_style_content_without_resource_loading_css(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style"],
+            allowed_attributes={},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        frag = DocumentFragment()
+        style = Node("style")
+        style.append_child(Text("body{color:red}"))
+        frag.append_child(style)
+
+        sanitize_dom(frag, policy=policy)
+
+        assert to_html(frag, pretty=False) == "<style>body{color:red}</style>"
 
     def test_sanitize_dom_neutralizes_script_end_tag_sequences(self) -> None:
         policy = SanitizationPolicy(
