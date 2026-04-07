@@ -29,6 +29,7 @@ from .sanitize import (
     _effective_proxy,
     _effective_url_handling,
     _sanitize_inline_style,
+    _sanitize_space_separated_url_list,
     _sanitize_srcset_value,
     _sanitize_url_value_with_rule,
     _strip_invisible_unicode,
@@ -1186,6 +1187,14 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
 
                     if key == "srcset":
                         sanitized = _sanitize_srcset_value(
+                            url_policy=url_policy,
+                            rule=rule,
+                            tag=tag,
+                            attr=key,
+                            value=str(raw_value),
+                        )
+                    elif key == "ping":
+                        sanitized = _sanitize_space_separated_url_list(
                             url_policy=url_policy,
                             rule=rule,
                             tag=tag,

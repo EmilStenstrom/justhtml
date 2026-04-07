@@ -24,6 +24,7 @@ from justhtml.sanitize import (
     _sanitize_css_url_functions,
     _sanitize_inline_style,
     _sanitize_rawtext_element_contents,
+    _sanitize_space_separated_url_list,
     _sanitize_url_value_with_rule,
     sanitize_dom,
 )
@@ -801,6 +802,70 @@ class TestSanitizeDom(unittest.TestCase):
             is None
         )
 
+    def test_sanitize_space_separated_url_list_url_filter_can_rewrite_value(self) -> None:
+        def url_filter(tag: str, attr: str, value: str) -> str | None:
+            assert tag == "a"
+            assert attr == "ping"
+            assert value == "ignored"
+            return "https://trusted.example/p https://trusted.example/q"
+
+        url_policy = UrlPolicy(
+            allow_rules={("a", "ping"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"})},
+            url_filter=url_filter,
+        )
+        rule = url_policy.allow_rules[("a", "ping")]
+
+        assert (
+            _sanitize_space_separated_url_list(
+                url_policy=url_policy,
+                rule=rule,
+                tag="a",
+                attr="ping",
+                value="ignored",
+            )
+            == "https://trusted.example/p https://trusted.example/q"
+        )
+
+    def test_sanitize_space_separated_url_list_returns_none_for_dropped_or_empty_value(self) -> None:
+        def drop_filter(tag: str, attr: str, value: str) -> str | None:
+            assert tag == "a"
+            assert attr == "ping"
+            assert value == "https://trusted.example/p"
+            return None
+
+        url_policy = UrlPolicy(
+            allow_rules={("a", "ping"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"})},
+            url_filter=drop_filter,
+        )
+        rule = url_policy.allow_rules[("a", "ping")]
+
+        assert (
+            _sanitize_space_separated_url_list(
+                url_policy=url_policy,
+                rule=rule,
+                tag="a",
+                attr="ping",
+                value="https://trusted.example/p",
+            )
+            is None
+        )
+
+        plain_policy = UrlPolicy(
+            allow_rules={("a", "ping"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"})}
+        )
+        plain_rule = plain_policy.allow_rules[("a", "ping")]
+
+        assert (
+            _sanitize_space_separated_url_list(
+                url_policy=plain_policy,
+                rule=plain_rule,
+                tag="a",
+                attr="ping",
+                value=" \t\n ",
+            )
+            is None
+        )
+
     def test_sanitize_inline_style_drops_url_declaration_when_url_policy_missing(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["div"],
@@ -1440,6 +1505,47 @@ class TestSanitizeDom(unittest.TestCase):
             policy=policy,
         ).to_html()
         assert out == "<img>"
+
+    def test_ping_is_dropped_if_any_url_is_invalid(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href", "ping"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("a", "href"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+                    ("a", "ping"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+                },
+            ),
+        )
+
+        out = JustHTML(
+            '<a href="https://trusted.example/x" ping="https://trusted.example/p https://evil.example/p">x</a>',
+            fragment=True,
+            policy=policy,
+        ).to_html()
+        assert out == '<a href="https://trusted.example/x">x</a>'
+
+    def test_ping_preserves_all_urls_when_each_is_allowed(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href", "ping"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("a", "href"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+                    ("a", "ping"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+                },
+            ),
+        )
+
+        out = JustHTML(
+            '<a href="https://trusted.example/x" ping="https://trusted.example/p https://trusted.example/q">x</a>',
+            fragment=True,
+            policy=policy,
+        ).to_html()
+        assert (
+            out
+            == '<a href="https://trusted.example/x" ping="https://trusted.example/p https://trusted.example/q">x</a>'
+        )
 
     def test_policy_accepts_pre_normalized_sets(self) -> None:
         policy = SanitizationPolicy(

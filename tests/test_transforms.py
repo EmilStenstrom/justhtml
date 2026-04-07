@@ -1071,6 +1071,29 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert a.attrs == {"href": "https://example.com", "ping": "https://example.com/ping"}
 
+    def test_dropurlattrs_drops_ping_when_any_list_item_is_invalid(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("a", "href"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+                ("a", "ping"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+            },
+        )
+
+        root = DocumentFragment()
+        a = Element(
+            "a",
+            {
+                "href": "https://trusted.example",
+                "ping": "https://trusted.example/p https://evil.example/p",
+            },
+            "html",
+        )
+        root.append_child(a)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert a.attrs == {"href": "https://trusted.example"}
+
     def test_dropurlattrs_works_without_on_unsafe_callback(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",
