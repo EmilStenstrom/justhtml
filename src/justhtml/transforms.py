@@ -1201,7 +1201,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                         to_drop.append(key)
                         continue
 
-                    if key == "srcset":
+                    if key in {"srcset", "imagesrcset"}:
                         sanitized = _sanitize_srcset_value(
                             url_policy=url_policy,
                             rule=rule,

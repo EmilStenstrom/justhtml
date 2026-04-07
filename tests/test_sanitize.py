@@ -1507,6 +1507,53 @@ class TestSanitizeDom(unittest.TestCase):
         ).to_html()
         assert out == "<img>"
 
+    def test_link_imagesrcset_is_dropped_if_any_candidate_is_invalid(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["link"],
+            allowed_attributes={"*": [], "link": ["rel", "as", "imagesrcset"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("link", "imagesrcset"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                },
+            ),
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<link rel="preload" as="image" imagesrcset="https://trusted.example/a 1x, https://evil.example/b 2x">',
+            fragment=True,
+            policy=policy,
+        ).to_html()
+        assert out == '<link rel="preload" as="image">'
+
+    def test_link_imagesrcset_preserves_allowed_candidates(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["link"],
+            allowed_attributes={"*": [], "link": ["rel", "as", "imagesrcset"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("link", "imagesrcset"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                },
+            ),
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<link rel="preload" as="image" imagesrcset="https://trusted.example/a 1x, https://trusted.example/b 2x">',
+            fragment=True,
+            policy=policy,
+        ).to_html()
+        assert (
+            out
+            == '<link rel="preload" as="image" imagesrcset="https://trusted.example/a 1x, https://trusted.example/b 2x">'
+        )
+
     def test_ping_is_dropped_if_any_url_is_invalid(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["a"],
@@ -2322,6 +2369,26 @@ class TestSanitizeUnsafe(unittest.TestCase):
             drop_content_tags=set(),
         )
         with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'content'"):
+            sanitize(node, policy=policy)
+
+    def test_sanitize_link_imagesrcset_raises(self) -> None:
+        html = '<link rel="preload" as="image" imagesrcset="https://evil.example/a 1x">'
+        node = JustHTML(html, fragment=True, sanitize=False).root
+        policy = SanitizationPolicy(
+            allowed_tags={"link"},
+            allowed_attributes={"link": {"rel", "as", "imagesrcset"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("link", "imagesrcset"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                }
+            ),
+            unsafe_handling="raise",
+            drop_content_tags=set(),
+        )
+        with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'imagesrcset'"):
             sanitize(node, policy=policy)
 
     def test_sanitize_unsafe_disallowed_attribute_raises(self) -> None:

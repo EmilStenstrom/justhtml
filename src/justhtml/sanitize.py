@@ -1307,6 +1307,7 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
         "href",
         "src",
         "srcset",
+        "imagesrcset",
         "poster",
         "action",
         "formaction",

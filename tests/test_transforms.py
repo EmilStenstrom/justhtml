@@ -1157,6 +1157,29 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert img.attrs.get("srcset") == "https://example.com/a 1x"
 
+    def test_dropurlattrs_sanitizes_link_imagesrcset(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("link", "imagesrcset"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+            },
+        )
+
+        root = DocumentFragment()
+        link = Element(
+            "link",
+            {
+                "rel": "preload",
+                "as": "image",
+                "imagesrcset": "https://trusted.example/a 1x, https://evil.example/b 2x",
+            },
+            "html",
+        )
+        root.append_child(link)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert link.attrs == {"rel": "preload", "as": "image"}
+
     def test_dropurlattrs_can_be_disabled(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["a"],
