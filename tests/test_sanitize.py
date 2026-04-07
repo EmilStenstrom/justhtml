@@ -2311,6 +2311,19 @@ class TestSanitizeUnsafe(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsafe attribute.*srcdoc.*matched forbidden pattern"):
             sanitize(node, policy=policy)
 
+    def test_sanitize_meta_refresh_content_raises(self) -> None:
+        html = '<meta http-equiv="refresh" content="0;url=javascript:alert(1)">'
+        node = JustHTML(html, fragment=True, sanitize=False).root
+        policy = SanitizationPolicy(
+            allowed_tags={"meta"},
+            allowed_attributes={"meta": {"http-equiv", "content"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            unsafe_handling="raise",
+            drop_content_tags=set(),
+        )
+        with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'content'"):
+            sanitize(node, policy=policy)
+
     def test_sanitize_unsafe_disallowed_attribute_raises(self) -> None:
         html = '<p foo="bar">Hello</p>'
         node = JustHTML(html, fragment=True, sanitize=False).root

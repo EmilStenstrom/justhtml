@@ -1158,6 +1158,22 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 to_drop: list[str] | None = None
                 to_set: dict[str, str] | None = None
 
+                http_equiv_key: str | None = None
+                content_key: str | None = None
+                for key, raw_value in attrs.items():
+                    lower_key = key if key.islower() else key.lower()
+                    if lower_key == "http-equiv" and raw_value is not None:
+                        http_equiv_key = key
+                    elif lower_key == "content":
+                        content_key = key
+
+                if http_equiv_key is not None and content_key is not None:
+                    http_equiv_value = attrs.get(http_equiv_key)
+                    if http_equiv_value is not None and str(http_equiv_value).strip().lower() == "refresh":
+                        if on_report is not None:  # pragma: no cover
+                            on_report("Unsafe URL in attribute 'content' (meta refresh)", node=node)
+                        to_drop = [content_key]
+
                 # Most nodes have no URL-like attrs; avoid allocations in that case.
                 for key in attrs:
                     if key not in _URL_LIKE_ATTRS:

@@ -1094,6 +1094,33 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert a.attrs == {"href": "https://trusted.example"}
 
+    def test_dropurlattrs_drops_meta_refresh_content(self) -> None:
+        url_policy = UrlPolicy(default_handling="allow", allow_rules={})
+
+        root = DocumentFragment()
+        meta_refresh = Element(
+            "meta",
+            {
+                "http-equiv": "refresh",
+                "content": "0;url=https://evil.example/",
+            },
+            "html",
+        )
+        meta_charset = Element(
+            "meta",
+            {
+                "http-equiv": "content-type",
+                "content": "text/html; charset=utf-8",
+            },
+            "html",
+        )
+        root.append_child(meta_refresh)
+        root.append_child(meta_charset)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert meta_refresh.attrs == {"http-equiv": "refresh"}
+        assert meta_charset.attrs == {"http-equiv": "content-type", "content": "text/html; charset=utf-8"}
+
     def test_dropurlattrs_works_without_on_unsafe_callback(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",
