@@ -923,6 +923,17 @@ class TestTransforms(unittest.TestCase):
         )
         assert node.attrs == {}
 
+    def test_dropattrs_hot_path_drops_mixed_case_dangerous_attrs(self) -> None:
+        root = DocumentFragment()
+        node = Element("div", {"OnClick": "1", "SrcDoc": "x", "data-x": "safe"}, "html")
+        root.append_child(node)
+
+        apply_compiled_transforms(
+            root,
+            compile_transforms([DropAttrs("*", patterns=("on*", "*:*", "srcdoc"), report=None)]),
+        )
+        assert node.attrs == {"data-x": "safe"}
+
     def test_allowlistattrs_lowercases_keys_skips_blank_and_reports_disallowed(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["a"],
@@ -1117,6 +1128,53 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert img.attrs == {"src": "https://trusted.example/x.png"}
 
+    def test_dropurlattrs_handles_mixed_case_url_attrs(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("img", "src"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+                ("img", "attributionsrc"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+            },
+        )
+
+        root = DocumentFragment()
+        img = Element(
+            "img",
+            {
+                "Src": "https://trusted.example/x.png",
+                "AttributionSrc": "https://trusted.example/register https://evil.example/register",
+            },
+            "html",
+        )
+        root.append_child(img)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert img.attrs == {"src": "https://trusted.example/x.png"}
+
+    def test_dropurlattrs_handles_multiple_mixed_case_url_attrs(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("a", "href"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+                ("a", "ping"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+            },
+        )
+
+        root = DocumentFragment()
+        a = Element(
+            "a",
+            {
+                "Background": "https://evil.example/bg.png",
+                "Href": "https://trusted.example/x",
+                "Ping": "https://trusted.example/p",
+            },
+            "html",
+        )
+        root.append_child(a)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert a.attrs == {"href": "https://trusted.example/x", "ping": "https://trusted.example/p"}
+
     def test_dropurlattrs_drops_meta_refresh_content(self) -> None:
         url_policy = UrlPolicy(default_handling="allow", allow_rules={})
 
@@ -1274,6 +1332,35 @@ class TestTransforms(unittest.TestCase):
         assert "style" not in s_bad.attrs
         assert s_ok.attrs.get("style") == "color: red"
 
+    def test_allowstyleattrs_handles_mixed_case_style_attr(self) -> None:
+        root = DocumentFragment()
+        s_bad = Element("span", {"Style": "position: fixed"}, "html")
+        s_ok = Element("span", {"Style": "color: red; position: fixed"}, "html")
+        root.append_child(s_bad)
+        root.append_child(s_ok)
+
+        apply_compiled_transforms(
+            root,
+            compile_transforms([AllowStyleAttrs("span", allowed_css_properties={"color"})]),
+        )
+        assert "Style" not in s_bad.attrs
+        assert "style" not in s_bad.attrs
+        assert s_ok.attrs == {"style": "color: red"}
+
+    def test_allowstyleattrs_handles_non_style_attrs_before_mixed_case_style(self) -> None:
+        root = DocumentFragment()
+        s_other = Element("span", {"title": "x"}, "html")
+        s_ok = Element("span", {"title": "x", "Style": "color: red"}, "html")
+        root.append_child(s_other)
+        root.append_child(s_ok)
+
+        apply_compiled_transforms(
+            root,
+            compile_transforms([AllowStyleAttrs("span", allowed_css_properties={"color"})]),
+        )
+        assert s_other.attrs == {"title": "x"}
+        assert s_ok.attrs == {"title": "x", "style": "color: red"}
+
     def test_allowstyleattrs_can_be_disabled(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["span"],
@@ -1308,6 +1395,22 @@ class TestTransforms(unittest.TestCase):
             doc.to_html(pretty=False)
             == '<a rel="noopener"></a><a rel="noopener"></a><a rel="noreferrer noopener"></a><a rel="noopener"></a>'
         )
+
+    def test_mergeattrs_handles_mixed_case_attr_without_duplicates(self) -> None:
+        root = DocumentFragment()
+        a = Element("a", {"Rel": "noreferrer"}, "html")
+        root.append_child(a)
+
+        apply_compiled_transforms(root, compile_transforms([MergeAttrs("a", attr="rel", tokens={"noopener"})]))
+        assert a.attrs == {"rel": "noreferrer noopener"}
+
+    def test_mergeattrs_handles_mixed_case_duplicate_attrs(self) -> None:
+        root = DocumentFragment()
+        a = Element("a", {"Rel": None, "rel": "noreferrer"}, "html")
+        root.append_child(a)
+
+        apply_compiled_transforms(root, compile_transforms([MergeAttrs("a", attr="rel", tokens={"noopener"})]))
+        assert a.attrs == {"rel": "noreferrer noopener"}
 
     def test_mergeattrs_skips_non_matching_elements(self) -> None:
         doc = JustHTML(

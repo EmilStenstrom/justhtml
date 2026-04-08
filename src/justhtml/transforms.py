@@ -968,24 +968,26 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 # Avoid regex and avoid building a new dict when nothing matches.
                 if patterns == ("*:*", "on*", "srcdoc"):
                     for key in attrs:
-                        if key.startswith("on") or key == "srcdoc" or ":" in key:
+                        lower_key = key if key.islower() else key.lower()
+                        if lower_key.startswith("on") or lower_key == "srcdoc" or ":" in lower_key:
                             break
                     else:
                         return None
 
                     out = dict(attrs)
                     for key in attrs:
-                        if not (key.startswith("on") or key == "srcdoc" or ":" in key):
+                        lower_key = key if key.islower() else key.lower()
+                        if not (lower_key.startswith("on") or lower_key == "srcdoc" or ":" in lower_key):
                             continue
                         if on_report is not None:  # pragma: no cover
-                            if key == "srcdoc":
+                            if lower_key == "srcdoc":
                                 found_pat = "srcdoc"
-                            elif ":" in key:
+                            elif ":" in lower_key:
                                 found_pat = "*:*"
                             else:
                                 found_pat = "on*"
                             on_report(
-                                f"Unsafe attribute '{key}' (matched forbidden pattern '{found_pat}')",
+                                f"Unsafe attribute '{lower_key}' (matched forbidden pattern '{found_pat}')",
                                 node=node,
                             )
                         out.pop(key, None)
@@ -1176,7 +1178,8 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
 
                 # Most nodes have no URL-like attrs; avoid allocations in that case.
                 for key in attrs:
-                    if key not in _URL_LIKE_ATTRS:
+                    lower_key = key if key.islower() else key.lower()
+                    if lower_key not in _URL_LIKE_ATTRS:
                         continue
                     raw_value = attrs[key]
                     if tag is None:
@@ -1186,35 +1189,35 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
 
                     if raw_value is None:
                         if on_report is not None:  # pragma: no cover
-                            on_report(f"Unsafe URL in attribute '{key}'", node=node)
+                            on_report(f"Unsafe URL in attribute '{lower_key}'", node=node)
                         if to_drop is None:
                             to_drop = []
                         to_drop.append(key)
                         continue
 
-                    rule = url_policy.allow_rules.get((tag, key))
+                    rule = url_policy.allow_rules.get((tag, lower_key))
                     if rule is None:
                         if on_report is not None:  # pragma: no cover
-                            on_report(f"Unsafe URL in attribute '{key}' (no rule)", node=node)
+                            on_report(f"Unsafe URL in attribute '{lower_key}' (no rule)", node=node)
                         if to_drop is None:
                             to_drop = []
                         to_drop.append(key)
                         continue
 
-                    if key in {"srcset", "imagesrcset"}:
+                    if lower_key in {"srcset", "imagesrcset"}:
                         sanitized = _sanitize_srcset_value(
                             url_policy=url_policy,
                             rule=rule,
                             tag=tag,
-                            attr=key,
+                            attr=lower_key,
                             value=str(raw_value),
                         )
-                    elif key in {"ping", "attributionsrc"}:
+                    elif lower_key in {"ping", "attributionsrc"}:
                         sanitized = _sanitize_space_separated_url_list(
                             url_policy=url_policy,
                             rule=rule,
                             tag=tag,
-                            attr=key,
+                            attr=lower_key,
                             value=str(raw_value),
                         )
                     else:
@@ -1222,7 +1225,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                             rule=rule,
                             value=str(raw_value),
                             tag=tag,
-                            attr=key,
+                            attr=lower_key,
                             handling=_effective_url_handling(url_policy=url_policy, rule=rule),
                             allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
                             proxy=_effective_proxy(url_policy=url_policy, rule=rule),
@@ -1232,10 +1235,19 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
 
                     if sanitized is None:
                         if on_report is not None:
-                            on_report(f"Unsafe URL in attribute '{key}'", node=node)
+                            on_report(f"Unsafe URL in attribute '{lower_key}'", node=node)
                         if to_drop is None:
                             to_drop = []
                         to_drop.append(key)
+                        continue
+
+                    if key != lower_key:
+                        if to_drop is None:
+                            to_drop = []
+                        to_drop.append(key)
+                        if to_set is None:
+                            to_set = {}
+                        to_set[lower_key] = sanitized
                         continue
 
                     if raw_value != sanitized:
@@ -1282,15 +1294,25 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 on_report: ReportCallback | None = on_report,
             ) -> dict[str, str | None] | None:
                 attrs = node.attrs
-                if not attrs or "style" not in attrs:
+                if not attrs:
                     return None
 
-                raw_value = attrs.get("style")
+                style_key: str | None = None
+                for key in attrs:
+                    lower_key = key if key.islower() else key.lower()
+                    if lower_key == "style":
+                        style_key = key
+                        break
+
+                if style_key is None:
+                    return None
+
+                raw_value = attrs.get(style_key)
                 if raw_value is None:
                     if on_report is not None:
                         on_report("Unsafe inline style in attribute 'style'", node=node)
                     out = dict(attrs)
-                    out.pop("style", None)
+                    out.pop(style_key, None)
                     if on_hook is not None:
                         on_hook(node)
                     return out
@@ -1305,15 +1327,17 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     if on_report is not None:
                         on_report("Unsafe inline style in attribute 'style'", node=node)
                     out = dict(attrs)
-                    out.pop("style", None)
+                    out.pop(style_key, None)
                     if on_hook is not None:
                         on_hook(node)
                     return out
 
-                if raw_value == sanitized_style:
+                if style_key == "style" and raw_value == sanitized_style:
                     return None
 
                 out = dict(attrs)
+                if style_key != "style":
+                    out.pop(style_key, None)
                 out["style"] = sanitized_style
                 if on_hook is not None:
                     on_hook(node)
@@ -1786,13 +1810,18 @@ def apply_compiled_transforms(
                             if not is_special and not is_doctype:
                                 if str(name).lower() == t.tag:
                                     attrs = node.attrs
-                                    existing_raw = attrs.get(t.attr)
+                                    matched_keys: list[str] = []
                                     existing: list[str] = []
-                                    if isinstance(existing_raw, str) and existing_raw:
-                                        for tok in existing_raw.split():
-                                            tt = tok.strip().lower()
-                                            if tt and tt not in existing:
-                                                existing.append(tt)
+                                    for attr_key, attr_value in attrs.items():
+                                        lower_key = attr_key if attr_key.islower() else attr_key.lower()
+                                        if lower_key != t.attr:
+                                            continue
+                                        matched_keys.append(attr_key)
+                                        if isinstance(attr_value, str) and attr_value:
+                                            for tok in attr_value.split():
+                                                tt = tok.strip().lower()
+                                                if tt and tt not in existing:
+                                                    existing.append(tt)
 
                                     changed_rel = False
                                     for tok in t.tokens:
@@ -1800,11 +1829,14 @@ def apply_compiled_transforms(
                                             existing.append(tok)
                                             changed_rel = True
                                     normalized = " ".join(existing)
-                                    if (
-                                        changed_rel
-                                        or (existing_raw is None and existing)
-                                        or (isinstance(existing_raw, str) and existing_raw != normalized)
-                                    ):
+                                    existing_raw = attrs.get(t.attr)
+                                    has_mixed_case_duplicates = bool(
+                                        matched_keys and (len(matched_keys) != 1 or matched_keys[0] != t.attr)
+                                    )
+                                    if changed_rel or has_mixed_case_duplicates or existing_raw != normalized:
+                                        for attr_key in matched_keys:
+                                            if attr_key != t.attr:
+                                                attrs.pop(attr_key, None)
                                         attrs[t.attr] = normalized
                                         if t.callback is not None:
                                             t.callback(node)
