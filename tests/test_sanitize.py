@@ -1573,6 +1573,53 @@ class TestSanitizeDom(unittest.TestCase):
         ).to_html()
         assert out == '<a href="https://trusted.example/x">x</a>'
 
+    def test_img_attributionsrc_is_dropped_if_any_url_is_invalid(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["img"],
+            allowed_attributes={"*": [], "img": ["src", "attributionsrc"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+                    ("img", "attributionsrc"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    ),
+                },
+            ),
+        )
+
+        out = JustHTML(
+            '<img src="https://trusted.example/x.png" attributionsrc="https://trusted.example/register https://evil.example/register">',
+            fragment=True,
+            policy=policy,
+        ).to_html()
+        assert out == '<img src="https://trusted.example/x.png">'
+
+    def test_img_attributionsrc_preserves_all_urls_when_each_is_allowed(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["img"],
+            allowed_attributes={"*": [], "img": ["src", "attributionsrc"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+                    ("img", "attributionsrc"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    ),
+                },
+            ),
+        )
+
+        out = JustHTML(
+            '<img src="https://trusted.example/x.png" attributionsrc="https://trusted.example/register https://trusted.example/measure">',
+            fragment=True,
+            policy=policy,
+        ).to_html()
+        assert (
+            out
+            == '<img src="https://trusted.example/x.png" attributionsrc="https://trusted.example/register https://trusted.example/measure">'
+        )
+
     def test_ping_preserves_all_urls_when_each_is_allowed(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["a"],
@@ -2389,6 +2436,26 @@ class TestSanitizeUnsafe(unittest.TestCase):
             drop_content_tags=set(),
         )
         with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'imagesrcset'"):
+            sanitize(node, policy=policy)
+
+    def test_sanitize_img_attributionsrc_raises(self) -> None:
+        html = '<img src="https://trusted.example/x.png" attributionsrc="https://evil.example/register">'
+        node = JustHTML(html, fragment=True, sanitize=False).root
+        policy = SanitizationPolicy(
+            allowed_tags={"img"},
+            allowed_attributes={"img": {"src", "attributionsrc"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+                    ("img", "attributionsrc"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    ),
+                }
+            ),
+            unsafe_handling="raise",
+        )
+        with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'attributionsrc'"):
             sanitize(node, policy=policy)
 
     def test_sanitize_unsafe_disallowed_attribute_raises(self) -> None:

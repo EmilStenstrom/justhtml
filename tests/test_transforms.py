@@ -1094,6 +1094,29 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert a.attrs == {"href": "https://trusted.example"}
 
+    def test_dropurlattrs_drops_img_attributionsrc_when_any_list_item_is_invalid(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("img", "src"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+                ("img", "attributionsrc"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+            },
+        )
+
+        root = DocumentFragment()
+        img = Element(
+            "img",
+            {
+                "src": "https://trusted.example/x.png",
+                "attributionsrc": "https://trusted.example/register https://evil.example/register",
+            },
+            "html",
+        )
+        root.append_child(img)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert img.attrs == {"src": "https://trusted.example/x.png"}
+
     def test_dropurlattrs_drops_meta_refresh_content(self) -> None:
         url_policy = UrlPolicy(default_handling="allow", allow_rules={})
 

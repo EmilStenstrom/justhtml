@@ -1316,6 +1316,7 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
         "background",
         # Can trigger requests/pings.
         "ping",
+        "attributionsrc",
     }
 )
 

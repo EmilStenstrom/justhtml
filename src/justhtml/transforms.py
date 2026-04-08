@@ -1209,7 +1209,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                             attr=key,
                             value=str(raw_value),
                         )
-                    elif key == "ping":
+                    elif key in {"ping", "attributionsrc"}:
                         sanitized = _sanitize_space_separated_url_list(
                             url_policy=url_policy,
                             rule=rule,

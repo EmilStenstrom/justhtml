@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- (Severity: Moderate) Harden `JustHTML.clean_url_value(...)` and `clean_url_in_js_string(...)` against HTML character reference smuggling such as `javascript&#58...`, which could bypass URL scheme validation and become an active `javascript:` URL after HTML attribute parsing.
+- (Severity: Low) Harden URL sanitization against browser backslash normalization. Previously, “relative” URLs such as `\\evil.example/x` or `/\\evil.example/x` could survive sanitization and be interpreted by browsers as remote network requests, bypassing relative-only URL rules such as the default `img[src]` policy.
+- (Severity: Low) Harden URL sanitization and `clean_url_value(...)` against malformed bracketed hosts when `allowed_hosts` is enabled. Previously, inputs such as `https://[evil.example]/x` could raise `ValueError` from Python’s URL parser and crash sanitization instead of being rejected.
+- (Severity: Low) Harden `to_markdown(html_passthrough=True)` for sanitized `<textarea>` content. Previously, attacker-controlled `</textarea>` sequences could survive sanitization as text, then break out during Markdown HTML passthrough and turn into active HTML when the Markdown output was reparsed or rendered.
+- (Severity: Low) Harden `a[ping]` sanitization. Previously, `ping` was treated as a single URL even though browsers interpret it as a space-separated list of URLs, so a custom policy could allow a trusted first endpoint while unintentionally preserving additional attacker-controlled ping URLs.
+- (Severity: Low) Harden preserved `<style>` blocks in custom policies. Previously, JustHTML only neutralized HTML parser breakouts inside allowed `<style>` elements; resource-loading CSS such as `@import`, `url(...)`, `image-set(...)`, and legacy binding/filter constructs could still survive unchanged.
+- (Severity: Low) Harden preserved `<meta http-equiv=\"refresh\">` tags in custom policies. Previously, the `content` attribute was treated as inert text even though browsers interpret it as a client-side redirect instruction, so refresh targets could survive without any URL policy.
+- (Severity: Low) Harden `link[imagesrcset]` sanitization in custom policies. Previously, `imagesrcset` was not treated as URL-bearing at all, so `<link rel="preload" as="image">` could preserve attacker-controlled remote image candidates without any URL validation.
+- (Severity: Low) Harden `attributionsrc` sanitization in custom policies. Previously, `attributionsrc` was not treated as URL-bearing at all, so elements such as `<img>` could preserve attacker-controlled attribution-reporting endpoints and trigger extra browser requests without any URL validation.
+
 ## [1.14.0] - 2026-04-05
 
 ### Security
