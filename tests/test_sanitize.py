@@ -2418,6 +2418,26 @@ class TestSanitizeUnsafe(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'content'"):
             sanitize(node, policy=policy)
 
+    def test_sanitize_base_href_is_dropped_even_with_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["base", "img"],
+            allowed_attributes={"*": [], "base": ["href"], "img": ["src"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("base", "href"): UrlRule(allowed_schemes={"https"}),
+                    ("img", "src"): UrlRule(allow_relative=True, allowed_schemes=set()),
+                }
+            ),
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<base href="https://evil.example/assets/"><img src="pixel">',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+        assert out == '<base><img src="pixel">'
+
     def test_sanitize_link_imagesrcset_raises(self) -> None:
         html = '<link rel="preload" as="image" imagesrcset="https://evil.example/a 1x">'
         node = JustHTML(html, fragment=True, sanitize=False).root
@@ -2436,6 +2456,23 @@ class TestSanitizeUnsafe(unittest.TestCase):
             drop_content_tags=set(),
         )
         with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'imagesrcset'"):
+            sanitize(node, policy=policy)
+
+    def test_sanitize_base_href_raises(self) -> None:
+        html = '<base href="https://evil.example/assets/">'
+        node = JustHTML(html, fragment=True, sanitize=False).root
+        policy = SanitizationPolicy(
+            allowed_tags={"base"},
+            allowed_attributes={"base": {"href"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("base", "href"): UrlRule(allowed_schemes={"https"}),
+                }
+            ),
+            unsafe_handling="raise",
+            drop_content_tags=set(),
+        )
+        with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'href'"):
             sanitize(node, policy=policy)
 
     def test_sanitize_img_attributionsrc_raises(self) -> None:

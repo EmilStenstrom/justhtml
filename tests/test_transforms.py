@@ -1202,6 +1202,40 @@ class TestTransforms(unittest.TestCase):
         assert meta_refresh.attrs == {"http-equiv": "refresh"}
         assert meta_charset.attrs == {"http-equiv": "content-type", "content": "text/html; charset=utf-8"}
 
+    def test_dropurlattrs_drops_base_href_even_with_rule(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("base", "href"): UrlRule(allowed_schemes={"https"}),
+                ("img", "src"): UrlRule(allow_relative=True, allowed_schemes=set()),
+            },
+        )
+
+        root = DocumentFragment()
+        base = Element("base", {"Href": "https://trusted.example/assets/"}, "html")
+        img = Element("img", {"src": "pixel"}, "html")
+        root.append_child(base)
+        root.append_child(img)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert base.attrs == {}
+        assert img.attrs == {"src": "pixel"}
+
+    def test_dropurlattrs_drops_base_href_when_drop_list_already_exists(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("base", "href"): UrlRule(allowed_schemes={"https"}),
+            },
+        )
+
+        root = DocumentFragment()
+        base = Element("base", {"src": None, "href": "https://trusted.example/assets/"}, "html")
+        root.append_child(base)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert base.attrs == {}
+
     def test_dropurlattrs_works_without_on_unsafe_callback(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",

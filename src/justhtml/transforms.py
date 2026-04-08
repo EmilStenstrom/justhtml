@@ -1156,7 +1156,9 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 if not attrs:
                     return None
 
-                tag: str | None = None
+                tag = str(node.name)
+                if not tag.islower():
+                    tag = tag.lower()
                 to_drop: list[str] | None = None
                 to_set: dict[str, str] | None = None
 
@@ -1182,10 +1184,14 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     if lower_key not in _URL_LIKE_ATTRS:
                         continue
                     raw_value = attrs[key]
-                    if tag is None:
-                        tag = str(node.name)
-                        if not tag.islower():
-                            tag = tag.lower()
+
+                    if tag == "base" and lower_key == "href":
+                        if on_report is not None:
+                            on_report("Unsafe URL in attribute 'href' (base tag)", node=node)
+                        if to_drop is None:
+                            to_drop = []
+                        to_drop.append(key)
+                        continue
 
                     if raw_value is None:
                         if on_report is not None:  # pragma: no cover

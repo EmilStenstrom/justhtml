@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - (Severity: Low) Harden `link[imagesrcset]` sanitization in custom policies. Previously, `imagesrcset` was not treated as URL-bearing at all, so `<link rel="preload" as="image">` could preserve attacker-controlled remote image candidates without any URL validation.
 - (Severity: Low) Harden `attributionsrc` sanitization in custom policies. Previously, `attributionsrc` was not treated as URL-bearing at all, so elements such as `<img>` could preserve attacker-controlled attribution-reporting endpoints and trigger extra browser requests without any URL validation.
 - (Severity: Low) Harden security-related attribute transforms against mixed-case attribute names in custom pipelines. Previously, transforms such as `DropAttrs(...)`, `DropUrlAttrs(...)`, `AllowStyleAttrs(...)`, and `MergeAttrs(...)` could miss or mis-handle `OnClick`, `SrcDoc`, `Href`, `Style`, `Rel`, and similar mixed-case variants unless an earlier step had already normalized names to lowercase.
+- (Severity: Low) Harden preserved `<base href>` tags in custom policies. Previously, a kept `<base href="...">` could rewrite how later relative URLs resolved in the browser, bypassing per-attribute relative-only URL rules such as `img[src]`.
 
 ## [1.14.0] - 2026-04-05
 
