@@ -1411,7 +1411,10 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
             ) -> DecideAction:
                 # This callback is used with an elements-only dispatcher; tag
                 # names produced by the tokenizer are already ASCII-lowercased.
-                tag = str(node.name)
+                # Programmatic DOM input may not be normalized, so match
+                # policy semantics case-insensitively here as well.
+                raw_tag = str(node.name)
+                tag = raw_tag if raw_tag.islower() else raw_tag.lower()
 
                 if tag in allowed_tags:
                     return DecideAction.KEEP

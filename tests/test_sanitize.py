@@ -190,6 +190,17 @@ class TestSanitizeDom(unittest.TestCase):
         assert out is root
         assert root.children == []
 
+    def test_sanitize_dom_drops_mixed_case_drop_content_tag_subtrees(self) -> None:
+        root = DocumentFragment()
+        script = Node("ScRiPt")
+        script.append_child(Node("img", attrs={"src": "pixel", "onerror": "alert(1)"}))
+        root.append_child(script)
+
+        out = sanitize_dom(root)
+
+        assert out is root
+        assert to_html(root, pretty=False) == ""
+
     def test_sanitize_dom_default_policy(self) -> None:
         root = DocumentFragment()
         root.append_child(Node("b"))
@@ -1864,6 +1875,10 @@ class TestSanitizeDom(unittest.TestCase):
         script = Node("script")
         script.append_child(Text("alert(1)"))
         assert to_html(sanitize(script, policy=drop_content), pretty=False) == ""
+
+        mixed_case_script = Node("ScRiPt")
+        mixed_case_script.append_child(Node("img", attrs={"src": "pixel", "onerror": "alert(1)"}))
+        assert to_html(sanitize(mixed_case_script, policy=drop_content), pretty=False) == ""
 
         template_policy = SanitizationPolicy(
             allowed_tags=["template"],
