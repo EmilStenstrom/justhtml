@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Harden HTML serialization and the builder against unsafe programmatic element and attribute names. Previously, direct `Node(...)` usage, transform-produced attrs, or `builder.element(...)` calls could emit attacker-controlled markup such as injected `<img onerror>` by including syntax-breaking characters in a tag or attribute name.
 - (Severity: Moderate) Harden `JustHTML.clean_url_value(...)` and `clean_url_in_js_string(...)` against HTML character reference smuggling such as `javascript&#58...`, which could bypass URL scheme validation and become an active `javascript:` URL after HTML attribute parsing.
 - (Severity: Low) Harden URL sanitization against browser backslash normalization. Previously, “relative” URLs such as `\\evil.example/x` or `/\\evil.example/x` could survive sanitization and be interpreted by browsers as remote network requests, bypassing relative-only URL rules such as the default `img[src]` policy.
 - (Severity: Low) Harden URL sanitization and `clean_url_value(...)` against malformed bracketed hosts when `allowed_hosts` is enabled. Previously, inputs such as `https://[evil.example]/x` could raise `ValueError` from Python’s URL parser and crash sanitization instead of being rejected.

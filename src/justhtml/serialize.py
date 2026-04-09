@@ -16,6 +16,8 @@ from .constants import FOREIGN_ATTRIBUTE_ADJUSTMENTS, SPECIAL_ELEMENTS, VOID_ELE
 # It checks for space characters, quotes, equals sign, and greater-than.
 _UNQUOTED_ATTR_VALUE_INVALID = re.compile(r'[ \t\n\f\r"\'=>]')
 _LITERAL_TEXT_SERIALIZATION_ELEMENTS = frozenset({"script", "style"})
+_SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_-]*$")
+_SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[A-Za-z_:][A-Za-z0-9:._-]*$")
 
 
 class HTMLContext(str, Enum):
@@ -38,6 +40,18 @@ def _escape_text(text: str | None) -> str:
         return text
     # Minimal, but matches html5lib serializer expectations in core cases.
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _validate_serializable_tag_name(name: str) -> str:
+    if not _SERIALIZABLE_TAG_NAME_RE.match(name):
+        raise ValueError(f"Unsafe element name for serialization: {name!r}")
+    return name
+
+
+def _validate_serializable_attr_name(name: str) -> str:
+    if not _SERIALIZABLE_ATTR_NAME_RE.match(name):
+        raise ValueError(f"Unsafe attribute name for serialization: {name!r}")
+    return name
 
 
 def _serialize_text_for_parent(text: str | None, parent_name: str | None) -> str:
@@ -158,10 +172,12 @@ def serialize_start_tag(
     use_trailing_solidus: bool = False,
     is_void: bool = False,
 ) -> str:
+    name = _validate_serializable_tag_name(name)
     parts: list[str] = ["<", name]
     if attrs:
         parts_extend = parts.extend
-        for key, value in attrs.items():
+        for raw_key, value in attrs.items():
+            key = _validate_serializable_attr_name(raw_key)
             if minimize_boolean_attributes:
                 if value is None or value == "" or value == key:
                     parts_extend((" ", key))
@@ -191,6 +207,7 @@ def serialize_start_tag(
 
 
 def serialize_end_tag(name: str) -> str:
+    name = _validate_serializable_tag_name(name)
     return f"</{name}>"
 
 

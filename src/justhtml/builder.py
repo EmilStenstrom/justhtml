@@ -4,6 +4,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from .node import Comment, Element, Node, Template, Text
+from .serialize import _validate_serializable_attr_name, _validate_serializable_tag_name
 from .tokens import Doctype
 
 _SPECIAL_NODE_NAMES = {"#text", "#comment", "#document", "#document-fragment", "!doctype"}
@@ -97,6 +98,7 @@ def _normalize_attrs(attrs: Mapping[str, Any] | None) -> dict[str, str | None]:
             raise TypeError("Attribute names must be strings")
         if not key:
             raise ValueError("Attribute names must not be empty")
+        _validate_serializable_attr_name(key)
         normalized[key] = None if value is None else str(value)
     return normalized
 
@@ -176,6 +178,8 @@ def _parse_element_name(value: str) -> tuple[str, dict[str, str | None]]:
         raise ValueError("Element name must not be empty")
     if any(ch.isspace() for ch in tag_name):
         raise ValueError("Element name must not contain whitespace")
+    if tag_name not in _SPECIAL_NODE_NAMES:
+        _validate_serializable_tag_name(tag_name)
 
     attrs: dict[str, str | None] = {}
     index = 0
@@ -196,6 +200,7 @@ def _parse_element_name(value: str) -> tuple[str, dict[str, str | None]]:
         attr_name = remainder[attr_start:index]
         if not attr_name:
             raise ValueError("Attribute names must not be empty")
+        _validate_serializable_attr_name(attr_name)
 
         if attr_name in attrs:
             raise ValueError(f"Duplicate shorthand attribute: {attr_name}")

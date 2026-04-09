@@ -100,6 +100,8 @@ class TestBuilder(unittest.TestCase):
     def test_element_factory_rejects_special_names(self):
         with self.assertRaises(ValueError):
             element("#text")
+        with self.assertRaises(ValueError):
+            element("!doctype")
 
     def test_element_factory_rejects_non_string_name(self):
         with self.assertRaises(TypeError):
@@ -122,6 +124,8 @@ class TestBuilder(unittest.TestCase):
             element("div", {1: "x"})
         with self.assertRaises(ValueError):
             element("div", {"": "x"})
+        with self.assertRaisesRegex(ValueError, "Unsafe attribute name"):
+            element("div", {"x onmouseover=alert(1)": "y"})
 
     def test_element_factory_rejects_non_string_namespace(self):
         with self.assertRaises(TypeError):
@@ -171,6 +175,7 @@ class TestBuilder(unittest.TestCase):
         invalid_names = [
             "",
             "two words",
+            "div><img",
             "[attr]",
             "div[",
             "div[]",
@@ -186,6 +191,10 @@ class TestBuilder(unittest.TestCase):
             with self.subTest(name=name):
                 with self.assertRaises(ValueError):
                     element(name)
+
+    def test_element_factory_rejects_invalid_shorthand_attribute_name(self):
+        with self.assertRaisesRegex(ValueError, "Unsafe attribute name"):
+            element("div[x onmouseover=alert(1)]")
 
     def test_normalize_attrs_rejects_non_mapping(self):
         with self.assertRaises(TypeError):

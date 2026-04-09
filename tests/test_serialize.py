@@ -701,8 +701,26 @@ class TestSerialize(unittest.TestCase):
             == '<span disabled="">'
         )
 
+    def test_serialize_start_tag_rejects_unsafe_attribute_names(self):
+        with self.assertRaisesRegex(ValueError, "Unsafe attribute name"):
+            serialize_start_tag("div", {"x onmouseover=alert(1)": "1"})
+
+        with self.assertRaisesRegex(ValueError, "Unsafe attribute name"):
+            serialize_start_tag("div", {"title><img": "1"})
+
     def test_serialize_end_tag(self):
         assert serialize_end_tag("span") == "</span>"
+
+    def test_serialize_end_tag_rejects_unsafe_element_name(self):
+        with self.assertRaisesRegex(ValueError, "Unsafe element name"):
+            serialize_end_tag("div><img")
+
+    def test_programmatic_dom_serialization_rejects_unsafe_names(self):
+        with self.assertRaisesRegex(ValueError, "Unsafe attribute name"):
+            Node("div", attrs={"title> <img src=x onerror=alert(1)": "y"}).to_html(pretty=False)
+
+        with self.assertRaisesRegex(ValueError, "Unsafe element name"):
+            Node("div><img src=x onerror=alert(1)", attrs={}).to_html(pretty=False)
 
     def test_serializer_private_helpers_none(self):
         assert _escape_text(None) == ""
