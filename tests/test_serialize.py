@@ -285,6 +285,24 @@ class TestSerialize(unittest.TestCase):
         output = doc.to_html()
         assert "<!-- hello world -->" in output
 
+    def test_comment_serialization_neutralizes_breakout_sequences(self):
+        root = Node("div")
+        root.append_child(Comment("--><img src=x onerror=alert(1)>"))
+
+        assert root.to_html(pretty=False) == "<div><!--- -><img src=x onerror=alert(1)>--></div>"
+
+    def test_comment_serialization_handles_empty_comment_data(self):
+        root = Node("div")
+        root.append_child(Comment(""))
+
+        assert root.to_html(pretty=False) == "<div><!----></div>"
+
+    def test_comment_serialization_neutralizes_repeated_hyphens_and_trailing_dash(self):
+        root = Node("div")
+        root.append_child(Comment("---"))
+
+        assert root.to_html(pretty=False) == "<div><!--- - - --></div>"
+
     def test_document_fragment(self):
         # Manually create a document fragment since parser returns Document
         frag = DocumentFragment()

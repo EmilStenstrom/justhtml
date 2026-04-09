@@ -54,6 +54,20 @@ def _validate_serializable_attr_name(name: str) -> str:
     return name
 
 
+def _serialize_comment_data(data: str | None) -> str:
+    if not data:
+        return ""
+
+    out = data
+    while "--" in out:
+        out = out.replace("--", "- -")
+
+    if out.endswith("-"):
+        out += " "
+
+    return out
+
+
 def _serialize_text_for_parent(text: str | None, parent_name: str | None) -> str:
     if not text:
         return ""
@@ -246,7 +260,7 @@ def _node_to_html_compact(node: Any) -> str:
             continue
 
         if name == "#comment":
-            append(f"<!--{item.data or ''}-->")
+            append(f"<!--{_serialize_comment_data(item.data)}-->")
             continue
 
         if name == "!doctype":
@@ -653,7 +667,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                 continue
 
             if name == "#comment":
-                results.append(f"{prefix}<!--{current.data or ''}-->")
+                results.append(f"{prefix}<!--{_serialize_comment_data(current.data)}-->")
                 continue
 
             if name == "!doctype":
