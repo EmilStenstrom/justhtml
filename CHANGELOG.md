@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-04-09
+
 ### Security
 - (Severity: Low) Harden HTML comment serialization against comment-breakout injection. Previously, programmatic `Comment(...)` nodes or transform-produced comment data containing sequences like `-->` could serialize into active HTML such as injected `<img onerror>`.
 - (Severity: Low) Harden HTML serialization and the builder against unsafe programmatic element and attribute names. Previously, direct `Node(...)` usage, transform-produced attrs, or `builder.element(...)` calls could emit attacker-controlled markup such as injected `<img onerror>` by including syntax-breaking characters in a tag or attribute name.
