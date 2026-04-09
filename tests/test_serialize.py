@@ -69,6 +69,11 @@ class TestSerialize(unittest.TestCase):
         node = Node("!doctype", data="svg")
         assert _serialize_doctype(node) == "<!DOCTYPE svg>"
 
+    def test_serialize_doctype_rejects_unsafe_name(self):
+        node = Node("!doctype", data="html><img src=x onerror=alert(1)")
+        with self.assertRaisesRegex(ValueError, "Unsafe element name"):
+            _serialize_doctype(node)
+
     def test_serialize_doctype_supports_public_identifier_without_system_identifier(self):
         node = Node("!doctype", data=Doctype(name="html", public_id="-//Example//DTD HTML//EN"))
         assert _serialize_doctype(node) == '<!DOCTYPE html PUBLIC "-//Example//DTD HTML//EN">'
@@ -739,6 +744,9 @@ class TestSerialize(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "Unsafe element name"):
             Node("div><img src=x onerror=alert(1)", attrs={}).to_html(pretty=False)
+
+        with self.assertRaisesRegex(ValueError, "Unsafe element name"):
+            Node("!doctype", data="html><img src=x onerror=alert(1)").to_html(pretty=False)
 
     def test_serializer_private_helpers_none(self):
         assert _escape_text(None) == ""

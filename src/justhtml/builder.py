@@ -32,6 +32,8 @@ def doctype(
 ) -> Node:
     if not isinstance(name, str):
         raise TypeError("doctype() name must be a string")
+    if name:
+        _validate_serializable_tag_name(name)
     if public_id is not None and not isinstance(public_id, str):
         raise TypeError("doctype() public_id must be a string or None")
     if system_id is not None and not isinstance(system_id, str):

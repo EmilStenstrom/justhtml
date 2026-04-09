@@ -50,6 +50,8 @@ class TestBuilder(unittest.TestCase):
             doctype("html", public_id=1)
         with self.assertRaises(TypeError):
             doctype("html", system_id=1)
+        with self.assertRaisesRegex(ValueError, "Unsafe element name"):
+            doctype("html><img src=x onerror=alert(1)")
 
     def test_doctype_factory_accepts_public_and_system_identifiers(self):
         node = doctype(
@@ -58,6 +60,11 @@ class TestBuilder(unittest.TestCase):
         self.assertEqual(node.data.name, "svg")
         self.assertEqual(node.data.public_id, "-//W3C//DTD SVG 1.1//EN")
         self.assertEqual(node.data.system_id, "https://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd")
+
+    def test_doctype_factory_allows_empty_name_for_legacy_forms(self):
+        node = doctype("", system_id="about:legacy-compat")
+        self.assertEqual(node.data.name, "")
+        self.assertEqual(node.data.system_id, "about:legacy-compat")
 
     def test_element_factory_returns_element(self):
         node = element("div", {"id": "x"}, "Hello")

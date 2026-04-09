@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- (Severity: Low) Harden doctype serialization against programmatic doctype-name injection. Previously, a crafted `doctype(...)` or manual `!doctype` node name such as `html><img ...>` could serialize into active markup before the document body.
+
 ## [1.15.0] - 2026-04-09
 
 ### Security

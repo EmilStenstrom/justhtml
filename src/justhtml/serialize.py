@@ -161,6 +161,9 @@ def _serialize_doctype(node: Any) -> str:
         public_id = doctype.public_id
         system_id = doctype.system_id
 
+    if name:
+        name = _validate_serializable_tag_name(name)
+
     parts: list[str] = ["<!DOCTYPE"]
     if name:
         parts.extend((" ", name))
