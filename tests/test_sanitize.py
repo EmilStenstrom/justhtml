@@ -132,6 +132,14 @@ class TestSanitizePlumbing(unittest.TestCase):
         assert policy.allowed_tags == {"div"}
         assert policy.allowed_attributes["div"] == {"id", "class"}
 
+    def test_policy_normalizes_drop_content_tags(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["div"],
+            allowed_attributes={"*": []},
+            drop_content_tags={"SCRIPT", " Style "},
+        )
+        assert policy.drop_content_tags == {"script", "style"}
+
     def test_url_policy_rejects_invalid_url_handling(self) -> None:
         with self.assertRaises(ValueError):
             UrlPolicy(default_handling="nope")  # type: ignore[arg-type]
@@ -1879,6 +1887,17 @@ class TestSanitizeDom(unittest.TestCase):
         mixed_case_script = Node("ScRiPt")
         mixed_case_script.append_child(Node("img", attrs={"src": "pixel", "onerror": "alert(1)"}))
         assert to_html(sanitize(mixed_case_script, policy=drop_content), pretty=False) == ""
+
+        upper_drop_content = SanitizationPolicy(
+            allowed_tags=["div", "img"],
+            allowed_attributes={"*": [], "img": ["src"]},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags={"SCRIPT"},
+            disallowed_tag_handling="unwrap",
+        )
+        script_with_child = Node("script")
+        script_with_child.append_child(Node("img", attrs={"src": "pixel", "onerror": "alert(1)"}))
+        assert to_html(sanitize(script_with_child, policy=upper_drop_content), pretty=False) == ""
 
         template_policy = SanitizationPolicy(
             allowed_tags=["template"],

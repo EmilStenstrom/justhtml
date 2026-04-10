@@ -395,6 +395,8 @@ class SanitizationPolicy:
 
         if not isinstance(self.drop_content_tags, set):
             object.__setattr__(self, "drop_content_tags", set(self.drop_content_tags))
+        normalized_drop_content_tags = {str(t).strip().lower() for t in self.drop_content_tags if str(t).strip()}
+        object.__setattr__(self, "drop_content_tags", normalized_drop_content_tags)
 
         if not isinstance(self.allowed_css_properties, set):
             object.__setattr__(self, "allowed_css_properties", set(self.allowed_css_properties))
