@@ -349,6 +349,12 @@ class SanitizationPolicy:
         repr=False,
         compare=False,
     )
+    _compiled_sanitize_signature: Any = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         # Validate and normalize allowlists once so the sanitizer can do fast
@@ -1323,6 +1329,75 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
 )
 
 
+def _url_rule_signature(rule: UrlRule) -> tuple[Any, ...]:
+    allowed_schemes = tuple(sorted(str(s) for s in rule.allowed_schemes))
+    allowed_hosts = None
+    if rule.allowed_hosts is not None:
+        allowed_hosts = tuple(sorted(str(h).lower() for h in rule.allowed_hosts))
+
+    proxy_sig = None
+    if rule.proxy is not None:
+        proxy_sig = (rule.proxy.url, rule.proxy.param)
+
+    return (
+        rule.allow_fragment,
+        rule.resolve_protocol_relative,
+        allowed_schemes,
+        allowed_hosts,
+        rule.handling,
+        rule.allow_relative,
+        proxy_sig,
+    )
+
+
+def _url_policy_signature(url_policy: UrlPolicy) -> tuple[Any, ...]:
+    allow_rules_sig = tuple(
+        sorted(
+            (
+                (str(tag).lower(), str(attr).lower()),
+                _url_rule_signature(rule),
+            )
+            for (tag, attr), rule in url_policy.allow_rules.items()
+        )
+    )
+
+    proxy_sig = None
+    if url_policy.proxy is not None:
+        proxy_sig = (url_policy.proxy.url, url_policy.proxy.param)
+
+    return (
+        url_policy.default_handling,
+        url_policy.default_allow_relative,
+        allow_rules_sig,
+        url_policy.url_filter,
+        proxy_sig,
+    )
+
+
+def _sanitization_policy_signature(policy: SanitizationPolicy) -> tuple[Any, ...]:
+    allowed_attributes_sig = tuple(
+        sorted(
+            (
+                str(tag).lower(),
+                tuple(sorted(str(attr).lower() for attr in attrs)),
+            )
+            for tag, attrs in policy.allowed_attributes.items()
+        )
+    )
+
+    return (
+        tuple(sorted(str(tag).lower() for tag in policy.allowed_tags)),
+        allowed_attributes_sig,
+        tuple(sorted(str(tag).lower() for tag in policy.drop_content_tags)),
+        tuple(sorted(str(prop).lower() for prop in policy.allowed_css_properties)),
+        tuple(sorted(str(token).lower() for token in policy.force_link_rel)),
+        policy.disallowed_tag_handling,
+        policy.strip_invisible_unicode,
+        policy.drop_foreign_namespaces,
+        _url_policy_signature(policy.url_policy),
+    )
+
+
 def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     """Return a sanitized clone of `node`.
 
@@ -1366,10 +1441,12 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     # This keeps a single canonical sanitization algorithm.
     from .transforms import Sanitize, apply_compiled_transforms, compile_transforms  # noqa: PLC0415
 
+    signature = _sanitization_policy_signature(policy)
     compiled = policy._compiled_sanitize_transforms
-    if compiled is None:
+    if compiled is None or policy._compiled_sanitize_signature != signature:
         compiled = compile_transforms((Sanitize(policy=policy),))
         object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
+        object.__setattr__(policy, "_compiled_sanitize_signature", signature)
 
     # Container-root rule: transforms walk children of the provided root.
     # For non-container roots, wrap the cloned node in a document fragment so
@@ -1416,10 +1493,12 @@ def sanitize_dom(
 
     from .transforms import Sanitize, apply_compiled_transforms, compile_transforms  # noqa: PLC0415
 
+    signature = _sanitization_policy_signature(policy)
     compiled = policy._compiled_sanitize_transforms
-    if compiled is None:
+    if compiled is None or policy._compiled_sanitize_signature != signature:
         compiled = compile_transforms((Sanitize(policy=policy),))
         object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
+        object.__setattr__(policy, "_compiled_sanitize_signature", signature)
 
     if node.name in {"#document", "#document-fragment"}:
         apply_compiled_transforms(node, compiled, errors=errors)

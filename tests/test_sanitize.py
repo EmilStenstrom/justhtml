@@ -280,6 +280,59 @@ class TestSanitizeDom(unittest.TestCase):
         out = sanitize_dom(root2, policy=policy)
         assert out is root2
 
+    def test_sanitize_dom_recompiles_when_allowed_attributes_mutate(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["div"],
+            allowed_attributes={"div": ["title"]},
+        )
+
+        first = Element("div", {"title": "ok"}, "html")
+        sanitize_dom(first, policy=policy)
+        assert first.attrs == {"title": "ok"}
+
+        policy.allowed_attributes["div"] = frozenset()
+
+        second = Element("div", {"title": "ok"}, "html")
+        sanitize_dom(second, policy=policy)
+        assert second.attrs == {}
+
+    def test_sanitize_dom_recompiles_when_url_rules_mutate(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"a": ["href"]},
+            url_policy=UrlPolicy(allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})}),
+        )
+
+        first = Element("a", {"href": "https://example.com"}, "html")
+        sanitize_dom(first, policy=policy)
+        assert first.attrs == {"href": "https://example.com"}
+
+        policy.url_policy.allow_rules[("a", "href")] = UrlRule(allowed_schemes=set())
+
+        second = Element("a", {"href": "https://example.com"}, "html")
+        sanitize_dom(second, policy=policy)
+        assert second.attrs == {}
+
+    def test_sanitize_dom_policy_signature_covers_proxy_settings(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["img"],
+            allowed_attributes={"img": ["src"]},
+            url_policy=UrlPolicy(
+                proxy=UrlProxy(url="/proxy"),
+                allow_rules={
+                    ("img", "src"): UrlRule(
+                        allowed_schemes={"https"},
+                        handling="proxy",
+                        proxy=UrlProxy(url="/rule-proxy"),
+                    )
+                },
+            ),
+        )
+
+        node = Element("img", {"src": "https://example.com/x"}, "html")
+        sanitize_dom(node, policy=policy)
+        assert node.attrs == {"src": "/rule-proxy?url=https%3A%2F%2Fexample.com%2Fx"}
+
     def test_sanitize_dom_returns_wrapper_on_drop(self) -> None:
         root = Node("script")
         policy = SanitizationPolicy(
