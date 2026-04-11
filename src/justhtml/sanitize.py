@@ -703,7 +703,11 @@ def _sanitize_rawtext_element_contents(
 
     while stack:
         current = stack.pop()
-        name = current.name
+        raw_name = current.name
+        if type(raw_name) is str:
+            name = raw_name if raw_name.islower() else raw_name.lower()
+        else:  # pragma: no cover
+            name = str(raw_name).lower()
 
         if name in _RAWTEXT_SERIALIZATION_ELEMENTS:
             children = current.children

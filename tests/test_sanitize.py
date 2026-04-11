@@ -2207,6 +2207,22 @@ class TestSanitizeDom(unittest.TestCase):
         assert first.parent is style
         assert second.parent is style
 
+    def test_sanitize_rawtext_element_contents_handles_mixed_case_style(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style"],
+            allowed_attributes={},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        style = Node("StYlE")
+        text = Text("@import 'https://evil.example/x.css';")
+        style.append_child(text)
+
+        _sanitize_rawtext_element_contents(style, policy=policy, errors=[])
+
+        assert style.children == []
+        assert text.parent is None
+
     def test_sanitize_rawtext_element_contents_traverses_template_content(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["template", "style"],
@@ -2930,6 +2946,20 @@ class TestSanitizeUnsafe(unittest.TestCase):
         ).to_html(pretty=False)
 
         assert out == '<svg><rect width="10" height="10" fill="url(\'#grad\') red"></rect></svg>'
+
+    def test_sanitize_dom_drops_mixed_case_style_resource_loads(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"style"},
+            allowed_attributes={"style": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+        style = Element("StYlE", {}, "html")
+        style.append_child(Text("@import 'https://evil.example/x.css';"))
+
+        out = sanitize_dom(style, policy=policy)
+
+        assert out.to_html(pretty=False) == "<StYlE></StYlE>"
 
     def test_sanitize_unsafe_root_disallowed_raises(self) -> None:
         html = "<x-foo></x-foo>"
