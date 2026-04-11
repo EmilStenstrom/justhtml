@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import quote, urlsplit
 
@@ -484,6 +485,41 @@ _ATTR_DROP_REGEX: re.Pattern[str] = re.compile(
 )
 
 
+def _compiled_sanitize_transforms_for_policy(policy: SanitizationPolicy) -> list[Any]:
+    from .transforms import Sanitize, compile_transforms  # noqa: PLC0415
+
+    signature = _sanitization_policy_signature(policy)
+    compiled = policy._compiled_sanitize_transforms
+    if compiled is None or policy._compiled_sanitize_signature != signature:
+        compiled = compile_transforms((Sanitize(policy=policy),))
+        object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
+        object.__setattr__(policy, "_compiled_sanitize_signature", signature)
+    return compiled
+
+
+def _seal_url_policy(url_policy: UrlPolicy) -> None:
+    sealed_rules: dict[tuple[str, str], UrlRule] = {}
+    for (tag, attr), rule in url_policy.allow_rules.items():
+        object.__setattr__(rule, "allowed_schemes", frozenset(str(s) for s in rule.allowed_schemes))
+        if rule.allowed_hosts is not None:
+            object.__setattr__(rule, "allowed_hosts", frozenset(str(h).lower() for h in rule.allowed_hosts))
+        sealed_rules[(str(tag).lower(), str(attr).lower())] = rule
+
+    object.__setattr__(url_policy, "allow_rules", MappingProxyType(sealed_rules))
+
+
+def _seal_default_policy(policy: SanitizationPolicy) -> None:
+    object.__setattr__(
+        policy,
+        "allowed_attributes",
+        MappingProxyType({str(tag).lower(): frozenset(attrs) for tag, attrs in policy.allowed_attributes.items()}),
+    )
+    object.__setattr__(policy, "drop_content_tags", frozenset(policy.drop_content_tags))
+    object.__setattr__(policy, "allowed_css_properties", frozenset(policy.allowed_css_properties))
+    object.__setattr__(policy, "force_link_rel", frozenset(policy.force_link_rel))
+    _seal_url_policy(policy.url_policy)
+
+
 DEFAULT_POLICY: SanitizationPolicy = SanitizationPolicy(
     allowed_tags=[
         # Text / structure
@@ -592,6 +628,9 @@ DEFAULT_DOCUMENT_POLICY: SanitizationPolicy = SanitizationPolicy(
     force_link_rel=DEFAULT_POLICY.force_link_rel,
     strip_invisible_unicode=DEFAULT_POLICY.strip_invisible_unicode,
 )
+
+_seal_default_policy(DEFAULT_POLICY)
+_seal_default_policy(DEFAULT_DOCUMENT_POLICY)
 
 
 _RAWTEXT_SERIALIZATION_ELEMENTS: frozenset[str] = frozenset({"script", "style"})
@@ -1396,18 +1435,6 @@ def _sanitization_policy_signature(policy: SanitizationPolicy) -> tuple[Any, ...
         policy.drop_foreign_namespaces,
         _url_policy_signature(policy.url_policy),
     )
-
-
-def _compiled_sanitize_transforms_for_policy(policy: SanitizationPolicy) -> list[Any]:
-    from .transforms import Sanitize, compile_transforms  # noqa: PLC0415
-
-    signature = _sanitization_policy_signature(policy)
-    compiled = policy._compiled_sanitize_transforms
-    if compiled is None or policy._compiled_sanitize_signature != signature:
-        compiled = compile_transforms((Sanitize(policy=policy),))
-        object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
-        object.__setattr__(policy, "_compiled_sanitize_signature", signature)
-    return compiled
 
 
 def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:

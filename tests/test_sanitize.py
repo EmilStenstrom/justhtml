@@ -26,6 +26,7 @@ from justhtml.sanitize import (
     _sanitize_rawtext_element_contents,
     _sanitize_space_separated_url_list,
     _sanitize_url_value_with_rule,
+    _seal_url_policy,
     sanitize_dom,
 )
 from justhtml.sanitize import _sanitize as sanitize
@@ -46,6 +47,32 @@ class TestSanitizePlumbing(unittest.TestCase):
         assert "Sanitize" in justhtml.__all__
         assert "HTMLContext" in justhtml.__all__
         assert callable(sanitize)
+
+    def test_default_policy_nested_state_is_immutable(self) -> None:
+        assert isinstance(DEFAULT_POLICY.allowed_attributes["a"], frozenset)
+        assert isinstance(DEFAULT_POLICY.url_policy.allow_rules[("a", "href")].allowed_schemes, frozenset)
+
+        with self.assertRaises(TypeError):
+            DEFAULT_POLICY.allowed_attributes["p"] = frozenset({"onclick"})  # type: ignore[index]
+
+        with self.assertRaises(AttributeError):
+            DEFAULT_POLICY.url_policy.allow_rules[("a", "href")].allowed_schemes.add("javascript")  # type: ignore[attr-defined]
+
+        assert JustHTML('<a href="javascript:alert(1)">x</a>', fragment=True).to_html(pretty=False) == "<a>x</a>"
+
+    def test_seal_url_policy_normalizes_and_freezes_allowed_hosts(self) -> None:
+        url_policy = UrlPolicy(
+            allow_rules={
+                ("A", "HREF"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"EXAMPLE.COM"}),
+            }
+        )
+
+        _seal_url_policy(url_policy)
+
+        rule = url_policy.allow_rules[("a", "href")]
+        assert rule.allowed_hosts == frozenset({"example.com"})
+        with self.assertRaises(AttributeError):
+            rule.allowed_hosts.add("evil.example")  # type: ignore[union-attr]
 
     def test_urlproxy_rejects_empty_url(self) -> None:
         with self.assertRaises(ValueError):
