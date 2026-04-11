@@ -90,6 +90,28 @@ if TYPE_CHECKING:
 
 _ERROR_SINK: ContextVar[list[ParseError] | None] = ContextVar("justhtml_transform_error_sink", default=None)
 _ACTIVE_FOREIGN_MUTATION_TAGS: frozenset[str] = frozenset({"animate", "set"})
+_FOREIGN_ROOT_TAGS: frozenset[str] = frozenset({"math", "svg"})
+
+
+def _is_effectively_foreign_node(node: Node) -> bool:
+    current: Node | None = node
+    while current is not None:
+        ns = current.namespace
+        if ns not in (None, "html"):
+            return True
+
+        name = current.name
+        if name.startswith("#") or name == "!doctype":
+            current = current.parent
+            continue
+
+        lowered = name if name.islower() else name.lower()
+        if lowered in _FOREIGN_ROOT_TAGS:
+            return True
+
+        current = current.parent
+
+    return False
 
 
 def emit_error(
@@ -1191,7 +1213,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     is_url_function_attr = False
                     if (
                         raw_value is not None
-                        and node.namespace not in (None, "html")
+                        and _is_effectively_foreign_node(node)
                         and lower_key in _URL_FUNCTION_LIKE_ATTRS
                     ):
                         is_url_function_attr = _css_value_may_load_external_resource(str(raw_value))
@@ -1500,8 +1522,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     cb: NodeCallback | None = cb_foreign,
                     rep: ReportCallback = rep_foreign,
                 ) -> DecideAction:
-                    ns = node.namespace
-                    if ns not in (None, "html"):
+                    if _is_effectively_foreign_node(node):
                         if cb is not None:
                             cb(node)
                         rep(f"Unsafe tag '{node.name}' (foreign namespace)", node=node)
@@ -1520,8 +1541,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     rep: ReportCallback = rep_active_foreign,
                     active_foreign_tags: frozenset[str] = active_foreign_tags,
                 ) -> DecideAction:
-                    ns = node.namespace
-                    if ns in (None, "html"):
+                    if not _is_effectively_foreign_node(node):
                         return DecideAction.KEEP
 
                     raw_tag = str(node.name)

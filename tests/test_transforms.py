@@ -32,6 +32,7 @@ from justhtml.transforms import (
     Stage,
     Unwrap,
     _glob_match,
+    _is_effectively_foreign_node,
     apply_compiled_transforms,
     compile_transforms,
     emit_error,
@@ -866,6 +867,19 @@ class TestTransforms(unittest.TestCase):
 
         apply_compiled_transforms(root, compile_transforms([DropForeignNamespaces(report=None)]))
         assert root.children == []
+
+    def test_is_effectively_foreign_node_handles_html_namespace_svg_ancestors_and_special_nodes(self) -> None:
+        svg = Element("svg", {}, "html")
+        rect = Element("rect", {}, "html")
+        comment = Comment("x")
+        svg.append_child(rect)
+        svg.append_child(comment)
+
+        assert _is_effectively_foreign_node(svg) is True
+        assert _is_effectively_foreign_node(rect) is True
+        assert _is_effectively_foreign_node(comment) is True
+        assert _is_effectively_foreign_node(Element("div", {}, "html")) is False
+        assert _is_effectively_foreign_node(Element("svg", {}, "svg")) is True
 
     def test_sanitize_drops_active_foreign_content_and_calls_callback(self) -> None:
         calls: list[str] = []

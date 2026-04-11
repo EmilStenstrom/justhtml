@@ -2947,6 +2947,71 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert out == '<svg><rect width="10" height="10" fill="url(\'#grad\') red"></rect></svg>'
 
+    def test_sanitize_html_namespace_svg_url_function_attr_is_dropped_without_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "rect"},
+            allowed_attributes={"svg": set(), "rect": {"fill", "width", "height"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+        svg = Element("svg", {}, "html")
+        rect = Element(
+            "rect", {"fill": "url(https://evil.example/fill.svg#x) red", "width": "10", "height": "10"}, "html"
+        )
+        svg.append_child(rect)
+
+        out = sanitize_dom(svg, policy=policy)
+
+        assert out.to_html(pretty=False) == '<svg><rect width="10" height="10"></rect></svg>'
+
+    def test_sanitize_html_namespace_svg_active_foreign_content_is_dropped(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "image", "set"},
+            allowed_attributes={
+                "svg": set(),
+                "image": {"id", "href", "width", "height"},
+                "set": {"href", "attributeName", "to", "begin"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+        svg = Element("svg", {}, "html")
+        image = Element("image", {"id": "img", "href": "#ok", "width": "10", "height": "10"}, "html")
+        set_node = Element(
+            "set",
+            {"href": "#img", "attributeName": "href", "to": "https://evil.example/pwn", "begin": "0s"},
+            "html",
+        )
+        svg.append_child(image)
+        svg.append_child(set_node)
+
+        out = sanitize_dom(svg, policy=policy)
+
+        assert out.to_html(pretty=False) == '<svg><image id="img" href="#ok" width="10" height="10"></image></svg>'
+
+    def test_sanitize_html_namespace_svg_root_raises_when_foreign_namespaces_are_dropped(self) -> None:
+        svg = Element("svg", {}, "html")
+        svg.append_child(Element("rect", {"width": "10", "height": "10"}, "html"))
+
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "rect"},
+            allowed_attributes={"svg": set(), "rect": {"width", "height"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=True,
+            drop_content_tags=set(),
+            unsafe_handling="raise",
+        )
+
+        with self.assertRaisesRegex(ValueError, "Unsafe tag.*foreign namespace"):
+            sanitize(svg, policy=policy)
+
     def test_sanitize_dom_drops_mixed_case_style_resource_loads(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"style"},
