@@ -2762,6 +2762,96 @@ class TestSanitizeUnsafe(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsafe tag.*foreign namespace"):
             sanitize(div, policy=policy)
 
+    def test_sanitize_drops_active_foreign_svg_set_elements_even_when_allowlisted(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "image", "set"},
+            allowed_attributes={
+                "svg": set(),
+                "image": {"id", "href", "width", "height"},
+                "set": {"href", "attributeName", "to", "begin"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            (
+                '<svg><image id="img" href="#ok" width="10" height="10"></image>'
+                '<set href="#img" attributeName="href" to="https://evil.example/pwn" begin="0s"></set></svg>'
+            ),
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<svg><image id="img" href="#ok" width="10" height="10"></image></svg>'
+
+    def test_sanitize_drops_active_foreign_svg_animate_elements_even_when_allowlisted(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "image", "animate"},
+            allowed_attributes={
+                "svg": set(),
+                "image": {"id", "href", "width", "height"},
+                "animate": {"href", "attributeName", "values", "dur"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("animate", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            (
+                '<svg><image id="img" href="#ok" width="10" height="10"></image>'
+                '<animate href="#img" attributeName="href" values="https://evil.example/pwn;#ok" dur="1s"></animate></svg>'
+            ),
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<svg><image id="img" href="#ok" width="10" height="10"></image></svg>'
+
+    def test_sanitize_active_foreign_content_raises(self) -> None:
+        svg = Element("svg", {}, "svg")
+        image = Element("image", {"id": "img", "href": "#ok", "width": "10", "height": "10"}, "svg")
+        set_node = Element(
+            "set",
+            {"href": "#img", "attributeName": "href", "to": "https://evil.example/pwn", "begin": "0s"},
+            "svg",
+        )
+        svg.append_child(image)
+        svg.append_child(set_node)
+
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "image", "set"},
+            allowed_attributes={
+                "svg": set(),
+                "image": {"id", "href", "width", "height"},
+                "set": {"href", "attributeName", "to", "begin"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+            unsafe_handling="raise",
+        )
+
+        with self.assertRaisesRegex(ValueError, "Unsafe tag 'set' \\(active foreign content\\)"):
+            sanitize(svg, policy=policy)
+
     def test_sanitize_unsafe_root_disallowed_raises(self) -> None:
         html = "<x-foo></x-foo>"
         node = JustHTML(html, fragment=True, sanitize=False).root

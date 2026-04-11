@@ -867,6 +867,46 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropForeignNamespaces(report=None)]))
         assert root.children == []
 
+    def test_sanitize_drops_active_foreign_content_and_calls_callback(self) -> None:
+        calls: list[str] = []
+
+        def on_node(node: Node) -> None:
+            calls.append(str(node.name))
+
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "image", "set"},
+            allowed_attributes={
+                "svg": set(),
+                "image": {"id", "href", "width", "height"},
+                "set": {"href", "attributeName", "to", "begin"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        root = DocumentFragment()
+        svg = Element("svg", {}, "svg")
+        image = Element("image", {"id": "img", "href": "#ok", "width": "10", "height": "10"}, "svg")
+        set_node = Element(
+            "set",
+            {"href": "#img", "attributeName": "href", "to": "https://evil.example/pwn", "begin": "0s"},
+            "svg",
+        )
+        svg.append_child(image)
+        svg.append_child(set_node)
+        root.append_child(svg)
+
+        apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy, callback=on_node)]))
+
+        assert root.to_html(pretty=False) == '<svg><image id="img" href="#ok" width="10" height="10"></image></svg>'
+        assert calls == ["set"]
+
     def test_dropattrs_patterns_cover_event_namespaced_and_exact(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["div"],

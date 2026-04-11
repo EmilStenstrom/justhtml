@@ -85,6 +85,7 @@ if TYPE_CHECKING:
 
 
 _ERROR_SINK: ContextVar[list[ParseError] | None] = ContextVar("justhtml_transform_error_sink", default=None)
+_ACTIVE_FOREIGN_MUTATION_TAGS: frozenset[str] = frozenset({"animate", "set"})
 
 
 def emit_error(
@@ -1479,6 +1480,32 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                     return DecideAction.KEEP
 
                 decide_callbacks.append(_drop_foreign_namespace)
+            else:
+                cb_active_foreign = t.callback
+                rep_active_foreign = _report_unsafe
+                active_foreign_tags = _ACTIVE_FOREIGN_MUTATION_TAGS
+
+                def _drop_active_foreign_content(
+                    node: Node,
+                    cb: NodeCallback | None = cb_active_foreign,
+                    rep: ReportCallback = rep_active_foreign,
+                    active_foreign_tags: frozenset[str] = active_foreign_tags,
+                ) -> DecideAction:
+                    ns = node.namespace
+                    if ns in (None, "html"):
+                        return DecideAction.KEEP
+
+                    raw_tag = str(node.name)
+                    tag = raw_tag if raw_tag.islower() else raw_tag.lower()
+                    if tag not in active_foreign_tags:
+                        return DecideAction.KEEP
+
+                    if cb is not None:
+                        cb(node)
+                    rep(f"Unsafe tag '{tag}' (active foreign content)", node=node)
+                    return DecideAction.DROP
+
+                decide_callbacks.append(_drop_active_foreign_content)
 
             decide_callbacks.append(_sanitize_node_decision)
             _append_compiled(_CompiledDecideElementsChain(callbacks=decide_callbacks))
