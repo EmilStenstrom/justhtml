@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Harden `JustHTML(..., sanitize=True)` and explicit single-`Sanitize(...)` constructor paths against stale compiled-policy reuse after nested policy mutation. Previously, mutating collections such as `allowed_attributes` or `url_policy.allow_rules` after an earlier sanitize call could leave the old compiled constructor fast path active and keep using a previously more permissive policy.
 - (Severity: Low) Harden `sanitize()` and `sanitize_dom()` against stale compiled-policy reuse after nested policy mutation. Previously, mutating collections such as `allowed_attributes` or `url_policy.allow_rules` after the first sanitize call could leave the old compiled sanitizer active and keep using a previously more permissive policy.
 - (Severity: Moderate) Harden `sanitize_dom()` and `sanitize()` for programmatic DOM trees with mixed-case dangerous tag names. Previously, nodes such as `ScRiPt` or `Style` could miss the `drop_content_tags` policy in the in-memory sanitization path and incorrectly preserve their children.
 - (Severity: Low) Normalize `SanitizationPolicy.drop_content_tags` to lowercase. Previously, custom policies using values such as `{"SCRIPT"}` could silently fail to drop dangerous subtrees in the in-memory sanitization APIs.

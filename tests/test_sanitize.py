@@ -333,6 +333,36 @@ class TestSanitizeDom(unittest.TestCase):
         sanitize_dom(node, policy=policy)
         assert node.attrs == {"src": "/rule-proxy?url=https%3A%2F%2Fexample.com%2Fx"}
 
+    def test_justhtml_recompiles_when_allowed_attributes_mutate(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"a": ["href", "title"]},
+            url_policy=UrlPolicy(allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})}),
+        )
+
+        first = JustHTML('<a href="https://example.com" title="x">ok</a>', policy=policy, fragment=True)
+        assert first.to_html(pretty=False) == '<a href="https://example.com" title="x">ok</a>'
+
+        policy.allowed_attributes["a"] = frozenset({"title"})
+
+        second = JustHTML('<a href="https://example.com" title="x">ok</a>', policy=policy, fragment=True)
+        assert second.to_html(pretty=False) == '<a title="x">ok</a>'
+
+    def test_justhtml_recompiles_when_url_rules_mutate(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"a": ["href"]},
+            url_policy=UrlPolicy(allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})}),
+        )
+
+        first = JustHTML('<a href="https://example.com">ok</a>', policy=policy, fragment=True)
+        assert first.to_html(pretty=False) == '<a href="https://example.com">ok</a>'
+
+        policy.url_policy.allow_rules[("a", "href")] = UrlRule(allowed_schemes=set())
+
+        second = JustHTML('<a href="https://example.com">ok</a>', policy=policy, fragment=True)
+        assert second.to_html(pretty=False) == "<a>ok</a>"
+
     def test_sanitize_dom_returns_wrapper_on_drop(self) -> None:
         root = Node("script")
         policy = SanitizationPolicy(

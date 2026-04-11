@@ -1398,6 +1398,18 @@ def _sanitization_policy_signature(policy: SanitizationPolicy) -> tuple[Any, ...
     )
 
 
+def _compiled_sanitize_transforms_for_policy(policy: SanitizationPolicy) -> list[Any]:
+    from .transforms import Sanitize, compile_transforms  # noqa: PLC0415
+
+    signature = _sanitization_policy_signature(policy)
+    compiled = policy._compiled_sanitize_transforms
+    if compiled is None or policy._compiled_sanitize_signature != signature:
+        compiled = compile_transforms((Sanitize(policy=policy),))
+        object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
+        object.__setattr__(policy, "_compiled_sanitize_signature", signature)
+    return compiled
+
+
 def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     """Return a sanitized clone of `node`.
 
@@ -1439,14 +1451,9 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     # We intentionally implement safe-output sanitization by applying the
     # `Sanitize(policy=...)` transform pipeline to a clone of the node.
     # This keeps a single canonical sanitization algorithm.
-    from .transforms import Sanitize, apply_compiled_transforms, compile_transforms  # noqa: PLC0415
+    from .transforms import apply_compiled_transforms  # noqa: PLC0415
 
-    signature = _sanitization_policy_signature(policy)
-    compiled = policy._compiled_sanitize_transforms
-    if compiled is None or policy._compiled_sanitize_signature != signature:
-        compiled = compile_transforms((Sanitize(policy=policy),))
-        object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
-        object.__setattr__(policy, "_compiled_sanitize_signature", signature)
+    compiled = _compiled_sanitize_transforms_for_policy(policy)
 
     # Container-root rule: transforms walk children of the provided root.
     # For non-container roots, wrap the cloned node in a document fragment so
@@ -1491,14 +1498,9 @@ def sanitize_dom(
     if policy is None:
         policy = DEFAULT_DOCUMENT_POLICY if node.name == "#document" else DEFAULT_POLICY
 
-    from .transforms import Sanitize, apply_compiled_transforms, compile_transforms  # noqa: PLC0415
+    from .transforms import apply_compiled_transforms  # noqa: PLC0415
 
-    signature = _sanitization_policy_signature(policy)
-    compiled = policy._compiled_sanitize_transforms
-    if compiled is None or policy._compiled_sanitize_signature != signature:
-        compiled = compile_transforms((Sanitize(policy=policy),))
-        object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
-        object.__setattr__(policy, "_compiled_sanitize_signature", signature)
+    compiled = _compiled_sanitize_transforms_for_policy(policy)
 
     if node.name in {"#document", "#document-fragment"}:
         apply_compiled_transforms(node, compiled, errors=errors)

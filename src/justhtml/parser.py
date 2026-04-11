@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from .context import FragmentContext
 from .encoding import decode_html
 from .node import Node, Text
-from .sanitize import UrlRule, _sanitize_url_value_with_rule
+from .sanitize import UrlRule, _compiled_sanitize_transforms_for_policy, _sanitize_url_value_with_rule
 from .serialize import to_html as serialize_html
 from .tokenizer import Tokenizer, TokenizerOpts
 from .transforms import apply_compiled_transforms, compile_transforms
@@ -294,10 +294,7 @@ class JustHTML:
                     only = final_transforms[0]
                     p = only.policy
                     if only.enabled and only.callback is None and only.report is None and p is not None:
-                        compiled_transforms = p._compiled_sanitize_transforms
-                        if compiled_transforms is None:
-                            compiled_transforms = compile_transforms((only,))
-                            object.__setattr__(p, "_compiled_sanitize_transforms", compiled_transforms)
+                        compiled_transforms = _compiled_sanitize_transforms_for_policy(p)
 
                 if compiled_transforms is None:
                     compiled_transforms = compile_transforms(tuple(final_transforms))
