@@ -25,6 +25,7 @@ from justhtml.sanitize import (
     _sanitize_inline_style,
     _sanitize_rawtext_element_contents,
     _sanitize_space_separated_url_list,
+    _sanitize_url_function_value,
     _sanitize_url_value_with_rule,
     _seal_url_policy,
     sanitize_dom,
@@ -931,6 +932,29 @@ class TestSanitizeDom(unittest.TestCase):
             )
             is None
         )
+
+    def test_sanitize_url_function_value_applies_filter_for_svg_attr(self) -> None:
+        def filt(tag: str, attr: str, value: str) -> str | None:
+            assert tag == "rect"
+            assert attr == "fill"
+            assert value == "#grad"
+            return "#rewritten"
+
+        out = _sanitize_url_function_value(
+            rule=UrlRule(
+                allowed_schemes=set(), resolve_protocol_relative=None, allow_relative=False, allow_fragment=True
+            ),
+            value="url(#grad) red",
+            tag="rect",
+            attr="fill",
+            handling="allow",
+            allow_relative=False,
+            proxy=None,
+            url_filter=filt,
+            apply_filter=True,
+        )
+
+        assert out == "url('#rewritten') red"
 
     def test_sanitize_space_separated_url_list_url_filter_can_rewrite_value(self) -> None:
         def url_filter(tag: str, attr: str, value: str) -> str | None:
@@ -2851,6 +2875,61 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "Unsafe tag 'set' \\(active foreign content\\)"):
             sanitize(svg, policy=policy)
+
+    def test_sanitize_svg_url_function_attr_is_dropped_without_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "rect"},
+            allowed_attributes={"svg": set(), "rect": {"fill", "width", "height"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<svg><rect width="10" height="10" fill="url(https://evil.example/fill.svg#x) red"></rect></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<svg><rect width="10" height="10"></rect></svg>'
+
+    def test_sanitize_svg_url_function_attr_preserves_non_url_values_without_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "rect"},
+            allowed_attributes={"svg": set(), "rect": {"fill", "width", "height"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<svg><rect width="10" height="10" fill="red"></rect></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<svg><rect width="10" height="10" fill="red"></rect></svg>'
+
+    def test_sanitize_svg_url_function_attr_preserves_allowed_fragments(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "rect"},
+            allowed_attributes={"svg": set(), "rect": {"fill", "width", "height"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("rect", "fill"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<svg><rect width="10" height="10" fill="url(#grad) red"></rect></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<svg><rect width="10" height="10" fill="url(\'#grad\') red"></rect></svg>'
 
     def test_sanitize_unsafe_root_disallowed_raises(self) -> None:
         html = "<x-foo></x-foo>"

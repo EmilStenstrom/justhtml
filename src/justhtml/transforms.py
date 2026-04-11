@@ -21,16 +21,20 @@ from .constants import VOID_ELEMENTS
 from .linkify import LinkifyConfig, find_links_with_config
 from .node import Element, Node, Template, Text
 from .sanitize import (
+    _URL_FUNCTION_LIKE_ATTRS,
     _URL_LIKE_ATTRS,
     DEFAULT_POLICY,
     SanitizationPolicy,
     UrlPolicy,
+    _css_value_has_disallowed_resource_functions,
+    _css_value_may_load_external_resource,
     _effective_allow_relative,
     _effective_proxy,
     _effective_url_handling,
     _sanitize_inline_style,
     _sanitize_space_separated_url_list,
     _sanitize_srcset_value,
+    _sanitize_url_function_value,
     _sanitize_url_value_with_rule,
     _strip_invisible_unicode,
 )
@@ -1182,9 +1186,18 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 # Most nodes have no URL-like attrs; avoid allocations in that case.
                 for key in attrs:
                     lower_key = key if key.islower() else key.lower()
-                    if lower_key not in _URL_LIKE_ATTRS:
-                        continue
                     raw_value = attrs[key]
+
+                    is_url_function_attr = False
+                    if (
+                        raw_value is not None
+                        and node.namespace not in (None, "html")
+                        and lower_key in _URL_FUNCTION_LIKE_ATTRS
+                    ):
+                        is_url_function_attr = _css_value_may_load_external_resource(str(raw_value))
+
+                    if lower_key not in _URL_LIKE_ATTRS and not is_url_function_attr:
+                        continue
 
                     if tag == "base" and lower_key == "href":
                         if on_report is not None:
@@ -1227,6 +1240,22 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                             attr=lower_key,
                             value=str(raw_value),
                         )
+                    elif is_url_function_attr:
+                        raw_value_str = str(raw_value)
+                        if _css_value_has_disallowed_resource_functions(raw_value_str):
+                            sanitized = None
+                        else:
+                            sanitized = _sanitize_url_function_value(
+                                rule=rule,
+                                value=raw_value_str,
+                                tag=tag,
+                                attr=lower_key,
+                                handling=_effective_url_handling(url_policy=url_policy, rule=rule),
+                                allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
+                                proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+                                url_filter=url_policy.url_filter,
+                                apply_filter=True,
+                            )
                     else:
                         sanitized = _sanitize_url_value_with_rule(
                             rule=rule,

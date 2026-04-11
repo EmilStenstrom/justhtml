@@ -926,62 +926,71 @@ def _lookup_css_url_rule(*, url_policy: UrlPolicy, tag: str, prop: str) -> UrlRu
     return url_policy.allow_rules.get((tag, key)) or url_policy.allow_rules.get(("*", key))
 
 
-def _sanitize_css_url_functions(*, url_policy: UrlPolicy, tag: str, prop: str, value: str) -> str | None:
+def _sanitize_url_function_value(
+    *,
+    rule: UrlRule,
+    value: str,
+    tag: str,
+    attr: str,
+    handling: UrlHandling,
+    allow_relative: bool,
+    proxy: UrlProxy | None,
+    url_filter: UrlFilter | None,
+    apply_filter: bool,
+) -> str | None:
     # Keep this parser intentionally conservative. We only support plain url(...)
     # without escapes and without nested parentheses inside the URL token.
-    if "\\" in value:
+    v = value
+
+    if "\\" in v:
         return None
 
     # Reject comments entirely; they are commonly used for obfuscation.
-    if "/*" in value:
+    if "/*" in v:
         return None
 
-    rule = _lookup_css_url_rule(url_policy=url_policy, tag=tag, prop=prop)
-    if rule is None:
-        return None
-
-    lower = value.lower()
+    lower = v.lower()
     out_parts: list[str] = []
     i = 0
     replaced_any = False
-    n = len(value)
+    n = len(v)
 
     while True:
         j = lower.find("url(", i)
         if j == -1:
-            out_parts.append(value[i:])
+            out_parts.append(v[i:])
             break
 
-        out_parts.append(value[i:j])
+        out_parts.append(v[i:j])
         k = j + 4  # after 'url('
 
         # Skip whitespace after 'url('
-        while k < n and ord(value[k]) <= 0x20:
+        while k < n and ord(v[k]) <= 0x20:
             k += 1
         if k >= n:
             return None
 
-        quoted = value[k] in {'"', "'"}
-        q = value[k] if quoted else ""
+        quoted = v[k] in {'"', "'"}
+        q = v[k] if quoted else ""
         if quoted:
             k += 1
             start = k
-            end_quote = value.find(q, k)
+            end_quote = v.find(q, k)
             if end_quote == -1:
                 return None
-            url_raw = value[start:end_quote]
+            url_raw = v[start:end_quote]
             k = end_quote + 1
 
-            while k < n and ord(value[k]) <= 0x20:
+            while k < n and ord(v[k]) <= 0x20:
                 k += 1
-            if k >= n or value[k] != ")":
+            if k >= n or v[k] != ")":
                 return None
             end_paren = k
         else:
-            end_paren = value.find(")", k)
+            end_paren = v.find(")", k)
             if end_paren == -1:
                 return None
-            url_raw = value[k:end_paren].strip()
+            url_raw = v[k:end_paren].strip()
             if not url_raw:
                 return None
             # Unquoted url(...) must not contain whitespace.
@@ -993,7 +1002,7 @@ def _sanitize_css_url_functions(*, url_policy: UrlPolicy, tag: str, prop: str, v
         # interpret the value.
         next_idx = end_paren + 1
         if next_idx < n:
-            nxt = value[next_idx]
+            nxt = v[next_idx]
             if not (ord(nxt) <= 0x20 or nxt in {",", "/"}):
                 return None
 
@@ -1001,12 +1010,12 @@ def _sanitize_css_url_functions(*, url_policy: UrlPolicy, tag: str, prop: str, v
             rule=rule,
             value=url_raw,
             tag=tag,
-            attr=f"style:{prop}",
-            handling=_effective_url_handling(url_policy=url_policy, rule=rule),
-            allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
-            proxy=_effective_proxy(url_policy=url_policy, rule=rule),
-            url_filter=url_policy.url_filter,
-            apply_filter=True,
+            attr=attr,
+            handling=handling,
+            allow_relative=allow_relative,
+            proxy=proxy,
+            url_filter=url_filter,
+            apply_filter=apply_filter,
         )
         if sanitized is None:
             return None
@@ -1023,6 +1032,24 @@ def _sanitize_css_url_functions(*, url_policy: UrlPolicy, tag: str, prop: str, v
         i = end_paren + 1
 
     return None if not replaced_any else "".join(out_parts)
+
+
+def _sanitize_css_url_functions(*, url_policy: UrlPolicy, tag: str, prop: str, value: str) -> str | None:
+    rule = _lookup_css_url_rule(url_policy=url_policy, tag=tag, prop=prop)
+    if rule is None:
+        return None
+
+    return _sanitize_url_function_value(
+        rule=rule,
+        value=value,
+        tag=tag,
+        attr=f"style:{prop}",
+        handling=_effective_url_handling(url_policy=url_policy, rule=rule),
+        allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
+        proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+        url_filter=url_policy.url_filter,
+        apply_filter=True,
+    )
 
 
 def _sanitize_inline_style(
@@ -1364,6 +1391,19 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
         # Can trigger requests/pings.
         "ping",
         "attributionsrc",
+    }
+)
+
+_URL_FUNCTION_LIKE_ATTRS: frozenset[str] = frozenset(
+    {
+        "clip-path",
+        "cursor",
+        "fill",
+        "marker-end",
+        "marker-mid",
+        "marker-start",
+        "mask",
+        "stroke",
     }
 )
 

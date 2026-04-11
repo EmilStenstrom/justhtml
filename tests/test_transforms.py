@@ -1276,6 +1276,64 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert base.attrs == {}
 
+    def test_dropurlattrs_sanitizes_svg_url_function_attrs(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("rect", "fill"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+            },
+        )
+
+        root = DocumentFragment()
+        rect = Element(
+            "rect",
+            {"fill": "url(https://trusted.example/fill.svg#x) red", "width": "10", "height": "10"},
+            "svg",
+        )
+        root.append_child(rect)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert rect.attrs == {"fill": "url('https://trusted.example/fill.svg#x') red", "width": "10", "height": "10"}
+
+    def test_dropurlattrs_preserves_non_url_svg_presentation_values_without_rule(self) -> None:
+        root = DocumentFragment()
+        rect = Element("rect", {"fill": "red", "width": "10", "height": "10"}, "svg")
+        root.append_child(rect)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
+        assert rect.attrs == {"fill": "red", "width": "10", "height": "10"}
+
+    def test_dropurlattrs_drops_svg_url_function_attrs_without_rule(self) -> None:
+        root = DocumentFragment()
+        rect = Element(
+            "rect",
+            {"fill": "url(https://evil.example/fill.svg#x) red", "width": "10", "height": "10"},
+            "svg",
+        )
+        root.append_child(rect)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
+        assert rect.attrs == {"width": "10", "height": "10"}
+
+    def test_dropurlattrs_drops_svg_presentation_values_with_disallowed_resource_functions(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("rect", "fill"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+            },
+        )
+
+        root = DocumentFragment()
+        rect = Element(
+            "rect",
+            {"fill": "image-set(url(https://trusted.example/fill.svg#x) 1x)", "width": "10", "height": "10"},
+            "svg",
+        )
+        root.append_child(rect)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert rect.attrs == {"width": "10", "height": "10"}
+
     def test_dropurlattrs_works_without_on_unsafe_callback(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",

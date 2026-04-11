@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - (Severity: Low) Normalize `SanitizationPolicy.drop_content_tags` to lowercase. Previously, custom policies using values such as `{"SCRIPT"}` could silently fail to drop dangerous subtrees in the in-memory sanitization APIs.
 - (Severity: Low) Harden doctype serialization against programmatic doctype-name injection. Previously, a crafted `doctype(...)` or manual `!doctype` node name such as `html><img ...>` could serialize into active markup before the document body.
 - (Severity: Moderate) Harden custom foreign-namespace policies against SVG animation-based URL mutation. Previously, preserved SVG animation elements such as `<set>` or `<animate>` could mutate already-sanitized attributes like `image[href]` after sanitization and trigger remote requests that bypassed the configured URL rules.
+- (Severity: Moderate) Harden custom foreign-namespace policies against SVG `url(...)` presentation-attribute fetches. Previously, preserved attributes such as `fill`, `clip-path`, `mask`, `marker-start`, and `cursor` could contain external `url(...)` references that bypassed URL sanitization and triggered browser fetches.
 
 ## [1.15.0] - 2026-04-09
 
