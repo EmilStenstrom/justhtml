@@ -1407,6 +1407,16 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert link.attrs == {"rel": "preload", "as": "image"}
 
+    def test_dropurlattrs_treats_svg_filter_as_url_function_attr(self) -> None:
+        root = DocumentFragment()
+        svg = Element("svg", {}, "svg")
+        rect = Element("rect", {"filter": "url(https://evil.example/filter.svg#f)", "width": "10"}, "svg")
+        svg.append_child(rect)
+        root.append_child(svg)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy(allow_rules={}))]))
+        assert rect.attrs == {"width": "10"}
+
     def test_dropurlattrs_can_be_disabled(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["a"],

@@ -2947,6 +2947,23 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert out == '<svg><rect width="10" height="10" fill="url(\'#grad\') red"></rect></svg>'
 
+    def test_sanitize_svg_filter_attr_is_dropped_without_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "rect"},
+            allowed_attributes={"svg": set(), "rect": {"filter", "width", "height"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<svg><rect width="10" height="10" filter="url(https://evil.example/filter.svg#f)"></rect></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<svg><rect width="10" height="10"></rect></svg>'
+
     def test_sanitize_html_namespace_svg_url_function_attr_is_dropped_without_rule(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "rect"},

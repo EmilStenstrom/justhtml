@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- (Severity: Moderate) Harden custom foreign-namespace policies against SVG `filter="url(...)"` fetches. Previously, preserved `filter` presentation attributes could contain external `url(...)` references that bypassed URL sanitization and triggered browser fetches.
+
 ## [1.16.0] - 2026-04-12
 
 ### Security

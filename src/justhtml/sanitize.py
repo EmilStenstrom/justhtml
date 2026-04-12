@@ -1402,6 +1402,7 @@ _URL_FUNCTION_LIKE_ATTRS: frozenset[str] = frozenset(
     {
         "clip-path",
         "cursor",
+        "filter",
         "fill",
         "marker-end",
         "marker-mid",
