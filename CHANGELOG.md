@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-04-12
+
 ### Security
 - (Severity: Low) Harden sanitization policy reuse against nested-state mutation. Previously, mutating nested policy state such as `allowed_attributes` or `url_policy.allow_rules` could leave stale compiled sanitizers active in `sanitize()`, `sanitize_dom()`, and `JustHTML(..., sanitize=True)`, and mutating exported defaults such as `DEFAULT_POLICY.url_policy.allow_rules[("a", "href")].allowed_schemes` could weaken later default sanitization process-wide.
 - (Severity: Moderate) Harden `sanitize_dom()` and `sanitize()` for programmatic DOM trees with mixed-case dangerous tag names. Previously, nodes such as `ScRiPt` or `Style` could miss the `drop_content_tags` policy in the in-memory sanitization path and incorrectly preserve their children.
