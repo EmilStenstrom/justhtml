@@ -289,7 +289,7 @@ class JustHTML:
                 terminal_sanitize_policy = effective_policy
 
             if final_transforms:
-                compiled_transforms = None
+                compiled_transforms: Any = None
                 if len(final_transforms) == 1 and isinstance(final_transforms[0], Sanitize):
                     only = final_transforms[0]
                     p = only.policy

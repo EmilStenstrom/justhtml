@@ -344,7 +344,7 @@ class SanitizationPolicy:
 
     # Cache for the compiled `Sanitize(policy=...)` transform pipeline.
     # This lets safe serialization reuse the same compiled transforms.
-    _compiled_sanitize_transforms: list[Any] | None = field(
+    _compiled_sanitize_transforms: tuple[Any, ...] | None = field(
         default=None,
         init=False,
         repr=False,
@@ -485,13 +485,13 @@ _ATTR_DROP_REGEX: re.Pattern[str] = re.compile(
 )
 
 
-def _compiled_sanitize_transforms_for_policy(policy: SanitizationPolicy) -> list[Any]:
+def _compiled_sanitize_transforms_for_policy(policy: SanitizationPolicy) -> tuple[Any, ...]:
     from .transforms import Sanitize, compile_transforms  # noqa: PLC0415
 
     signature = _sanitization_policy_signature(policy)
     compiled = policy._compiled_sanitize_transforms
     if compiled is None or policy._compiled_sanitize_signature != signature:
-        compiled = compile_transforms((Sanitize(policy=policy),))
+        compiled = tuple(compile_transforms((Sanitize(policy=policy),)))
         object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
         object.__setattr__(policy, "_compiled_sanitize_signature", signature)
     return compiled

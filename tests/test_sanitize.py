@@ -61,6 +61,17 @@ class TestSanitizePlumbing(unittest.TestCase):
 
         assert JustHTML('<a href="javascript:alert(1)">x</a>', fragment=True).to_html(pretty=False) == "<a>x</a>"
 
+    def test_default_policy_compiled_sanitize_cache_is_immutable(self) -> None:
+        assert JustHTML('<a href="javascript:alert(1)">x</a>', fragment=True).to_html(pretty=False) == "<a>x</a>"
+
+        compiled = DEFAULT_POLICY._compiled_sanitize_transforms
+        assert isinstance(compiled, tuple)
+
+        with self.assertRaises(AttributeError):
+            compiled.clear()  # type: ignore[union-attr]
+
+        assert JustHTML('<a href="javascript:alert(1)">x</a>', fragment=True).to_html(pretty=False) == "<a>x</a>"
+
     def test_seal_url_policy_normalizes_and_freezes_allowed_hosts(self) -> None:
         url_policy = UrlPolicy(
             allow_rules={

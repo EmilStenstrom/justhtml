@@ -1637,7 +1637,7 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
 
 def apply_compiled_transforms(
     root: Node,
-    compiled: list[CompiledTransform],
+    compiled: list[CompiledTransform] | tuple[CompiledTransform, ...],
     *,
     errors: list[ParseError] | None = None,
 ) -> None:
@@ -1648,7 +1648,10 @@ def apply_compiled_transforms(
     try:
         matcher = SelectorMatcher()
 
-        def apply_walk_transforms(root_node: Node, walk_transforms: list[CompiledTransform]) -> None:
+        def apply_walk_transforms(
+            root_node: Node,
+            walk_transforms: list[CompiledTransform] | tuple[CompiledTransform, ...],
+        ) -> None:
             if not walk_transforms:
                 return
 
