@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - (Severity: Moderate) Harden custom foreign-namespace policies against SVG `filter="url(...)"` fetches. Previously, preserved `filter` presentation attributes could contain external `url(...)` references that bypassed URL sanitization and triggered browser fetches.
+- (Severity: Low) Harden HTML serialization against rawtext breakout injection from programmatic `script` and `style` nodes. Previously, text such as `</style><img ...>` or `</script><img ...>` could serialize into active markup through `to_html()` and downstream `to_markdown(html_passthrough=True)`.
 
 ## [1.16.0] - 2026-04-12
 

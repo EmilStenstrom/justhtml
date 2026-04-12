@@ -14,6 +14,7 @@ from justhtml.serialize import (
     _is_blocky_element,
     _is_formatting_whitespace_text,
     _is_layout_blocky_element,
+    _neutralize_rawtext_end_tag_sequences,
     _normalize_formatting_whitespace,
     _serialize_doctype,
     _should_pretty_indent_children,
@@ -594,6 +595,26 @@ class TestSerialize(unittest.TestCase):
 
         round_tripped = JustHTML(doc.to_html(pretty=False), strict=True, safe=False)
         assert round_tripped.query("style")[0].children[0].data == 'body::before { content: "a > b & c"; }'
+
+    def test_programmatic_style_text_breakout_is_neutralized(self) -> None:
+        root = Node("div")
+        style = Node("style")
+        style.append_child(Text("</style><img src=x onerror=alert(1)>"))
+        root.append_child(style)
+
+        assert root.to_html(pretty=False) == "<div><style>&lt;/style><img src=x onerror=alert(1)></style></div>"
+
+    def test_programmatic_script_text_breakout_is_neutralized(self) -> None:
+        root = Node("div")
+        script = Node("script")
+        script.append_child(Text("</script><img src=x onerror=alert(1)>"))
+        root.append_child(script)
+
+        assert root.to_html(pretty=False) == "<div><script>&lt;/script><img src=x onerror=alert(1)></script></div>"
+
+    def test_neutralize_rawtext_end_tag_sequences_helper_edge_cases(self) -> None:
+        assert _neutralize_rawtext_end_tag_sequences("", "style") == ""
+        assert _neutralize_rawtext_end_tag_sequences("</stylex>", "style") == "</stylex>"
 
     def test_compact_mode_does_not_normalize_script_text_children(self):
         # Artificial tree to cover serializer branch: skip normalization inside rawtext elements.

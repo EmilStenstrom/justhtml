@@ -68,11 +68,46 @@ def _serialize_comment_data(data: str | None) -> str:
     return out
 
 
+def _neutralize_rawtext_end_tag_sequences(text: str, tag_name: str) -> str:
+    if not text:
+        return text
+
+    lower_text = text.lower()
+    needle = f"</{tag_name}"
+    needle_len = len(needle)
+    out: list[str] = []
+    start = 0
+    changed = False
+
+    while True:
+        idx = lower_text.find(needle, start)
+        if idx == -1:
+            break
+
+        boundary = idx + needle_len
+        if boundary == len(text) or text[boundary] in " \t\n\r\f/>":
+            out.append(text[start:idx])
+            out.append("&lt;")
+            start = idx + 1
+            changed = True
+            continue
+
+        start = idx + 1
+
+    if not changed:
+        return text
+
+    out.append(text[start:])
+    return "".join(out)
+
+
 def _serialize_text_for_parent(text: str | None, parent_name: str | None) -> str:
     if not text:
         return ""
-    if parent_name in _LITERAL_TEXT_SERIALIZATION_ELEMENTS:
-        return text
+    if parent_name is not None:
+        normalized_parent_name = parent_name if parent_name.islower() else parent_name.lower()
+        if normalized_parent_name in _LITERAL_TEXT_SERIALIZATION_ELEMENTS:
+            return _neutralize_rawtext_end_tag_sequences(text, normalized_parent_name)
     return _escape_text(text)
 
 
