@@ -423,8 +423,41 @@ class Node:
 
     def append_child(self, node: Any) -> None:
         if self.children is not None:
+            self._adopt_child(node)
             self.children.append(node)
             node.parent = self
+
+    def _adopt_child(self, node: Any) -> tuple[Any | None, int | None]:
+        if node is self:
+            raise ValueError("Cannot insert a node into itself")
+
+        old_parent = getattr(node, "parent", None)
+        if old_parent is None:
+            # Fast path for the common builder case: a freshly created detached
+            # leaf node cannot participate in a cycle.
+            children = getattr(node, "children", None)
+            if not children:
+                template_content = getattr(node, "template_content", None)
+                if template_content is None or not template_content.children:
+                    return None, None
+
+        current: Any | None = self
+        while current is not None:
+            if current is node:
+                raise ValueError("Cannot insert an ancestor into its descendant")
+            current = current.parent
+
+        old_children = getattr(old_parent, "children", None)
+        old_index: int | None = None
+        if old_children is not None:
+            try:
+                old_index = old_children.index(node)
+            except ValueError:
+                pass
+            else:
+                old_children.pop(old_index)
+        node.parent = None
+        return old_parent, old_index
 
     @property
     def origin_offset(self) -> int | None:
@@ -571,8 +604,14 @@ class Node:
             self.append_child(node)
             return
 
+        if node is reference_node:
+            return
+
         try:
             index = self.children.index(reference_node)
+            old_parent, old_index = self._adopt_child(node)
+            if old_parent is self and old_index is not None and old_index < index:
+                index -= 1
             self.children.insert(index, node)
             node.parent = self
         except ValueError:
@@ -600,6 +639,12 @@ class Node:
         except ValueError:
             raise ValueError("The node to be replaced is not a child of this node") from None
 
+        if new_node is old_node:
+            return old_node
+
+        old_parent, old_index = self._adopt_child(new_node)
+        if old_parent is self and old_index is not None and old_index < index:
+            index -= 1
         self.children[index] = new_node
         new_node.parent = self
         old_node.parent = None

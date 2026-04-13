@@ -749,6 +749,36 @@ class TestNode(unittest.TestCase):
         with self.assertRaises(ValueError):
             parent.insert_before(child2, other)
 
+    def test_insert_before_rejects_cycle(self):
+        parent = Node("div")
+        child = Node("span")
+        parent.append_child(child)
+
+        with self.assertRaisesRegex(ValueError, "ancestor"):
+            child.insert_before(parent, None)
+
+    def test_insert_before_same_node_reference_is_noop(self):
+        parent = Node("div")
+        child = Node("span")
+        parent.append_child(child)
+
+        parent.insert_before(child, child)
+
+        assert parent.children == [child]
+
+    def test_insert_before_moves_existing_child_within_same_parent(self):
+        parent = Node("div")
+        child1 = Node("span", attrs={"id": "1"})
+        child2 = Node("span", attrs={"id": "2"})
+        child3 = Node("span", attrs={"id": "3"})
+        parent.append_child(child1)
+        parent.append_child(child2)
+        parent.append_child(child3)
+
+        parent.insert_before(child1, child3)
+
+        assert parent.children == [child2, child1, child3]
+
     def test_insert_before_no_children_allowed(self):
         comment = Comment(data="foo")
         node = Node("div")
@@ -789,6 +819,43 @@ class TestNode(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             parent.replace_child(other, other)
+
+    def test_replace_child_rejects_cycle(self):
+        parent = Node("div")
+        child = Node("span")
+        placeholder = Node("em")
+        parent.append_child(child)
+        child.append_child(placeholder)
+
+        with self.assertRaisesRegex(ValueError, "ancestor"):
+            child.replace_child(parent, placeholder)
+
+    def test_replace_child_same_node_is_noop(self):
+        parent = Node("div")
+        child = Node("span")
+        parent.append_child(child)
+
+        replaced = parent.replace_child(child, child)
+
+        assert replaced is child
+        assert parent.children == [child]
+        assert child.parent == parent
+
+    def test_replace_child_moves_existing_child_within_same_parent(self):
+        parent = Node("div")
+        child1 = Node("span", attrs={"id": "1"})
+        child2 = Node("span", attrs={"id": "2"})
+        child3 = Node("span", attrs={"id": "3"})
+        parent.append_child(child1)
+        parent.append_child(child2)
+        parent.append_child(child3)
+
+        replaced = parent.replace_child(child1, child3)
+
+        assert replaced is child3
+        assert parent.children == [child2, child1]
+        assert child1.parent == parent
+        assert child3.parent is None
 
     def test_replace_child_no_children_allowed(self):
         comment = Comment(data="foo")
@@ -969,6 +1036,30 @@ class TestNode(unittest.TestCase):
         parent.remove_child(child)
         assert parent.children == []
         assert child.parent is None
+
+    def test_append_child_rejects_cycle(self):
+        parent = Node("div")
+        child = Node("span")
+        parent.append_child(child)
+
+        with self.assertRaisesRegex(ValueError, "ancestor"):
+            child.append_child(parent)
+
+    def test_append_child_rejects_self(self):
+        parent = Node("div")
+
+        with self.assertRaisesRegex(ValueError, "itself"):
+            parent.append_child(parent)
+
+    def test_append_child_clears_stale_parent_without_children_list(self):
+        parent = Node("div")
+        child = Node("span")
+        child.parent = Comment(data="stale")
+
+        parent.append_child(child)
+
+        assert parent.children == [child]
+        assert child.parent == parent
 
     def test_remove_child_not_found(self):
         parent = Node("div")
