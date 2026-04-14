@@ -1413,6 +1413,32 @@ _URL_FUNCTION_LIKE_ATTRS: frozenset[str] = frozenset(
 )
 
 
+def _has_potential_foreign_content(node: Any) -> bool:
+    stack: list[Any] = [node]
+
+    while stack:
+        current = stack.pop()
+        namespace = getattr(current, "namespace", None)
+        if namespace not in {None, "html"}:
+            return True
+
+        raw_name = getattr(current, "name", "")
+        if isinstance(raw_name, str) and not raw_name.startswith("#") and raw_name != "!doctype":
+            name = raw_name if raw_name.islower() else raw_name.lower()
+            if name in {"math", "svg"}:
+                return True
+
+        template_content = getattr(current, "template_content", None)
+        if template_content is not None:
+            stack.append(template_content)
+
+        children = getattr(current, "children", None)
+        if children:
+            stack.extend(reversed(children))
+
+    return False
+
+
 def _url_rule_signature(rule: UrlRule) -> tuple[Any, ...]:
     allowed_schemes = tuple(sorted(str(s) for s in rule.allowed_schemes))
     allowed_hosts = None
@@ -1534,42 +1560,47 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
         cloned = node.clone_node(deep=True)
         apply_compiled_transforms(cloned, compiled, errors=None)
         _sanitize_rawtext_element_contents(cloned, policy=policy, errors=None)
-        return cloned
+        result: Any = cloned
+    else:
+        from .node import DocumentFragment  # noqa: PLC0415
 
-    from .node import DocumentFragment  # noqa: PLC0415
+        wrapper = DocumentFragment()
+        wrapper.append_child(node.clone_node(deep=True))
+        apply_compiled_transforms(wrapper, compiled, errors=None)
+        _sanitize_rawtext_element_contents(wrapper, policy=policy, errors=None)
 
-    wrapper = DocumentFragment()
-    wrapper.append_child(node.clone_node(deep=True))
-    apply_compiled_transforms(wrapper, compiled, errors=None)
-    _sanitize_rawtext_element_contents(wrapper, policy=policy, errors=None)
+        children = cast("list[Any]", wrapper.children)
+        if len(children) == 1:
+            only = children[0]
+            only.parent = None
+            wrapper.children = []
+            result = only
+        else:
+            result = wrapper
 
-    children = cast("list[Any]", wrapper.children)
+    if policy.drop_foreign_namespaces or not _has_potential_foreign_content(result):
+        return result
+
+    stabilized = _stabilize_sanitized_dom_once(result, policy=policy, errors=None)
+    if node.name in {"#document", "#document-fragment"}:
+        return stabilized
+
+    children = cast("list[Any]", stabilized.children)
     if len(children) == 1:
         only = children[0]
         only.parent = None
-        wrapper.children = []
+        stabilized.children = []
         return only
 
-    return wrapper
+    return stabilized
 
 
-def sanitize_dom(
+def _sanitize_dom_once(
     node: Any,
     *,
-    policy: SanitizationPolicy | None = None,
-    errors: list[ParseError] | None = None,
+    policy: SanitizationPolicy,
+    errors: list[ParseError] | None,
 ) -> Any:
-    """Sanitize a DOM tree in place.
-
-    For document roots (`#document` or `#document-fragment`), this mutates the
-    tree in place and returns the same root. For other nodes, the node is
-    sanitized as if it were the only child of a document fragment; the returned
-    node may need to be reattached by the caller.
-    """
-
-    if policy is None:
-        policy = DEFAULT_DOCUMENT_POLICY if node.name == "#document" else DEFAULT_POLICY
-
     from .transforms import apply_compiled_transforms  # noqa: PLC0415
 
     compiled = _compiled_sanitize_transforms_for_policy(policy)
@@ -1594,3 +1625,70 @@ def sanitize_dom(
         return only
 
     return wrapper
+
+
+def _stabilize_sanitized_dom_once(
+    node: Any,
+    *,
+    policy: SanitizationPolicy,
+    errors: list[ParseError] | None,
+) -> Any:
+    from .parser import JustHTML  # noqa: PLC0415
+    from .serialize import to_html  # noqa: PLC0415
+
+    html = to_html(node, pretty=False)
+    if node.name == "#document":
+        reparsed = JustHTML(html, sanitize=False)
+    else:
+        reparsed = JustHTML(html, sanitize=False, fragment=True)
+
+    return _sanitize_dom_once(reparsed.root, policy=policy, errors=errors)
+
+
+def _replace_container_children(target: Any, source: Any) -> None:
+    for child in target.children:
+        child.parent = None
+
+    new_children = list(source.children)
+    target.children = new_children
+    for child in new_children:
+        child.parent = target
+
+    source.children = []
+
+
+def sanitize_dom(
+    node: Any,
+    *,
+    policy: SanitizationPolicy | None = None,
+    errors: list[ParseError] | None = None,
+) -> Any:
+    """Sanitize a DOM tree in place.
+
+    For document roots (`#document` or `#document-fragment`), this mutates the
+    tree in place and returns the same root. For other nodes, the node is
+    sanitized as if it were the only child of a document fragment; the returned
+    node may need to be reattached by the caller.
+    """
+
+    if policy is None:
+        policy = DEFAULT_DOCUMENT_POLICY if node.name == "#document" else DEFAULT_POLICY
+
+    result = _sanitize_dom_once(node, policy=policy, errors=errors)
+
+    if policy.drop_foreign_namespaces or not _has_potential_foreign_content(result):
+        return result
+
+    stabilized = _stabilize_sanitized_dom_once(result, policy=policy, errors=errors)
+    if node.name in {"#document", "#document-fragment"}:
+        _replace_container_children(node, stabilized)
+        return node
+
+    children = cast("list[Any]", stabilized.children)
+    if len(children) == 1:
+        only = children[0]
+        only.parent = None
+        stabilized.children = []
+        return only
+
+    return stabilized

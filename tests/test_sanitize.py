@@ -3040,6 +3040,251 @@ class TestSanitizeUnsafe(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsafe tag.*foreign namespace"):
             sanitize(svg, policy=policy)
 
+    def test_sanitize_dom_stabilizes_foreign_namespace_mxss_after_reparse(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"form", "math", "mtext", "mglyph", "style", "img"},
+            allowed_attributes={
+                "form": set(),
+                "math": set(),
+                "mtext": set(),
+                "mglyph": set(),
+                "style": set(),
+                "img": {"src"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(
+                        allowed_schemes=set(), resolve_protocol_relative=None, allow_relative=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        html = "<form><math><mtext></form><form><mglyph><style></math><img src onerror=alert(1)>"
+        doc = JustHTML(html, fragment=True, sanitize=False)
+
+        out = sanitize_dom(doc.root, policy=policy)
+
+        assert out is doc.root
+        assert (
+            doc.to_html(pretty=False)
+            == "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
+        )
+        reparsed = JustHTML(doc.to_html(pretty=False), fragment=True, sanitize=False)
+        assert "onerror" not in reparsed.to_html(pretty=False)
+
+    def test_sanitize_clone_stabilizes_foreign_namespace_mxss_after_reparse(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"form", "math", "mtext", "mglyph", "style", "img"},
+            allowed_attributes={
+                "form": set(),
+                "math": set(),
+                "mtext": set(),
+                "mglyph": set(),
+                "style": set(),
+                "img": {"src"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(
+                        allowed_schemes=set(), resolve_protocol_relative=None, allow_relative=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        html = "<form><math><mtext></form><form><mglyph><style></math><img src onerror=alert(1)>"
+        doc = JustHTML(html, fragment=True, sanitize=False)
+
+        out = sanitize(doc.root, policy=policy)
+
+        assert (
+            to_html(out, pretty=False)
+            == "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
+        )
+        reparsed = JustHTML(to_html(out, pretty=False), fragment=True, sanitize=False)
+        assert "onerror" not in reparsed.to_html(pretty=False)
+
+    def test_sanitize_clone_stabilizes_foreign_namespace_mxss_for_element_roots(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"form", "math", "mtext", "mglyph", "style", "img"},
+            allowed_attributes={
+                "form": set(),
+                "math": set(),
+                "mtext": set(),
+                "mglyph": set(),
+                "style": set(),
+                "img": {"src"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(
+                        allowed_schemes=set(), resolve_protocol_relative=None, allow_relative=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        html = "<form><math><mtext></form><form><mglyph><style></math><img src onerror=alert(1)>"
+        doc = JustHTML(html, fragment=True, sanitize=False)
+        form = doc.root.children[0]
+
+        out = sanitize(form, policy=policy)
+
+        assert (
+            to_html(out, pretty=False)
+            == "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
+        )
+
+    def test_sanitize_dom_stabilizes_foreign_namespace_mxss_for_document_roots(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"html", "head", "body", "form", "math", "mtext", "mglyph", "style", "img"},
+            allowed_attributes={
+                "html": set(),
+                "head": set(),
+                "body": set(),
+                "form": set(),
+                "math": set(),
+                "mtext": set(),
+                "mglyph": set(),
+                "style": set(),
+                "img": {"src"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(
+                        allowed_schemes=set(), resolve_protocol_relative=None, allow_relative=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+            drop_doctype=False,
+        )
+        html = (
+            "<!DOCTYPE html><html><head></head><body>"
+            "<form><math><mtext></form><form><mglyph><style></math><img src onerror=1>"
+            "</body></html>"
+        )
+        doc = JustHTML(html, sanitize=False)
+
+        out = sanitize_dom(doc.root, policy=policy)
+
+        assert out is doc.root
+        assert (
+            doc.to_html(pretty=False) == "<!DOCTYPE html><html><head></head><body>"
+            "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
+            "</body></html>"
+        )
+
+    def test_sanitize_clone_stabilizes_foreign_namespace_mxss_for_document_roots(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"html", "head", "body", "form", "math", "mtext", "mglyph", "style", "img"},
+            allowed_attributes={
+                "html": set(),
+                "head": set(),
+                "body": set(),
+                "form": set(),
+                "math": set(),
+                "mtext": set(),
+                "mglyph": set(),
+                "style": set(),
+                "img": {"src"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(
+                        allowed_schemes=set(), resolve_protocol_relative=None, allow_relative=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+            drop_doctype=False,
+        )
+        html = (
+            "<!DOCTYPE html><html><head></head><body>"
+            "<form><math><mtext></form><form><mglyph><style></math><img src onerror=1>"
+            "</body></html>"
+        )
+        doc = JustHTML(html, sanitize=False)
+
+        out = sanitize(doc.root, policy=policy)
+
+        assert out.name == "#document"
+        assert (
+            to_html(out, pretty=False) == "<!DOCTYPE html><html><head></head><body>"
+            "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
+            "</body></html>"
+        )
+
+    def test_sanitize_clone_can_return_fragment_after_foreign_stabilization(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "style", "img"},
+            allowed_attributes={"svg": set(), "style": set(), "img": {"src"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(
+                        allowed_schemes=set(), resolve_protocol_relative=None, allow_relative=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+        doc = JustHTML("<svg><foreignObject><style></svg><img src onerror=1>", fragment=True, sanitize=False)
+        svg = doc.root.children[0]
+
+        out = sanitize(svg, policy=policy)
+
+        assert out.name == "#document-fragment"
+        assert to_html(out, pretty=False) == "<svg><style></style></svg><img>"
+
+    def test_sanitize_dom_can_return_fragment_after_foreign_stabilization(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "style", "img"},
+            allowed_attributes={"svg": set(), "style": set(), "img": {"src"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(
+                        allowed_schemes=set(), resolve_protocol_relative=None, allow_relative=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+        doc = JustHTML("<svg><foreignObject><style></svg><img src onerror=1>", fragment=True, sanitize=False)
+        svg = doc.root.children[0]
+
+        out = sanitize_dom(svg, policy=policy)
+
+        assert out.name == "#document-fragment"
+        assert to_html(out, pretty=False) == "<svg><style></style></svg><img>"
+
+    def test_sanitize_template_without_foreign_content_preserves_template_content(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"template", "p"},
+            allowed_attributes={"template": set(), "p": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+        )
+        template = Template("template", namespace="html")
+        assert template.template_content is not None
+        paragraph = Element("p", {}, "html")
+        paragraph.append_child(Text("x"))
+        template.template_content.append_child(paragraph)
+
+        out = sanitize(template, policy=policy)
+
+        assert to_html(out, pretty=False) == "<template><p>x</p></template>"
+
     def test_sanitize_dom_drops_mixed_case_style_resource_loads(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"style"},
