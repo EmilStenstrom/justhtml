@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Harden direct terminal `Sanitize(...)` transform application against mutation XSS in custom foreign-namespace policies. Previously, calling `apply_compiled_transforms(root, compile_transforms([Sanitize(policy)]))` could sanitize MathML/SVG content into output that looked inert in memory but became active HTML, such as `<img onerror>`, after a later HTML reparse.
 - (Severity: Low) Harden HTML comment serialization against additional breakout payloads from programmatic `Comment(...)` nodes. Previously, comment data beginning with invalid states such as `>` or `->` could serialize into an empty HTML comment followed by live markup like injected `<img onerror>`.
 - (Severity: Moderate) Harden custom foreign-namespace policies against SVG `filter="url(...)"` fetches. Previously, preserved `filter` presentation attributes could contain external `url(...)` references that bypassed URL sanitization and triggered browser fetches.
 - (Severity: Moderate) Harden `sanitize()` and `sanitize_dom()` against mutation XSS in custom foreign-namespace policies. Previously, crafted MathML/SVG parser-differential payloads could sanitize into output that looked inert in memory but became active HTML, such as `<img onerror>`, after a later HTML reparse.

@@ -491,7 +491,12 @@ def _compiled_sanitize_transforms_for_policy(policy: SanitizationPolicy) -> tupl
     signature = _sanitization_policy_signature(policy)
     compiled = policy._compiled_sanitize_transforms
     if compiled is None or policy._compiled_sanitize_signature != signature:
-        compiled = tuple(compile_transforms((Sanitize(policy=policy),)))
+        compiled = tuple(
+            compile_transforms(
+                (Sanitize(policy=policy),),
+                _include_terminal_sanitize_policy=False,
+            )
+        )
         object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
         object.__setattr__(policy, "_compiled_sanitize_signature", signature)
     return compiled

@@ -31,11 +31,14 @@ from .sanitize import (
     _effective_allow_relative,
     _effective_proxy,
     _effective_url_handling,
+    _has_potential_foreign_content,
+    _replace_container_children,
     _sanitize_inline_style,
     _sanitize_space_separated_url_list,
     _sanitize_srcset_value,
     _sanitize_url_function_value,
     _sanitize_url_value_with_rule,
+    _stabilize_sanitized_dom_once,
     _strip_invisible_unicode,
 )
 from .selector import SelectorMatcher, parse_selector
@@ -442,6 +445,12 @@ class _CompiledStageHookTransform:
     report: ReportCallback | None
 
 
+@dataclass(frozen=True, slots=True)
+class _CompiledTerminalSanitizePolicy:
+    kind: Literal["terminal_sanitize_policy"]
+    policy: SanitizationPolicy
+
+
 CompiledTransform = (
     _CompiledSelectorTransform
     | _CompiledDecideTransform
@@ -459,6 +468,7 @@ CompiledTransform = (
     | _CompiledMergeAttrTokensTransform
     | _CompiledStageHookTransform
     | _CompiledStageBoundary
+    | _CompiledTerminalSanitizePolicy
 )
 
 
@@ -561,7 +571,42 @@ def _split_into_top_level_stages(specs: list[TransformSpec] | tuple[TransformSpe
     return stages
 
 
-def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ...]) -> list[CompiledTransform]:
+def _terminal_sanitize_policy_from_flattened(flattened: list[Transform]) -> SanitizationPolicy | None:
+    for t in reversed(flattened):
+        if not t.enabled:
+            continue
+        if isinstance(t, Sanitize):
+            return t.policy or DEFAULT_POLICY
+        return None
+    return None
+
+
+def _append_terminal_sanitize_policy_marker(
+    compiled: list[CompiledTransform],
+    *,
+    flattened: list[Transform],
+    enabled: bool,
+) -> None:
+    if not enabled:
+        return
+
+    terminal_policy = _terminal_sanitize_policy_from_flattened(flattened)
+    if terminal_policy is None:
+        return
+
+    compiled.append(
+        _CompiledTerminalSanitizePolicy(
+            kind="terminal_sanitize_policy",
+            policy=terminal_policy,
+        )
+    )
+
+
+def compile_transforms(
+    transforms: list[TransformSpec] | tuple[TransformSpec, ...],
+    *,
+    _include_terminal_sanitize_policy: bool = True,
+) -> list[CompiledTransform]:
     if not transforms:
         return []
 
@@ -584,7 +629,12 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
                 )
             )
             for inner in _iter_flattened_transforms(stage.transforms):
-                compiled_stage.extend(compile_transforms((inner,)))
+                compiled_stage.extend(compile_transforms((inner,), _include_terminal_sanitize_policy=False))
+        _append_terminal_sanitize_policy_marker(
+            compiled_stage,
+            flattened=flattened,
+            enabled=_include_terminal_sanitize_policy,
+        )
         return compiled_stage
 
     compiled: list[CompiledTransform] = []
@@ -1632,6 +1682,12 @@ def compile_transforms(transforms: list[TransformSpec] | tuple[TransformSpec, ..
 
         raise TypeError(f"Unsupported transform: {type(t).__name__}")  # pragma: no cover
 
+    _append_terminal_sanitize_policy_marker(
+        compiled,
+        flattened=flattened,
+        enabled=_include_terminal_sanitize_policy,
+    )
+
     return compiled
 
 
@@ -1647,6 +1703,7 @@ def apply_compiled_transforms(
     token = _ERROR_SINK.set(errors)
     try:
         matcher = SelectorMatcher()
+        terminal_sanitize_policy: SanitizationPolicy | None = None
 
         def apply_walk_transforms(
             root_node: Node,
@@ -2476,8 +2533,21 @@ def apply_compiled_transforms(
                 apply_prune_transforms(root, prune_batch)
                 continue
 
+            if isinstance(t, _CompiledTerminalSanitizePolicy):
+                terminal_sanitize_policy = t.policy
+                i += 1
+                continue
+
             raise TypeError(f"Unsupported compiled transform: {type(t).__name__}")
 
         apply_walk_transforms(root, pending_walk)
+        if (
+            terminal_sanitize_policy is not None
+            and root.name in {"#document", "#document-fragment"}
+            and not terminal_sanitize_policy.drop_foreign_namespaces
+            and _has_potential_foreign_content(root)
+        ):
+            stabilized = _stabilize_sanitized_dom_once(root, policy=terminal_sanitize_policy, errors=errors)
+            _replace_container_children(root, stabilized)
     finally:
         _ERROR_SINK.reset(token)
