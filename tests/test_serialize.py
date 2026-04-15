@@ -297,11 +297,34 @@ class TestSerialize(unittest.TestCase):
 
         assert root.to_html(pretty=False) == "<div><!--- -><img src=x onerror=alert(1)>--></div>"
 
+    def test_comment_serialization_neutralizes_leading_invalid_comment_states(self):
+        payloads = [
+            "><img id=pwn src=x onerror=alert(1)>",
+            "-><img id=pwn src=x onerror=alert(1)>",
+            ">><!--><img id=pwn src=x onerror=alert(1)>",
+        ]
+
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                root = Node("div")
+                root.append_child(Comment(payload))
+
+                html = root.to_html(pretty=False)
+                reparsed = JustHTML(html, fragment=True)
+
+                assert reparsed.query("#pwn") == []
+
     def test_comment_serialization_handles_empty_comment_data(self):
         root = Node("div")
         root.append_child(Comment(""))
 
         assert root.to_html(pretty=False) == "<div><!----></div>"
+
+    def test_comment_serialization_neutralizes_trailing_bang_dash_edge_case(self):
+        root = Node("div")
+        root.append_child(Comment("x<!-"))
+
+        assert root.to_html(pretty=False) == "<div><!--x<!- --></div>"
 
     def test_comment_serialization_neutralizes_repeated_hyphens_and_trailing_dash(self):
         root = Node("div")

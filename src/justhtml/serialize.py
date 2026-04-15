@@ -62,6 +62,12 @@ def _serialize_comment_data(data: str | None) -> str:
     while "--" in out:
         out = out.replace("--", "- -")
 
+    if out.startswith((">", "->")):
+        out = " " + out
+
+    if out.endswith("<!-"):
+        out += " "
+
     if out.endswith("-"):
         out += " "
 
