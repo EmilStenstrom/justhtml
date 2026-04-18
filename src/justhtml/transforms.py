@@ -93,7 +93,14 @@ if TYPE_CHECKING:
 
 
 _ERROR_SINK: ContextVar[list[ParseError] | None] = ContextVar("justhtml_transform_error_sink", default=None)
-_ACTIVE_FOREIGN_MUTATION_TAGS: frozenset[str] = frozenset({"animate", "set"})
+_ACTIVE_FOREIGN_MUTATION_TAGS: frozenset[str] = frozenset(
+    {
+        "animate",
+        "annotation-xml",
+        "foreignobject",
+        "set",
+    }
+)
 _FOREIGN_ROOT_TAGS: frozenset[str] = frozenset({"math", "svg"})
 
 

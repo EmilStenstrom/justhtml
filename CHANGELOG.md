@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Moderate) Harden custom foreign-namespace policies against active HTML integration points in SVG and MathML. Previously, preserved `<foreignObject>` and `<annotation-xml encoding="text/html">` containers could keep active HTML subtrees such as `<script>`, allowing script execution when the sanitized output was rendered.
 - (Severity: Moderate) Harden constructor-time and transform-driven sanitization against preserved `<style>` rawtext bypasses. Previously, `JustHTML(..., sanitize=True)` and explicit public `Sanitize(...)` transforms could preserve resource-loading CSS such as `@import` or `background-image:url(...)` in allowlisted `<style>` blocks from HTML string input, even though `sanitize()` and `sanitize_dom()` correctly stripped the same content.
 - (Severity: Low) Harden the low-level terminal `Sanitize(...)` transform execution path against mutation XSS in custom foreign-namespace policies. Previously, a direct terminal sanitize pass in the transform runtime could sanitize MathML/SVG content into output that looked inert in memory but became active HTML, such as `<img onerror>`, after a later HTML reparse.
 - (Severity: Low) Harden HTML comment serialization against additional breakout payloads from programmatic `Comment(...)` nodes. Previously, comment data beginning with invalid states such as `>` or `->` could serialize into an empty HTML comment followed by live markup like injected `<img onerror>`.

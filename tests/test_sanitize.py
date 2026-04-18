@@ -2922,6 +2922,48 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert out == '<svg><image id="img" href="#ok" width="10" height="10"></image></svg>'
 
+    def test_sanitize_drops_active_foreign_svg_foreignobject_even_when_allowlisted(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "foreignobject", "script"},
+            allowed_attributes={
+                "svg": set(),
+                "foreignobject": set(),
+                "script": set(),
+            },
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            "<svg><foreignObject><script>document.body.dataset.pwn=1</script></foreignObject></svg>",
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<svg></svg>"
+
+    def test_sanitize_drops_active_foreign_math_annotation_xml_even_when_allowlisted(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"math", "annotation-xml", "script"},
+            allowed_attributes={
+                "math": set(),
+                "annotation-xml": {"encoding"},
+                "script": set(),
+            },
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<math><annotation-xml encoding="text/html"><script>document.body.dataset.pwn=1</script></annotation-xml></math>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<math></math>"
+
     def test_sanitize_active_foreign_content_raises(self) -> None:
         svg = Element("svg", {}, "svg")
         image = Element("image", {"id": "img", "href": "#ok", "width": "10", "height": "10"}, "svg")
@@ -3275,7 +3317,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
             "</body></html>"
         )
 
-    def test_sanitize_clone_can_return_fragment_after_foreign_stabilization(self) -> None:
+    def test_sanitize_clone_drops_active_foreign_integration_points_during_stabilization(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "style", "img"},
             allowed_attributes={"svg": set(), "style": set(), "img": {"src"}},
@@ -3294,10 +3336,10 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         out = sanitize(svg, policy=policy)
 
-        assert out.name == "#document-fragment"
-        assert to_html(out, pretty=False) == "<svg><style></style></svg><img>"
+        assert out.name == "svg"
+        assert to_html(out, pretty=False) == "<svg></svg>"
 
-    def test_sanitize_dom_can_return_fragment_after_foreign_stabilization(self) -> None:
+    def test_sanitize_dom_drops_active_foreign_integration_points_during_stabilization(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "style", "img"},
             allowed_attributes={"svg": set(), "style": set(), "img": {"src"}},
@@ -3316,8 +3358,50 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         out = sanitize_dom(svg, policy=policy)
 
+        assert out.name == "svg"
+        assert to_html(out, pretty=False) == "<svg></svg>"
+
+    def test_sanitize_clone_can_return_fragment_after_foreign_stabilization(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "img"},
+            allowed_attributes={"svg": set(), "img": {"src"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(
+                        allowed_schemes=set(), resolve_protocol_relative=None, allow_relative=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+        )
+        doc = JustHTML("<foo><svg></svg><img src onerror=1></foo>", fragment=True, sanitize=False)
+        foo = doc.root.children[0]
+
+        out = sanitize(foo, policy=policy)
+
         assert out.name == "#document-fragment"
-        assert to_html(out, pretty=False) == "<svg><style></style></svg><img>"
+        assert to_html(out, pretty=False) == "<svg></svg><img>"
+
+    def test_sanitize_dom_can_return_fragment_after_foreign_stabilization(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "img"},
+            allowed_attributes={"svg": set(), "img": {"src"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(
+                        allowed_schemes=set(), resolve_protocol_relative=None, allow_relative=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+        )
+        doc = JustHTML("<foo><svg></svg><img src onerror=1></foo>", fragment=True, sanitize=False)
+        foo = doc.root.children[0]
+
+        out = sanitize_dom(foo, policy=policy)
+
+        assert out.name == "#document-fragment"
+        assert to_html(out, pretty=False) == "<svg></svg><img>"
 
     def test_sanitize_template_without_foreign_content_preserves_template_content(self) -> None:
         policy = SanitizationPolicy(

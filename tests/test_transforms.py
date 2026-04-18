@@ -921,6 +921,38 @@ class TestTransforms(unittest.TestCase):
         assert root.to_html(pretty=False) == '<svg><image id="img" href="#ok" width="10" height="10"></image></svg>'
         assert calls == ["set"]
 
+    def test_sanitize_drops_active_foreign_foreignobject_and_calls_callback(self) -> None:
+        calls: list[str] = []
+
+        def on_node(node: Node) -> None:
+            calls.append(str(node.name))
+
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "foreignobject", "script"},
+            allowed_attributes={
+                "svg": set(),
+                "foreignobject": set(),
+                "script": set(),
+            },
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        root = DocumentFragment()
+        svg = Element("svg", {}, "svg")
+        foreign_object = Element("foreignObject", {}, "svg")
+        script = Element("script", {}, "html")
+        script.append_child(Text("document.body.dataset.pwn=1"))
+        foreign_object.append_child(script)
+        svg.append_child(foreign_object)
+        root.append_child(svg)
+
+        apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy, callback=on_node)]))
+
+        assert root.to_html(pretty=False) == "<svg></svg>"
+        assert calls == ["foreignObject"]
+
     def test_apply_compiled_transforms_stabilizes_terminal_sanitize_foreign_namespace_mxss(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"form", "math", "mtext", "mglyph", "style", "img"},
