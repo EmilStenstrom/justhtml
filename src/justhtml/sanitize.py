@@ -1564,7 +1564,6 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     if node.name in {"#document", "#document-fragment"}:
         cloned = node.clone_node(deep=True)
         apply_compiled_transforms(cloned, compiled, errors=None)
-        _sanitize_rawtext_element_contents(cloned, policy=policy, errors=None)
         result: Any = cloned
     else:
         from .node import DocumentFragment  # noqa: PLC0415
@@ -1572,7 +1571,6 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
         wrapper = DocumentFragment()
         wrapper.append_child(node.clone_node(deep=True))
         apply_compiled_transforms(wrapper, compiled, errors=None)
-        _sanitize_rawtext_element_contents(wrapper, policy=policy, errors=None)
 
         children = cast("list[Any]", wrapper.children)
         if len(children) == 1:
@@ -1612,7 +1610,6 @@ def _sanitize_dom_once(
 
     if node.name in {"#document", "#document-fragment"}:
         apply_compiled_transforms(node, compiled, errors=errors)
-        _sanitize_rawtext_element_contents(node, policy=policy, errors=errors)
         return node
 
     from .node import DocumentFragment  # noqa: PLC0415
@@ -1620,7 +1617,6 @@ def _sanitize_dom_once(
     wrapper = DocumentFragment()
     wrapper.append_child(node)
     apply_compiled_transforms(wrapper, compiled, errors=errors)
-    _sanitize_rawtext_element_contents(wrapper, policy=policy, errors=errors)
 
     children = cast("list[Any]", wrapper.children)
     if len(children) == 1:

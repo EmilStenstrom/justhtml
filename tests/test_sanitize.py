@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 import justhtml
-from justhtml import JustHTML
+from justhtml import JustHTML, Sanitize, SetAttrs
 from justhtml.node import Comment, DocumentFragment, Element, Node, Template, Text
 from justhtml.sanitize import (
     CSS_PRESET_TEXT,
@@ -2111,6 +2111,57 @@ class TestSanitizeDom(unittest.TestCase):
         sanitize_dom(frag, policy=policy)
 
         assert to_html(frag, pretty=False) == "<style></style>"
+
+    def test_constructor_sanitize_drops_style_content_with_resource_loading_css(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style"],
+            allowed_attributes={"style": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+
+        doc = JustHTML(
+            '<style>@import "https://evil.example/x.css"; body{background-image:url(/x.png)}</style>',
+            fragment=True,
+            sanitize=True,
+            policy=policy,
+        )
+
+        assert doc.to_html(pretty=False) == "<style></style>"
+
+    def test_constructor_terminal_sanitize_transform_drops_style_content_with_resource_loading_css(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style"],
+            allowed_attributes={"style": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+
+        doc = JustHTML(
+            '<style>@import "https://evil.example/x.css"; body{background-image:url(/x.png)}</style>',
+            fragment=True,
+            sanitize=False,
+            transforms=[Sanitize(policy=policy)],
+        )
+
+        assert doc.to_html(pretty=False) == "<style></style>"
+
+    def test_constructor_nonterminal_sanitize_transform_still_sanitizes_rawtext_at_sanitize_point(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style"],
+            allowed_attributes={"style": {"data-ok"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+
+        doc = JustHTML(
+            '<style>@import "https://evil.example/x.css"; body{background-image:url(/x.png)}</style>',
+            fragment=True,
+            sanitize=False,
+            transforms=[Sanitize(policy=policy), SetAttrs("style", **{"data-ok": "1"})],
+        )
+
+        assert doc.to_html(pretty=False) == '<style data-ok="1"></style>'
 
     def test_sanitize_dom_preserves_style_content_without_resource_loading_css(self) -> None:
         policy = SanitizationPolicy(

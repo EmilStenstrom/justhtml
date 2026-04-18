@@ -34,6 +34,7 @@ from .sanitize import (
     _has_potential_foreign_content,
     _replace_container_children,
     _sanitize_inline_style,
+    _sanitize_rawtext_element_contents,
     _sanitize_space_separated_url_list,
     _sanitize_srcset_value,
     _sanitize_url_function_value,
@@ -446,6 +447,12 @@ class _CompiledStageHookTransform:
 
 
 @dataclass(frozen=True, slots=True)
+class _CompiledSanitizeRawtextPolicy:
+    kind: Literal["sanitize_rawtext_policy"]
+    policy: SanitizationPolicy
+
+
+@dataclass(frozen=True, slots=True)
 class _CompiledTerminalSanitizePolicy:
     kind: Literal["terminal_sanitize_policy"]
     policy: SanitizationPolicy
@@ -468,6 +475,7 @@ CompiledTransform = (
     | _CompiledMergeAttrTokensTransform
     | _CompiledStageHookTransform
     | _CompiledStageBoundary
+    | _CompiledSanitizeRawtextPolicy
     | _CompiledTerminalSanitizePolicy
 )
 
@@ -1678,6 +1686,13 @@ def compile_transforms(
                     )
                 )
 
+            _append_compiled(
+                _CompiledSanitizeRawtextPolicy(
+                    kind="sanitize_rawtext_policy",
+                    policy=policy,
+                )
+            )
+
             continue
 
         raise TypeError(f"Unsupported transform: {type(t).__name__}")  # pragma: no cover
@@ -2531,6 +2546,11 @@ def apply_compiled_transforms(
                     prune_batch.append(cast("_CompiledPruneEmptyTransform", compiled[i]))
                     i += 1
                 apply_prune_transforms(root, prune_batch)
+                continue
+
+            if isinstance(t, _CompiledSanitizeRawtextPolicy):
+                _sanitize_rawtext_element_contents(root, policy=t.policy, errors=errors)
+                i += 1
                 continue
 
             if isinstance(t, _CompiledTerminalSanitizePolicy):
