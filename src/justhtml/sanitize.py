@@ -696,6 +696,27 @@ def _record_rawtext_security_issue(
     )
 
 
+def _record_foreign_integration_point_issue(
+    *,
+    policy: SanitizationPolicy,
+    errors: list[ParseError] | None,
+    message: str,
+    node: Any,
+) -> None:
+    policy.handle_unsafe(message, node=node)
+    if errors is None:
+        return
+    errors.append(
+        ParseError(
+            "unsafe-foreign-integration-point-child",
+            line=node.origin_line,
+            column=node.origin_col,
+            category="security",
+            message=message,
+        )
+    )
+
+
 def _sanitize_rawtext_element_contents(
     node: Any,
     *,
@@ -770,6 +791,70 @@ def _sanitize_rawtext_element_contents(
                 for child in current.children:
                     child.parent = None
                 current.children = []
+            continue
+
+        children = current.children
+        if children:
+            stack.extend(reversed(children))
+
+        if type(current) is Template and current.template_content is not None:
+            stack.append(current.template_content)
+
+
+def _sanitize_foreign_html_integration_point_contents(
+    node: Any,
+    *,
+    policy: SanitizationPolicy,
+    errors: list[ParseError] | None,
+) -> None:
+    from .node import Template  # noqa: PLC0415
+
+    stack: list[Any] = [node]
+
+    while stack:
+        current = stack.pop()
+        raw_name = current.name
+        if type(raw_name) is str:
+            name = raw_name if raw_name.islower() else raw_name.lower()
+        else:  # pragma: no cover
+            name = str(raw_name).lower()
+
+        namespace = getattr(current, "namespace", None)
+        is_text_only_integration_point = (namespace == "svg" and name in {"desc", "title"}) or (
+            namespace == "math" and name in {"mi", "mn", "mo", "ms", "mtext"}
+        )
+
+        if is_text_only_integration_point:
+            children = current.children
+            if not children:
+                continue
+
+            text_children: list[Any] = []
+            changed = False
+            for child in children:
+                if child.name == "#text":
+                    text_children.append(child)
+                    continue
+
+                child_name = str(child.name).lower()
+                child_namespace = getattr(child, "namespace", None)
+                if namespace == "math" and child_namespace == "math" and child_name in {"mglyph", "malignmark"}:
+                    text_children.append(child)
+                    continue
+
+                _record_foreign_integration_point_issue(
+                    policy=policy,
+                    errors=errors,
+                    message=f"Unsafe HTML child inside foreign integration point <{name}> was dropped",
+                    node=child,
+                )
+                child.parent = None
+                changed = True
+
+            if changed:
+                current.children = text_children
+                for child in text_children:
+                    child.parent = current
             continue
 
         children = current.children

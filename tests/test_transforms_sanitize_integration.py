@@ -114,15 +114,11 @@ class TestTransformsSanitizeIntegration(unittest.TestCase):
             policy=policy,
         )
 
-        assert (
-            doc.to_html(pretty=False)
-            == "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
-        )
+        assert doc.to_html(pretty=False) == "<form><math><mtext></mtext></math></form>"
 
         reparsed = JustHTML(doc.to_html(pretty=False), fragment=True, sanitize=False)
         imgs = reparsed.query("img")
-        assert len(imgs) == 1
-        assert imgs[0].attrs == {}
+        assert imgs == []
         assert "onerror" not in doc.to_markdown(html_passthrough=True)
 
     def test_terminal_sanitize_policy_returns_none_for_empty_or_non_terminal_sanitize(self) -> None:

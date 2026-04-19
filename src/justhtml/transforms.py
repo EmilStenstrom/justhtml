@@ -33,6 +33,7 @@ from .sanitize import (
     _effective_url_handling,
     _has_potential_foreign_content,
     _replace_container_children,
+    _sanitize_foreign_html_integration_point_contents,
     _sanitize_inline_style,
     _sanitize_rawtext_element_contents,
     _sanitize_space_separated_url_list,
@@ -460,6 +461,12 @@ class _CompiledSanitizeRawtextPolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class _CompiledSanitizeForeignIntegrationPointPolicy:
+    kind: Literal["sanitize_foreign_integration_point_policy"]
+    policy: SanitizationPolicy
+
+
+@dataclass(frozen=True, slots=True)
 class _CompiledTerminalSanitizePolicy:
     kind: Literal["terminal_sanitize_policy"]
     policy: SanitizationPolicy
@@ -483,6 +490,7 @@ CompiledTransform = (
     | _CompiledStageHookTransform
     | _CompiledStageBoundary
     | _CompiledSanitizeRawtextPolicy
+    | _CompiledSanitizeForeignIntegrationPointPolicy
     | _CompiledTerminalSanitizePolicy
 )
 
@@ -1699,6 +1707,12 @@ def compile_transforms(
                     policy=policy,
                 )
             )
+            _append_compiled(
+                _CompiledSanitizeForeignIntegrationPointPolicy(
+                    kind="sanitize_foreign_integration_point_policy",
+                    policy=policy,
+                )
+            )
 
             continue
 
@@ -2557,6 +2571,11 @@ def apply_compiled_transforms(
 
             if isinstance(t, _CompiledSanitizeRawtextPolicy):
                 _sanitize_rawtext_element_contents(root, policy=t.policy, errors=errors)
+                i += 1
+                continue
+
+            if isinstance(t, _CompiledSanitizeForeignIntegrationPointPolicy):
+                _sanitize_foreign_html_integration_point_contents(root, policy=t.policy, errors=errors)
                 i += 1
                 continue
 

@@ -2964,6 +2964,120 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert out == "<math></math>"
 
+    def test_sanitize_preserves_text_in_svg_title_and_desc(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "title", "desc"},
+            allowed_attributes={"svg": set(), "title": set(), "desc": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            "<svg><title>Hello</title><desc>World</desc></svg>",
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<svg><title>Hello</title><desc>World</desc></svg>"
+
+    def test_sanitize_preserves_text_in_math_text_integration_points(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"math", "mi", "mo", "mn", "ms", "mtext"},
+            allowed_attributes={
+                "math": set(),
+                "mi": set(),
+                "mo": set(),
+                "mn": set(),
+                "ms": set(),
+                "mtext": set(),
+            },
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            "<math><mi>x</mi><mo>+</mo><mn>1</mn><ms>y</ms><mtext>ok</mtext></math>",
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<math><mi>x</mi><mo>+</mo><mn>1</mn><ms>y</ms><mtext>ok</mtext></math>"
+
+    def test_sanitize_preserves_math_mglyph_inside_text_integration_points(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"math", "mtext", "mglyph"},
+            allowed_attributes={
+                "math": set(),
+                "mtext": set(),
+                "mglyph": set(),
+            },
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            "<math><mtext>Hello<mglyph></mglyph></mtext></math>",
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<math><mtext>Hello<mglyph></mglyph></mtext></math>"
+
+    def test_sanitize_strips_html_descendants_inside_svg_title(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "title", "script", "img"},
+            allowed_attributes={
+                "svg": set(),
+                "title": set(),
+                "script": set(),
+                "img": {"src"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(allowed_schemes=set(), allow_relative=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<svg><title>Hello<script>document.body.dataset.pwn=1</script><img src="/x"></title></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<svg><title>Hello</title></svg>"
+
+    def test_sanitize_strips_html_descendants_inside_math_mtext(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"math", "mtext", "script", "img"},
+            allowed_attributes={
+                "math": set(),
+                "mtext": set(),
+                "script": set(),
+                "img": {"src"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(allowed_schemes=set(), allow_relative=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<math><mtext>Hello<script>document.body.dataset.pwn=1</script><img src="/x"></mtext></math>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<math><mtext>Hello</mtext></math>"
+
     def test_sanitize_active_foreign_content_raises(self) -> None:
         svg = Element("svg", {}, "svg")
         image = Element("image", {"id": "img", "href": "#ok", "width": "10", "height": "10"}, "svg")
@@ -3161,10 +3275,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
         out = sanitize_dom(doc.root, policy=policy)
 
         assert out is doc.root
-        assert (
-            doc.to_html(pretty=False)
-            == "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
-        )
+        assert doc.to_html(pretty=False) == "<form><math><mtext></mtext></math></form>"
         reparsed = JustHTML(doc.to_html(pretty=False), fragment=True, sanitize=False)
         assert "onerror" not in reparsed.to_html(pretty=False)
 
@@ -3195,10 +3306,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         out = sanitize(doc.root, policy=policy)
 
-        assert (
-            to_html(out, pretty=False)
-            == "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
-        )
+        assert to_html(out, pretty=False) == "<form><math><mtext></mtext></math></form>"
         reparsed = JustHTML(to_html(out, pretty=False), fragment=True, sanitize=False)
         assert "onerror" not in reparsed.to_html(pretty=False)
 
@@ -3230,10 +3338,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         out = sanitize(form, policy=policy)
 
-        assert (
-            to_html(out, pretty=False)
-            == "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
-        )
+        assert to_html(out, pretty=False) == "<form><math><mtext></mtext></math></form>"
 
     def test_sanitize_dom_stabilizes_foreign_namespace_mxss_for_document_roots(self) -> None:
         policy = SanitizationPolicy(
@@ -3272,7 +3377,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
         assert out is doc.root
         assert (
             doc.to_html(pretty=False) == "<!DOCTYPE html><html><head></head><body>"
-            "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
+            "<form><math><mtext></mtext></math></form>"
             "</body></html>"
         )
 
@@ -3313,7 +3418,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
         assert out.name == "#document"
         assert (
             to_html(out, pretty=False) == "<!DOCTYPE html><html><head></head><body>"
-            "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
+            "<form><math><mtext></mtext></math></form>"
             "</body></html>"
         )
 

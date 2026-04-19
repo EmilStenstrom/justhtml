@@ -953,6 +953,40 @@ class TestTransforms(unittest.TestCase):
         assert root.to_html(pretty=False) == "<svg></svg>"
         assert calls == ["foreignObject"]
 
+    def test_sanitize_strips_html_descendants_inside_svg_title(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "title", "script", "img"},
+            allowed_attributes={
+                "svg": set(),
+                "title": set(),
+                "script": set(),
+                "img": {"src"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("img", "src"): UrlRule(allowed_schemes=set(), allow_relative=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        root = DocumentFragment()
+        svg = Element("svg", {}, "svg")
+        title = Element("title", {}, "svg")
+        title.append_child(Text("Hello"))
+        script = Element("script", {}, "html")
+        script.append_child(Text("document.body.dataset.pwn=1"))
+        img = Element("img", {"src": "/x"}, "html")
+        title.append_child(script)
+        title.append_child(img)
+        svg.append_child(title)
+        root.append_child(svg)
+
+        apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy)]))
+
+        assert root.to_html(pretty=False) == "<svg><title>Hello</title></svg>"
+
     def test_apply_compiled_transforms_stabilizes_terminal_sanitize_foreign_namespace_mxss(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"form", "math", "mtext", "mglyph", "style", "img"},
@@ -981,12 +1015,9 @@ class TestTransforms(unittest.TestCase):
 
         apply_compiled_transforms(doc.root, compile_transforms([Sanitize(policy=policy)]))
 
-        assert (
-            doc.to_html(pretty=False)
-            == "<form><math><mtext><mglyph><style></style></mglyph></mtext></math><img></form>"
-        )
+        assert doc.to_html(pretty=False) == "<form><math><mtext></mtext></math></form>"
         reparsed = JustHTML(doc.to_html(pretty=False), fragment=True, sanitize=False)
-        assert reparsed.query("img")[0].attrs == {}
+        assert reparsed.query("img") == []
 
     def test_dropattrs_patterns_cover_event_namespaced_and_exact(self) -> None:
         policy = SanitizationPolicy(
