@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-04-19
+
 ### Security
 - (Severity: Moderate) Harden custom foreign-namespace policies against active HTML integration points in SVG and MathML. Previously, preserved integration points such as `<foreignObject>`, `<annotation-xml encoding="text/html">`, SVG `<title>`/`<desc>`, and MathML text integration points could keep or host active HTML descendants such as `<script>` when the sanitized output was rendered.
 - (Severity: Moderate) Harden constructor-time and transform-driven sanitization against preserved `<style>` rawtext bypasses. Previously, `JustHTML(..., sanitize=True)` and explicit public `Sanitize(...)` transforms could preserve resource-loading CSS such as `@import` or `background-image:url(...)` in allowlisted `<style>` blocks from HTML string input, even though `sanitize()` and `sanitize_dom()` correctly stripped the same content.
