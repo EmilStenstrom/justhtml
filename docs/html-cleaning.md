@@ -158,6 +158,8 @@ Treat these as a separate security review if you plan to allow them:
 - `meta`, `link`, `base`
 - form elements and submission-related attributes
 
+If you explicitly allow these tags and their active attributes (for example `iframe[src]` or `object[data]`), JustHTML will preserve them according to your policy. That is an explicit opt-in to active embedded content, not something the sanitizer makes safe for you.
+
 For URL-related risks and controls, see [URL Cleaning](url-cleaning.md).
 
 ```python
