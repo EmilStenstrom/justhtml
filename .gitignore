@@ -175,3 +175,4 @@ tests/html5lib-tests-*
 .sass-cache/*
 .gitignore
 _site/*
+.codex
