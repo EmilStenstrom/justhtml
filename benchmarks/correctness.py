@@ -387,11 +387,19 @@ def run_test_html_parser(html, fragment_context, expected, xml_coercion=False, i
 
 def run_test_selectolax(html, fragment_context, expected, xml_coercion=False, iframe_srcdoc=False):
     """Run a single test with selectolax (Lexbor backend)."""
-    from selectolax.lexbor import LexborHTMLParser
+    from selectolax.lexbor import LexborHTMLParser, parse_fragment
 
     try:
-        tree = LexborHTMLParser(html)
-        actual = _selectolax_to_test_format(tree)
+        if fragment_context:
+            try:
+                actual = _selectolax_to_test_format(parse_fragment(html))
+            except Exception:
+                # selectolax's public fragment helper errors on a few frameset fragments.
+                # Fall back to document mode so the benchmark can still report a diff.
+                actual = _selectolax_to_test_format(LexborHTMLParser(html))
+        else:
+            tree = LexborHTMLParser(html)
+            actual = _selectolax_to_test_format(tree)
         passed = compare_outputs(expected, actual)
         return passed, actual, None
     except Exception as e:
@@ -797,6 +805,12 @@ def _selectolax_to_test_format(tree):
                 child = child.next
 
         return lines
+
+    if isinstance(tree, list):
+        lines = []
+        for node in tree:
+            lines.extend(walk(node, 0))
+        return "\n".join(lines)
 
     # Start from document node (parent of root) to capture DOCTYPE
     root = tree.root
