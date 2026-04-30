@@ -18,6 +18,12 @@ from justhtml.context import FragmentContext
 
 # Available parsers
 PARSERS = ["justhtml", "html5lib", "html5_parser", "lxml", "bs4", "html.parser", "selectolax", "markupever"]
+UNSUPPORTED_PREFIX = "__unsupported__:"
+
+
+def _unsupported(reason):
+    """Encode an unsupported parser capability without treating it as a runtime error."""
+    return f"{UNSUPPORTED_PREFIX}{reason}"
 
 
 def check_parser_available(parser_name):
@@ -301,12 +307,9 @@ def run_test_lxml(html, fragment_context, expected, xml_coercion=False, iframe_s
 
     try:
         if fragment_context:
-            # lxml fragment parsing is limited - skip these tests
-            return False, "", "lxml does not support fragment parsing with context"
+            return False, "", _unsupported("lxml does not support fragment parsing with context")
         doc = lxml.html.document_fromstring(html)
-        # Check if input had DOCTYPE (lxml adds default if missing)
-        has_doctype = html.lstrip()[:9].upper().startswith("<!DOCTYPE")
-        actual = _lxml_document_to_test_format(doc, etree, has_doctype)
+        actual = _lxml_document_to_test_format(doc, etree)
         passed = compare_outputs(expected, actual)
         return passed, actual, None
     except Exception as e:
@@ -394,8 +397,6 @@ def run_test_selectolax(html, fragment_context, expected, xml_coercion=False, if
             try:
                 actual = _selectolax_to_test_format(parse_fragment(html))
             except Exception:
-                # selectolax's public fragment helper errors on a few frameset fragments.
-                # Fall back to document mode so the benchmark can still report a diff.
                 actual = _selectolax_to_test_format(LexborHTMLParser(html))
         else:
             tree = LexborHTMLParser(html)
@@ -413,7 +414,7 @@ def run_test_html5_parser(html, fragment_context, expected, xml_coercion=False, 
 
     try:
         if fragment_context:
-            return False, "", "html5_parser does not support fragment parsing"
+            return False, "", _unsupported("html5_parser does not support fragment parsing")
         # Use namespace_elements=True to get proper SVG/MathML namespace info
         # Use sanitize_names=False to preserve invalid chars in tag/attr names
         doc = html5_parser.parse(html, treebuilder="lxml", namespace_elements=True, sanitize_names=False)
@@ -462,37 +463,28 @@ def _extract_doctype_from_html(html):
     - public identifier (optional)
     - system identifier (optional)
     """
-    import re
-
     stripped = html.lstrip()
     if not stripped[:9].upper().startswith("<!DOCTYPE"):
         return None
 
-    # Match DOCTYPE declaration - extract everything after <!DOCTYPE until >
     match = re.match(r"<!DOCTYPE\s*([^>]*?)>", stripped, re.IGNORECASE)
     if not match:
         return None
 
     content = match.group(1).strip()
     if not content:
-        # Empty DOCTYPE like <!DOCTYPE>
         return ("", None, None)
 
-    # Parse the DOCTYPE content per HTML5 spec:
-    # DOCTYPE name is everything up to whitespace, PUBLIC, SYSTEM, or >
     parts = content.split(None, 1)
-    name = parts[0].lower() if parts else ""  # HTML5 lowercases the name
+    name = parts[0].lower() if parts else ""
     rest = parts[1] if len(parts) > 1 else ""
 
-    # Check for PUBLIC or SYSTEM identifiers
     public_id = None
     system_id = None
 
     if rest:
         rest_upper = rest.upper()
         if rest_upper.startswith("PUBLIC"):
-            # Parse PUBLIC "public_id" "system_id" or PUBLIC "public_id"
-            # Allow either single or double quotes, must match
             pub_match = re.match(
                 r'PUBLIC\s+(["\'])([^"\']*)\1(?:\s+(["\'])([^"\']*)\3)?',
                 rest,
@@ -500,27 +492,43 @@ def _extract_doctype_from_html(html):
             )
             if pub_match:
                 public_id = pub_match.group(2)
-                system_id = pub_match.group(4)  # May be None
+                system_id = pub_match.group(4)
         elif rest_upper.startswith("SYSTEM"):
-            # Parse SYSTEM "system_id"
             sys_match = re.match(r'SYSTEM\s+(["\'])([^"\']*)\1', rest, re.IGNORECASE)
             if sys_match:
                 system_id = sys_match.group(2)
-        # Otherwise it's invalid content after name - per HTML5, we just keep the name
 
     return (name, public_id, system_id)
+
+
+def _serialize_lxml_document_siblings(root, etree):
+    """Serialize comments that lxml stores as siblings around the document root."""
+    lines = []
+    prev_nodes = []
+    sibling = root.getprevious()
+    while sibling is not None:
+        prev_nodes.append(sibling)
+        sibling = sibling.getprevious()
+    for sibling in reversed(prev_nodes):
+        if sibling.tag == etree.Comment:
+            lines.append(f"| <!-- {sibling.text} -->")
+    sibling = root.getnext()
+    while sibling is not None:
+        if sibling.tag == etree.Comment:
+            lines.append(f"| <!-- {sibling.text} -->")
+        sibling = sibling.getnext()
+    return lines
 
 
 def _html5_parser_to_test_format(doc, etree, original_html):
     """Convert html5_parser lxml document to test format with namespace support."""
     lines = []
+    root = doc.getroot() if hasattr(doc, "getroot") else doc
 
     # Extract DOCTYPE from original HTML (Gumbo normalizes to 'html')
     doctype_info = _extract_doctype_from_html(original_html)
     if doctype_info is not None:
         name, public_id, system_id = doctype_info
-        # Test format: <!DOCTYPE name "public_id" "system_id">
-        # No PUBLIC/SYSTEM keywords, just quoted strings
         if public_id is not None or system_id is not None:
             pub = public_id if public_id is not None else ""
             sys = system_id if system_id is not None else ""
@@ -530,8 +538,10 @@ def _html5_parser_to_test_format(doc, etree, original_html):
         else:
             lines.append(f"| <!DOCTYPE {name}>")
 
+    lines.extend(_serialize_lxml_document_siblings(root, etree))
+
     # Serialize the root element with namespace awareness
-    lines.extend(_html5_parser_element_to_lines(doc, 0, etree))
+    lines.extend(_html5_parser_element_to_lines(root, 0, etree))
     return "\n".join(lines)
 
 
@@ -637,27 +647,27 @@ def _html5_parser_element_to_lines(elem, indent, etree):
     return lines
 
 
-def _lxml_document_to_test_format(doc, etree, has_doctype):
+def _lxml_document_to_test_format(doc, etree):
     """Convert lxml document to test format."""
     lines = []
+    root = doc.getroot() if hasattr(doc, "getroot") else doc
 
-    # Only output DOCTYPE if the input had one
-    if has_doctype:
-        tree = doc.getroottree()
-        doctype = tree.docinfo.doctype
-        if doctype and doctype.startswith("<!DOCTYPE "):
-            doctype_content = doctype[10:-1].strip()  # Remove <!DOCTYPE and >
-            parts = doctype_content.split(None, 1)
-            name = parts[0] if parts else "html"
-            if len(parts) > 1:
-                # Has public/system identifier
-                rest = parts[1]
-                lines.append(f"| <!DOCTYPE {name} {rest}>")
-            else:
-                lines.append(f"| <!DOCTYPE {name}>")
+    tree = root.getroottree()
+    doctype = tree.docinfo.doctype
+    if doctype and doctype.startswith("<!DOCTYPE "):
+        doctype_content = doctype[10:-1].strip()
+        parts = doctype_content.split(None, 1)
+        name = parts[0] if parts else "html"
+        if len(parts) > 1:
+            rest = parts[1]
+            lines.append(f"| <!DOCTYPE {name} {rest}>")
+        else:
+            lines.append(f"| <!DOCTYPE {name}>")
+
+    lines.extend(_serialize_lxml_document_siblings(root, etree))
 
     # Serialize the root element
-    lines.extend(_lxml_element_to_lines(doc, 0, etree))
+    lines.extend(_lxml_element_to_lines(root, 0, etree))
     return "\n".join(lines)
 
 
@@ -762,54 +772,10 @@ def _dict_to_test_format(node):
 def _selectolax_to_test_format(tree):
     """Convert selectolax tree to test format."""
 
-    def walk(node, indent):
-        prefix = " " * indent
-        lines = []
-        tag = node.tag
-
-        if tag == "-text":
-            # Text node
-            text = node.text_content
-            if text:
-                lines.append(f'| {prefix}"{text}"')
-        elif tag == "-comment":
-            # Comment node - extract text from html property
-            # Format: <!-- content --> (with space padding around content)
-            comment_html = node.html or ""
-            if comment_html.startswith("<!--") and comment_html.endswith("-->"):
-                comment_text = comment_html[4:-3]  # Remove <!-- and -->
-                lines.append(f"| {prefix}<!-- {comment_text} -->")
-        elif tag == "-doctype":
-            # DOCTYPE node - extract from html property
-            doctype_html = node.html
-            if doctype_html and doctype_html.startswith("<!DOCTYPE"):
-                # Extract name from <!DOCTYPE name>
-                content = doctype_html[9:-1].strip()  # Remove <!DOCTYPE and >
-                lines.append(f"| <!DOCTYPE {content}>")
-        elif tag and not tag.startswith("-"):
-            # Element node
-            lines.append(f"| {prefix}<{tag}>")
-
-            # Attributes (sorted)
-            if node.attributes:
-                for name in sorted(node.attributes.keys()):
-                    value = node.attributes[name]
-                    if value is None:
-                        value = ""
-                    lines.append(f'| {prefix}  {name}="{value}"')
-
-            # Children
-            child = node.child
-            while child:
-                lines.extend(walk(child, indent + 2))
-                child = child.next
-
-        return lines
-
     if isinstance(tree, list):
         lines = []
         for node in tree:
-            lines.extend(walk(node, 0))
+            lines.extend(_selectolax_walk(node, 0))
         return "\n".join(lines)
 
     # Start from document node (parent of root) to capture DOCTYPE
@@ -818,17 +784,62 @@ def _selectolax_to_test_format(tree):
         return ""
 
     doc = root.parent
-    if doc and doc.tag == "":
+    if doc and doc.tag in ("", "#document"):
         # Document node - iterate its children (DOCTYPE, html)
         lines = []
         child = doc.child
         while child:
-            lines.extend(walk(child, 0))
+            lines.extend(_selectolax_walk(child, 0))
             child = child.next
         return "\n".join(lines)
 
     # Fallback to just root
-    return "\n".join(walk(root, 0))
+    return "\n".join(_selectolax_walk(root, 0))
+
+
+def _selectolax_walk(node, indent):
+    """Convert a selectolax node to test format lines."""
+    prefix = " " * indent
+    lines = []
+    tag = node.tag
+
+    if tag == "-text":
+        text = node.text_content
+        if text:
+            lines.append(f'| {prefix}"{text}"')
+        return lines
+
+    if tag == "-comment":
+        comment_html = node.html or ""
+        if comment_html.startswith("<!--") and comment_html.endswith("-->"):
+            comment_text = comment_html[4:-3]
+            lines.append(f"| {prefix}<!-- {comment_text} -->")
+        return lines
+
+    if tag == "-doctype":
+        doctype_html = node.html or ""
+        if doctype_html.startswith("<!DOCTYPE"):
+            content = doctype_html[9:-1].strip()
+            lines.append(f"| <!DOCTYPE {content}>")
+        return lines
+
+    if not tag or tag.startswith("-"):
+        return lines
+
+    lines.append(f"| {prefix}<{tag}>")
+
+    if node.attributes:
+        for name in sorted(node.attributes.keys()):
+            value = node.attributes[name]
+            if value is None:
+                value = ""
+            lines.append(f'| {prefix}  {name}="{value}"')
+
+    child = node.child
+    while child:
+        lines.extend(_selectolax_walk(child, indent + 2))
+        child = child.next
+    return lines
 
 
 def _markupever_to_test_format(nodes):
@@ -1003,9 +1014,14 @@ def run_correctness_tests(args):
                 )
 
                 if error:
-                    results[parser_name]["errors"] += 1
-                    if args.verbose >= 2:
-                        print(f"[{parser_name}] ERROR {file_name}:{i} - {error}")
+                    if error.startswith(UNSUPPORTED_PREFIX):
+                        results[parser_name]["skipped"] += 1
+                        if args.verbose >= 2:
+                            print(f"[{parser_name}] SKIP {file_name}:{i} - {error[len(UNSUPPORTED_PREFIX) :]}")
+                    else:
+                        results[parser_name]["errors"] += 1
+                        if args.verbose >= 2:
+                            print(f"[{parser_name}] ERROR {file_name}:{i} - {error}")
                 elif passed:
                     results[parser_name]["passed"] += 1
                 else:
