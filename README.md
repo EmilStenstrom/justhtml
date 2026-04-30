@@ -113,7 +113,7 @@ curl -Ls https://en.wikipedia.org/wiki/HTML -o /tmp/justhtml-bench.html
 | Tool | HTML5 parsing [1][2] | Speed | Query | Build | Sanitize | Notes |
 |------|------------------------------------------|-------|----------|-------|------------------|-------|
 | **JustHTML**<br>Pure Python | ✅&nbsp;100% | ⚡ Fast | ✅ CSS selectors | ✅ `element()` | ✅ Built-in | Correct, secure, easy to install, and fast enough. |
-| **Chromium**<br>browser engine | ✅ 99.6% | 🚀&nbsp;Very&nbsp;Fast | — | — | — | — |
+| **Chromium**<br>browser engine | ✅&nbsp;99.6% | 🚀&nbsp;Very&nbsp;Fast | — | — | — | — |
 | **WebKit**<br>browser engine | ✅ 98% | 🚀 Very Fast | — | — | — | — |
 | **Firefox**<br>browser engine | ✅ 98% | 🚀 Very Fast | — | — | — | — |
 | **`html5_parser`**<br>Python wrapper of C-based Gumbo | ✅ 96% | 🚀 Very Fast | 🟡 XPath (lxml) | 🟡 `etree` (lxml) | ❌ Needs sanitization | Fast and mostly correct on cases its public API exposes; context-fragment cases are skipped. |
