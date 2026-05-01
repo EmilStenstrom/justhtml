@@ -58,17 +58,17 @@ We run the same test suite against other Python parsers to compare compliance:
 | Parser | Tests Passed | Compliance | Notes |
 |--------|-------------|------------|-------|
 | **JustHTML** | 1743/1743 | **100%** | Full spec compliance |
-| markupever | 1652/1743 | 95% | Rust-based (html5ever), correct |
-| html5lib | 1538/1743 | 88% | Reference implementation, but incomplete |
-| html5_parser | 1462/1743 | 84% | C-based (Gumbo), mostly correct |
-| selectolax | 1187/1743 | 68% | C-based (Lexbor), fast but less compliant |
-| BeautifulSoup | 79/1743 | 5% | Uses html.parser, not HTML5 compliant |
-| html.parser | 78/1743 | 4% | Python stdlib, basic error recovery only |
-| lxml | 44/1743 | 3% | XML-based, not HTML5 compliant |
+| markupever | 1545/1743 | 89% | Rust-based (html5ever), mostly correct |
+| html5lib | 1496/1743 | 86% | Reference implementation, but incomplete |
+| selectolax | 1215/1743 | 70% | C-based (Lexbor), fast but less compliant |
+| html5_parser | 862/1743 | 49% | C-based (Gumbo), fast but loses exposed tree information |
+| BeautifulSoup | 6/1743 | <1% | Uses html.parser, not HTML5 compliant |
+| html.parser | 6/1743 | <1% | Python stdlib, basic error recovery only |
+| lxml | 5/1743 | <1% | XML-based, not HTML5 compliant |
 
 *Run `python benchmarks/correctness.py` to reproduce these results.*
 
-These numbers come from a strict tree comparison against the expected output in the `html5lib-tests` tree-construction fixtures (excluding `#script-on` / `#script-off` cases). They will not match the `html5lib` project’s own reported totals, because `html5lib` runs the suite in multiple configurations and also has its own skip/xfail lists.
+These numbers come from a strict tree comparison against the expected output in the `html5lib-tests` tree-construction fixtures (excluding `#script-on` / `#script-off` cases). Unsupported parser capabilities count as failures for this compliance table. The numbers will not match the `html5lib` project’s own reported totals, because `html5lib` runs the suite in multiple configurations and also has its own skip/xfail lists.
 
 ## Our Testing Strategy
 

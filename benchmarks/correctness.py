@@ -2,8 +2,10 @@
 """
 Correctness benchmark: Run html5lib test suite against multiple HTML parsers.
 
-This tests how well each parser implements the HTML5 specification by comparing
-their output against the expected results from the html5lib-tests suite.
+This is a strict tree-output comparison against the html5lib-tests
+tree-construction corpus. Pass rate is computed as
+passed / (passed + failed + errors) over non-script cases. Unsupported parser
+capabilities count as failures.
 """
 # ruff: noqa: PERF401, TRY300, BLE001, PLC0415
 
@@ -11,6 +13,8 @@ import argparse
 import os
 import re
 import sys
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 from justhtml import JustHTML, to_test_format
@@ -18,12 +22,75 @@ from justhtml.context import FragmentContext
 
 # Available parsers
 PARSERS = ["justhtml", "html5lib", "html5_parser", "lxml", "bs4", "html.parser", "selectolax", "markupever"]
-UNSUPPORTED_PREFIX = "__unsupported__:"
 
 
-def _unsupported(reason):
-    """Encode an unsupported parser capability without treating it as a runtime error."""
-    return f"{UNSUPPORTED_PREFIX}{reason}"
+class Status(Enum):
+    PASS = "pass"
+    FAIL = "fail"
+    ERROR = "error"
+    SKIP = "skip"
+
+
+@dataclass(frozen=True)
+class TestResult:
+    status: Status
+    actual: str = ""
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class ParserCapabilities:
+    fragment_context: bool = False
+    foreign_fragment_context: bool = False
+    xml_coercion: bool = False
+    iframe_srcdoc: bool = False
+
+
+PARSER_CAPABILITIES = {
+    "justhtml": ParserCapabilities(
+        fragment_context=True,
+        foreign_fragment_context=True,
+        xml_coercion=True,
+        iframe_srcdoc=True,
+    ),
+    "html5lib": ParserCapabilities(fragment_context=True),
+    "html5_parser": ParserCapabilities(),
+    "lxml": ParserCapabilities(),
+    "bs4": ParserCapabilities(),
+    "html.parser": ParserCapabilities(),
+    "selectolax": ParserCapabilities(),
+    "markupever": ParserCapabilities(),
+}
+
+
+def _skip(reason):
+    """Return a first-class skip for cases outside the benchmark scope."""
+    return TestResult(Status.SKIP, detail=reason)
+
+
+def _error(exc):
+    return TestResult(Status.ERROR, detail=str(exc))
+
+
+def _compare_result(expected, actual):
+    return TestResult(Status.PASS if compare_outputs(expected, actual) else Status.FAIL, actual=actual)
+
+
+def _unsupported_failure(reason):
+    return TestResult(Status.FAIL, detail=reason)
+
+
+def _unsupported_case_reason(parser_name, fragment_context, xml_coercion=False, iframe_srcdoc=False):
+    caps = PARSER_CAPABILITIES[parser_name]
+    if xml_coercion and not caps.xml_coercion:
+        return "xml-coercion cases require a public parser option"
+    if iframe_srcdoc and not caps.iframe_srcdoc:
+        return "iframe-srcdoc cases require a public parser option"
+    if fragment_context and not caps.fragment_context:
+        return "context-fragment cases require a public fragment-context API"
+    if fragment_context and fragment_context[0] not in (None, NS_HTML) and not caps.foreign_fragment_context:
+        return "foreign-namespace context fragments require a public namespace-aware fragment API"
+    return None
 
 
 def check_parser_available(parser_name):
@@ -175,10 +242,9 @@ def run_test_justhtml(html, fragment_context, expected, xml_coercion=False, ifra
         else:
             parser = JustHTML(html, tokenizer_opts=opts, iframe_srcdoc=iframe_srcdoc, safe=False)
         actual = to_test_format(parser.root)
-        passed = compare_outputs(expected, actual)
-        return passed, actual, None
+        return _compare_result(expected, actual)
     except Exception as e:
-        return False, "", str(e)
+        return _error(e)
 
 
 def run_test_html5lib(html, fragment_context, expected, xml_coercion=False, iframe_srcdoc=False):
@@ -205,10 +271,9 @@ def run_test_html5lib(html, fragment_context, expected, xml_coercion=False, ifra
         # Expected format:  | <html>\n|   <head>...
         actual = _convert_html5lib_test_output(raw_output, is_fragment=fragment_context is not None)
 
-        passed = compare_outputs(expected, actual)
-        return passed, actual, None
+        return _compare_result(expected, actual)
     except Exception as e:
-        return False, "", str(e)
+        return _error(e)
 
 
 def _convert_html5lib_test_output(data, is_fragment=False):
@@ -306,14 +371,11 @@ def run_test_lxml(html, fragment_context, expected, xml_coercion=False, iframe_s
     from lxml import etree
 
     try:
-        if fragment_context:
-            return False, "", _unsupported("lxml does not support fragment parsing with context")
         doc = lxml.html.document_fromstring(html)
         actual = _lxml_document_to_test_format(doc, etree)
-        passed = compare_outputs(expected, actual)
-        return passed, actual, None
+        return _compare_result(expected, actual)
     except Exception as e:
-        return False, "", str(e)
+        return _error(e)
 
 
 def run_test_bs4(html, fragment_context, expected, xml_coercion=False, iframe_srcdoc=False):
@@ -323,10 +385,9 @@ def run_test_bs4(html, fragment_context, expected, xml_coercion=False, iframe_sr
     try:
         soup = BeautifulSoup(html, "html.parser")
         actual = _bs4_to_test_format(soup)
-        passed = compare_outputs(expected, actual)
-        return passed, actual, None
+        return _compare_result(expected, actual)
     except Exception as e:
-        return False, "", str(e)
+        return _error(e)
 
 
 def run_test_html_parser(html, fragment_context, expected, xml_coercion=False, iframe_srcdoc=False):
@@ -382,29 +443,21 @@ def run_test_html_parser(html, fragment_context, expected, xml_coercion=False, i
         builder = TreeBuilder()
         builder.feed(html)
         actual = _dict_to_test_format(builder.root)
-        passed = compare_outputs(expected, actual)
-        return passed, actual, None
+        return _compare_result(expected, actual)
     except Exception as e:
-        return False, "", str(e)
+        return _error(e)
 
 
 def run_test_selectolax(html, fragment_context, expected, xml_coercion=False, iframe_srcdoc=False):
     """Run a single test with selectolax (Lexbor backend)."""
-    from selectolax.lexbor import LexborHTMLParser, parse_fragment
+    from selectolax.lexbor import LexborHTMLParser
 
     try:
-        if fragment_context:
-            try:
-                actual = _selectolax_to_test_format(parse_fragment(html))
-            except Exception:
-                actual = _selectolax_to_test_format(LexborHTMLParser(html))
-        else:
-            tree = LexborHTMLParser(html)
-            actual = _selectolax_to_test_format(tree)
-        passed = compare_outputs(expected, actual)
-        return passed, actual, None
+        tree = LexborHTMLParser(html)
+        actual = _selectolax_to_test_format(tree)
+        return _compare_result(expected, actual)
     except Exception as e:
-        return False, "", str(e)
+        return _error(e)
 
 
 def run_test_html5_parser(html, fragment_context, expected, xml_coercion=False, iframe_srcdoc=False):
@@ -413,16 +466,13 @@ def run_test_html5_parser(html, fragment_context, expected, xml_coercion=False, 
     from lxml import etree
 
     try:
-        if fragment_context:
-            return False, "", _unsupported("html5_parser does not support fragment parsing")
         # Use namespace_elements=True to get proper SVG/MathML namespace info
         # Use sanitize_names=False to preserve invalid chars in tag/attr names
         doc = html5_parser.parse(html, treebuilder="lxml", namespace_elements=True, sanitize_names=False)
-        actual = _html5_parser_to_test_format(doc, etree, html)
-        passed = compare_outputs(expected, actual)
-        return passed, actual, None
+        actual = _html5_parser_to_test_format(doc, etree)
+        return _compare_result(expected, actual)
     except Exception as e:
-        return False, "", str(e)
+        return _error(e)
 
 
 def run_test_markupever(html, fragment_context, expected, xml_coercion=False, iframe_srcdoc=False):
@@ -430,15 +480,11 @@ def run_test_markupever(html, fragment_context, expected, xml_coercion=False, if
     import markupever
 
     try:
-        if fragment_context:
-            nodes = markupever.parse(html, markupever.HtmlOptions(full_document=False)).root().first_child.children()
-        else:
-            nodes = [markupever.parse(html).root()]
+        nodes = [markupever.parse(html).root()]
         actual = _markupever_to_test_format(nodes)
-        passed = compare_outputs(expected, actual)
-        return passed, actual, None
+        return _compare_result(expected, actual)
     except Exception as e:
-        return False, "", str(e)
+        return _error(e)
 
 
 # =============================================================================
@@ -452,53 +498,6 @@ NS_MATHML = "http://www.w3.org/1998/Math/MathML"
 NS_XLINK = "http://www.w3.org/1999/xlink"
 NS_XML = "http://www.w3.org/XML/1998/namespace"
 NS_XMLNS = "http://www.w3.org/2000/xmlns/"
-
-
-def _extract_doctype_from_html(html):
-    """Extract DOCTYPE from original HTML since Gumbo normalizes it.
-
-    Returns a tuple (name, public_id, system_id) or None if no DOCTYPE.
-    The HTML5 spec says DOCTYPE stores:
-    - name: the doctype name (lowercased per spec)
-    - public identifier (optional)
-    - system identifier (optional)
-    """
-    stripped = html.lstrip()
-    if not stripped[:9].upper().startswith("<!DOCTYPE"):
-        return None
-
-    match = re.match(r"<!DOCTYPE\s*([^>]*?)>", stripped, re.IGNORECASE)
-    if not match:
-        return None
-
-    content = match.group(1).strip()
-    if not content:
-        return ("", None, None)
-
-    parts = content.split(None, 1)
-    name = parts[0].lower() if parts else ""
-    rest = parts[1] if len(parts) > 1 else ""
-
-    public_id = None
-    system_id = None
-
-    if rest:
-        rest_upper = rest.upper()
-        if rest_upper.startswith("PUBLIC"):
-            pub_match = re.match(
-                r'PUBLIC\s+(["\'])([^"\']*)\1(?:\s+(["\'])([^"\']*)\3)?',
-                rest,
-                re.IGNORECASE,
-            )
-            if pub_match:
-                public_id = pub_match.group(2)
-                system_id = pub_match.group(4)
-        elif rest_upper.startswith("SYSTEM"):
-            sys_match = re.match(r'SYSTEM\s+(["\'])([^"\']*)\1', rest, re.IGNORECASE)
-            if sys_match:
-                system_id = sys_match.group(2)
-
-    return (name, public_id, system_id)
 
 
 def _serialize_lxml_document_siblings(root, etree):
@@ -520,23 +519,14 @@ def _serialize_lxml_document_siblings(root, etree):
     return lines
 
 
-def _html5_parser_to_test_format(doc, etree, original_html):
-    """Convert html5_parser lxml document to test format with namespace support."""
+def _html5_parser_to_test_format(doc, etree):
+    """Convert html5_parser lxml document to test format with namespace support.
+
+    The serializer only uses the tree exposed by html5_parser/lxml. It does not
+    reconstruct DOCTYPEs or other state from the original input.
+    """
     lines = []
     root = doc.getroot() if hasattr(doc, "getroot") else doc
-
-    # Extract DOCTYPE from original HTML (Gumbo normalizes to 'html')
-    doctype_info = _extract_doctype_from_html(original_html)
-    if doctype_info is not None:
-        name, public_id, system_id = doctype_info
-        if public_id is not None or system_id is not None:
-            pub = public_id if public_id is not None else ""
-            sys = system_id if system_id is not None else ""
-            lines.append(f'| <!DOCTYPE {name} "{pub}" "{sys}">')
-        elif name == "":
-            lines.append("| <!DOCTYPE >")
-        else:
-            lines.append(f"| <!DOCTYPE {name}>")
 
     lines.extend(_serialize_lxml_document_siblings(root, etree))
 
@@ -1004,25 +994,33 @@ def run_correctness_tests(args):
             iframe_srcdoc = test.get("iframe_srcdoc", False)
 
             for parser_name in available_parsers:
-                runner = PARSER_RUNNERS[parser_name]
-                passed, actual, error = runner(
-                    html,
+                unsupported_reason = _unsupported_case_reason(
+                    parser_name,
                     fragment,
-                    expected,
                     xml_coercion=xml_coercion,
                     iframe_srcdoc=iframe_srcdoc,
                 )
+                if unsupported_reason:
+                    result = _unsupported_failure(unsupported_reason)
+                else:
+                    runner = PARSER_RUNNERS[parser_name]
+                    result = runner(
+                        html,
+                        fragment,
+                        expected,
+                        xml_coercion=xml_coercion,
+                        iframe_srcdoc=iframe_srcdoc,
+                    )
 
-                if error:
-                    if error.startswith(UNSUPPORTED_PREFIX):
-                        results[parser_name]["skipped"] += 1
-                        if args.verbose >= 2:
-                            print(f"[{parser_name}] SKIP {file_name}:{i} - {error[len(UNSUPPORTED_PREFIX) :]}")
-                    else:
-                        results[parser_name]["errors"] += 1
-                        if args.verbose >= 2:
-                            print(f"[{parser_name}] ERROR {file_name}:{i} - {error}")
-                elif passed:
+                if result.status is Status.SKIP:
+                    results[parser_name]["skipped"] += 1
+                    if args.verbose >= 2:
+                        print(f"[{parser_name}] SKIP {file_name}:{i} - {result.detail}")
+                elif result.status is Status.ERROR:
+                    results[parser_name]["errors"] += 1
+                    if args.verbose >= 2:
+                        print(f"[{parser_name}] ERROR {file_name}:{i} - {result.detail}")
+                elif result.status is Status.PASS:
                     results[parser_name]["passed"] += 1
                 else:
                     results[parser_name]["failed"] += 1
@@ -1033,7 +1031,8 @@ def run_correctness_tests(args):
                                 "index": i,
                                 "html": html,
                                 "expected": expected,
-                                "actual": actual,
+                                "actual": result.actual,
+                                "detail": result.detail,
                             }
                         )
 
@@ -1058,7 +1057,8 @@ def run_correctness_tests(args):
         print(f"{name:<15} {r['passed']:>10} {r['failed']:>10} {r['errors']:>10} {r['skipped']:>10} {rate:>11.2f}%")
 
     print("-" * 70)
-    print(f"Total test cases: {total_tests}")
+    print(f"Non-script test cases: {total_tests}")
+    print("Pass rate: passed / (passed + failed + errors); unsupported non-script capabilities count as failures.")
     print()
 
     # Print failures if verbose
@@ -1074,6 +1074,8 @@ def run_correctness_tests(args):
                 for fail in parser_failures[:max_show]:
                     print(f"  {fail['file']}:{fail['index']}")
                     print(f"    Input: {fail['html'][:60]!r}...")
+                    if fail.get("detail"):
+                        print(f"    Detail: {fail['detail']}")
                     if args.verbose >= 2:
                         print(f"    Expected:\n{fail['expected']}")
                         print(f"    Actual:\n{fail['actual']}")
