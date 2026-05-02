@@ -974,8 +974,13 @@ class SelectorMatcher:
 
     def _closest_matching_ancestor(self, node: Any, compound: CompoundSelector, *, depth: int) -> Any | None:
         if not self._cache_enabled:
+            uncached_visited: set[int] = set()
             ancestor = node.parent
             while ancestor:
+                ancestor_key = id(ancestor)
+                if ancestor_key in uncached_visited:
+                    return None
+                uncached_visited.add(ancestor_key)
                 if self._matches_compound(ancestor, compound, depth=depth):
                     return ancestor
                 ancestor = ancestor.parent
@@ -992,10 +997,14 @@ class SelectorMatcher:
             return cached[node_key]
 
         path: list[Any] = []
+        visited: set[int] = {id(node)}
         ancestor = node.parent
         found: Any | None = None
         while ancestor:
             ancestor_key = id(ancestor)
+            if ancestor_key in visited:
+                break
+            visited.add(ancestor_key)
             if ancestor_key in cached:
                 found = cached[ancestor_key]
                 break

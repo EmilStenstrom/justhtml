@@ -1651,6 +1651,16 @@ class TestAdditionalCoverage(SelectorTestCase):
 
         assert matcher._closest_matching_ancestor(span, compound, depth=0) is None
 
+    def test_selector_matcher_ancestor_cache_disabled_parent_cycle(self):
+        matcher = SelectorMatcher(cache_enabled=False)
+        root = Element("div", {}, "html")
+        child = Element("span", {}, "html")
+        child.parent = root
+        root.parent = child
+        compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_TAG, name="main")])
+
+        assert matcher._closest_matching_ancestor(child, compound, depth=0) is None
+
     def test_selector_matcher_ancestor_without_parent(self):
         matcher = SelectorMatcher()
         span = JustHTML("<span></span>", fragment=True).root.children[0]
@@ -2094,6 +2104,16 @@ class TestSelectorSecurity(SelectorTestCase):
 
         assert query(root, "span") == [child]
         assert query(root, "*") == [child]
+
+    def test_descendant_combinator_handles_parent_cycles(self):
+        root = Element("div", {}, "html")
+        child = Element("span", {}, "html")
+        root.children.append(child)
+        child.parent = root
+        root.parent = child
+
+        assert matches(child, "em span") is False
+        assert query(root, "em span") == []
 
 
 class TestJustHTMLMethods(unittest.TestCase):
