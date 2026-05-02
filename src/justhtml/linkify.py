@@ -176,30 +176,53 @@ def _trim_trailing(candidate: str) -> str:
     if not candidate:
         return candidate
 
+    end = len(candidate)
+
     # First strip sentence punctuation.
-    while candidate and candidate[-1] in _TRAILING_PUNCT:
-        candidate = candidate[:-1]
+    while end and candidate[end - 1] in _TRAILING_PUNCT:
+        end -= 1
+
+    if not end:
+        return ""
+
+    counts = {
+        '"': 0,
+        "'": 0,
+        "(": 0,
+        ")": 0,
+        "[": 0,
+        "]": 0,
+        "{": 0,
+        "}": 0,
+        "<": 0,
+        ">": 0,
+    }
+    for ch in candidate[:end]:
+        if ch in counts:
+            counts[ch] += 1
 
     # Then strip quoting terminators when unbalanced (treat quotes as wrappers).
-    while candidate and candidate[-1] in "\"'":
-        q = candidate[-1]
-        if candidate.count(q) % 2 == 1:
-            candidate = candidate[:-1]
+    while end and candidate[end - 1] in "\"'":
+        q = candidate[end - 1]
+        if counts[q] % 2 == 1:
+            counts[q] -= 1
+            end -= 1
             continue
         break
 
     # Then strip unmatched closing brackets.
     # We treat ) ] } > as potentially closable.
     pairs = {")": "(", "]": "[", "}": "{", ">": "<"}
-    while candidate and candidate[-1] in pairs:
-        close = candidate[-1]
+    while end and candidate[end - 1] in pairs:
+        close = candidate[end - 1]
         open_ch = pairs[close]
-        if candidate.count(close) > candidate.count(open_ch):
-            candidate = candidate[:-1]
+        if counts[close] > counts[open_ch]:
+            counts[close] -= 1
+            end -= 1
             continue
         break
 
-    return candidate
+    return candidate[:end]
 
 
 def _href_for(text: str) -> tuple[str, str]:

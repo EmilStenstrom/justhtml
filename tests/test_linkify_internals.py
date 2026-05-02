@@ -73,6 +73,15 @@ class TestLinkifyInternals(unittest.TestCase):
                 assert find_links_with_config(ch * 20_000, LinkifyConfig()) == []
                 assert perf_counter() - start < 0.25
 
+    def test_unmatched_closing_brackets_do_not_trigger_quadratic_trimming(self) -> None:
+        for ch in (")", "]", "}", ">"):
+            with self.subTest(ch=ch):
+                start = perf_counter()
+                out = find_links_with_config("http://example.com/" + ch * 20_000, LinkifyConfig())
+                assert len(out) == 1
+                assert out[0].text == "http://example.com/"
+                assert perf_counter() - start < 0.25
+
     def test_overlap_and_unreachable_continues_via_stubs(self) -> None:
         class _FakeMatch:
             __slots__ = ("_cand", "_end2", "_start2")
