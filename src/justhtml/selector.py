@@ -571,6 +571,7 @@ class SelectorMatcher:
         "_element_index_cache",
         "_first_of_type_cache",
         "_last_of_type_cache",
+        "_nth_expression_cache",
         "_previous_match_cache",
         "_previous_sibling_cache",
         "_text_content_cache",
@@ -587,6 +588,7 @@ class SelectorMatcher:
         self._element_index_cache: dict[int, dict[int, int]] = {}
         self._first_of_type_cache: dict[int, dict[str, Any]] = {}
         self._last_of_type_cache: dict[int, dict[str, Any]] = {}
+        self._nth_expression_cache: dict[str | None, tuple[int, int] | None] = {}
         self._previous_match_cache: dict[tuple[int, int, int], dict[int, Any | None]] = {}
         self._previous_sibling_cache: dict[int, dict[int, Any | None]] = {}
         self._text_content_cache: dict[int, str] = {}
@@ -1098,6 +1100,14 @@ class SelectorMatcher:
 
     def _parse_nth_expression(self, expr: str | None) -> tuple[int, int] | None:
         """Parse an nth-child expression like '2n+1', 'odd', 'even', '3'."""
+        if expr in self._nth_expression_cache:
+            return self._nth_expression_cache[expr]
+
+        parsed = self._parse_nth_expression_uncached(expr)
+        self._nth_expression_cache[expr] = parsed
+        return parsed
+
+    def _parse_nth_expression_uncached(self, expr: str | None) -> tuple[int, int] | None:
         if not expr:
             return None
 

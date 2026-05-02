@@ -1700,6 +1700,14 @@ class TestAdditionalCoverage(SelectorTestCase):
         assert matcher._attribute_value(text, "data-tags") is None
         assert matcher._attribute_tokens(text, "data-tags", "") == frozenset()
 
+    def test_selector_matcher_nth_expression_cache_helpers(self):
+        matcher = SelectorMatcher()
+
+        assert matcher._parse_nth_expression("2n+1") == (2, 1)
+        assert matcher._parse_nth_expression("2n+1") == (2, 1)
+        assert matcher._parse_nth_expression(None) is None
+        assert matcher._parse_nth_expression("abc") is None
+
     def test_selector_matcher_text_content_cache_helpers(self):
         matcher = SelectorMatcher()
         root = Element("div", {}, "html")
@@ -2057,6 +2065,14 @@ class TestSelectorSecurity(SelectorTestCase):
 
         start = perf_counter()
         assert len(query(doc, selector)) == 1_000
+        assert perf_counter() - start < 0.25
+
+    def test_nth_child_selector_does_not_reparse_large_expression_per_node(self):
+        doc = JustHTML("<ul>" + "<li></li>" * 5_000 + "</ul>").root
+        selector = "li:nth-child(" + "9" * 4_000 + ")"
+
+        start = perf_counter()
+        assert query(doc, selector) == []
         assert perf_counter() - start < 0.25
 
 
