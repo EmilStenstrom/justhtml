@@ -4,8 +4,8 @@ import unittest
 from time import perf_counter
 from typing import Any, cast
 
+from justhtml import Element, SelectorError, Template, Text, matches, query
 from justhtml import JustHTML as _JustHTML
-from justhtml import SelectorError, matches, query
 from justhtml.selector import (
     ComplexSelector,
     CompoundSelector,
@@ -1624,6 +1624,38 @@ class TestAdditionalCoverage(SelectorTestCase):
         assert matcher._previous_matching_sibling(em, compound, depth=0) is None
         em.parent.children = original_children
 
+    def test_selector_matcher_text_content_cache_helpers(self):
+        matcher = SelectorMatcher()
+        root = Element("div", {}, "html")
+        template = Template("template", namespace="html")
+        empty_template = Template("template", namespace="html")
+        assert template.template_content is not None
+        root.append_child(Text(" outside "))
+        root.append_child(Text("   "))
+        root.append_child(Text(None))
+        root.append_child(template)
+        root.append_child(empty_template)
+        template.template_content.append_child(Text(" inside "))
+
+        assert matcher._text_content(root) == "outside inside"
+        assert matcher._text_content(root) == "outside inside"
+
+    def test_selector_matcher_text_content_deduplicates_work(self):
+        matcher = SelectorMatcher()
+        root = Element("div", {}, "html")
+        text = Text(" repeated ")
+        root.children = [text, text]
+        text.parent = root
+
+        assert matcher._text_content(root) == "repeated repeated"
+
+    def test_selector_matcher_text_content_cache_disabled(self):
+        matcher = SelectorMatcher(cache_enabled=False)
+        root = Element("div", {}, "html")
+        root.append_child(Text(" uncached "))
+
+        assert matcher._text_content(root) == "uncached"
+
     def test_nth_child_invalid_just_b(self):
         # Lines 808-809: Invalid b part (just a number but invalid)
         doc = JustHTML("<html><body><ul><li>1</li><li>2</li></ul></body></html>").root
@@ -1847,6 +1879,13 @@ class TestSelectorSecurity(SelectorTestCase):
         start = perf_counter()
         assert len(query(doc, "li:nth-child(odd)")) == 2_500
         assert len(query(doc, "li:last-of-type")) == 1
+        assert perf_counter() - start < 0.25
+
+    def test_contains_selector_does_not_recompute_descendant_text(self):
+        doc = JustHTML("<div>" * 2_000 + "needle" + "</div>" * 2_000).root
+
+        start = perf_counter()
+        assert len(query(doc, 'div:contains("needle")')) == 2_000
         assert perf_counter() - start < 0.25
 
 

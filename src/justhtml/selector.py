@@ -539,6 +539,7 @@ class SelectorMatcher:
         "_last_of_type_cache",
         "_previous_match_cache",
         "_previous_sibling_cache",
+        "_text_content_cache",
         "_type_index_cache",
     )
 
@@ -550,6 +551,7 @@ class SelectorMatcher:
         self._last_of_type_cache: dict[int, dict[str, Any]] = {}
         self._previous_match_cache: dict[tuple[int, int, int], dict[int, Any | None]] = {}
         self._previous_sibling_cache: dict[int, dict[int, Any | None]] = {}
+        self._text_content_cache: dict[int, str] = {}
         self._type_index_cache: dict[int, dict[int, int]] = {}
 
     def _unquote_pseudo_arg(self, arg: str) -> str:
@@ -771,8 +773,7 @@ class SelectorMatcher:
                 return True
             # Non-standard (jQuery-style) pseudo-class: match elements whose descendant
             # text contains the substring. We use `to_text()` to approximate textContent.
-            haystack: str = node.to_text(separator=" ", strip=True)
-            return needle in haystack
+            return needle in self._text_content(node)
 
         if name == "comment":
             return getattr(node, "name", None) == "#comment"
@@ -901,6 +902,60 @@ class SelectorMatcher:
             self._previous_match_cache[cache_key] = cached
 
         return cached.get(id(node))
+
+    def _text_content(self, node: Any) -> str:
+        if not self._cache_enabled:
+            return str(node.to_text(separator=" ", strip=True))
+
+        node_key = id(node)
+        cached = self._text_content_cache.get(node_key)
+        if cached is not None:
+            return cached
+
+        stack: list[tuple[Any, bool]] = [(node, False)]
+        while stack:
+            current, visited = stack.pop()
+            current_key = id(current)
+            if current_key in self._text_content_cache:
+                continue
+
+            if visited:
+                name = current.name
+                if name == "#text":
+                    data = current.data
+                    if data:
+                        data = data.strip()
+                    self._text_content_cache[current_key] = data or ""
+                    continue
+
+                parts: list[str] = []
+                children = getattr(current, "children", None)
+                if children:
+                    for child in children:
+                        text = self._text_content_cache.get(id(child), "")
+                        if text:
+                            parts.append(text)
+
+                template_content = getattr(current, "template_content", None)
+                if template_content is not None:
+                    text = self._text_content_cache.get(id(template_content), "")
+                    if text:
+                        parts.append(text)
+
+                self._text_content_cache[current_key] = " ".join(parts)
+                continue
+
+            stack.append((current, True))
+
+            template_content = getattr(current, "template_content", None)
+            if template_content is not None:
+                stack.append((template_content, False))
+
+            children = getattr(current, "children", None)
+            if children:
+                stack.extend((child, False) for child in reversed(children))
+
+        return self._text_content_cache.get(node_key, "")
 
     def _is_first_child(self, node: Any) -> bool:
         """Check if node is the first element child of its parent."""
