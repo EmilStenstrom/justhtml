@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Ensure tag-only query selectors also enforce oversized-selector protections. Previously, the simple tag fast path in `query(...)` could bypass the selector-length guard for very large attacker-controlled tag selectors.
 - (Severity: Low) Harden selector matching against denial-of-service from repeated simple selectors inside a compound selector. Previously, attacker-controlled selectors such as `:not(em):not(em)...` could multiply identical match work for every candidate node and consume disproportionate CPU.
 - (Severity: Low) Harden selector matching against denial-of-service from repeated attribute word selectors over large attribute values. Previously, selectors such as `[data-tags~=a][data-tags~=b]...` could repeatedly retokenize the same attacker-controlled attribute value and consume disproportionate CPU.
 - (Severity: Low) Harden selector matching against denial-of-service from compound class selectors over large class attributes. Previously, selectors such as `.c0.c1.c2...` could repeatedly retokenize the same attacker-controlled `class` attribute and consume disproportionate CPU.

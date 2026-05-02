@@ -1296,6 +1296,8 @@ def query(root: Any, selector_string: str) -> list[Any]:
     selector_string = selector_string.strip()
     if not selector_string:
         raise SelectorError("Empty selector")
+    if len(selector_string) > _MAX_SELECTOR_LENGTH:
+        raise SelectorError("Selector is too long")
 
     results: list[Any] = []
 

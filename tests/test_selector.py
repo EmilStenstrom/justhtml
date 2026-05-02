@@ -1980,6 +1980,14 @@ class TestSelectorSecurity(SelectorTestCase):
 
         assert _parse_selector_cached.cache_info().currsize == 0
 
+    def test_query_rejects_oversized_tag_fast_path_selector(self):
+        _parse_selector_cached.cache_clear()
+
+        with self.assertRaisesRegex(SelectorError, "too long"):
+            query(self.get_simple_doc(), "a" * 8_193)
+
+        assert _parse_selector_cached.cache_info().currsize == 0
+
     def test_oversized_selector_list_is_rejected_before_matching(self):
         _parse_selector_cached.cache_clear()
 
