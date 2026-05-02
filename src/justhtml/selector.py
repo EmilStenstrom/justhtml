@@ -1221,7 +1221,7 @@ def query(root: Any, selector_string: str) -> list[Any]:
         _query_descendants_tag(root, selector_string.lower(), results)
         return results
 
-    selector = _parse_selector_cached(selector_string)
+    selector = parse_selector(selector_string)
     allow_non_elements = _selector_allows_non_elements(selector)
     _query_descendants(root, selector, results, allow_non_elements=allow_non_elements)
     return results
