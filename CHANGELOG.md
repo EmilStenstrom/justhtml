@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Harden selector matching against denial-of-service from repeated attribute word selectors over large attribute values. Previously, selectors such as `[data-tags~=a][data-tags~=b]...` could repeatedly retokenize the same attacker-controlled attribute value and consume disproportionate CPU.
 - (Severity: Low) Harden selector matching against denial-of-service from compound class selectors over large class attributes. Previously, selectors such as `.c0.c1.c2...` could repeatedly retokenize the same attacker-controlled `class` attribute and consume disproportionate CPU.
 - (Severity: Low) Harden selector matching against denial-of-service from descendant selectors over deeply nested trees. Previously, selectors such as `em div` could repeatedly rescan ancestor chains for each candidate and consume disproportionate CPU.
 - (Severity: Low) Harden selector parsing against memory denial-of-service from oversized selectors. Previously, very large attacker-controlled selector strings could enter the selector parse cache and be retained process-wide.

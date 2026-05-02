@@ -556,6 +556,8 @@ class SelectorMatcher:
 
     __slots__ = (
         "_ancestor_match_cache",
+        "_attr_token_cache",
+        "_attrs_lower_cache",
         "_cache_enabled",
         "_class_token_cache",
         "_element_children_cache",
@@ -570,6 +572,8 @@ class SelectorMatcher:
 
     def __init__(self, *, cache_enabled: bool = True) -> None:
         self._ancestor_match_cache: dict[tuple[int, int], dict[int, Any | None]] = {}
+        self._attr_token_cache: dict[tuple[int, str], frozenset[str]] = {}
+        self._attrs_lower_cache: dict[int, dict[str, str]] = {}
         self._cache_enabled = cache_enabled
         self._class_token_cache: dict[int, frozenset[str]] = {}
         self._element_children_cache: dict[int, list[Any]] = {}
@@ -708,19 +712,8 @@ class SelectorMatcher:
 
     def _matches_attribute(self, node: Any, selector: SimpleSelector) -> bool:
         """Match an attribute selector."""
-        attrs = node.attrs
-        if not attrs:
-            return False
         attr_name = (selector.name or "").lower()  # Attribute names are case-insensitive in HTML
-
-        # Check if attribute exists (for any case)
-        attr_value: str | None = None
-        for name, value in attrs.items():
-            if name.lower() == attr_name:
-                # Attributes can be boolean (represented as None in JustHTML).
-                # For selector matching, presence should still count.
-                attr_value = "" if value is None else str(value)
-                break
+        attr_value = self._attribute_value(node, attr_name)
 
         if attr_value is None:
             return False
@@ -737,8 +730,7 @@ class SelectorMatcher:
 
         if op == "~=":
             # Space-separated word match
-            words = attr_value.split() if attr_value else []
-            return value in words
+            return value in self._attribute_tokens(node, attr_name, attr_value)
 
         if op == "|=":
             # Hyphen-separated prefix match (e.g., lang="en" matches lang|="en-US")
@@ -757,6 +749,38 @@ class SelectorMatcher:
             return value in attr_value if value else False
 
         return False
+
+    def _lowercase_attrs(self, node: Any) -> dict[str, str]:
+        attrs = getattr(node, "attrs", None)
+        if not attrs:
+            return {}
+
+        if not self._cache_enabled:
+            return {str(name).lower(): "" if value is None else str(value) for name, value in attrs.items()}
+
+        node_key = id(node)
+        cached = self._attrs_lower_cache.get(node_key)
+        if cached is None:
+            cached = {str(name).lower(): "" if value is None else str(value) for name, value in attrs.items()}
+            self._attrs_lower_cache[node_key] = cached
+        return cached
+
+    def _attribute_value(self, node: Any, attr_name: str) -> str | None:
+        return self._lowercase_attrs(node).get(attr_name)
+
+    def _attribute_tokens(self, node: Any, attr_name: str, attr_value: str) -> frozenset[str]:
+        if not attr_value:
+            return frozenset()
+
+        if not self._cache_enabled:
+            return frozenset(attr_value.split())
+
+        cache_key = (id(node), attr_name)
+        cached = self._attr_token_cache.get(cache_key)
+        if cached is None:
+            cached = frozenset(attr_value.split())
+            self._attr_token_cache[cache_key] = cached
+        return cached
 
     def _matches_pseudo(self, node: Any, selector: SimpleSelector, *, depth: int = 0) -> bool:
         """Match a pseudo-class selector."""

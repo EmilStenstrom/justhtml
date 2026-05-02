@@ -1677,6 +1677,29 @@ class TestAdditionalCoverage(SelectorTestCase):
 
         assert matcher._class_tokens(text) == frozenset()
 
+    def test_selector_matcher_attribute_cache_helpers(self):
+        matcher = SelectorMatcher()
+        div = query(JustHTML("<div DATA-TAGS='alpha beta'></div>", fragment=True).root, "div")[0]
+
+        assert matcher._attribute_value(div, "data-tags") == "alpha beta"
+        assert matcher._attribute_value(div, "data-tags") == "alpha beta"
+        assert matcher._attribute_tokens(div, "data-tags", "alpha beta") == frozenset({"alpha", "beta"})
+        assert matcher._attribute_tokens(div, "data-tags", "alpha beta") == frozenset({"alpha", "beta"})
+
+    def test_selector_matcher_attribute_cache_disabled_helpers(self):
+        matcher = SelectorMatcher(cache_enabled=False)
+        div = query(JustHTML("<div DATA-TAGS='alpha beta'></div>", fragment=True).root, "div")[0]
+
+        assert matcher._attribute_value(div, "data-tags") == "alpha beta"
+        assert matcher._attribute_tokens(div, "data-tags", "alpha beta") == frozenset({"alpha", "beta"})
+
+    def test_selector_matcher_attribute_helpers_without_attrs(self):
+        matcher = SelectorMatcher()
+        text = JustHTML("text", fragment=True).root.children[0]
+
+        assert matcher._attribute_value(text, "data-tags") is None
+        assert matcher._attribute_tokens(text, "data-tags", "") == frozenset()
+
     def test_selector_matcher_text_content_cache_helpers(self):
         matcher = SelectorMatcher()
         root = Element("div", {}, "html")
@@ -1997,6 +2020,16 @@ class TestSelectorSecurity(SelectorTestCase):
         class_attr = " ".join(f"c{i}" for i in range(300))
         html = "".join(f'<div class="{class_attr}"></div>' for _ in range(1_000))
         selector = "".join(f".c{i}" for i in range(100))
+        doc = JustHTML(html).root
+
+        start = perf_counter()
+        assert len(query(doc, selector)) == 1_000
+        assert perf_counter() - start < 0.25
+
+    def test_attribute_word_selector_does_not_retokenize_attribute_values(self):
+        attr_value = " ".join(f"c{i}" for i in range(300))
+        html = "".join(f'<div data-tags="{attr_value}"></div>' for _ in range(1_000))
+        selector = "".join(f"[data-tags~=c{i}]" for i in range(100))
         doc = JustHTML(html).root
 
         start = perf_counter()
