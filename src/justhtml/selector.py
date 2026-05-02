@@ -15,6 +15,7 @@ _MAX_SELECTOR_MATCH_DEPTH = 100
 _MAX_SELECTOR_LENGTH = 8192
 _MAX_SELECTOR_LIST_ITEMS = 256
 _MAX_COMPOUND_SIMPLE_SELECTORS = 512
+_MAX_COMPLEX_SELECTOR_PARTS = 512
 
 
 # Token types for the CSS selector lexer
@@ -478,6 +479,8 @@ class SelectorParser:
             compound = self._parse_compound_selector()
             if not compound:
                 raise SelectorError("Expected selector after combinator")
+            if len(complex_sel.parts) >= _MAX_COMPLEX_SELECTOR_PARTS:
+                raise SelectorError("Complex selector has too many parts")
             complex_sel.parts.append((combinator, compound))
 
         return complex_sel
