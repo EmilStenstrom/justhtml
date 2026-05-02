@@ -1,6 +1,7 @@
 """Comprehensive tests for CSS selector functionality."""
 
 import unittest
+from time import perf_counter
 from typing import Any, cast
 
 from justhtml import JustHTML as _JustHTML
@@ -1572,6 +1573,15 @@ class TestAdditionalCoverage(SelectorTestCase):
         # Restore
         div.children = original_children
 
+    def test_previous_matching_sibling_without_parent(self):
+        matcher = SelectorMatcher()
+        doc = JustHTML("<p>Para</p>", fragment=True).root
+        p = query(doc, "p")[0]
+        p.parent = None
+        compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_TAG, name="em")])
+
+        assert matcher._previous_matching_sibling(p, compound, depth=0) is None
+
     def test_nth_child_invalid_just_b(self):
         # Lines 808-809: Invalid b part (just a number but invalid)
         doc = JustHTML("<html><body><ul><li>1</li><li>2</li></ul></body></html>").root
@@ -1774,6 +1784,13 @@ class TestSelectorSecurity(SelectorTestCase):
 
         with self.assertRaisesRegex(SelectorError, "too deep"):
             query(self.get_simple_doc(), selector)
+
+    def test_general_sibling_selector_does_not_rescan_previous_siblings(self):
+        doc = JustHTML("<div>" + "<span></span>" * 3_000 + "</div>").root
+
+        start = perf_counter()
+        assert query(doc, "em ~ span") == []
+        assert perf_counter() - start < 0.25
 
 
 class TestJustHTMLMethods(unittest.TestCase):

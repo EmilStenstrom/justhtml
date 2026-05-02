@@ -531,7 +531,10 @@ class SelectorParser:
 class SelectorMatcher:
     """Matches selectors against DOM nodes."""
 
-    __slots__ = ()
+    __slots__ = ("_previous_match_cache",)
+
+    def __init__(self) -> None:
+        self._previous_match_cache: dict[tuple[int, int, int], dict[int, Any | None]] = {}
 
     def _unquote_pseudo_arg(self, arg: str) -> str:
         arg = arg.strip()
@@ -602,16 +605,10 @@ class SelectorMatcher:
                 current = sibling
 
             else:  # combinator == "~" - General sibling
-                found = False
-                sibling = self._get_previous_sibling(current)
-                while sibling:
-                    if self._matches_compound(sibling, prev_compound, depth=depth):
-                        current = sibling
-                        found = True
-                        break
-                    sibling = self._get_previous_sibling(sibling)
-                if not found:
+                sibling = self._previous_matching_sibling(current, prev_compound, depth=depth)
+                if sibling is None:
                     return False
+                current = sibling
 
         return True
 
@@ -798,6 +795,24 @@ class SelectorMatcher:
             if not child.name.startswith("#"):
                 prev = child
         return None  # node not in parent.children (detached)
+
+    def _previous_matching_sibling(self, node: Any, compound: CompoundSelector, *, depth: int) -> Any | None:
+        parent = node.parent
+        if not parent:
+            return None
+
+        cache_key = (id(parent), id(compound), depth)
+        cached = self._previous_match_cache.get(cache_key)
+        if cached is None:
+            cached = {}
+            last_match: Any | None = None
+            for child in parent.children:
+                cached[id(child)] = last_match
+                if not child.name.startswith("#") and self._matches_compound(child, compound, depth=depth):
+                    last_match = child
+            self._previous_match_cache[cache_key] = cached
+
+        return cached.get(id(node))
 
     def _is_first_child(self, node: Any) -> bool:
         """Check if node is the first element child of its parent."""
@@ -1065,7 +1080,7 @@ def _query_descendants(
     allow_non_elements: bool = False,
 ) -> None:
     """Search for matching nodes in descendants."""
-    matcher_matches = _matcher.matches
+    matcher_matches = SelectorMatcher().matches
     results_append = results.append
 
     # querySelectorAll searches descendants of root, not including root itself.
@@ -1113,4 +1128,4 @@ def matches(node: Any, selector_string: str) -> bool:
         True if the node matches, False otherwise
     """
     selector = parse_selector(selector_string)
-    return _matcher.matches(node, selector)
+    return SelectorMatcher().matches(node, selector)
