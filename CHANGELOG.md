@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Harden selector traversal against denial-of-service from cyclic or shared programmatic DOM graphs. Previously, `query(...)` could revisit the same node indefinitely or return duplicate matches when handed a malformed graph with cycles or repeated child references.
 - (Severity: Low) Harden selector matching against denial-of-service from repeated `:nth-child(...)` expression parsing. Previously, large or malformed An+B expressions could be reparsed for every candidate node and consume disproportionate CPU.
 - (Severity: Low) Ensure tag-only query selectors also enforce oversized-selector protections. Previously, the simple tag fast path in `query(...)` could bypass the selector-length guard for very large attacker-controlled tag selectors.
 - (Severity: Low) Harden selector matching against denial-of-service from repeated simple selectors inside a compound selector. Previously, attacker-controlled selectors such as `:not(em):not(em)...` could multiply identical match work for every candidate node and consume disproportionate CPU.

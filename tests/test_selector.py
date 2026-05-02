@@ -2075,6 +2075,26 @@ class TestSelectorSecurity(SelectorTestCase):
         assert query(doc, selector) == []
         assert perf_counter() - start < 0.25
 
+    def test_query_descendants_handles_programmatic_cycles(self):
+        root = Element("div", {}, "html")
+        child = Element("span", {}, "html")
+        root.children.append(child)
+        child.parent = root
+        child.children.append(root)
+        root.parent = child
+
+        assert query(root, "span") == [child]
+        assert query(root, "*") == [child]
+
+    def test_query_descendants_deduplicates_shared_nodes(self):
+        root = Element("div", {}, "html")
+        child = Element("span", {}, "html")
+        root.children.extend([child, child])
+        child.parent = root
+
+        assert query(root, "span") == [child]
+        assert query(root, "*") == [child]
+
 
 class TestJustHTMLMethods(unittest.TestCase):
     """Test JustHTML convenience methods that delegate to root."""

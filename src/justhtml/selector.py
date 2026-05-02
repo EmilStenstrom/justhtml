@@ -1254,6 +1254,7 @@ def _selector_allows_non_elements(selector: ParsedSelector | CompoundSelector | 
 
 def _query_descendants_tag(node: Any, tag_lower: str, results: list[Any]) -> None:
     results_append = results.append
+    visited: set[int] = {id(node)}
 
     stack: list[Any] = []
 
@@ -1268,6 +1269,10 @@ def _query_descendants_tag(node: Any, tag_lower: str, results: list[Any]) -> Non
 
     while stack:
         current = stack.pop()
+        current_key = id(current)
+        if current_key in visited:
+            continue
+        visited.add(current_key)
 
         name = current.name
         if not name.startswith("#"):
@@ -1331,6 +1336,7 @@ def _query_descendants(
     """Search for matching nodes in descendants."""
     matcher_matches = SelectorMatcher().matches
     results_append = results.append
+    visited: set[int] = {id(node)}
 
     # querySelectorAll searches descendants of root, not including root itself.
     stack: list[Any] = []
@@ -1346,6 +1352,10 @@ def _query_descendants(
 
     while stack:
         current = stack.pop()
+        current_key = id(current)
+        if current_key in visited:
+            continue
+        visited.add(current_key)
 
         name = current.name
         if allow_non_elements:
