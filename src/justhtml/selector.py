@@ -12,6 +12,7 @@ class SelectorError(ValueError):
 
 
 _MAX_SELECTOR_MATCH_DEPTH = 100
+_MAX_SELECTOR_LENGTH = 8192
 
 
 # Token types for the CSS selector lexer
@@ -1088,10 +1089,13 @@ def parse_selector(selector_string: str) -> ParsedSelector:
     Note: parsing is cached internally via an LRU cache (see
     `_parse_selector_cached`) to keep repeated selector use cheap.
     """
-    if not selector_string or not selector_string.strip():
+    selector = selector_string.strip() if selector_string else ""
+    if not selector:
         raise SelectorError("Empty selector")
+    if len(selector) > _MAX_SELECTOR_LENGTH:
+        raise SelectorError("Selector is too long")
 
-    return _parse_selector_cached(selector_string.strip())
+    return _parse_selector_cached(selector)
 
 
 @lru_cache(maxsize=512)

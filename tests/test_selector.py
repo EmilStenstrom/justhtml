@@ -17,6 +17,7 @@ from justhtml.selector import (
     Token,
     TokenType,
     _is_simple_tag_selector,
+    _parse_selector_cached,
     _query_descendants,
     _query_descendants_tag,
     _selector_allows_non_elements,
@@ -1887,6 +1888,14 @@ class TestSelectorSecurity(SelectorTestCase):
         start = perf_counter()
         assert len(query(doc, 'div:contains("needle")')) == 2_000
         assert perf_counter() - start < 0.25
+
+    def test_oversized_selector_is_rejected_before_parse_cache(self):
+        _parse_selector_cached.cache_clear()
+
+        with self.assertRaisesRegex(SelectorError, "too long"):
+            parse_selector("." + "a" * 8_192)
+
+        assert _parse_selector_cached.cache_info().currsize == 0
 
 
 class TestJustHTMLMethods(unittest.TestCase):
