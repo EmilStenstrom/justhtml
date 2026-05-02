@@ -11,6 +11,9 @@ class SelectorError(ValueError):
     """Raised when a CSS selector is invalid."""
 
 
+_MAX_SELECTOR_MATCH_DEPTH = 100
+
+
 # Token types for the CSS selector lexer
 class TokenType:
     TAG: str = "TAG"  # div, span, etc.
@@ -540,17 +543,23 @@ class SelectorMatcher:
 
     def matches(self, node: Any, selector: ParsedSelector | CompoundSelector | SimpleSelector) -> bool:
         """Check if a node matches a parsed selector."""
+        return self._matches(node, selector, depth=0)
+
+    def _matches(self, node: Any, selector: ParsedSelector | CompoundSelector | SimpleSelector, *, depth: int) -> bool:
+        if depth > _MAX_SELECTOR_MATCH_DEPTH:
+            raise SelectorError("Selector nesting is too deep")
+
         if isinstance(selector, SelectorList):
-            return any(self.matches(node, sel) for sel in selector.selectors)
+            return any(self._matches(node, sel, depth=depth) for sel in selector.selectors)
         if isinstance(selector, ComplexSelector):
-            return self._matches_complex(node, selector)
+            return self._matches_complex(node, selector, depth=depth)
         if isinstance(selector, CompoundSelector):
-            return self._matches_compound(node, selector)
+            return self._matches_compound(node, selector, depth=depth)
         if isinstance(selector, SimpleSelector):
-            return self._matches_simple(node, selector)
+            return self._matches_simple(node, selector, depth=depth)
         return False
 
-    def _matches_complex(self, node: Any, selector: ComplexSelector) -> bool:
+    def _matches_complex(self, node: Any, selector: ComplexSelector, *, depth: int = 0) -> bool:
         """Match a complex selector (with combinators)."""
         # Work backwards from the rightmost compound selector
         parts = selector.parts
@@ -559,7 +568,7 @@ class SelectorMatcher:
 
         # Start with the rightmost part
         combinator, compound = parts[-1]
-        if not self._matches_compound(node, compound):
+        if not self._matches_compound(node, compound, depth=depth):
             return False
 
         # Work backwards through the chain
@@ -572,7 +581,7 @@ class SelectorMatcher:
                 found = False
                 ancestor = current.parent
                 while ancestor:
-                    if self._matches_compound(ancestor, prev_compound):
+                    if self._matches_compound(ancestor, prev_compound, depth=depth):
                         current = ancestor
                         found = True
                         break
@@ -582,13 +591,13 @@ class SelectorMatcher:
 
             elif combinator == ">":  # Child
                 parent = current.parent
-                if not parent or not self._matches_compound(parent, prev_compound):
+                if not parent or not self._matches_compound(parent, prev_compound, depth=depth):
                     return False
                 current = parent
 
             elif combinator == "+":  # Adjacent sibling
                 sibling = self._get_previous_sibling(current)
-                if not sibling or not self._matches_compound(sibling, prev_compound):
+                if not sibling or not self._matches_compound(sibling, prev_compound, depth=depth):
                     return False
                 current = sibling
 
@@ -596,7 +605,7 @@ class SelectorMatcher:
                 found = False
                 sibling = self._get_previous_sibling(current)
                 while sibling:
-                    if self._matches_compound(sibling, prev_compound):
+                    if self._matches_compound(sibling, prev_compound, depth=depth):
                         current = sibling
                         found = True
                         break
@@ -606,18 +615,18 @@ class SelectorMatcher:
 
         return True
 
-    def _matches_compound(self, node: Any, compound: CompoundSelector) -> bool:
+    def _matches_compound(self, node: Any, compound: CompoundSelector, *, depth: int = 0) -> bool:
         """Match a compound selector (all simple selectors must match)."""
-        return all(self._matches_simple(node, simple) for simple in compound.selectors)
+        return all(self._matches_simple(node, simple, depth=depth) for simple in compound.selectors)
 
-    def _matches_simple(self, node: Any, selector: SimpleSelector) -> bool:
+    def _matches_simple(self, node: Any, selector: SimpleSelector, *, depth: int = 0) -> bool:
         """Match a simple selector against a node."""
         # Non-element nodes only match explicit pseudo-classes (e.g. :comment)
         if not hasattr(node, "name"):
             return False
         if node.name.startswith("#"):
             if selector.type == SimpleSelector.TYPE_PSEUDO:
-                return self._matches_pseudo(node, selector)
+                return self._matches_pseudo(node, selector, depth=depth)
             return False
 
         sel_type = selector.type
@@ -642,7 +651,7 @@ class SelectorMatcher:
             return self._matches_attribute(node, selector)
 
         if sel_type == SimpleSelector.TYPE_PSEUDO:
-            return self._matches_pseudo(node, selector)
+            return self._matches_pseudo(node, selector, depth=depth)
 
         return False
 
@@ -698,7 +707,7 @@ class SelectorMatcher:
 
         return False
 
-    def _matches_pseudo(self, node: Any, selector: SimpleSelector) -> bool:
+    def _matches_pseudo(self, node: Any, selector: SimpleSelector, *, depth: int = 0) -> bool:
         """Match a pseudo-class selector."""
         name = (selector.name or "").lower()
 
@@ -716,7 +725,7 @@ class SelectorMatcher:
                 return True
             # Parse the inner selector
             inner = parse_selector(selector.arg)
-            return not self.matches(node, inner)
+            return not self._matches(node, inner, depth=depth + 1)
 
         if name == "only-child":
             return self._is_first_child(node) and self._is_last_child(node)

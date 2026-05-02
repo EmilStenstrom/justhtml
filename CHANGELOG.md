@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Harden selector matching against denial-of-service from deeply nested `:not(...)` selectors. Previously, attacker-controlled selector strings could exhaust Python recursion and raise `RecursionError` during query evaluation.
 - (Severity: Low) Harden linkification against denial-of-service from URLs ending in long runs of unmatched closing brackets. Previously, trailing bracket trimming could repeatedly rescan the same attacker-controlled URL candidate and consume disproportionate CPU.
 - (Severity: Low) Harden linkification against denial-of-service from punctuation-heavy input. Previously, long attacker-controlled runs of punctuation such as quotes, hyphens, periods, or exclamation marks could trigger quadratic scanning in the fuzzy email matcher.
 

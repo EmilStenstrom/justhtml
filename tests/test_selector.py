@@ -1766,6 +1766,16 @@ class TestPseudoContains(SelectorTestCase):
             query(self.get_contains_doc(), "button:contains()")
 
 
+class TestSelectorSecurity(SelectorTestCase):
+    """Security hardening tests for selector evaluation."""
+
+    def test_deeply_nested_not_selector_raises_selector_error(self):
+        selector = ":not(" * 150 + "span" + ")" * 150
+
+        with self.assertRaisesRegex(SelectorError, "too deep"):
+            query(self.get_simple_doc(), selector)
+
+
 class TestJustHTMLMethods(unittest.TestCase):
     """Test JustHTML convenience methods that delegate to root."""
 
