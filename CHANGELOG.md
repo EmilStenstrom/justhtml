@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Harden selector matching against denial-of-service from positional pseudo-classes over large sibling lists. Previously, selectors such as `li:nth-child(odd)` and `li:last-of-type` could repeatedly rebuild or rescan sibling lists and consume disproportionate CPU.
 - (Severity: Low) Harden selector matching against denial-of-service from adjacent sibling selectors over large sibling lists. Previously, selectors such as `em + span` could repeatedly rescan previous siblings and consume disproportionate CPU.
 - (Severity: Low) Harden selector matching against denial-of-service from general sibling selectors over large sibling lists. Previously, selectors such as `em ~ span` could repeatedly rescan previous siblings and consume disproportionate CPU.
 - (Severity: Low) Harden selector matching against denial-of-service from deeply nested `:not(...)` selectors. Previously, attacker-controlled selector strings could exhaust Python recursion and raise `RecursionError` during query evaluation.

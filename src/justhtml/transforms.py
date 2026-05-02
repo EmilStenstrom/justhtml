@@ -1738,7 +1738,7 @@ def apply_compiled_transforms(
 
     token = _ERROR_SINK.set(errors)
     try:
-        matcher = SelectorMatcher()
+        matcher = SelectorMatcher(cache_enabled=False)
         terminal_sanitize_policy: SanitizationPolicy | None = None
 
         def apply_walk_transforms(

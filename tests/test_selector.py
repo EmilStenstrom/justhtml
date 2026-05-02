@@ -1604,6 +1604,26 @@ class TestAdditionalCoverage(SelectorTestCase):
 
         assert matcher._previous_element_sibling(p) is None
 
+    def test_selector_matcher_cache_disabled_helpers(self):
+        matcher = SelectorMatcher(cache_enabled=False)
+        doc = JustHTML("<div><em></em><!--x--><span></span><span></span></div>", fragment=True).root
+        em = query(doc, "em")[0]
+        first_span, second_span = query(doc, "span")
+        compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_TAG, name="em")])
+
+        assert matcher._get_element_children(em.parent) == [em, first_span, second_span]
+        assert matcher._previous_element_sibling(first_span) is em
+        assert matcher._previous_matching_sibling(first_span, compound, depth=0) is em
+        assert matcher._previous_matching_sibling(second_span, compound, depth=0) is em
+
+        detached = JustHTML("<span></span>", fragment=True).root.children[0]
+        assert matcher._previous_matching_sibling(detached, compound, depth=0) is None
+
+        original_children = em.parent.children
+        em.parent.children = [first_span]
+        assert matcher._previous_matching_sibling(em, compound, depth=0) is None
+        em.parent.children = original_children
+
     def test_nth_child_invalid_just_b(self):
         # Lines 808-809: Invalid b part (just a number but invalid)
         doc = JustHTML("<html><body><ul><li>1</li><li>2</li></ul></body></html>").root
@@ -1819,6 +1839,14 @@ class TestSelectorSecurity(SelectorTestCase):
 
         start = perf_counter()
         assert len(query(doc, "em + span")) == 3_000
+        assert perf_counter() - start < 0.25
+
+    def test_positional_pseudo_classes_do_not_rescan_siblings(self):
+        doc = JustHTML("<ul>" + "<li></li>" * 5_000 + "</ul>").root
+
+        start = perf_counter()
+        assert len(query(doc, "li:nth-child(odd)")) == 2_500
+        assert len(query(doc, "li:last-of-type")) == 1
         assert perf_counter() - start < 0.25
 
 

@@ -531,11 +531,26 @@ class SelectorParser:
 class SelectorMatcher:
     """Matches selectors against DOM nodes."""
 
-    __slots__ = ("_previous_match_cache", "_previous_sibling_cache")
+    __slots__ = (
+        "_cache_enabled",
+        "_element_children_cache",
+        "_element_index_cache",
+        "_first_of_type_cache",
+        "_last_of_type_cache",
+        "_previous_match_cache",
+        "_previous_sibling_cache",
+        "_type_index_cache",
+    )
 
-    def __init__(self) -> None:
+    def __init__(self, *, cache_enabled: bool = True) -> None:
+        self._cache_enabled = cache_enabled
+        self._element_children_cache: dict[int, list[Any]] = {}
+        self._element_index_cache: dict[int, dict[int, int]] = {}
+        self._first_of_type_cache: dict[int, dict[str, Any]] = {}
+        self._last_of_type_cache: dict[int, dict[str, Any]] = {}
         self._previous_match_cache: dict[tuple[int, int, int], dict[int, Any | None]] = {}
         self._previous_sibling_cache: dict[int, dict[int, Any | None]] = {}
+        self._type_index_cache: dict[int, dict[int, int]] = {}
 
     def _unquote_pseudo_arg(self, arg: str) -> str:
         arg = arg.strip()
@@ -781,7 +796,49 @@ class SelectorMatcher:
         """Get only element children (exclude text, comments, etc.)."""
         if not parent or not parent.has_child_nodes():
             return []
-        return [c for c in parent.children if not c.name.startswith("#")]
+
+        if not self._cache_enabled:
+            return [c for c in parent.children if not c.name.startswith("#")]
+
+        parent_key = id(parent)
+        cached = self._element_children_cache.get(parent_key)
+        if cached is None:
+            cached = [c for c in parent.children if not c.name.startswith("#")]
+            self._element_children_cache[parent_key] = cached
+        return cached
+
+    def _element_index_map(self, parent: Any) -> dict[int, int]:
+        parent_key = id(parent)
+        cached = self._element_index_cache.get(parent_key)
+        if cached is None:
+            cached = {id(child): index for index, child in enumerate(self._get_element_children(parent), start=1)}
+            self._element_index_cache[parent_key] = cached
+        return cached
+
+    def _type_position_data(self, parent: Any) -> tuple[dict[str, Any], dict[str, Any], dict[int, int]]:
+        parent_key = id(parent)
+        first_by_type = self._first_of_type_cache.get(parent_key)
+        last_by_type = self._last_of_type_cache.get(parent_key)
+        type_index_by_node = self._type_index_cache.get(parent_key)
+
+        if first_by_type is None or last_by_type is None or type_index_by_node is None:
+            first_by_type = {}
+            last_by_type = {}
+            type_index_by_node = {}
+            counts: dict[str, int] = {}
+            for child in self._get_element_children(parent):
+                child_name = child.name.lower()
+                count = counts.get(child_name, 0) + 1
+                counts[child_name] = count
+                type_index_by_node[id(child)] = count
+                first_by_type.setdefault(child_name, child)
+                last_by_type[child_name] = child
+
+            self._first_of_type_cache[parent_key] = first_by_type
+            self._last_of_type_cache[parent_key] = last_by_type
+            self._type_index_cache[parent_key] = type_index_by_node
+
+        return first_by_type, last_by_type, type_index_by_node
 
     def _get_previous_sibling(self, node: Any) -> Any | None:
         """Get the previous element sibling. Returns None if node is first or not found."""
@@ -802,6 +859,9 @@ class SelectorMatcher:
         if not parent:
             return None
 
+        if not self._cache_enabled:
+            return self._get_previous_sibling(node)
+
         parent_key = id(parent)
         cached = self._previous_sibling_cache.get(parent_key)
         if cached is None:
@@ -818,6 +878,15 @@ class SelectorMatcher:
     def _previous_matching_sibling(self, node: Any, compound: CompoundSelector, *, depth: int) -> Any | None:
         parent = node.parent
         if not parent:
+            return None
+
+        if not self._cache_enabled:
+            prev_match: Any | None = None
+            for child in parent.children:
+                if child is node:
+                    return prev_match
+                if not child.name.startswith("#") and self._matches_compound(child, compound, depth=depth):
+                    prev_match = child
             return None
 
         cache_key = (id(parent), id(compound), depth)
@@ -855,10 +924,8 @@ class SelectorMatcher:
         if not parent:
             return False
         node_name = node.name.lower()
-        for child in self._get_element_children(parent):
-            if child.name.lower() == node_name:
-                return child is node
-        return False
+        first_by_type, _, _ = self._type_position_data(parent)
+        return first_by_type.get(node_name) is node
 
     def _is_last_of_type(self, node: Any) -> bool:
         """Check if node is the last sibling of its type."""
@@ -866,11 +933,8 @@ class SelectorMatcher:
         if not parent:
             return False
         node_name = node.name.lower()
-        last_of_type: Any | None = None
-        for child in self._get_element_children(parent):
-            if child.name.lower() == node_name:
-                last_of_type = child
-        return last_of_type is node
+        _, last_by_type, _ = self._type_position_data(parent)
+        return last_by_type.get(node_name) is node
 
     def _parse_nth_expression(self, expr: str | None) -> tuple[int, int] | None:
         """Parse an nth-child expression like '2n+1', 'odd', 'even', '3'."""
@@ -944,11 +1008,8 @@ class SelectorMatcher:
             return False
         a, b = parsed
 
-        elements = self._get_element_children(parent)
-        for i, child in enumerate(elements):
-            if child is node:
-                return self._matches_nth(i + 1, a, b)
-        return False
+        index = self._element_index_map(parent).get(id(node))
+        return False if index is None else self._matches_nth(index, a, b)
 
     def _matches_nth_of_type(self, node: Any, arg: str | None) -> bool:
         """Match :nth-of-type(An+B)."""
@@ -961,15 +1022,9 @@ class SelectorMatcher:
             return False
         a, b = parsed
 
-        node_name = node.name.lower()
-        elements = self._get_element_children(parent)
-        type_index = 0
-        for child in elements:
-            if child.name.lower() == node_name:
-                type_index += 1
-                if child is node:
-                    return self._matches_nth(type_index, a, b)
-        return False
+        _, _, type_index_by_node = self._type_position_data(parent)
+        type_index = type_index_by_node.get(id(node))
+        return False if type_index is None else self._matches_nth(type_index, a, b)
 
 
 def parse_selector(selector_string: str) -> ParsedSelector:
