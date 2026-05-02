@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Harden selector matching against denial-of-service from descendant selectors over deeply nested trees. Previously, selectors such as `em div` could repeatedly rescan ancestor chains for each candidate and consume disproportionate CPU.
 - (Severity: Low) Harden selector parsing against memory denial-of-service from oversized selectors. Previously, very large attacker-controlled selector strings could enter the selector parse cache and be retained process-wide.
 - (Severity: Low) Ensure query-time selector parsing also enforces oversized-selector protections. Previously, `query(...)` could bypass the public selector-length guard and send very large attacker-controlled selector strings directly into the parse cache.
 - (Severity: Low) Harden selector parsing against denial-of-service from oversized comma-separated selector lists. Previously, attacker-controlled selector strings could fit within the existing length cap yet still force hundreds of distinct selector evaluations and consume disproportionate CPU.

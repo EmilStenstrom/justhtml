@@ -555,6 +555,7 @@ class SelectorMatcher:
     """Matches selectors against DOM nodes."""
 
     __slots__ = (
+        "_ancestor_match_cache",
         "_cache_enabled",
         "_element_children_cache",
         "_element_index_cache",
@@ -567,6 +568,7 @@ class SelectorMatcher:
     )
 
     def __init__(self, *, cache_enabled: bool = True) -> None:
+        self._ancestor_match_cache: dict[tuple[int, int], dict[int, Any | None]] = {}
         self._cache_enabled = cache_enabled
         self._element_children_cache: dict[int, list[Any]] = {}
         self._element_index_cache: dict[int, dict[int, int]] = {}
@@ -622,16 +624,10 @@ class SelectorMatcher:
             prev_compound = parts[i][1]
 
             if combinator == " ":  # Descendant
-                found = False
-                ancestor = current.parent
-                while ancestor:
-                    if self._matches_compound(ancestor, prev_compound, depth=depth):
-                        current = ancestor
-                        found = True
-                        break
-                    ancestor = ancestor.parent
-                if not found:
+                ancestor = self._closest_matching_ancestor(current, prev_compound, depth=depth)
+                if ancestor is None:
                     return False
+                current = ancestor
 
             elif combinator == ">":  # Child
                 parent = current.parent
@@ -925,6 +921,44 @@ class SelectorMatcher:
             self._previous_match_cache[cache_key] = cached
 
         return cached.get(id(node))
+
+    def _closest_matching_ancestor(self, node: Any, compound: CompoundSelector, *, depth: int) -> Any | None:
+        if not self._cache_enabled:
+            ancestor = node.parent
+            while ancestor:
+                if self._matches_compound(ancestor, compound, depth=depth):
+                    return ancestor
+                ancestor = ancestor.parent
+            return None
+
+        cache_key = (id(compound), depth)
+        cached = self._ancestor_match_cache.get(cache_key)
+        if cached is None:
+            cached = {}
+            self._ancestor_match_cache[cache_key] = cached
+
+        node_key = id(node)
+        if node_key in cached:
+            return cached[node_key]
+
+        path: list[Any] = []
+        ancestor = node.parent
+        found: Any | None = None
+        while ancestor:
+            ancestor_key = id(ancestor)
+            if ancestor_key in cached:
+                found = cached[ancestor_key]
+                break
+            if self._matches_compound(ancestor, compound, depth=depth):
+                found = ancestor
+                break
+            path.append(ancestor)
+            ancestor = ancestor.parent
+
+        cached[node_key] = found
+        for path_node in path:
+            cached[id(path_node)] = found
+        return found
 
     def _text_content(self, node: Any) -> str:
         if not self._cache_enabled:

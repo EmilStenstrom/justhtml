@@ -1625,6 +1625,39 @@ class TestAdditionalCoverage(SelectorTestCase):
         assert matcher._previous_matching_sibling(em, compound, depth=0) is None
         em.parent.children = original_children
 
+    def test_selector_matcher_ancestor_cache_helpers(self):
+        matcher = SelectorMatcher()
+        doc = JustHTML("<main><section><div><span></span></div></section></main>", fragment=True).root
+        main = query(doc, "main")[0]
+        span = query(doc, "span")[0]
+        compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_TAG, name="main")])
+
+        assert matcher._closest_matching_ancestor(span, compound, depth=0) is main
+        assert matcher._closest_matching_ancestor(span, compound, depth=0) is main
+
+    def test_selector_matcher_ancestor_cache_disabled_helper(self):
+        matcher = SelectorMatcher(cache_enabled=False)
+        doc = JustHTML("<main><section><span></span></section></main>", fragment=True).root
+        main = query(doc, "main")[0]
+        span = query(doc, "span")[0]
+        compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_TAG, name="main")])
+
+        assert matcher._closest_matching_ancestor(span, compound, depth=0) is main
+
+    def test_selector_matcher_ancestor_cache_disabled_no_match(self):
+        matcher = SelectorMatcher(cache_enabled=False)
+        span = query(JustHTML("<section><span></span></section>", fragment=True).root, "span")[0]
+        compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_TAG, name="main")])
+
+        assert matcher._closest_matching_ancestor(span, compound, depth=0) is None
+
+    def test_selector_matcher_ancestor_without_parent(self):
+        matcher = SelectorMatcher()
+        span = JustHTML("<span></span>", fragment=True).root.children[0]
+        compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_TAG, name="main")])
+
+        assert matcher._closest_matching_ancestor(span, compound, depth=0) is None
+
     def test_selector_matcher_text_content_cache_helpers(self):
         matcher = SelectorMatcher()
         root = Element("div", {}, "html")
@@ -1933,6 +1966,13 @@ class TestSelectorSecurity(SelectorTestCase):
 
         with self.assertRaisesRegex(SelectorError, "too many entries"):
             query(self.get_simple_doc(), selector)
+
+    def test_descendant_selector_does_not_rescan_ancestor_chains(self):
+        doc = JustHTML("<div>" * 2_000 + "x" + "</div>" * 2_000).root
+
+        start = perf_counter()
+        assert query(doc, "em div") == []
+        assert perf_counter() - start < 0.25
 
 
 class TestJustHTMLMethods(unittest.TestCase):
