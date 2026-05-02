@@ -531,10 +531,11 @@ class SelectorParser:
 class SelectorMatcher:
     """Matches selectors against DOM nodes."""
 
-    __slots__ = ("_previous_match_cache",)
+    __slots__ = ("_previous_match_cache", "_previous_sibling_cache")
 
     def __init__(self) -> None:
         self._previous_match_cache: dict[tuple[int, int, int], dict[int, Any | None]] = {}
+        self._previous_sibling_cache: dict[int, dict[int, Any | None]] = {}
 
     def _unquote_pseudo_arg(self, arg: str) -> str:
         arg = arg.strip()
@@ -599,7 +600,7 @@ class SelectorMatcher:
                 current = parent
 
             elif combinator == "+":  # Adjacent sibling
-                sibling = self._get_previous_sibling(current)
+                sibling = self._previous_element_sibling(current)
                 if not sibling or not self._matches_compound(sibling, prev_compound, depth=depth):
                     return False
                 current = sibling
@@ -795,6 +796,24 @@ class SelectorMatcher:
             if not child.name.startswith("#"):
                 prev = child
         return None  # node not in parent.children (detached)
+
+    def _previous_element_sibling(self, node: Any) -> Any | None:
+        parent = node.parent
+        if not parent:
+            return None
+
+        parent_key = id(parent)
+        cached = self._previous_sibling_cache.get(parent_key)
+        if cached is None:
+            cached = {}
+            prev: Any | None = None
+            for child in parent.children:
+                cached[id(child)] = prev
+                if not child.name.startswith("#"):
+                    prev = child
+            self._previous_sibling_cache[parent_key] = cached
+
+        return cached.get(id(node))
 
     def _previous_matching_sibling(self, node: Any, compound: CompoundSelector, *, depth: int) -> Any | None:
         parent = node.parent

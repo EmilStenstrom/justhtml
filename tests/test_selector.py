@@ -1558,6 +1558,20 @@ class TestAdditionalCoverage(SelectorTestCase):
         result = matcher._get_previous_sibling(first_li)
         assert result is None
 
+    def test_get_previous_sibling_returns_previous_element(self):
+        matcher = SelectorMatcher()
+        doc = JustHTML("<html><body><ul><li>First</li><li>Second</li></ul></body></html>").root
+        first_li, second_li = query(doc, "li")
+
+        assert matcher._get_previous_sibling(second_li) is first_li
+
+    def test_get_previous_sibling_skips_non_elements(self):
+        matcher = SelectorMatcher()
+        doc = JustHTML("<html><body><ul><!--x--><li>First</li></ul></body></html>").root
+        first_li = query(doc, "li")[0]
+
+        assert matcher._get_previous_sibling(first_li) is None
+
     def test_get_previous_sibling_detached_node(self):
         # Test with a node that's been detached from its parent's children list
         # This tests the defensive return None at the end
@@ -1581,6 +1595,14 @@ class TestAdditionalCoverage(SelectorTestCase):
         compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_TAG, name="em")])
 
         assert matcher._previous_matching_sibling(p, compound, depth=0) is None
+
+    def test_previous_element_sibling_without_parent(self):
+        matcher = SelectorMatcher()
+        doc = JustHTML("<p>Para</p>", fragment=True).root
+        p = query(doc, "p")[0]
+        p.parent = None
+
+        assert matcher._previous_element_sibling(p) is None
 
     def test_nth_child_invalid_just_b(self):
         # Lines 808-809: Invalid b part (just a number but invalid)
@@ -1790,6 +1812,13 @@ class TestSelectorSecurity(SelectorTestCase):
 
         start = perf_counter()
         assert query(doc, "em ~ span") == []
+        assert perf_counter() - start < 0.25
+
+    def test_adjacent_sibling_selector_does_not_rescan_previous_siblings(self):
+        doc = JustHTML("<div>" + "".join("<em></em><span></span>" for _ in range(3_000)) + "</div>").root
+
+        start = perf_counter()
+        assert len(query(doc, "em + span")) == 3_000
         assert perf_counter() - start < 0.25
 
 
