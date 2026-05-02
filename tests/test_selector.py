@@ -1995,6 +1995,13 @@ class TestSelectorSecurity(SelectorTestCase):
 
         assert isinstance(parsed, ComplexSelector)
 
+    def test_repeated_compound_simple_selectors_are_deduplicated(self):
+        parsed = parse_selector(":not(em):not(em).a.a[data-x~=y][data-x~=y]")
+
+        assert isinstance(parsed, ComplexSelector)
+        selectors = parsed.parts[0][1].selectors
+        assert len(selectors) == 3
+
     def test_repeated_selector_list_entries_do_not_multiply_match_work(self):
         doc = JustHTML("<div>" + "<span></span>" * 3_000 + "</div>").root
         selector = ",".join(["em+span"] * 1_000)
@@ -2024,6 +2031,14 @@ class TestSelectorSecurity(SelectorTestCase):
 
         start = perf_counter()
         assert len(query(doc, selector)) == 1_000
+        assert perf_counter() - start < 0.25
+
+    def test_repeated_compound_pseudos_do_not_multiply_match_work(self):
+        doc = JustHTML("<div></div>" * 3_000).root
+        selector = ":not(em)" * 700
+
+        start = perf_counter()
+        assert len(query(doc, selector)) == 3_003
         assert perf_counter() - start < 0.25
 
     def test_attribute_word_selector_does_not_retokenize_attribute_values(self):

@@ -484,34 +484,41 @@ class SelectorParser:
     def _parse_compound_selector(self) -> CompoundSelector | None:
         """Parse a compound selector (sequence of simple selectors)."""
         simple_selectors: list[SimpleSelector] = []
+        seen_signatures: set[tuple[Any, ...]] = set()
 
         while True:
             token = self._peek()
+            simple: SimpleSelector | None = None
 
             if token.type == TokenType.TAG:
                 self._advance()
-                simple_selectors.append(SimpleSelector(SimpleSelector.TYPE_TAG, name=token.value))
+                simple = SimpleSelector(SimpleSelector.TYPE_TAG, name=token.value)
 
             elif token.type == TokenType.UNIVERSAL:
                 self._advance()
-                simple_selectors.append(SimpleSelector(SimpleSelector.TYPE_UNIVERSAL))
+                simple = SimpleSelector(SimpleSelector.TYPE_UNIVERSAL)
 
             elif token.type == TokenType.ID:
                 self._advance()
-                simple_selectors.append(SimpleSelector(SimpleSelector.TYPE_ID, name=token.value))
+                simple = SimpleSelector(SimpleSelector.TYPE_ID, name=token.value)
 
             elif token.type == TokenType.CLASS:
                 self._advance()
-                simple_selectors.append(SimpleSelector(SimpleSelector.TYPE_CLASS, name=token.value))
+                simple = SimpleSelector(SimpleSelector.TYPE_CLASS, name=token.value)
 
             elif token.type == TokenType.ATTR_START:
-                simple_selectors.append(self._parse_attribute_selector())
+                simple = self._parse_attribute_selector()
 
             elif token.type == TokenType.COLON:
-                simple_selectors.append(self._parse_pseudo_selector())
+                simple = self._parse_pseudo_selector()
 
             else:
                 break
+
+            simple_sig = _simple_selector_signature(simple)
+            if simple_sig not in seen_signatures:
+                seen_signatures.add(simple_sig)
+                simple_selectors.append(simple)
 
         if not simple_selectors:
             return None
