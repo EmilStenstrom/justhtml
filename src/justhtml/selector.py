@@ -13,6 +13,7 @@ class SelectorError(ValueError):
 
 _MAX_SELECTOR_MATCH_DEPTH = 100
 _MAX_SELECTOR_LENGTH = 8192
+_MAX_SELECTOR_LIST_ITEMS = 256
 
 
 # Token types for the CSS selector lexer
@@ -448,6 +449,8 @@ class SelectorParser:
                 selector_sig = _complex_selector_signature(selector)
                 if selector_sig in seen_signatures:
                     continue
+                if len(seen_signatures) >= _MAX_SELECTOR_LIST_ITEMS:
+                    raise SelectorError("Selector list has too many entries")
                 seen_signatures.add(selector_sig)
                 selectors.append(selector)
 

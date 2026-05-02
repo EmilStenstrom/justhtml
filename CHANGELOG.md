@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - (Severity: Low) Harden selector parsing against memory denial-of-service from oversized selectors. Previously, very large attacker-controlled selector strings could enter the selector parse cache and be retained process-wide.
+- (Severity: Low) Harden selector parsing against denial-of-service from oversized comma-separated selector lists. Previously, attacker-controlled selector strings could fit within the existing length cap yet still force hundreds of distinct selector evaluations and consume disproportionate CPU.
 - (Severity: Low) Harden selector matching against denial-of-service from repeated comma-separated selector lists. Previously, attacker-controlled selectors such as `em+span,em+span,...` could fit within the existing selector-length cap yet still multiply identical match work and consume disproportionate CPU.
 - (Severity: Low) Harden selector matching against denial-of-service from `:contains(...)` selectors over deeply nested content. Previously, selectors such as `div:contains("needle")` could repeatedly rebuild descendant text for each ancestor and consume disproportionate CPU.
 - (Severity: Low) Harden selector matching against denial-of-service from positional pseudo-classes over large sibling lists. Previously, selectors such as `li:nth-child(odd)` and `li:last-of-type` could repeatedly rebuild or rescan sibling lists and consume disproportionate CPU.

@@ -1897,6 +1897,16 @@ class TestSelectorSecurity(SelectorTestCase):
 
         assert _parse_selector_cached.cache_info().currsize == 0
 
+    def test_oversized_selector_list_is_rejected_before_matching(self):
+        _parse_selector_cached.cache_clear()
+
+        selector = ",".join(f"em+i{n}" for n in range(300))
+
+        with self.assertRaisesRegex(SelectorError, "too many entries"):
+            parse_selector(selector)
+
+        assert _parse_selector_cached.cache_info().currsize == 0
+
     def test_repeated_selector_list_entries_are_deduplicated(self):
         parsed = parse_selector(",".join(["em + span"] * 5))
 
@@ -1909,6 +1919,12 @@ class TestSelectorSecurity(SelectorTestCase):
         start = perf_counter()
         assert query(doc, selector) == []
         assert perf_counter() - start < 0.25
+
+    def test_large_distinct_selector_list_is_rejected(self):
+        selector = ",".join(f"em+i{n}" for n in range(300))
+
+        with self.assertRaisesRegex(SelectorError, "too many entries"):
+            query(self.get_simple_doc(), selector)
 
 
 class TestJustHTMLMethods(unittest.TestCase):
