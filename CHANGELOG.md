@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- (Severity: Low) Harden linkification against denial-of-service from punctuation-heavy input. Previously, long attacker-controlled runs of punctuation such as quotes, hyphens, periods, or exclamation marks could trigger quadratic scanning in the fuzzy email matcher.
+
 ## [1.17.0] - 2026-04-19
 
 ### Security

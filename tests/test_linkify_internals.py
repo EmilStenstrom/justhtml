@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from time import perf_counter
 
 from justhtml import linkify as linkify_mod
 from justhtml.linkify import LinkifyConfig, find_links, find_links_with_config
@@ -65,6 +66,13 @@ class TestLinkifyInternals(unittest.TestCase):
         m2 = find_links_with_config("See //user@a.com:8080/x", LinkifyConfig())
         assert any(x.href == "//user@a.com:8080/x" for x in m2)
 
+    def test_punctuation_runs_do_not_trigger_quadratic_email_scan(self) -> None:
+        for ch in ('"', "-", ".", "!"):
+            with self.subTest(ch=ch):
+                start = perf_counter()
+                assert find_links_with_config(ch * 20_000, LinkifyConfig()) == []
+                assert perf_counter() - start < 0.25
+
     def test_overlap_and_unreachable_continues_via_stubs(self) -> None:
         class _FakeMatch:
             __slots__ = ("_cand", "_end2", "_start2")
@@ -118,6 +126,11 @@ class TestLinkifyInternals(unittest.TestCase):
             linkify_mod._strip_wrapping = lambda s: (s, 0, 0)  # type: ignore[assignment]
             linkify_mod._CANDIDATE_RE = _FakePattern([_FakeMatch("'", start2=1, end2=2)])  # type: ignore[assignment]
             assert find_links_with_config("'", LinkifyConfig()) == []
+
+            linkify_mod._CANDIDATE_RE = _FakePattern([_FakeMatch("'example.com", start2=1, end2=13)])  # type: ignore[assignment]
+            quoted_out = find_links_with_config("'example.com", LinkifyConfig())
+            assert len(quoted_out) == 1
+            assert quoted_out[0].text == "example.com"
 
             # Force the broken-schema slice (start-3:start == "://") branch.
             linkify_mod._strip_wrapping = orig_strip  # type: ignore[assignment]

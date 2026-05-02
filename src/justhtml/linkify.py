@@ -69,7 +69,7 @@ _CANDIDATE_PATTERN: Final[str] = "".join(
         r"|mailto:[^\s<>\uFF5C]+",  # mailto
         r"|//[^\s<>\uFF5C]+",  # protocol-relative
         r"|(?:www\.)[^\s<>\uFF5C]+",  # www.
-        rf"|[0-9A-Za-z.!#$%&'*+/=?^_`{{|}}~\-\"]+@(?:{_LABEL_RE}\.)+{_LABEL_RE}",  # email
+        rf"|[0-9A-Za-z][0-9A-Za-z.!#$%&'*+/=?^_`{{|}}~\-\"]*@(?:{_LABEL_RE}\.)+{_LABEL_RE}",  # email
         r"|(?:\d{1,3}\.){3}\d{1,3}(?:/[^\s<>\uFF5C]*)?",  # IPv4
         rf"|(?:{_LABEL_RE}\.)+{_LABEL_RE}(?:/[^\s<>\uFF5C]*)?",  # fuzzy domain/path
         r")",
