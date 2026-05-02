@@ -14,6 +14,7 @@ class SelectorError(ValueError):
 _MAX_SELECTOR_MATCH_DEPTH = 100
 _MAX_SELECTOR_LENGTH = 8192
 _MAX_SELECTOR_LIST_ITEMS = 256
+_MAX_COMPOUND_SIMPLE_SELECTORS = 512
 
 
 # Token types for the CSS selector lexer
@@ -517,6 +518,8 @@ class SelectorParser:
 
             simple_sig = _simple_selector_signature(simple)
             if simple_sig not in seen_signatures:
+                if len(seen_signatures) >= _MAX_COMPOUND_SIMPLE_SELECTORS:
+                    raise SelectorError("Compound selector has too many simple selectors")
                 seen_signatures.add(simple_sig)
                 simple_selectors.append(simple)
 

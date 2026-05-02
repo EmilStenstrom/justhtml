@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Harden selector parsing against denial-of-service from oversized compound selectors. Previously, attacker-controlled selectors with hundreds of distinct simple selectors in one compound, such as `.c0.c1.c2...`, could fit within the selector-length cap and consume disproportionate CPU during matching.
 - (Severity: Low) Harden descendant-combinator matching against denial-of-service from cyclic programmatic parent chains. Previously, selectors such as `em span` could loop indefinitely while walking malformed `parent` links.
 - (Severity: Low) Harden selector traversal against denial-of-service from cyclic or shared programmatic DOM graphs. Previously, `query(...)` could revisit the same node indefinitely or return duplicate matches when handed a malformed graph with cycles or repeated child references.
 - (Severity: Low) Harden selector matching against denial-of-service from repeated `:nth-child(...)` expression parsing. Previously, large or malformed An+B expressions could be reparsed for every candidate node and consume disproportionate CPU.

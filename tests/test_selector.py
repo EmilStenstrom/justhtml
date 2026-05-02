@@ -2028,6 +2028,21 @@ class TestSelectorSecurity(SelectorTestCase):
         selectors = parsed.parts[0][1].selectors
         assert len(selectors) == 3
 
+    def test_oversized_compound_selector_is_rejected_before_matching(self):
+        _parse_selector_cached.cache_clear()
+        selector = "".join(f".c{i}" for i in range(600))
+
+        with self.assertRaisesRegex(SelectorError, "too many simple selectors"):
+            parse_selector(selector)
+
+        assert _parse_selector_cached.cache_info().currsize == 0
+
+    def test_query_rejects_oversized_compound_selector(self):
+        selector = "".join(f".c{i}" for i in range(600))
+
+        with self.assertRaisesRegex(SelectorError, "too many simple selectors"):
+            query(self.get_simple_doc(), selector)
+
     def test_repeated_selector_list_entries_do_not_multiply_match_work(self):
         doc = JustHTML("<div>" + "<span></span>" * 3_000 + "</div>").root
         selector = ",".join(["em+span"] * 1_000)
