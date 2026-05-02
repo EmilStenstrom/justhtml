@@ -1897,6 +1897,19 @@ class TestSelectorSecurity(SelectorTestCase):
 
         assert _parse_selector_cached.cache_info().currsize == 0
 
+    def test_repeated_selector_list_entries_are_deduplicated(self):
+        parsed = parse_selector(",".join(["em + span"] * 5))
+
+        assert isinstance(parsed, ComplexSelector)
+
+    def test_repeated_selector_list_entries_do_not_multiply_match_work(self):
+        doc = JustHTML("<div>" + "<span></span>" * 3_000 + "</div>").root
+        selector = ",".join(["em+span"] * 1_000)
+
+        start = perf_counter()
+        assert query(doc, selector) == []
+        assert perf_counter() - start < 0.25
+
 
 class TestJustHTMLMethods(unittest.TestCase):
     """Test JustHTML convenience methods that delegate to root."""

@@ -385,6 +385,18 @@ class SelectorList:
         return f"SelectorList({self.selectors!r})"
 
 
+def _simple_selector_signature(selector: SimpleSelector) -> tuple[Any, ...]:
+    return (selector.type, selector.name, selector.operator, selector.value, selector.arg)
+
+
+def _compound_selector_signature(selector: CompoundSelector) -> tuple[Any, ...]:
+    return tuple(_simple_selector_signature(simple) for simple in selector.selectors)
+
+
+def _complex_selector_signature(selector: ComplexSelector) -> tuple[Any, ...]:
+    return tuple((combinator, _compound_selector_signature(compound)) for combinator, compound in selector.parts)
+
+
 # Type alias for parsed selectors
 ParsedSelector = ComplexSelector | SelectorList
 
@@ -420,16 +432,23 @@ class SelectorParser:
     def parse(self) -> ParsedSelector:
         """Parse a complete selector (possibly comma-separated list)."""
         selectors: list[ComplexSelector] = []
+        seen_signatures: set[tuple[Any, ...]] = set()
         # parse_selector() validates non-empty input, so first selector always exists
         first = self._parse_complex_selector()
         if first is None:  # pragma: no cover
             raise SelectorError("Empty selector")
+        first_sig = _complex_selector_signature(first)
+        seen_signatures.add(first_sig)
         selectors.append(first)
 
         while self._peek().type == TokenType.COMMA:
             self._advance()  # consume comma
             selector = self._parse_complex_selector()
             if selector:
+                selector_sig = _complex_selector_signature(selector)
+                if selector_sig in seen_signatures:
+                    continue
+                seen_signatures.add(selector_sig)
                 selectors.append(selector)
 
         if self._peek().type != TokenType.EOF:
