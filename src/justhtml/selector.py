@@ -557,6 +557,7 @@ class SelectorMatcher:
     __slots__ = (
         "_ancestor_match_cache",
         "_cache_enabled",
+        "_class_token_cache",
         "_element_children_cache",
         "_element_index_cache",
         "_first_of_type_cache",
@@ -570,6 +571,7 @@ class SelectorMatcher:
     def __init__(self, *, cache_enabled: bool = True) -> None:
         self._ancestor_match_cache: dict[tuple[int, int], dict[int, Any | None]] = {}
         self._cache_enabled = cache_enabled
+        self._class_token_cache: dict[int, frozenset[str]] = {}
         self._element_children_cache: dict[int, list[Any]] = {}
         self._element_index_cache: dict[int, dict[int, int]] = {}
         self._first_of_type_cache: dict[int, dict[str, Any]] = {}
@@ -677,9 +679,7 @@ class SelectorMatcher:
             return node_id == selector.name
 
         if sel_type == SimpleSelector.TYPE_CLASS:
-            class_attr = node.attrs.get("class", "") if node.attrs else ""
-            classes = class_attr.split() if class_attr else []
-            return selector.name in classes
+            return selector.name in self._class_tokens(node)
 
         if sel_type == SimpleSelector.TYPE_ATTR:
             return self._matches_attribute(node, selector)
@@ -688,6 +688,23 @@ class SelectorMatcher:
             return self._matches_pseudo(node, selector, depth=depth)
 
         return False
+
+    def _class_tokens(self, node: Any) -> frozenset[str]:
+        attrs = getattr(node, "attrs", None)
+        if not attrs:
+            return frozenset()
+
+        if not self._cache_enabled:
+            class_attr = attrs.get("class")
+            return frozenset(str(class_attr).split()) if class_attr else frozenset()
+
+        node_key = id(node)
+        cached = self._class_token_cache.get(node_key)
+        if cached is None:
+            class_attr = attrs.get("class")
+            cached = frozenset(str(class_attr).split()) if class_attr else frozenset()
+            self._class_token_cache[node_key] = cached
+        return cached
 
     def _matches_attribute(self, node: Any, selector: SimpleSelector) -> bool:
         """Match an attribute selector."""

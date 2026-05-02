@@ -1658,6 +1658,25 @@ class TestAdditionalCoverage(SelectorTestCase):
 
         assert matcher._closest_matching_ancestor(span, compound, depth=0) is None
 
+    def test_selector_matcher_class_token_cache_helpers(self):
+        matcher = SelectorMatcher()
+        div = query(JustHTML("<div class='alpha beta'></div>", fragment=True).root, "div")[0]
+
+        assert matcher._class_tokens(div) == frozenset({"alpha", "beta"})
+        assert matcher._class_tokens(div) == frozenset({"alpha", "beta"})
+
+    def test_selector_matcher_class_token_cache_disabled(self):
+        matcher = SelectorMatcher(cache_enabled=False)
+        div = query(JustHTML("<div class='alpha beta'></div>", fragment=True).root, "div")[0]
+
+        assert matcher._class_tokens(div) == frozenset({"alpha", "beta"})
+
+    def test_selector_matcher_class_tokens_without_attrs(self):
+        matcher = SelectorMatcher()
+        text = JustHTML("text", fragment=True).root.children[0]
+
+        assert matcher._class_tokens(text) == frozenset()
+
     def test_selector_matcher_text_content_cache_helpers(self):
         matcher = SelectorMatcher()
         root = Element("div", {}, "html")
@@ -1972,6 +1991,16 @@ class TestSelectorSecurity(SelectorTestCase):
 
         start = perf_counter()
         assert query(doc, "em div") == []
+        assert perf_counter() - start < 0.25
+
+    def test_compound_class_selector_does_not_retokenize_class_attributes(self):
+        class_attr = " ".join(f"c{i}" for i in range(300))
+        html = "".join(f'<div class="{class_attr}"></div>' for _ in range(1_000))
+        selector = "".join(f".c{i}" for i in range(100))
+        doc = JustHTML(html).root
+
+        start = perf_counter()
+        assert len(query(doc, selector)) == 1_000
         assert perf_counter() - start < 0.25
 
 
