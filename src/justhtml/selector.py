@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
@@ -11,11 +12,19 @@ class SelectorError(ValueError):
     """Raised when a CSS selector is invalid."""
 
 
-_MAX_SELECTOR_MATCH_DEPTH = 100
-_MAX_SELECTOR_LENGTH = 8192
-_MAX_SELECTOR_LIST_ITEMS = 256
-_MAX_COMPOUND_SIMPLE_SELECTORS = 512
-_MAX_COMPLEX_SELECTOR_PARTS = 512
+@dataclass(frozen=True, slots=True)
+class SelectorLimits:
+    """Central selector resource limits used during parsing and matching."""
+
+    max_match_depth: int = 100
+    max_length: int = 8192
+    max_list_items: int = 256
+    max_compound_simple_selectors: int = 512
+    max_complex_selector_parts: int = 512
+    max_match_steps: int = 100_000_000
+
+
+DEFAULT_SELECTOR_LIMITS = SelectorLimits()
 
 
 # Token types for the CSS selector lexer
@@ -451,7 +460,7 @@ class SelectorParser:
                 selector_sig = _complex_selector_signature(selector)
                 if selector_sig in seen_signatures:
                     continue
-                if len(seen_signatures) >= _MAX_SELECTOR_LIST_ITEMS:
+                if len(seen_signatures) >= DEFAULT_SELECTOR_LIMITS.max_list_items:
                     raise SelectorError("Selector list has too many entries")
                 seen_signatures.add(selector_sig)
                 selectors.append(selector)
@@ -479,7 +488,7 @@ class SelectorParser:
             compound = self._parse_compound_selector()
             if not compound:
                 raise SelectorError("Expected selector after combinator")
-            if len(complex_sel.parts) >= _MAX_COMPLEX_SELECTOR_PARTS:
+            if len(complex_sel.parts) >= DEFAULT_SELECTOR_LIMITS.max_complex_selector_parts:
                 raise SelectorError("Complex selector has too many parts")
             complex_sel.parts.append((combinator, compound))
 
@@ -521,7 +530,7 @@ class SelectorParser:
 
             simple_sig = _simple_selector_signature(simple)
             if simple_sig not in seen_signatures:
-                if len(seen_signatures) >= _MAX_COMPOUND_SIMPLE_SELECTORS:
+                if len(seen_signatures) >= DEFAULT_SELECTOR_LIMITS.max_compound_simple_selectors:
                     raise SelectorError("Compound selector has too many simple selectors")
                 seen_signatures.add(simple_sig)
                 simple_selectors.append(simple)
@@ -564,43 +573,65 @@ class SelectorParser:
         return SimpleSelector(SimpleSelector.TYPE_PSEUDO, name=name)
 
 
+@dataclass(slots=True)
+class NodeAttributeData:
+    """Cached selector-relevant attribute data for one node."""
+
+    attrs_lower: dict[str, str]
+    class_tokens: frozenset[str]
+    attr_tokens: dict[str, frozenset[str]] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ParentSelectorData:
+    """Cached selector-relevant child and sibling data for one parent."""
+
+    element_children: list[Any]
+    element_child_names: frozenset[str]
+    element_index: dict[int, int]
+    first_by_type: dict[str, Any]
+    last_by_type: dict[str, Any]
+    previous_sibling: dict[int, Any | None]
+    type_index: dict[int, int]
+
+
+@dataclass(slots=True)
+class SelectorQueryContext:
+    """Per-query selector state shared by matcher helpers."""
+
+    limits: SelectorLimits = DEFAULT_SELECTOR_LIMITS
+    ancestor_match_cache: dict[tuple[int, int], dict[int, Any | None]] = field(default_factory=dict)
+    node_attr_cache: dict[int, NodeAttributeData] = field(default_factory=dict)
+    parent_data_cache: dict[int, ParentSelectorData] = field(default_factory=dict)
+    nth_expression_cache: dict[str | None, tuple[int, int] | None] = field(default_factory=dict)
+    previous_match_cache: dict[tuple[int, int, int], dict[int, Any | None]] = field(default_factory=dict)
+    text_content_cache: dict[int, str] = field(default_factory=dict)
+    _remaining_match_steps: int = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._remaining_match_steps = self.limits.max_match_steps
+
+    def tick(self, steps: int = 1) -> None:
+        """Consume match budget for selector evaluation work."""
+        if steps <= 0:
+            return
+        self._remaining_match_steps -= steps
+        if self._remaining_match_steps < 0:
+            raise SelectorError("Selector match budget exceeded")
+
+
 class SelectorMatcher:
     """Matches selectors against DOM nodes."""
 
-    __slots__ = (
-        "_ancestor_match_cache",
-        "_attr_token_cache",
-        "_attrs_lower_cache",
-        "_cache_enabled",
-        "_class_token_cache",
-        "_element_child_name_cache",
-        "_element_children_cache",
-        "_element_index_cache",
-        "_first_of_type_cache",
-        "_last_of_type_cache",
-        "_nth_expression_cache",
-        "_previous_match_cache",
-        "_previous_sibling_cache",
-        "_text_content_cache",
-        "_type_index_cache",
-    )
+    __slots__ = ("_context",)
 
-    def __init__(self, *, cache_enabled: bool = True) -> None:
-        self._ancestor_match_cache: dict[tuple[int, int], dict[int, Any | None]] = {}
-        self._attr_token_cache: dict[tuple[int, str], frozenset[str]] = {}
-        self._attrs_lower_cache: dict[int, dict[str, str]] = {}
-        self._cache_enabled = cache_enabled
-        self._class_token_cache: dict[int, frozenset[str]] = {}
-        self._element_children_cache: dict[int, list[Any]] = {}
-        self._element_child_name_cache: dict[int, frozenset[str]] = {}
-        self._element_index_cache: dict[int, dict[int, int]] = {}
-        self._first_of_type_cache: dict[int, dict[str, Any]] = {}
-        self._last_of_type_cache: dict[int, dict[str, Any]] = {}
-        self._nth_expression_cache: dict[str | None, tuple[int, int] | None] = {}
-        self._previous_match_cache: dict[tuple[int, int, int], dict[int, Any | None]] = {}
-        self._previous_sibling_cache: dict[int, dict[int, Any | None]] = {}
-        self._text_content_cache: dict[int, str] = {}
-        self._type_index_cache: dict[int, dict[int, int]] = {}
+    def __init__(
+        self,
+        *,
+        context: SelectorQueryContext | None = None,
+        limits: SelectorLimits = DEFAULT_SELECTOR_LIMITS,
+    ) -> None:
+        self._context = context or SelectorQueryContext(limits=limits)
 
     def _unquote_pseudo_arg(self, arg: str) -> str:
         arg = arg.strip()
@@ -615,7 +646,8 @@ class SelectorMatcher:
         return self._matches(node, selector, depth=0)
 
     def _matches(self, node: Any, selector: ParsedSelector | CompoundSelector | SimpleSelector, *, depth: int) -> bool:
-        if depth > _MAX_SELECTOR_MATCH_DEPTH:
+        self._context.tick()
+        if depth > self._context.limits.max_match_depth:
             raise SelectorError("Selector nesting is too deep")
 
         if isinstance(selector, SelectorList):
@@ -678,6 +710,7 @@ class SelectorMatcher:
 
     def _matches_simple(self, node: Any, selector: SimpleSelector, *, depth: int = 0) -> bool:
         """Match a simple selector against a node."""
+        self._context.tick()
         # Non-element nodes only match explicit pseudo-classes (e.g. :comment)
         if not hasattr(node, "name"):
             return False
@@ -711,21 +744,8 @@ class SelectorMatcher:
         return False
 
     def _class_tokens(self, node: Any) -> frozenset[str]:
-        attrs = getattr(node, "attrs", None)
-        if not attrs:
-            return frozenset()
-
-        if not self._cache_enabled:
-            class_attr = attrs.get("class")
-            return frozenset(str(class_attr).split()) if class_attr else frozenset()
-
-        node_key = id(node)
-        cached = self._class_token_cache.get(node_key)
-        if cached is None:
-            class_attr = attrs.get("class")
-            cached = frozenset(str(class_attr).split()) if class_attr else frozenset()
-            self._class_token_cache[node_key] = cached
-        return cached
+        data = self._node_attribute_data(node)
+        return data.class_tokens if data else frozenset()
 
     def _matches_attribute(self, node: Any, selector: SimpleSelector) -> bool:
         """Match an attribute selector."""
@@ -768,18 +788,24 @@ class SelectorMatcher:
         return False
 
     def _lowercase_attrs(self, node: Any) -> dict[str, str]:
+        data = self._node_attribute_data(node)
+        return data.attrs_lower if data else {}
+
+    def _node_attribute_data(self, node: Any) -> NodeAttributeData | None:
         attrs = getattr(node, "attrs", None)
         if not attrs:
-            return {}
-
-        if not self._cache_enabled:
-            return {str(name).lower(): "" if value is None else str(value) for name, value in attrs.items()}
+            return None
 
         node_key = id(node)
-        cached = self._attrs_lower_cache.get(node_key)
+        cached = self._context.node_attr_cache.get(node_key)
         if cached is None:
-            cached = {str(name).lower(): "" if value is None else str(value) for name, value in attrs.items()}
-            self._attrs_lower_cache[node_key] = cached
+            attrs_lower = {str(name).lower(): "" if value is None else str(value) for name, value in attrs.items()}
+            class_attr = attrs.get("class")
+            cached = NodeAttributeData(
+                attrs_lower=attrs_lower,
+                class_tokens=frozenset(str(class_attr).split()) if class_attr else frozenset(),
+            )
+            self._context.node_attr_cache[node_key] = cached
         return cached
 
     def _attribute_value(self, node: Any, attr_name: str) -> str | None:
@@ -789,14 +815,14 @@ class SelectorMatcher:
         if not attr_value:
             return frozenset()
 
-        if not self._cache_enabled:
-            return frozenset(attr_value.split())
+        data = self._node_attribute_data(node)
+        if data is None:
+            return frozenset()
 
-        cache_key = (id(node), attr_name)
-        cached = self._attr_token_cache.get(cache_key)
+        cached = data.attr_tokens.get(attr_name)
         if cached is None:
             cached = frozenset(attr_value.split())
-            self._attr_token_cache[cache_key] = cached
+            data.attr_tokens[attr_name] = cached
         return cached
 
     def _matches_pseudo(self, node: Any, selector: SimpleSelector, *, depth: int = 0) -> bool:
@@ -875,57 +901,70 @@ class SelectorMatcher:
         if not parent or not parent.has_child_nodes():
             return []
 
-        if not self._cache_enabled:
-            return [c for c in parent.children if not c.name.startswith("#")]
-
-        parent_key = id(parent)
-        cached = self._element_children_cache.get(parent_key)
-        if cached is None:
-            cached = [c for c in parent.children if not c.name.startswith("#")]
-            self._element_children_cache[parent_key] = cached
-        return cached
+        return self._parent_data(parent).element_children
 
     def _element_index_map(self, parent: Any) -> dict[int, int]:
-        parent_key = id(parent)
-        cached = self._element_index_cache.get(parent_key)
-        if cached is None:
-            cached = {id(child): index for index, child in enumerate(self._get_element_children(parent), start=1)}
-            self._element_index_cache[parent_key] = cached
-        return cached
+        return self._parent_data(parent).element_index
 
     def _type_position_data(self, parent: Any) -> tuple[dict[str, Any], dict[str, Any], dict[int, int]]:
+        data = self._parent_data(parent)
+        return data.first_by_type, data.last_by_type, data.type_index
+
+    def _parent_data(self, parent: Any) -> ParentSelectorData:
         parent_key = id(parent)
-        first_by_type = self._first_of_type_cache.get(parent_key)
-        last_by_type = self._last_of_type_cache.get(parent_key)
-        type_index_by_node = self._type_index_cache.get(parent_key)
+        cached = self._context.parent_data_cache.get(parent_key)
+        if cached is not None:
+            return cached
 
-        if first_by_type is None or last_by_type is None or type_index_by_node is None:
-            first_by_type = {}
-            last_by_type = {}
-            type_index_by_node = {}
-            counts: dict[str, int] = {}
-            for child in self._get_element_children(parent):
-                child_name = child.name.lower()
-                count = counts.get(child_name, 0) + 1
-                counts[child_name] = count
-                type_index_by_node[id(child)] = count
-                first_by_type.setdefault(child_name, child)
-                last_by_type[child_name] = child
+        element_children: list[Any] = []
+        element_child_names: set[str] = set()
+        element_index: dict[int, int] = {}
+        first_by_type: dict[str, Any] = {}
+        last_by_type: dict[str, Any] = {}
+        previous_sibling: dict[int, Any | None] = {}
+        type_index: dict[int, int] = {}
+        type_counts: dict[str, int] = {}
+        previous: Any | None = None
 
-            self._first_of_type_cache[parent_key] = first_by_type
-            self._last_of_type_cache[parent_key] = last_by_type
-            self._type_index_cache[parent_key] = type_index_by_node
+        for child in parent.children:
+            self._context.tick()
+            previous_sibling[id(child)] = previous
+            if child.name.startswith("#"):
+                continue
 
-        return first_by_type, last_by_type, type_index_by_node
+            element_children.append(child)
+            child_name = child.name.lower()
+            element_child_names.add(child_name)
+            element_index[id(child)] = len(element_children)
+            type_count = type_counts.get(child_name, 0) + 1
+            type_counts[child_name] = type_count
+            type_index[id(child)] = type_count
+            first_by_type.setdefault(child_name, child)
+            last_by_type[child_name] = child
+            previous = child
+
+        cached = ParentSelectorData(
+            element_children=element_children,
+            element_child_names=frozenset(element_child_names),
+            element_index=element_index,
+            first_by_type=first_by_type,
+            last_by_type=last_by_type,
+            previous_sibling=previous_sibling,
+            type_index=type_index,
+        )
+        self._context.parent_data_cache[parent_key] = cached
+        return cached
 
     def _get_previous_sibling(self, node: Any) -> Any | None:
         """Get the previous element sibling. Returns None if node is first or not found."""
+        self._context.tick()
         parent = node.parent
         if not parent:
             return None
 
         prev: Any | None = None
         for child in parent.children:
+            self._context.tick()
             if child is node:
                 return prev
             if not child.name.startswith("#"):
@@ -937,21 +976,7 @@ class SelectorMatcher:
         if not parent:
             return None
 
-        if not self._cache_enabled:
-            return self._get_previous_sibling(node)
-
-        parent_key = id(parent)
-        cached = self._previous_sibling_cache.get(parent_key)
-        if cached is None:
-            cached = {}
-            prev: Any | None = None
-            for child in parent.children:
-                cached[id(child)] = prev
-                if not child.name.startswith("#"):
-                    prev = child
-            self._previous_sibling_cache[parent_key] = cached
-
-        return cached.get(id(node))
+        return self._parent_data(parent).previous_sibling.get(id(node))
 
     def _previous_matching_sibling(self, node: Any, compound: CompoundSelector, *, depth: int) -> Any | None:
         parent = node.parent
@@ -962,25 +987,17 @@ class SelectorMatcher:
         if required_tag is not None and required_tag not in self._element_child_names(parent):
             return None
 
-        if not self._cache_enabled:
-            prev_match: Any | None = None
-            for child in parent.children:
-                if child is node:
-                    return prev_match
-                if not child.name.startswith("#") and self._matches_compound(child, compound, depth=depth):
-                    prev_match = child
-            return None
-
         cache_key = (id(parent), id(compound), depth)
-        cached = self._previous_match_cache.get(cache_key)
+        cached = self._context.previous_match_cache.get(cache_key)
         if cached is None:
             cached = {}
             last_match: Any | None = None
             for child in parent.children:
+                self._context.tick()
                 cached[id(child)] = last_match
                 if not child.name.startswith("#") and self._matches_compound(child, compound, depth=depth):
                     last_match = child
-            self._previous_match_cache[cache_key] = cached
+            self._context.previous_match_cache[cache_key] = cached
 
         return cached.get(id(node))
 
@@ -994,35 +1011,14 @@ class SelectorMatcher:
         if not parent or not parent.has_child_nodes():
             return frozenset()
 
-        if not self._cache_enabled:
-            return frozenset(c.name.lower() for c in parent.children if not c.name.startswith("#"))
-
-        parent_key = id(parent)
-        cached = self._element_child_name_cache.get(parent_key)
-        if cached is None:
-            cached = frozenset(c.name.lower() for c in parent.children if not c.name.startswith("#"))
-            self._element_child_name_cache[parent_key] = cached
-        return cached
+        return self._parent_data(parent).element_child_names
 
     def _closest_matching_ancestor(self, node: Any, compound: CompoundSelector, *, depth: int) -> Any | None:
-        if not self._cache_enabled:
-            uncached_visited: set[int] = set()
-            ancestor = node.parent
-            while ancestor:
-                ancestor_key = id(ancestor)
-                if ancestor_key in uncached_visited:
-                    return None
-                uncached_visited.add(ancestor_key)
-                if self._matches_compound(ancestor, compound, depth=depth):
-                    return ancestor
-                ancestor = ancestor.parent
-            return None
-
         cache_key = (id(compound), depth)
-        cached = self._ancestor_match_cache.get(cache_key)
+        cached = self._context.ancestor_match_cache.get(cache_key)
         if cached is None:
             cached = {}
-            self._ancestor_match_cache[cache_key] = cached
+            self._context.ancestor_match_cache[cache_key] = cached
 
         node_key = id(node)
         if node_key in cached:
@@ -1033,6 +1029,7 @@ class SelectorMatcher:
         ancestor = node.parent
         found: Any | None = None
         while ancestor:
+            self._context.tick()
             ancestor_key = id(ancestor)
             if ancestor_key in visited:
                 break
@@ -1052,19 +1049,18 @@ class SelectorMatcher:
         return found
 
     def _text_content(self, node: Any) -> str:
-        if not self._cache_enabled:
-            return str(node.to_text(separator=" ", strip=True))
-
+        self._context.tick()
         node_key = id(node)
-        cached = self._text_content_cache.get(node_key)
+        cached = self._context.text_content_cache.get(node_key)
         if cached is not None:
             return cached
 
         stack: list[tuple[Any, bool]] = [(node, False)]
         while stack:
+            self._context.tick()
             current, visited = stack.pop()
             current_key = id(current)
-            if current_key in self._text_content_cache:
+            if current_key in self._context.text_content_cache:
                 continue
 
             if visited:
@@ -1073,24 +1069,24 @@ class SelectorMatcher:
                     data = current.data
                     if data:
                         data = data.strip()
-                    self._text_content_cache[current_key] = data or ""
+                    self._context.text_content_cache[current_key] = data or ""
                     continue
 
                 parts: list[str] = []
                 children = getattr(current, "children", None)
                 if children:
                     for child in children:
-                        text = self._text_content_cache.get(id(child), "")
+                        text = self._context.text_content_cache.get(id(child), "")
                         if text:
                             parts.append(text)
 
                 template_content = getattr(current, "template_content", None)
                 if template_content is not None:
-                    text = self._text_content_cache.get(id(template_content), "")
+                    text = self._context.text_content_cache.get(id(template_content), "")
                     if text:
                         parts.append(text)
 
-                self._text_content_cache[current_key] = " ".join(parts)
+                self._context.text_content_cache[current_key] = " ".join(parts)
                 continue
 
             stack.append((current, True))
@@ -1103,7 +1099,7 @@ class SelectorMatcher:
             if children:
                 stack.extend((child, False) for child in reversed(children))
 
-        return self._text_content_cache.get(node_key, "")
+        return self._context.text_content_cache.get(node_key, "")
 
     def _is_first_child(self, node: Any) -> bool:
         """Check if node is the first element child of its parent."""
@@ -1141,11 +1137,11 @@ class SelectorMatcher:
 
     def _parse_nth_expression(self, expr: str | None) -> tuple[int, int] | None:
         """Parse an nth-child expression like '2n+1', 'odd', 'even', '3'."""
-        if expr in self._nth_expression_cache:
-            return self._nth_expression_cache[expr]
+        if expr in self._context.nth_expression_cache:
+            return self._context.nth_expression_cache[expr]
 
         parsed = self._parse_nth_expression_uncached(expr)
-        self._nth_expression_cache[expr] = parsed
+        self._context.nth_expression_cache[expr] = parsed
         return parsed
 
     def _parse_nth_expression_uncached(self, expr: str | None) -> tuple[int, int] | None:
@@ -1247,7 +1243,7 @@ def parse_selector(selector_string: str) -> ParsedSelector:
     selector = selector_string.strip() if selector_string else ""
     if not selector:
         raise SelectorError("Empty selector")
-    if len(selector) > _MAX_SELECTOR_LENGTH:
+    if len(selector) > DEFAULT_SELECTOR_LIMITS.max_length:
         raise SelectorError("Selector is too long")
 
     return _parse_selector_cached(selector)
@@ -1259,10 +1255,6 @@ def _parse_selector_cached(selector_string: str) -> ParsedSelector:
     tokens = tokenizer.tokenize()
     parser = SelectorParser(tokens)
     return parser.parse()
-
-
-# Global matcher instance
-_matcher: SelectorMatcher = SelectorMatcher()
 
 
 def _is_simple_tag_selector(selector: str) -> bool:
@@ -1293,7 +1285,13 @@ def _selector_allows_non_elements(selector: ParsedSelector | CompoundSelector | 
     return False
 
 
-def _query_descendants_tag(node: Any, tag_lower: str, results: list[Any]) -> None:
+def _query_descendants_tag(
+    node: Any,
+    tag_lower: str,
+    results: list[Any],
+    context: SelectorQueryContext | None = None,
+) -> None:
+    context = context or SelectorQueryContext()
     results_append = results.append
     visited: set[int] = {id(node)}
 
@@ -1309,6 +1307,7 @@ def _query_descendants_tag(node: Any, tag_lower: str, results: list[Any]) -> Non
             stack.append(template_content)
 
     while stack:
+        context.tick()
         current = stack.pop()
         current_key = id(current)
         if current_key in visited:
@@ -1352,18 +1351,19 @@ def query(root: Any, selector_string: str) -> list[Any]:
     selector_string = selector_string.strip()
     if not selector_string:
         raise SelectorError("Empty selector")
-    if len(selector_string) > _MAX_SELECTOR_LENGTH:
+    if len(selector_string) > DEFAULT_SELECTOR_LIMITS.max_length:
         raise SelectorError("Selector is too long")
 
     results: list[Any] = []
+    context = SelectorQueryContext()
 
     if _is_simple_tag_selector(selector_string):
-        _query_descendants_tag(root, selector_string.lower(), results)
+        _query_descendants_tag(root, selector_string.lower(), results, context)
         return results
 
     selector = parse_selector(selector_string)
     allow_non_elements = _selector_allows_non_elements(selector)
-    _query_descendants(root, selector, results, allow_non_elements=allow_non_elements)
+    _query_descendants(root, selector, results, context=context, allow_non_elements=allow_non_elements)
     return results
 
 
@@ -1372,10 +1372,12 @@ def _query_descendants(
     selector: ParsedSelector,
     results: list[Any],
     *,
+    context: SelectorQueryContext | None = None,
     allow_non_elements: bool = False,
 ) -> None:
     """Search for matching nodes in descendants."""
-    matcher_matches = SelectorMatcher().matches
+    context = context or SelectorQueryContext()
+    matcher_matches = SelectorMatcher(context=context).matches
     results_append = results.append
     visited: set[int] = {id(node)}
 
@@ -1392,6 +1394,7 @@ def _query_descendants(
             stack.append(template_content)
 
     while stack:
+        context.tick()
         current = stack.pop()
         current_key = id(current)
         if current_key in visited:

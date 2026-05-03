@@ -9,9 +9,11 @@ from justhtml import JustHTML as _JustHTML
 from justhtml.selector import (
     ComplexSelector,
     CompoundSelector,
+    SelectorLimits,
     SelectorList,
     SelectorMatcher,
     SelectorParser,
+    SelectorQueryContext,
     SelectorTokenizer,
     SimpleSelector,
     Token,
@@ -1605,8 +1607,8 @@ class TestAdditionalCoverage(SelectorTestCase):
 
         assert matcher._previous_element_sibling(p) is None
 
-    def test_selector_matcher_cache_disabled_helpers(self):
-        matcher = SelectorMatcher(cache_enabled=False)
+    def test_selector_matcher_cached_helpers(self):
+        matcher = SelectorMatcher()
         doc = JustHTML("<div><em></em><!--x--><span></span><span></span></div>", fragment=True).root
         em = query(doc, "em")[0]
         first_span, second_span = query(doc, "span")
@@ -1625,8 +1627,8 @@ class TestAdditionalCoverage(SelectorTestCase):
         assert matcher._previous_matching_sibling(em, compound, depth=0) is None
         em.parent.children = original_children
 
-    def test_selector_matcher_cache_disabled_previous_match_node_not_in_parent(self):
-        matcher = SelectorMatcher(cache_enabled=False)
+    def test_selector_matcher_previous_match_node_not_in_parent(self):
+        matcher = SelectorMatcher()
         doc = JustHTML("<div><em></em></div>", fragment=True).root
         parent = query(doc, "div")[0]
         detached = JustHTML("<span></span>", fragment=True).root.children[0]
@@ -1645,8 +1647,8 @@ class TestAdditionalCoverage(SelectorTestCase):
         assert matcher._closest_matching_ancestor(span, compound, depth=0) is main
         assert matcher._closest_matching_ancestor(span, compound, depth=0) is main
 
-    def test_selector_matcher_ancestor_cache_disabled_helper(self):
-        matcher = SelectorMatcher(cache_enabled=False)
+    def test_selector_matcher_ancestor_helper(self):
+        matcher = SelectorMatcher()
         doc = JustHTML("<main><section><span></span></section></main>", fragment=True).root
         main = query(doc, "main")[0]
         span = query(doc, "span")[0]
@@ -1654,15 +1656,15 @@ class TestAdditionalCoverage(SelectorTestCase):
 
         assert matcher._closest_matching_ancestor(span, compound, depth=0) is main
 
-    def test_selector_matcher_ancestor_cache_disabled_no_match(self):
-        matcher = SelectorMatcher(cache_enabled=False)
+    def test_selector_matcher_ancestor_no_match(self):
+        matcher = SelectorMatcher()
         span = query(JustHTML("<section><span></span></section>", fragment=True).root, "span")[0]
         compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_TAG, name="main")])
 
         assert matcher._closest_matching_ancestor(span, compound, depth=0) is None
 
-    def test_selector_matcher_ancestor_cache_disabled_parent_cycle(self):
-        matcher = SelectorMatcher(cache_enabled=False)
+    def test_selector_matcher_ancestor_parent_cycle(self):
+        matcher = SelectorMatcher()
         root = Element("div", {}, "html")
         child = Element("span", {}, "html")
         child.parent = root
@@ -1693,8 +1695,8 @@ class TestAdditionalCoverage(SelectorTestCase):
         assert matcher._element_child_names(div) == frozenset({"span", "em"})
         assert matcher._element_child_names(div) == frozenset({"span", "em"})
 
-    def test_selector_matcher_child_name_cache_disabled_helpers(self):
-        matcher = SelectorMatcher(cache_enabled=False)
+    def test_selector_matcher_child_name_helpers_without_tag_selector(self):
+        matcher = SelectorMatcher()
         doc = JustHTML("<div><span></span><em></em></div>", fragment=True).root
         div = query(doc, "div")[0]
         compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_CLASS, name="missing")])
@@ -1715,8 +1717,8 @@ class TestAdditionalCoverage(SelectorTestCase):
         assert matcher._class_tokens(div) == frozenset({"alpha", "beta"})
         assert matcher._class_tokens(div) == frozenset({"alpha", "beta"})
 
-    def test_selector_matcher_class_token_cache_disabled(self):
-        matcher = SelectorMatcher(cache_enabled=False)
+    def test_selector_matcher_class_token_cache_reuses_tokens(self):
+        matcher = SelectorMatcher()
         div = query(JustHTML("<div class='alpha beta'></div>", fragment=True).root, "div")[0]
 
         assert matcher._class_tokens(div) == frozenset({"alpha", "beta"})
@@ -1736,8 +1738,8 @@ class TestAdditionalCoverage(SelectorTestCase):
         assert matcher._attribute_tokens(div, "data-tags", "alpha beta") == frozenset({"alpha", "beta"})
         assert matcher._attribute_tokens(div, "data-tags", "alpha beta") == frozenset({"alpha", "beta"})
 
-    def test_selector_matcher_attribute_cache_disabled_helpers(self):
-        matcher = SelectorMatcher(cache_enabled=False)
+    def test_selector_matcher_attribute_helpers(self):
+        matcher = SelectorMatcher()
         div = query(JustHTML("<div DATA-TAGS='alpha beta'></div>", fragment=True).root, "div")[0]
 
         assert matcher._attribute_value(div, "data-tags") == "alpha beta"
@@ -1749,6 +1751,7 @@ class TestAdditionalCoverage(SelectorTestCase):
 
         assert matcher._attribute_value(text, "data-tags") is None
         assert matcher._attribute_tokens(text, "data-tags", "") == frozenset()
+        assert matcher._attribute_tokens(text, "data-tags", "alpha") == frozenset()
 
     def test_selector_matcher_nth_expression_cache_helpers(self):
         matcher = SelectorMatcher()
@@ -1783,8 +1786,8 @@ class TestAdditionalCoverage(SelectorTestCase):
 
         assert matcher._text_content(root) == "repeated repeated"
 
-    def test_selector_matcher_text_content_cache_disabled(self):
-        matcher = SelectorMatcher(cache_enabled=False)
+    def test_selector_matcher_text_content_cache_basic(self):
+        matcher = SelectorMatcher()
         root = Element("div", {}, "html")
         root.append_child(Text(" uncached "))
 
@@ -2007,6 +2010,31 @@ class TestSelectorSecurity(SelectorTestCase):
         start = perf_counter()
         assert query(doc, selector) == []
         assert perf_counter() - start < 0.25
+
+    def test_selector_match_budget_limits_general_work(self):
+        doc = JustHTML("<div class='foo'></div>", fragment=True).root
+        div = query(doc, "div")[0]
+        matcher = SelectorMatcher(limits=SelectorLimits(max_match_steps=2))
+        selector = parse_selector("div.foo")
+
+        with self.assertRaisesRegex(SelectorError, "budget"):
+            matcher.matches(div, selector)
+
+    def test_selector_query_context_shares_matcher_caches(self):
+        context = SelectorQueryContext()
+        first = SelectorMatcher(context=context)
+        second = SelectorMatcher(context=context)
+        div = query(JustHTML("<div class='alpha beta'></div>", fragment=True).root, "div")[0]
+
+        assert first._class_tokens(div) == frozenset({"alpha", "beta"})
+        assert second._class_tokens(div) == frozenset({"alpha", "beta"})
+        assert context.node_attr_cache[id(div)].class_tokens == frozenset({"alpha", "beta"})
+
+    def test_selector_query_context_ignores_non_positive_budget_ticks(self):
+        context = SelectorQueryContext(limits=SelectorLimits(max_match_steps=0))
+
+        context.tick(0)
+        context.tick(-1)
 
     def test_adjacent_sibling_selector_does_not_rescan_previous_siblings(self):
         doc = JustHTML("<div>" + "".join("<em></em><span></span>" for _ in range(3_000)) + "</div>").root

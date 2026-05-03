@@ -1738,7 +1738,6 @@ def apply_compiled_transforms(
 
     token = _ERROR_SINK.set(errors)
     try:
-        matcher = SelectorMatcher(cache_enabled=False)
         terminal_sanitize_policy: SanitizationPolicy | None = None
 
         def apply_walk_transforms(
@@ -1903,6 +1902,7 @@ def apply_compiled_transforms(
                     is_comment = name == "#comment"
 
                     changed = False
+                    matcher = SelectorMatcher()
                     if created_start_index:
                         start_at = created_start_index.get(id(node), 0)
                     else:
@@ -2500,6 +2500,7 @@ def apply_compiled_transforms(
                 if node.name.startswith("#"):
                     continue
 
+                matcher = SelectorMatcher()
                 for pt in prune_transforms:
                     if matcher.matches(node, pt.selector):
                         if _is_effectively_empty_element(node, strip_whitespace=pt.strip_whitespace):
