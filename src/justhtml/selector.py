@@ -573,6 +573,7 @@ class SelectorMatcher:
         "_attrs_lower_cache",
         "_cache_enabled",
         "_class_token_cache",
+        "_element_child_name_cache",
         "_element_children_cache",
         "_element_index_cache",
         "_first_of_type_cache",
@@ -591,6 +592,7 @@ class SelectorMatcher:
         self._cache_enabled = cache_enabled
         self._class_token_cache: dict[int, frozenset[str]] = {}
         self._element_children_cache: dict[int, list[Any]] = {}
+        self._element_child_name_cache: dict[int, frozenset[str]] = {}
         self._element_index_cache: dict[int, dict[int, int]] = {}
         self._first_of_type_cache: dict[int, dict[str, Any]] = {}
         self._last_of_type_cache: dict[int, dict[str, Any]] = {}
@@ -956,6 +958,10 @@ class SelectorMatcher:
         if not parent:
             return None
 
+        required_tag = self._compound_tag_name(compound)
+        if required_tag is not None and required_tag not in self._element_child_names(parent):
+            return None
+
         if not self._cache_enabled:
             prev_match: Any | None = None
             for child in parent.children:
@@ -977,6 +983,26 @@ class SelectorMatcher:
             self._previous_match_cache[cache_key] = cached
 
         return cached.get(id(node))
+
+    def _compound_tag_name(self, compound: CompoundSelector) -> str | None:
+        for simple in compound.selectors:
+            if simple.type == SimpleSelector.TYPE_TAG and simple.name:
+                return simple.name.lower()
+        return None
+
+    def _element_child_names(self, parent: Any) -> frozenset[str]:
+        if not parent or not parent.has_child_nodes():
+            return frozenset()
+
+        if not self._cache_enabled:
+            return frozenset(c.name.lower() for c in parent.children if not c.name.startswith("#"))
+
+        parent_key = id(parent)
+        cached = self._element_child_name_cache.get(parent_key)
+        if cached is None:
+            cached = frozenset(c.name.lower() for c in parent.children if not c.name.startswith("#"))
+            self._element_child_name_cache[parent_key] = cached
+        return cached
 
     def _closest_matching_ancestor(self, node: Any, compound: CompoundSelector, *, depth: int) -> Any | None:
         if not self._cache_enabled:

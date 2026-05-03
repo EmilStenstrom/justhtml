@@ -1625,6 +1625,16 @@ class TestAdditionalCoverage(SelectorTestCase):
         assert matcher._previous_matching_sibling(em, compound, depth=0) is None
         em.parent.children = original_children
 
+    def test_selector_matcher_cache_disabled_previous_match_node_not_in_parent(self):
+        matcher = SelectorMatcher(cache_enabled=False)
+        doc = JustHTML("<div><em></em></div>", fragment=True).root
+        parent = query(doc, "div")[0]
+        detached = JustHTML("<span></span>", fragment=True).root.children[0]
+        detached.parent = parent
+        compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_TAG, name="em")])
+
+        assert matcher._previous_matching_sibling(detached, compound, depth=0) is None
+
     def test_selector_matcher_ancestor_cache_helpers(self):
         matcher = SelectorMatcher()
         doc = JustHTML("<main><section><div><span></span></div></section></main>", fragment=True).root
@@ -1667,6 +1677,36 @@ class TestAdditionalCoverage(SelectorTestCase):
         compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_TAG, name="main")])
 
         assert matcher._closest_matching_ancestor(span, compound, depth=0) is None
+
+    def test_selector_matcher_child_name_cache_helpers(self):
+        matcher = SelectorMatcher()
+        doc = JustHTML("<div><span></span><em></em></div>", fragment=True).root
+        div = query(doc, "div")[0]
+        compound = CompoundSelector(
+            [
+                SimpleSelector(SimpleSelector.TYPE_TAG, name="em"),
+                SimpleSelector(SimpleSelector.TYPE_CLASS, name="missing"),
+            ]
+        )
+
+        assert matcher._compound_tag_name(compound) == "em"
+        assert matcher._element_child_names(div) == frozenset({"span", "em"})
+        assert matcher._element_child_names(div) == frozenset({"span", "em"})
+
+    def test_selector_matcher_child_name_cache_disabled_helpers(self):
+        matcher = SelectorMatcher(cache_enabled=False)
+        doc = JustHTML("<div><span></span><em></em></div>", fragment=True).root
+        div = query(doc, "div")[0]
+        compound = CompoundSelector([SimpleSelector(SimpleSelector.TYPE_CLASS, name="missing")])
+
+        assert matcher._compound_tag_name(compound) is None
+        assert matcher._element_child_names(div) == frozenset({"span", "em"})
+
+    def test_selector_matcher_child_name_cache_without_children(self):
+        matcher = SelectorMatcher()
+        span = JustHTML("<span></span>", fragment=True).root.children[0]
+
+        assert matcher._element_child_names(span) == frozenset()
 
     def test_selector_matcher_class_token_cache_helpers(self):
         matcher = SelectorMatcher()
@@ -1958,6 +1998,14 @@ class TestSelectorSecurity(SelectorTestCase):
 
         start = perf_counter()
         assert query(doc, "em ~ span") == []
+        assert perf_counter() - start < 0.25
+
+    def test_distinct_general_sibling_selectors_skip_absent_left_tag(self):
+        doc = JustHTML("<div>" + "<span></span>" * 1_000 + "</div>").root
+        selector = ",".join(f"em.c{i} ~ span" for i in range(128))
+
+        start = perf_counter()
+        assert query(doc, selector) == []
         assert perf_counter() - start < 0.25
 
     def test_adjacent_sibling_selector_does_not_rescan_previous_siblings(self):

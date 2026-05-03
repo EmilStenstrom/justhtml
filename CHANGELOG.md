@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Harden general sibling selector matching against denial-of-service from selector lists with absent left-hand tags. Previously, selectors such as `em.a ~ span, em.b ~ span, ...` could repeatedly rescan the same sibling list even when no `<em>` sibling existed.
 - (Severity: Low) Harden selector parsing against denial-of-service from oversized complex selector chains. Previously, attacker-controlled selectors with hundreds of combinator-linked parts, such as `div > div > div...`, could fit within the selector-length cap and consume disproportionate CPU during matching.
 - (Severity: Low) Harden selector parsing against denial-of-service from oversized compound selectors. Previously, attacker-controlled selectors with hundreds of distinct simple selectors in one compound, such as `.c0.c1.c2...`, could fit within the selector-length cap and consume disproportionate CPU during matching.
 - (Severity: Low) Harden descendant-combinator matching against denial-of-service from cyclic programmatic parent chains. Previously, selectors such as `em span` could loop indefinitely while walking malformed `parent` links.
