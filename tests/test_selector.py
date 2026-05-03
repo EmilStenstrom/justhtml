@@ -23,6 +23,7 @@ from justhtml.selector import (
     _query_descendants,
     _query_descendants_tag,
     _selector_allows_non_elements,
+    _selector_signature,
     parse_selector,
 )
 
@@ -1793,6 +1794,16 @@ class TestAdditionalCoverage(SelectorTestCase):
 
         assert matcher._text_content(root) == "uncached"
 
+    def test_selector_matcher_text_content_handles_child_cycles(self):
+        matcher = SelectorMatcher()
+        root = Element("div", {}, "html")
+        child = Element("span", {}, "html")
+        root.children = [child]
+        child.parent = root
+        child.children = [root]
+
+        assert matcher._text_content(root) == ""
+
     def test_nth_child_invalid_just_b(self):
         # Lines 808-809: Invalid b part (just a number but invalid)
         doc = JustHTML("<html><body><ul><li>1</li><li>2</li></ul></body></html>").root
@@ -1996,6 +2007,31 @@ class TestSelectorSecurity(SelectorTestCase):
         with self.assertRaisesRegex(SelectorError, "too deep"):
             query(self.get_simple_doc(), selector)
 
+    def test_match_depth_limit_still_applies_to_direct_matcher_use(self):
+        matcher = SelectorMatcher(limits=SelectorLimits(max_match_depth=0))
+        div = query(JustHTML("<div></div>", fragment=True).root, "div")[0]
+        selector = SimpleSelector(SimpleSelector.TYPE_TAG, name="div")
+
+        with self.assertRaisesRegex(SelectorError, "too deep"):
+            matcher._matches(div, selector, depth=1)
+
+    def test_deeply_nested_not_selector_raises_before_parse_cache(self):
+        _parse_selector_cached.cache_clear()
+        selector = ":not(" * 150 + "span" + ")" * 150
+
+        with self.assertRaisesRegex(SelectorError, "too deep"):
+            parse_selector(selector)
+
+        assert _parse_selector_cached.cache_info().currsize == 0
+
+    def test_public_parse_selector_still_uses_cache(self):
+        _parse_selector_cached.cache_clear()
+
+        parse_selector("div")
+        parse_selector("div")
+
+        assert _parse_selector_cached.cache_info().currsize == 1
+
     def test_general_sibling_selector_does_not_rescan_previous_siblings(self):
         doc = JustHTML("<div>" + "<span></span>" * 3_000 + "</div>").root
 
@@ -2103,6 +2139,18 @@ class TestSelectorSecurity(SelectorTestCase):
         assert isinstance(parsed, ComplexSelector)
         selectors = parsed.parts[0][1].selectors
         assert len(selectors) == 3
+        not_selector = selectors[0]
+        assert not_selector.parsed_arg is not None
+
+    def test_not_selector_list_arg_is_parsed_once(self):
+        parsed = parse_selector(":not(div,p)")
+
+        assert isinstance(parsed, ComplexSelector)
+        not_selector = parsed.parts[0][1].selectors[0]
+        assert isinstance(not_selector.parsed_arg, SelectorList)
+
+    def test_selector_signature_unknown_selector_returns_none(self):
+        assert _selector_signature(object()) is None
 
     def test_oversized_compound_selector_is_rejected_before_matching(self):
         _parse_selector_cached.cache_clear()
@@ -2172,6 +2220,26 @@ class TestSelectorSecurity(SelectorTestCase):
         start = perf_counter()
         assert len(query(doc, selector)) == 3_003
         assert perf_counter() - start < 0.25
+
+    def test_repeated_empty_selectors_do_not_rescan_children(self):
+        html = "<div>" + ("<!--x--> \n" * 3_000) + "</div>"
+        doc = JustHTML(html).root
+        selector = ",".join(f":empty.c{i}" for i in range(128))
+
+        start = perf_counter()
+        assert query(doc, selector) == []
+        assert perf_counter() - start < 0.25
+
+    def test_contains_text_handles_programmatic_child_cycles(self):
+        root = Element("div", {}, "html")
+        child = Element("span", {}, "html")
+        root.children = [child]
+        child.parent = root
+        child.children = [root]
+        matcher = SelectorMatcher()
+        selector = SimpleSelector(SimpleSelector.TYPE_PSEUDO, name="contains", arg="needle")
+
+        assert not matcher._matches_pseudo(root, selector)
 
     def test_attribute_word_selector_does_not_retokenize_attribute_values(self):
         attr_value = " ".join(f"c{i}" for i in range(300))

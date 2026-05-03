@@ -21,6 +21,7 @@ class SelectorLimits:
     max_list_items: int = 256
     max_compound_simple_selectors: int = 512
     max_complex_selector_parts: int = 512
+    max_parse_depth: int = 100
     max_match_steps: int = 100_000_000
 
 
@@ -310,7 +311,7 @@ class SelectorTokenizer:
 class SimpleSelector:
     """A single simple selector (tag, id, class, attribute, or pseudo-class)."""
 
-    __slots__ = ("arg", "name", "operator", "type", "value")
+    __slots__ = ("arg", "name", "operator", "parsed_arg", "type", "value")
 
     TYPE_TAG: str = "tag"
     TYPE_ID: str = "id"
@@ -324,6 +325,7 @@ class SimpleSelector:
     operator: str | None
     value: str | None
     arg: str | None
+    parsed_arg: Any | None
 
     def __init__(
         self,
@@ -332,12 +334,14 @@ class SimpleSelector:
         operator: str | None = None,
         value: str | None = None,
         arg: str | None = None,
+        parsed_arg: Any | None = None,
     ) -> None:
         self.type = selector_type
         self.name = name
         self.operator = operator
         self.value = value
         self.arg = arg  # For :not() and :nth-child()
+        self.parsed_arg = parsed_arg  # Parsed selector for :not()
 
     def __repr__(self) -> str:
         parts = [f"SimpleSelector({self.type!r}"]
@@ -349,6 +353,8 @@ class SimpleSelector:
             parts.append(f", value={self.value!r}")
         if self.arg is not None:
             parts.append(f", arg={self.arg!r}")
+        if self.parsed_arg is not None:
+            parts.append(f", parsed_arg={self.parsed_arg!r}")
         parts.append(")")
         return "".join(parts)
 
@@ -398,7 +404,8 @@ class SelectorList:
 
 
 def _simple_selector_signature(selector: SimpleSelector) -> tuple[Any, ...]:
-    return (selector.type, selector.name, selector.operator, selector.value, selector.arg)
+    parsed_arg_sig = _selector_signature(selector.parsed_arg) if selector.parsed_arg is not None else None
+    return (selector.type, selector.name, selector.operator, selector.value, selector.arg, parsed_arg_sig)
 
 
 def _compound_selector_signature(selector: CompoundSelector) -> tuple[Any, ...]:
@@ -409,6 +416,14 @@ def _complex_selector_signature(selector: ComplexSelector) -> tuple[Any, ...]:
     return tuple((combinator, _compound_selector_signature(compound)) for combinator, compound in selector.parts)
 
 
+def _selector_signature(selector: Any) -> tuple[Any, ...] | None:
+    if isinstance(selector, SelectorList):
+        return tuple(_complex_selector_signature(sel) for sel in selector.selectors)
+    if isinstance(selector, ComplexSelector):
+        return _complex_selector_signature(selector)
+    return None
+
+
 # Type alias for parsed selectors
 ParsedSelector = ComplexSelector | SelectorList
 
@@ -416,14 +431,16 @@ ParsedSelector = ComplexSelector | SelectorList
 class SelectorParser:
     """Parses a list of tokens into a selector AST."""
 
-    __slots__ = ("pos", "tokens")
+    __slots__ = ("parse_depth", "pos", "tokens")
 
     tokens: list[Token]
     pos: int
+    parse_depth: int
 
-    def __init__(self, tokens: list[Token]) -> None:
+    def __init__(self, tokens: list[Token], *, parse_depth: int = 0) -> None:
         self.tokens = tokens
         self.pos = 0
+        self.parse_depth = parse_depth
 
     def _peek(self) -> Token:
         if self.pos < len(self.tokens):
@@ -568,7 +585,12 @@ class SelectorParser:
             if self._peek().type == TokenType.STRING:
                 arg = self._advance().value
             self._expect(TokenType.PAREN_CLOSE)
-            return SimpleSelector(SimpleSelector.TYPE_PSEUDO, name=name, arg=arg)
+            parsed_arg = (
+                _parse_selector(arg, parse_depth=self.parse_depth + 1)
+                if (name or "").lower() == "not" and arg
+                else None
+            )
+            return SimpleSelector(SimpleSelector.TYPE_PSEUDO, name=name, arg=arg, parsed_arg=parsed_arg)
 
         return SimpleSelector(SimpleSelector.TYPE_PSEUDO, name=name)
 
@@ -590,6 +612,7 @@ class ParentSelectorData:
     element_child_names: frozenset[str]
     element_index: dict[int, int]
     first_by_type: dict[str, Any]
+    is_empty: bool
     last_by_type: dict[str, Any]
     previous_sibling: dict[int, Any | None]
     type_index: dict[int, int]
@@ -841,25 +864,14 @@ class SelectorMatcher:
         if name == "not":
             if not selector.arg:
                 return True
-            # Parse the inner selector
-            inner = parse_selector(selector.arg)
+            inner = selector.parsed_arg or parse_selector(selector.arg)
             return not self._matches(node, inner, depth=depth + 1)
 
         if name == "only-child":
             return self._is_first_child(node) and self._is_last_child(node)
 
         if name == "empty":
-            if not node.has_child_nodes():
-                return True
-            # Check if all children are empty text nodes
-            for child in node.children:
-                if hasattr(child, "name"):
-                    if child.name == "#text":
-                        if child.data and child.data.strip():
-                            return False
-                    elif not child.name.startswith("#"):
-                        return False
-            return True
+            return self._is_empty(node)
 
         if name == "root":
             # Root is the html element (or document root's first element child)
@@ -925,13 +937,19 @@ class SelectorMatcher:
         type_index: dict[int, int] = {}
         type_counts: dict[str, int] = {}
         previous: Any | None = None
+        is_empty = True
 
         for child in parent.children:
             self._context.tick()
+            if not hasattr(child, "name"):
+                continue
             previous_sibling[id(child)] = previous
             if child.name.startswith("#"):
+                if child.name == "#text" and child.data and child.data.strip():
+                    is_empty = False
                 continue
 
+            is_empty = False
             element_children.append(child)
             child_name = child.name.lower()
             element_child_names.add(child_name)
@@ -948,6 +966,7 @@ class SelectorMatcher:
             element_child_names=frozenset(element_child_names),
             element_index=element_index,
             first_by_type=first_by_type,
+            is_empty=is_empty,
             last_by_type=last_by_type,
             previous_sibling=previous_sibling,
             type_index=type_index,
@@ -1056,6 +1075,7 @@ class SelectorMatcher:
             return cached
 
         stack: list[tuple[Any, bool]] = [(node, False)]
+        visiting: set[int] = set()
         while stack:
             self._context.tick()
             current, visited = stack.pop()
@@ -1064,6 +1084,7 @@ class SelectorMatcher:
                 continue
 
             if visited:
+                visiting.discard(current_key)
                 name = current.name
                 if name == "#text":
                     data = current.data
@@ -1089,6 +1110,10 @@ class SelectorMatcher:
                 self._context.text_content_cache[current_key] = " ".join(parts)
                 continue
 
+            if current_key in visiting:
+                self._context.text_content_cache[current_key] = ""
+                continue
+            visiting.add(current_key)
             stack.append((current, True))
 
             template_content = getattr(current, "template_content", None)
@@ -1116,6 +1141,11 @@ class SelectorMatcher:
             return False
         elements = self._get_element_children(parent)
         return bool(elements) and elements[-1] is node
+
+    def _is_empty(self, node: Any) -> bool:
+        if not node.has_child_nodes():
+            return True
+        return self._parent_data(node).is_empty
 
     def _is_first_of_type(self, node: Any) -> bool:
         """Check if node is the first sibling of its type."""
@@ -1251,9 +1281,15 @@ def parse_selector(selector_string: str) -> ParsedSelector:
 
 @lru_cache(maxsize=512)
 def _parse_selector_cached(selector_string: str) -> ParsedSelector:
+    return _parse_selector(selector_string, parse_depth=0)
+
+
+def _parse_selector(selector_string: str, *, parse_depth: int) -> ParsedSelector:
+    if parse_depth > DEFAULT_SELECTOR_LIMITS.max_parse_depth:
+        raise SelectorError("Selector nesting is too deep")
     tokenizer = SelectorTokenizer(selector_string)
     tokens = tokenizer.tokenize()
-    parser = SelectorParser(tokens)
+    parser = SelectorParser(tokens, parse_depth=parse_depth)
     return parser.parse()
 
 

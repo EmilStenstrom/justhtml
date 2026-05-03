@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Harden selector parsing against denial-of-service from deeply nested functional pseudo-class arguments. Eagerly parsed `:not(...)` selectors now enforce a parse-depth limit before they can exhaust Python recursion.
+- (Severity: Low) Harden selector pseudo-class matching against additional denial-of-service cases. `:not(...)` arguments are now parsed once with the outer selector, `:empty` checks reuse per-node child state, and `:contains(...)` text traversal handles cyclic programmatic child graphs.
 - (Severity: Low) Generalize selector denial-of-service hardening with shared selector limits, per-query matcher context, and a match-operation budget. This makes future pathological selector combinations fail through a central resource guard instead of requiring a bespoke cache for each selector shape.
 - (Severity: Low) Harden general sibling selector matching against denial-of-service from selector lists with absent left-hand tags. Previously, selectors such as `em.a ~ span, em.b ~ span, ...` could repeatedly rescan the same sibling list even when no `<em>` sibling existed.
 - (Severity: Low) Harden selector parsing against denial-of-service from oversized complex selector chains. Previously, attacker-controlled selectors with hundreds of combinator-linked parts, such as `div > div > div...`, could fit within the selector-length cap and consume disproportionate CPU during matching.
