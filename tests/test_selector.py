@@ -1,7 +1,6 @@
 """Comprehensive tests for CSS selector functionality."""
 
 import unittest
-from time import perf_counter
 from typing import Any, cast
 
 from justhtml import Element, SelectorError, Template, Text, matches, query
@@ -2001,6 +2000,22 @@ class TestPseudoContains(SelectorTestCase):
 class TestSelectorSecurity(SelectorTestCase):
     """Security hardening tests for selector evaluation."""
 
+    def assert_query_within_budget(
+        self,
+        doc: Any,
+        selector: str,
+        *,
+        max_match_steps: int,
+        max_match_bytes: int = 100_000_000,
+    ) -> list[Any]:
+        parsed = parse_selector(selector)
+        context = SelectorQueryContext(
+            limits=SelectorLimits(max_match_steps=max_match_steps, max_match_bytes=max_match_bytes)
+        )
+        results: list[Any] = []
+        _query_descendants(doc, parsed, results, context=context)
+        return results
+
     def test_deeply_nested_not_selector_raises_selector_error(self):
         selector = ":not(" * 150 + "span" + ")" * 150
 
@@ -2035,17 +2050,13 @@ class TestSelectorSecurity(SelectorTestCase):
     def test_general_sibling_selector_does_not_rescan_previous_siblings(self):
         doc = JustHTML("<div>" + "<span></span>" * 3_000 + "</div>").root
 
-        start = perf_counter()
-        assert query(doc, "em ~ span") == []
-        assert perf_counter() - start < 0.25
+        assert self.assert_query_within_budget(doc, "em ~ span", max_match_steps=15_000) == []
 
     def test_distinct_general_sibling_selectors_skip_absent_left_tag(self):
         doc = JustHTML("<div>" + "<span></span>" * 1_000 + "</div>").root
         selector = ",".join(f"em.c{i} ~ span" for i in range(128))
 
-        start = perf_counter()
-        assert query(doc, selector) == []
-        assert perf_counter() - start < 0.25
+        assert self.assert_query_within_budget(doc, selector, max_match_steps=300_000) == []
 
     def test_selector_match_budget_limits_general_work(self):
         doc = JustHTML("<div class='foo'></div>", fragment=True).root
@@ -2107,24 +2118,25 @@ class TestSelectorSecurity(SelectorTestCase):
     def test_adjacent_sibling_selector_does_not_rescan_previous_siblings(self):
         doc = JustHTML("<div>" + "".join("<em></em><span></span>" for _ in range(3_000)) + "</div>").root
 
-        start = perf_counter()
-        assert len(query(doc, "em + span")) == 3_000
-        assert perf_counter() - start < 0.25
+        assert len(self.assert_query_within_budget(doc, "em + span", max_match_steps=35_000)) == 3_000
 
     def test_positional_pseudo_classes_do_not_rescan_siblings(self):
         doc = JustHTML("<ul>" + "<li></li>" * 5_000 + "</ul>").root
 
-        start = perf_counter()
-        assert len(query(doc, "li:nth-child(odd)")) == 2_500
-        assert len(query(doc, "li:last-of-type")) == 1
-        assert perf_counter() - start < 0.25
+        assert len(self.assert_query_within_budget(doc, "li:nth-child(odd)", max_match_steps=30_000)) == 2_500
+        assert len(self.assert_query_within_budget(doc, "li:last-of-type", max_match_steps=30_000)) == 1
 
     def test_contains_selector_does_not_recompute_descendant_text(self):
         doc = JustHTML("<div>" * 2_000 + "needle" + "</div>" * 2_000).root
 
-        start = perf_counter()
-        assert len(query(doc, 'div:contains("needle")')) == 2_000
-        assert perf_counter() - start < 0.25
+        assert (
+            len(
+                self.assert_query_within_budget(
+                    doc, 'div:contains("needle")', max_match_steps=20_000, max_match_bytes=30_000
+                )
+            )
+            == 2_000
+        )
 
     def test_oversized_selector_is_rejected_before_parse_cache(self):
         _parse_selector_cached.cache_clear()
@@ -2218,9 +2230,7 @@ class TestSelectorSecurity(SelectorTestCase):
         doc = JustHTML("<div>" + "<span></span>" * 3_000 + "</div>").root
         selector = ",".join(["em+span"] * 1_000)
 
-        start = perf_counter()
-        assert query(doc, selector) == []
-        assert perf_counter() - start < 0.25
+        assert self.assert_query_within_budget(doc, selector, max_match_steps=20_000) == []
 
     def test_large_distinct_selector_list_is_rejected(self):
         selector = ",".join(f"em+i{n}" for n in range(300))
@@ -2231,9 +2241,7 @@ class TestSelectorSecurity(SelectorTestCase):
     def test_descendant_selector_does_not_rescan_ancestor_chains(self):
         doc = JustHTML("<div>" * 2_000 + "x" + "</div>" * 2_000).root
 
-        start = perf_counter()
-        assert query(doc, "em div") == []
-        assert perf_counter() - start < 0.25
+        assert self.assert_query_within_budget(doc, "em div", max_match_steps=10_000) == []
 
     def test_compound_class_selector_does_not_retokenize_class_attributes(self):
         class_attr = " ".join(f"c{i}" for i in range(300))
@@ -2241,26 +2249,23 @@ class TestSelectorSecurity(SelectorTestCase):
         selector = "".join(f".c{i}" for i in range(100))
         doc = JustHTML(html).root
 
-        start = perf_counter()
-        assert len(query(doc, selector)) == 1_000
-        assert perf_counter() - start < 0.25
+        assert (
+            len(self.assert_query_within_budget(doc, selector, max_match_steps=150_000, max_match_bytes=4_000_000))
+            == 1_000
+        )
 
     def test_repeated_compound_pseudos_do_not_multiply_match_work(self):
         doc = JustHTML("<div></div>" * 3_000).root
         selector = ":not(em)" * 700
 
-        start = perf_counter()
-        assert len(query(doc, selector)) == 3_003
-        assert perf_counter() - start < 0.25
+        assert len(self.assert_query_within_budget(doc, selector, max_match_steps=20_000)) == 3_003
 
     def test_repeated_empty_selectors_do_not_rescan_children(self):
         html = "<div>" + ("<!--x--> \n" * 3_000) + "</div>"
         doc = JustHTML(html).root
         selector = ",".join(f":empty.c{i}" for i in range(128))
 
-        start = perf_counter()
-        assert query(doc, selector) == []
-        assert perf_counter() - start < 0.25
+        assert self.assert_query_within_budget(doc, selector, max_match_steps=20_000) == []
 
     def test_contains_text_handles_programmatic_child_cycles(self):
         root = Element("div", {}, "html")
@@ -2279,17 +2284,16 @@ class TestSelectorSecurity(SelectorTestCase):
         selector = "".join(f"[data-tags~=c{i}]" for i in range(100))
         doc = JustHTML(html).root
 
-        start = perf_counter()
-        assert len(query(doc, selector)) == 1_000
-        assert perf_counter() - start < 0.25
+        assert (
+            len(self.assert_query_within_budget(doc, selector, max_match_steps=150_000, max_match_bytes=4_000_000))
+            == 1_000
+        )
 
     def test_nth_child_selector_does_not_reparse_large_expression_per_node(self):
         doc = JustHTML("<ul>" + "<li></li>" * 5_000 + "</ul>").root
         selector = "li:nth-child(" + "9" * 4_000 + ")"
 
-        start = perf_counter()
-        assert query(doc, selector) == []
-        assert perf_counter() - start < 0.25
+        assert self.assert_query_within_budget(doc, selector, max_match_steps=30_000) == []
 
     def test_query_descendants_handles_programmatic_cycles(self):
         root = Element("div", {}, "html")
