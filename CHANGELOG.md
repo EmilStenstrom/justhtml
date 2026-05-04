@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-05-04
+
 ### Security
 - (Severity: Low) Allow applications to tune selector hardening limits through `SanitizationPolicy(selector_limits=...)`. This provides an explicit escape hatch for trusted real-world sanitization pipelines that need larger selector or matching budgets than the conservative defaults.
 - (Severity: Low) Generalize selector denial-of-service hardening with shared selector limits, per-query matcher state, match-operation and string-byte budgets, and structural parse caps. This covers oversized selectors, selector lists, compound selectors, complex selector chains, deep functional pseudo-classes such as nested `:not(...)`, and very large attribute/text values.
