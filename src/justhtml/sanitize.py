@@ -15,6 +15,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import quote, urlsplit
 
+from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits
 from .tokens import ParseError
 
 UrlFilter = Callable[[str, str, str], str | None]
@@ -278,6 +279,7 @@ class SanitizationPolicy:
             unsafe_handling: UnsafeHandling = "strip",
             disallowed_tag_handling: DisallowedTagHandling = "unwrap",
             strip_invisible_unicode: bool = True,
+            selector_limits: SelectorLimits = DEFAULT_SELECTOR_LIMITS,
         ) -> None: ...
 
     # URL handling.
@@ -320,6 +322,11 @@ class SanitizationPolicy:
     # attribute values, such as variation selectors, zero-width/bidi controls,
     # and private-use characters.
     strip_invisible_unicode: bool = True
+
+    # Resource limits used by selector parsing and matching in sanitization
+    # transform pipelines. Applications with known-large documents/selectors
+    # can raise these while keeping conservative defaults for untrusted input.
+    selector_limits: SelectorLimits = DEFAULT_SELECTOR_LIMITS
 
     _unsafe_handler: UnsafeHandler = field(
         default_factory=lambda: UnsafeHandler("strip"),
@@ -421,6 +428,8 @@ class SanitizationPolicy:
             raise ValueError("Invalid disallowed_tag_handling. Expected one of: 'unwrap', 'escape', 'drop'")
         object.__setattr__(self, "disallowed_tag_handling", disallowed_tag_handling)
         object.__setattr__(self, "strip_invisible_unicode", bool(self.strip_invisible_unicode))
+        if not isinstance(self.selector_limits, SelectorLimits):
+            raise TypeError("SanitizationPolicy.selector_limits must be a SelectorLimits instance")
 
         # Centralize unsafe-handling logic so multiple passes can share it.
         handler = UnsafeHandler(cast("UnsafeHandling", unsafe_handling))
@@ -1594,6 +1603,7 @@ def _sanitization_policy_signature(policy: SanitizationPolicy) -> tuple[Any, ...
         policy.disallowed_tag_handling,
         policy.strip_invisible_unicode,
         policy.drop_foreign_namespaces,
+        policy.selector_limits,
         _url_policy_signature(policy.url_policy),
     )
 

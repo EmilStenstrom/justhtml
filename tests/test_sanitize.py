@@ -135,6 +135,14 @@ class TestSanitizePlumbing(unittest.TestCase):
                 disallowed_tag_handling="nope",  # type: ignore[arg-type]
             )
 
+    def test_policy_rejects_invalid_selector_limits(self) -> None:
+        with self.assertRaises(TypeError):
+            SanitizationPolicy(
+                allowed_tags=["div"],
+                allowed_attributes={"*": [], "div": []},
+                selector_limits=object(),  # type: ignore[arg-type]
+            )
+
     def test_policy_rejects_string_allowed_tags(self) -> None:
         with self.assertRaises(TypeError):
             SanitizationPolicy(

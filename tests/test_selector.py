@@ -2071,6 +2071,38 @@ class TestSelectorSecurity(SelectorTestCase):
 
         context.tick(0)
         context.tick(-1)
+        context.tick_bytes(0)
+        context.tick_bytes(-1)
+
+    def test_attribute_value_materialization_uses_byte_budget(self):
+        div = Element("div", {"data-x": "x" * 20}, "html")
+        matcher = SelectorMatcher(limits=SelectorLimits(max_match_bytes=10))
+
+        with self.assertRaisesRegex(SelectorError, "byte budget"):
+            matcher.matches(div, parse_selector("[data-x*=y]"))
+
+    def test_class_tokenization_uses_byte_budget(self):
+        div = Element("div", {"class": " ".join(f"c{i}" for i in range(10))}, "html")
+        matcher = SelectorMatcher(limits=SelectorLimits(max_match_bytes=30))
+
+        with self.assertRaisesRegex(SelectorError, "byte budget"):
+            matcher.matches(div, parse_selector(".missing"))
+
+    def test_non_class_attribute_selector_does_not_tokenize_class_attribute(self):
+        context = SelectorQueryContext()
+        matcher = SelectorMatcher(context=context)
+        div = Element("div", {"class": "alpha beta", "id": "main"}, "html")
+
+        assert matcher.matches(div, parse_selector("[id=main]"))
+        assert context.node_attr_cache[id(div)].class_tokens is None
+
+    def test_contains_text_materialization_uses_byte_budget(self):
+        div = Element("div", {}, "html")
+        div.append_child(Text("x" * 20))
+        matcher = SelectorMatcher(limits=SelectorLimits(max_match_bytes=10))
+
+        with self.assertRaisesRegex(SelectorError, "byte budget"):
+            matcher.matches(div, parse_selector(":contains(y)"))
 
     def test_adjacent_sibling_selector_does_not_rescan_previous_siblings(self):
         doc = JustHTML("<div>" + "".join("<em></em><span></span>" for _ in range(3_000)) + "</div>").root

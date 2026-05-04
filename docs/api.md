@@ -441,6 +441,7 @@ Guides:
 
 ```python
 from justhtml import DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlProxy, UrlRule, sanitize_dom
+from justhtml.selector import SelectorLimits
 ```
 
 ### Sanitizing output vs sanitizing the DOM
@@ -489,6 +490,31 @@ Notable options:
 - `disallowed_tag_handling`: "unwrap" (default), "escape", or "drop"
 - `strip_invisible_unicode`: `True` by default; strips invisible Unicode commonly abused for obfuscation, including variation selectors, zero-width/bidi controls, and private-use characters
 - `url_policy`: controls URL validation and URL handling ("allow", "strip", or "proxy")
+- `selector_limits`: resource limits used when parsing and matching selectors in sanitization transform pipelines
+
+`selector_limits` is an advanced escape hatch for trusted real-world pipelines that hit the conservative selector hardening defaults. If a transform pipeline includes `Sanitize(policy=policy)`, the pipeline uses `policy.selector_limits` for transform selector parsing and matching. If there are multiple enabled `Sanitize(...)` transforms, the last one in the pipeline controls the limits. Without an enabled `Sanitize(...)`, default selector limits apply.
+
+```python
+from justhtml import JustHTML, SanitizationPolicy, Sanitize, SetAttrs
+from justhtml.selector import SelectorLimits
+
+policy = SanitizationPolicy(
+    allowed_tags={"div"},
+    allowed_attributes={"*": {"class", "id"}},
+    selector_limits=SelectorLimits(max_length=20_000, max_match_bytes=200_000_000),
+)
+
+doc = JustHTML(
+    html,
+    fragment=True,
+    transforms=[
+        SetAttrs(".long-generated-class-name", id="matched"),
+        Sanitize(policy=policy),
+    ],
+)
+```
+
+Selector limits are not a substitute for input size controls. Prefer raising only the specific limit your trusted workload needs.
 
 ### `UrlPolicy`
 

@@ -7,6 +7,7 @@ from justhtml import JustHTML as _JustHTML
 from justhtml import SelectorError
 from justhtml.node import Comment, Document, DocumentFragment, Element, Node, Template, Text
 from justhtml.sanitize import SanitizationPolicy, UrlPolicy, UrlRule
+from justhtml.selector import SelectorLimits
 from justhtml.transforms import (
     AllowlistAttrs,
     AllowStyleAttrs,
@@ -100,6 +101,36 @@ class TestTransforms(unittest.TestCase):
     def test_constructor_compiles_selectors_and_raises_early(self) -> None:
         with self.assertRaises(SelectorError):
             JustHTML("<p>Hello</p>", transforms=[SetAttrs("div[invalid", id="x")])
+
+    def test_sanitize_policy_selector_limits_allow_larger_transform_selectors(self) -> None:
+        selector = "." + "a" * 8_192
+        policy = SanitizationPolicy(
+            allowed_tags={"div"},
+            allowed_attributes={"*": {"class", "id"}},
+            selector_limits=SelectorLimits(max_length=9_000),
+        )
+
+        compiled = compile_transforms([SetAttrs(selector, id="matched"), Sanitize(policy=policy)])
+
+        root = JustHTML(f'<div class="{"a" * 8_192}"></div>', fragment=True).root
+        apply_compiled_transforms(root, compiled)
+        assert root.children[0].attrs["id"] == "matched"
+
+    def test_default_selector_limits_still_apply_without_sanitize_policy_override(self) -> None:
+        with self.assertRaisesRegex(SelectorError, "too long"):
+            compile_transforms([SetAttrs("." + "a" * 8_192, id="matched"), Sanitize()])
+
+    def test_sanitize_policy_selector_limits_apply_to_transform_matching(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"div"},
+            allowed_attributes={"*": {"data-x"}},
+            selector_limits=SelectorLimits(max_match_bytes=10),
+        )
+        compiled = compile_transforms([Drop("[data-x*=y]"), Sanitize(policy=policy)])
+        root = JustHTML('<div data-x="xxxxxxxxxxxxxxxxxxxx"></div>', fragment=True).root
+
+        with self.assertRaisesRegex(SelectorError, "byte budget"):
+            apply_compiled_transforms(root, compiled)
 
     def test_drop_removes_nodes(self) -> None:
         doc = JustHTML("<p>ok</p><script>alert(1)</script>", transforms=[Drop("script")])

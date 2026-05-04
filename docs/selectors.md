@@ -9,6 +9,22 @@ JustHTML supports a comprehensive subset of CSS selectors for querying the DOM.
 - Selector parsing is cached internally (LRU, up to 512 distinct selector strings). Repeating the same selector across many calls avoids re-parsing overhead.
 - Simple tag-only selectors like `"div"` use a fast path (descendant scan without running the full selector matcher).
 - If you generate lots of unique selectors dynamically, expect some parse overhead once the cache churns.
+- Selector evaluation uses resource limits for selector length, selector shape, parse depth, match operations, and string materialization work. These limits are intentionally conservative for untrusted input.
+
+Default selector limits:
+
+| Limit | Default | Applies to |
+|-------|---------|------------|
+| `max_length` | `8192` | Selector string length |
+| `max_list_items` | `256` | Distinct comma-separated selector entries |
+| `max_compound_simple_selectors` | `512` | Distinct simple selectors in one compound selector |
+| `max_complex_selector_parts` | `512` | Combinator-linked parts in one complex selector |
+| `max_parse_depth` | `100` | Nested functional pseudo-class parsing, such as nested `:not(...)` |
+| `max_match_depth` | `100` | Nested selector matching |
+| `max_match_steps` | `100_000_000` | Selector matching operations |
+| `max_match_bytes` | `100_000_000` | Attribute/text string work during matching |
+
+Direct `query(...)` and `matches(...)` calls use the defaults. Sanitization transform pipelines can raise limits for trusted workloads with `SanitizationPolicy(selector_limits=...)`; see [Transforms](transforms.md#validation).
 
 ## Basic Selectors
 

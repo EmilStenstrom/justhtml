@@ -23,6 +23,7 @@ class SelectorLimits:
     max_complex_selector_parts: int = 512
     max_parse_depth: int = 100
     max_match_steps: int = 100_000_000
+    max_match_bytes: int = 100_000_000
 
 
 DEFAULT_SELECTOR_LIMITS = SelectorLimits()
@@ -431,13 +432,21 @@ ParsedSelector = ComplexSelector | SelectorList
 class SelectorParser:
     """Parses a list of tokens into a selector AST."""
 
-    __slots__ = ("parse_depth", "pos", "tokens")
+    __slots__ = ("limits", "parse_depth", "pos", "tokens")
 
+    limits: SelectorLimits
     tokens: list[Token]
     pos: int
     parse_depth: int
 
-    def __init__(self, tokens: list[Token], *, parse_depth: int = 0) -> None:
+    def __init__(
+        self,
+        tokens: list[Token],
+        *,
+        limits: SelectorLimits = DEFAULT_SELECTOR_LIMITS,
+        parse_depth: int = 0,
+    ) -> None:
+        self.limits = limits
         self.tokens = tokens
         self.pos = 0
         self.parse_depth = parse_depth
@@ -477,7 +486,7 @@ class SelectorParser:
                 selector_sig = _complex_selector_signature(selector)
                 if selector_sig in seen_signatures:
                     continue
-                if len(seen_signatures) >= DEFAULT_SELECTOR_LIMITS.max_list_items:
+                if len(seen_signatures) >= self.limits.max_list_items:
                     raise SelectorError("Selector list has too many entries")
                 seen_signatures.add(selector_sig)
                 selectors.append(selector)
@@ -505,7 +514,7 @@ class SelectorParser:
             compound = self._parse_compound_selector()
             if not compound:
                 raise SelectorError("Expected selector after combinator")
-            if len(complex_sel.parts) >= DEFAULT_SELECTOR_LIMITS.max_complex_selector_parts:
+            if len(complex_sel.parts) >= self.limits.max_complex_selector_parts:
                 raise SelectorError("Complex selector has too many parts")
             complex_sel.parts.append((combinator, compound))
 
@@ -547,7 +556,7 @@ class SelectorParser:
 
             simple_sig = _simple_selector_signature(simple)
             if simple_sig not in seen_signatures:
-                if len(seen_signatures) >= DEFAULT_SELECTOR_LIMITS.max_compound_simple_selectors:
+                if len(seen_signatures) >= self.limits.max_compound_simple_selectors:
                     raise SelectorError("Compound selector has too many simple selectors")
                 seen_signatures.add(simple_sig)
                 simple_selectors.append(simple)
@@ -586,7 +595,7 @@ class SelectorParser:
                 arg = self._advance().value
             self._expect(TokenType.PAREN_CLOSE)
             parsed_arg = (
-                _parse_selector(arg, parse_depth=self.parse_depth + 1)
+                _parse_selector(arg, limits=self.limits, parse_depth=self.parse_depth + 1)
                 if (name or "").lower() == "not" and arg
                 else None
             )
@@ -600,7 +609,7 @@ class NodeAttributeData:
     """Cached selector-relevant attribute data for one node."""
 
     attrs_lower: dict[str, str]
-    class_tokens: frozenset[str]
+    class_tokens: frozenset[str] | None = None
     attr_tokens: dict[str, frozenset[str]] = field(default_factory=dict)
 
 
@@ -630,9 +639,11 @@ class SelectorQueryContext:
     previous_match_cache: dict[tuple[int, int, int], dict[int, Any | None]] = field(default_factory=dict)
     text_content_cache: dict[int, str] = field(default_factory=dict)
     _remaining_match_steps: int = field(init=False)
+    _remaining_match_bytes: int = field(init=False)
 
     def __post_init__(self) -> None:
         self._remaining_match_steps = self.limits.max_match_steps
+        self._remaining_match_bytes = self.limits.max_match_bytes
 
     def tick(self, steps: int = 1) -> None:
         """Consume match budget for selector evaluation work."""
@@ -641,6 +652,14 @@ class SelectorQueryContext:
         self._remaining_match_steps -= steps
         if self._remaining_match_steps < 0:
             raise SelectorError("Selector match budget exceeded")
+
+    def tick_bytes(self, bytes_count: int) -> None:
+        """Consume match budget for selector string materialization work."""
+        if bytes_count <= 0:
+            return
+        self._remaining_match_bytes -= bytes_count
+        if self._remaining_match_bytes < 0:
+            raise SelectorError("Selector byte budget exceeded")
 
 
 class SelectorMatcher:
@@ -768,7 +787,14 @@ class SelectorMatcher:
 
     def _class_tokens(self, node: Any) -> frozenset[str]:
         data = self._node_attribute_data(node)
-        return data.class_tokens if data else frozenset()
+        if data is None:
+            return frozenset()
+        if data.class_tokens is None:
+            class_attr = data.attrs_lower.get("class")
+            data.class_tokens = self._split_attribute_tokens(class_attr or "")
+            if class_attr:
+                data.attr_tokens["class"] = data.class_tokens
+        return data.class_tokens
 
     def _matches_attribute(self, node: Any, selector: SimpleSelector) -> bool:
         """Match an attribute selector."""
@@ -786,6 +812,7 @@ class SelectorMatcher:
         op = selector.operator
 
         if op == "=":
+            self._context.tick_bytes(len(attr_value) + len(value))
             return attr_value == value
 
         if op == "~=":
@@ -794,18 +821,22 @@ class SelectorMatcher:
 
         if op == "|=":
             # Hyphen-separated prefix match (e.g., lang="en" matches lang|="en-US")
+            self._context.tick_bytes(len(attr_value) + len(value))
             return attr_value == value or attr_value.startswith(value + "-")
 
         if op == "^=":
             # Starts with
+            self._context.tick_bytes(len(attr_value) + len(value))
             return attr_value.startswith(value) if value else False
 
         if op == "$=":
             # Ends with
+            self._context.tick_bytes(len(attr_value) + len(value))
             return attr_value.endswith(value) if value else False
 
         if op == "*=":
             # Contains
+            self._context.tick_bytes(len(attr_value) + len(value))
             return value in attr_value if value else False
 
         return False
@@ -822,12 +853,13 @@ class SelectorMatcher:
         node_key = id(node)
         cached = self._context.node_attr_cache.get(node_key)
         if cached is None:
-            attrs_lower = {str(name).lower(): "" if value is None else str(value) for name, value in attrs.items()}
-            class_attr = attrs.get("class")
-            cached = NodeAttributeData(
-                attrs_lower=attrs_lower,
-                class_tokens=frozenset(str(class_attr).split()) if class_attr else frozenset(),
-            )
+            attrs_lower: dict[str, str] = {}
+            for name, value in attrs.items():
+                name_str = str(name).lower()
+                value_str = "" if value is None else str(value)
+                self._context.tick_bytes(len(name_str) + len(value_str))
+                attrs_lower[name_str] = value_str
+            cached = NodeAttributeData(attrs_lower=attrs_lower)
             self._context.node_attr_cache[node_key] = cached
         return cached
 
@@ -844,9 +876,15 @@ class SelectorMatcher:
 
         cached = data.attr_tokens.get(attr_name)
         if cached is None:
-            cached = frozenset(attr_value.split())
+            cached = self._split_attribute_tokens(attr_value)
             data.attr_tokens[attr_name] = cached
+            if attr_name == "class":
+                data.class_tokens = cached
         return cached
+
+    def _split_attribute_tokens(self, attr_value: str) -> frozenset[str]:
+        self._context.tick_bytes(len(attr_value))
+        return frozenset(attr_value.split())
 
     def _matches_pseudo(self, node: Any, selector: SimpleSelector, *, depth: int = 0) -> bool:
         """Match a pseudo-class selector."""
@@ -884,6 +922,7 @@ class SelectorMatcher:
             if selector.arg is None:
                 raise SelectorError(":contains() requires a string argument")
             needle = self._unquote_pseudo_arg(selector.arg)
+            self._context.tick_bytes(len(needle))
             if needle == "":
                 return True
             # Non-standard (jQuery-style) pseudo-class: match elements whose descendant
@@ -1089,24 +1128,29 @@ class SelectorMatcher:
                 if name == "#text":
                     data = current.data
                     if data:
+                        self._context.tick_bytes(len(data))
                         data = data.strip()
                     self._context.text_content_cache[current_key] = data or ""
                     continue
 
                 parts: list[str] = []
+                total_text_length = 0
                 children = getattr(current, "children", None)
                 if children:
                     for child in children:
                         text = self._context.text_content_cache.get(id(child), "")
                         if text:
+                            total_text_length += len(text)
                             parts.append(text)
 
                 template_content = getattr(current, "template_content", None)
                 if template_content is not None:
                     text = self._context.text_content_cache.get(id(template_content), "")
                     if text:
+                        total_text_length += len(text)
                         parts.append(text)
 
+                self._context.tick_bytes(total_text_length)
                 self._context.text_content_cache[current_key] = " ".join(parts)
                 continue
 
@@ -1264,32 +1308,43 @@ class SelectorMatcher:
         return False if type_index is None else self._matches_nth(type_index, a, b)
 
 
-def parse_selector(selector_string: str) -> ParsedSelector:
+def parse_selector(
+    selector_string: str,
+    *,
+    limits: SelectorLimits = DEFAULT_SELECTOR_LIMITS,
+) -> ParsedSelector:
     """Parse a CSS selector string into an AST.
 
     Note: parsing is cached internally via an LRU cache (see
-    `_parse_selector_cached`) to keep repeated selector use cheap.
+    `_parse_selector_cached`) to keep repeated default-limit selector use cheap.
     """
     selector = selector_string.strip() if selector_string else ""
     if not selector:
         raise SelectorError("Empty selector")
-    if len(selector) > DEFAULT_SELECTOR_LIMITS.max_length:
+    if len(selector) > limits.max_length:
         raise SelectorError("Selector is too long")
 
-    return _parse_selector_cached(selector)
+    if limits == DEFAULT_SELECTOR_LIMITS:
+        return _parse_selector_cached(selector)
+    return _parse_selector(selector, limits=limits, parse_depth=0)
 
 
 @lru_cache(maxsize=512)
 def _parse_selector_cached(selector_string: str) -> ParsedSelector:
-    return _parse_selector(selector_string, parse_depth=0)
+    return _parse_selector(selector_string, limits=DEFAULT_SELECTOR_LIMITS, parse_depth=0)
 
 
-def _parse_selector(selector_string: str, *, parse_depth: int) -> ParsedSelector:
-    if parse_depth > DEFAULT_SELECTOR_LIMITS.max_parse_depth:
+def _parse_selector(
+    selector_string: str,
+    *,
+    limits: SelectorLimits = DEFAULT_SELECTOR_LIMITS,
+    parse_depth: int,
+) -> ParsedSelector:
+    if parse_depth > limits.max_parse_depth:
         raise SelectorError("Selector nesting is too deep")
     tokenizer = SelectorTokenizer(selector_string)
     tokens = tokenizer.tokenize()
-    parser = SelectorParser(tokens, parse_depth=parse_depth)
+    parser = SelectorParser(tokens, limits=limits, parse_depth=parse_depth)
     return parser.parse()
 
 

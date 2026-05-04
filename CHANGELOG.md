@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Allow applications to tune selector hardening limits through `SanitizationPolicy(selector_limits=...)`. This provides an explicit escape hatch for trusted real-world sanitization pipelines that need larger selector or matching budgets than the conservative defaults.
+- (Severity: Low) Harden selector matching against denial-of-service from very large attribute values and text content. Selector matching now accounts for string materialization work when caching attributes, tokenizing class/attribute values, comparing substring selectors, and building `:contains(...)` text.
 - (Severity: Low) Harden selector parsing against denial-of-service from deeply nested functional pseudo-class arguments. Eagerly parsed `:not(...)` selectors now enforce a parse-depth limit before they can exhaust Python recursion.
 - (Severity: Low) Harden selector pseudo-class matching against additional denial-of-service cases. `:not(...)` arguments are now parsed once with the outer selector, `:empty` checks reuse per-node child state, and `:contains(...)` text traversal handles cyclic programmatic child graphs.
 - (Severity: Low) Generalize selector denial-of-service hardening with shared selector limits, per-query matcher context, and a match-operation budget. This makes future pathological selector combinations fail through a central resource guard instead of requiring a bespoke cache for each selector shape.

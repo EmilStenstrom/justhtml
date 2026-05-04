@@ -152,6 +152,21 @@ You are encouraged to write your own `SanitizationPolicy`, and not rely on the d
 
 When expanding the default policy, prefer adding small, explicit allowlists.
 
+Advanced sanitization pipelines can also tune selector resource limits:
+
+```python
+from justhtml import SanitizationPolicy
+from justhtml.selector import SelectorLimits
+
+policy = SanitizationPolicy(
+    allowed_tags={"div", "p"},
+    allowed_attributes={"*": {"class"}},
+    selector_limits=SelectorLimits(max_length=20_000),
+)
+```
+
+Use this only when you trust the selectors and know which limit your workload needs to raise. The defaults are intentionally conservative for untrusted input.
+
 Treat these as a separate security review if you plan to allow them:
 
 - `iframe`, `object`, `embed`

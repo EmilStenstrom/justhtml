@@ -183,6 +183,28 @@ Transforms are optional; omitting `transforms` keeps constructor behavior unchan
 Transform selectors are validated during construction.
 Invalid selectors raise `SelectorError` early, before the document is exposed.
 
+Selector parsing and matching use conservative resource limits to avoid disproportionate work from attacker-controlled selectors or very large attribute/text values. If a trusted sanitization pipeline needs higher limits, set `SanitizationPolicy(selector_limits=...)` and include that policy with `Sanitize(policy=...)` in the transform list. The last enabled `Sanitize(...)` in a compiled pipeline controls the selector limits for that pipeline; without `Sanitize(...)`, default limits apply.
+
+```python
+from justhtml import JustHTML, SanitizationPolicy, Sanitize, SetAttrs
+from justhtml.selector import SelectorLimits
+
+policy = SanitizationPolicy(
+    allowed_tags={"div"},
+    allowed_attributes={"*": {"class", "id"}},
+    selector_limits=SelectorLimits(max_length=20_000),
+)
+
+doc = JustHTML(
+    html,
+    fragment=True,
+    transforms=[
+        SetAttrs(".generated-selector-that-exceeds-the-default", id="x"),
+        Sanitize(policy=policy),
+    ],
+)
+```
+
 Only the built-in transform objects are supported.
 Unsupported transform objects raise `TypeError`.
 

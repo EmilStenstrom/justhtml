@@ -43,7 +43,7 @@ from .sanitize import (
     _stabilize_sanitized_dom_once,
     _strip_invisible_unicode,
 )
-from .selector import SelectorMatcher, parse_selector
+from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits, SelectorMatcher, parse_selector
 from .serialize import serialize_end_tag, serialize_start_tag
 from .tokens import ParseError
 from .transforms_spec import (
@@ -604,6 +604,15 @@ def _terminal_sanitize_policy_from_flattened(flattened: list[Transform]) -> Sani
     return None
 
 
+def _selector_limits_from_flattened(flattened: list[Transform]) -> SelectorLimits:
+    for t in reversed(flattened):
+        if not getattr(t, "enabled", False):
+            continue
+        if isinstance(t, Sanitize):
+            return (t.policy or DEFAULT_POLICY).selector_limits
+    return DEFAULT_SELECTOR_LIMITS
+
+
 def _append_terminal_sanitize_policy_marker(
     compiled: list[CompiledTransform],
     *,
@@ -625,15 +634,30 @@ def _append_terminal_sanitize_policy_marker(
     )
 
 
+def _selector_limits_from_compiled(
+    compiled: list[CompiledTransform] | tuple[CompiledTransform, ...],
+) -> SelectorLimits:
+    for t in reversed(compiled):
+        policy = getattr(t, "policy", None)
+        if isinstance(policy, SanitizationPolicy):
+            return policy.selector_limits
+    return DEFAULT_SELECTOR_LIMITS
+
+
 def compile_transforms(
     transforms: list[TransformSpec] | tuple[TransformSpec, ...],
     *,
     _include_terminal_sanitize_policy: bool = True,
+    _selector_limits: SelectorLimits | None = None,
 ) -> list[CompiledTransform]:
     if not transforms:
         return []
 
     flattened = _iter_flattened_transforms(transforms)
+    selector_limits = _selector_limits or _selector_limits_from_flattened(flattened)
+
+    def _parse_selector(selector: str) -> ParsedSelector:
+        return parse_selector(selector, limits=selector_limits)
 
     top_level_stages = _split_into_top_level_stages(transforms)
     if top_level_stages:
@@ -652,7 +676,13 @@ def compile_transforms(
                 )
             )
             for inner in _iter_flattened_transforms(stage.transforms):
-                compiled_stage.extend(compile_transforms((inner,), _include_terminal_sanitize_policy=False))
+                compiled_stage.extend(
+                    compile_transforms(
+                        (inner,),
+                        _include_terminal_sanitize_policy=False,
+                        _selector_limits=selector_limits,
+                    )
+                )
         _append_terminal_sanitize_policy_marker(
             compiled_stage,
             flattened=flattened,
@@ -715,7 +745,7 @@ def compile_transforms(
                 _CompiledSelectorTransform(
                     kind="setattrs",
                     selector_str=t.selector,
-                    selector=parse_selector(t.selector),
+                    selector=_parse_selector(t.selector),
                     payload=t.attrs,
                     callback=t.callback,
                     report=t.report,
@@ -779,7 +809,7 @@ def compile_transforms(
                 _CompiledSelectorTransform(
                     kind="drop",
                     selector_str=selector_str,
-                    selector=parse_selector(selector_str),
+                    selector=_parse_selector(selector_str),
                     payload=None,
                     callback=t.callback,
                     report=t.report,
@@ -791,7 +821,7 @@ def compile_transforms(
                 _CompiledSelectorTransform(
                     kind="unwrap",
                     selector_str=t.selector,
-                    selector=parse_selector(t.selector),
+                    selector=_parse_selector(t.selector),
                     payload=None,
                     callback=t.callback,
                     report=t.report,
@@ -804,7 +834,7 @@ def compile_transforms(
                 _CompiledSelectorTransform(
                     kind="escape",
                     selector_str=t.selector,
-                    selector=parse_selector(t.selector),
+                    selector=_parse_selector(t.selector),
                     payload=None,
                     callback=t.callback,
                     report=t.report,
@@ -816,7 +846,7 @@ def compile_transforms(
                 _CompiledSelectorTransform(
                     kind="empty",
                     selector_str=t.selector,
-                    selector=parse_selector(t.selector),
+                    selector=_parse_selector(t.selector),
                     payload=None,
                     callback=t.callback,
                     report=t.report,
@@ -847,7 +877,7 @@ def compile_transforms(
                 _CompiledSelectorTransform(
                     kind="edit",
                     selector_str=t.selector,
-                    selector=parse_selector(t.selector),
+                    selector=_parse_selector(t.selector),
                     payload=_wrapped,
                     callback=None,
                     report=None,
@@ -911,7 +941,7 @@ def compile_transforms(
                 _CompiledDecideTransform(
                     kind="decide",
                     selector_str=selector_str,
-                    selector=None if all_nodes else parse_selector(selector_str),
+                    selector=None if all_nodes else _parse_selector(selector_str),
                     all_nodes=all_nodes,
                     callback=effective_callback,
                 )
@@ -946,7 +976,7 @@ def compile_transforms(
                 _CompiledRewriteAttrsTransform(
                     kind="rewrite_attrs",
                     selector_str=selector_str,
-                    selector=None if all_nodes else parse_selector(selector_str),
+                    selector=None if all_nodes else _parse_selector(selector_str),
                     all_nodes=all_nodes,
                     func=_wrapped_attrs,
                 )
@@ -981,7 +1011,7 @@ def compile_transforms(
                 _CompiledPruneEmptyTransform(
                     kind="prune_empty",
                     selector_str=t.selector,
-                    selector=parse_selector(t.selector),
+                    selector=_parse_selector(t.selector),
                     strip_whitespace=t.strip_whitespace,
                     callback=t.callback,
                     report=t.report,
@@ -1145,7 +1175,7 @@ def compile_transforms(
                 _CompiledRewriteAttrsTransform(
                     kind="rewrite_attrs",
                     selector_str=selector_str,
-                    selector=None if all_nodes else parse_selector(selector_str),
+                    selector=None if all_nodes else _parse_selector(selector_str),
                     all_nodes=all_nodes,
                     func=_drop_attrs,
                 )
@@ -1234,7 +1264,7 @@ def compile_transforms(
                 _CompiledRewriteAttrsTransform(
                     kind="rewrite_attrs",
                     selector_str=selector_str,
-                    selector=None if all_nodes else parse_selector(selector_str),
+                    selector=None if all_nodes else _parse_selector(selector_str),
                     all_nodes=all_nodes,
                     func=_allowlist_attrs,
                 )
@@ -1406,7 +1436,7 @@ def compile_transforms(
                 _CompiledRewriteAttrsTransform(
                     kind="rewrite_attrs",
                     selector_str=selector_str,
-                    selector=None if all_nodes else parse_selector(selector_str),
+                    selector=None if all_nodes else _parse_selector(selector_str),
                     all_nodes=all_nodes,
                     func=_drop_url_attrs,
                 )
@@ -1480,7 +1510,7 @@ def compile_transforms(
                 _CompiledRewriteAttrsTransform(
                     kind="rewrite_attrs",
                     selector_str=selector_str,
-                    selector=None if all_nodes else parse_selector(selector_str),
+                    selector=None if all_nodes else _parse_selector(selector_str),
                     all_nodes=all_nodes,
                     func=_allow_style_attrs,
                 )
@@ -1679,7 +1709,7 @@ def compile_transforms(
             ]
 
             # Recursive compile to enable optimization (RewriteAttrs fusion).
-            for sub_t in compile_transforms(sub_attrs):
+            for sub_t in compile_transforms(sub_attrs, _selector_limits=policy.selector_limits):
                 _append_compiled(sub_t)
 
             # Drop comments/doctype late so we also catch nodes hoisted by
@@ -1736,6 +1766,7 @@ def apply_compiled_transforms(
     if not compiled:
         return
 
+    selector_limits = _selector_limits_from_compiled(compiled)
     token = _ERROR_SINK.set(errors)
     try:
         terminal_sanitize_policy: SanitizationPolicy | None = None
@@ -1902,7 +1933,7 @@ def apply_compiled_transforms(
                     is_comment = name == "#comment"
 
                     changed = False
-                    matcher = SelectorMatcher()
+                    matcher = SelectorMatcher(limits=selector_limits)
                     if created_start_index:
                         start_at = created_start_index.get(id(node), 0)
                     else:
@@ -2500,7 +2531,7 @@ def apply_compiled_transforms(
                 if node.name.startswith("#"):
                     continue
 
-                matcher = SelectorMatcher()
+                matcher = SelectorMatcher(limits=selector_limits)
                 for pt in prune_transforms:
                     if matcher.matches(node, pt.selector):
                         if _is_effectively_empty_element(node, strip_whitespace=pt.strip_whitespace):
