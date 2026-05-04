@@ -60,7 +60,7 @@ We run the same test suite against other Python parsers to compare compliance:
 | **JustHTML** | 1743/1743 | **100%** | Full spec compliance |
 | markupever | 1545/1743 | 89% | Rust-based (html5ever), mostly correct |
 | html5lib | 1496/1743 | 86% | Reference implementation, but incomplete |
-| selectolax | 1215/1743 | 70% | C-based (Lexbor), fast but less compliant |
+| selectolax | 1430/1743 | 82% | C-based (Lexbor), fast but missing benchmarked fragment-context capabilities |
 | html5_parser | 862/1743 | 49% | C-based (Gumbo), fast but loses exposed tree information |
 | BeautifulSoup | 6/1743 | <1% | Uses html.parser, not HTML5 compliant |
 | html.parser | 6/1743 | <1% | Python stdlib, basic error recovery only |

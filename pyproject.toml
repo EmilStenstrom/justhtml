@@ -19,7 +19,7 @@ benchmark = [
     "html5lib",
     "lxml",
     "beautifulsoup4",
-    "selectolax",
+    "selectolax>=0.4.8",
     "html5-parser",
     "markupever",
 ]

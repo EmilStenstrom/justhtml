@@ -122,9 +122,11 @@ def check_parser_available(parser_name):
         return True  # stdlib, always available
     if parser_name == "selectolax":
         try:
-            from selectolax.lexbor import LexborHTMLParser  # noqa: F401
+            from selectolax.lexbor import LexborHTMLParser
 
-            return True
+            parser = LexborHTMLParser("<p></p>")
+            return hasattr(parser, "html_pretty") and hasattr(parser.root, "html_pretty")
+
         except ImportError:
             return False
     if parser_name == "html5_parser":
@@ -807,29 +809,137 @@ def _selectolax_walk(node, indent):
         return lines
 
     if tag == "-doctype":
-        doctype_html = node.html or ""
+        doctype_html = _selectolax_node_html_pretty(node, full_doctype=True)
         if doctype_html.startswith("<!DOCTYPE"):
-            content = doctype_html[9:-1].strip()
+            content = _selectolax_doctype_content(doctype_html)
             lines.append(f"| <!DOCTYPE {content}>")
         return lines
 
     if not tag or tag.startswith("-"):
         return lines
 
-    lines.append(f"| {prefix}<{tag}>")
+    test_tag = _selectolax_tag_name(node) or tag
+    lines.append(f"| {prefix}<{test_tag}>")
 
-    if node.attributes:
-        for name in sorted(node.attributes.keys()):
-            value = node.attributes[name]
+    attrs = _selectolax_attributes(node, test_tag)
+    if attrs:
+        for name, value in attrs:
             if value is None:
-                value = ""
-            lines.append(f'| {prefix}  {name}="{value}"')
+                attr_value = ""
+            else:
+                attr_value = value
+            lines.append(f'| {prefix}  {name}="{attr_value}"')
 
     child = node.child
     while child:
         lines.extend(_selectolax_walk(child, indent + 2))
         child = child.next
     return lines
+
+
+def _selectolax_node_html_pretty(node, **kwargs):
+    """Return selectolax html_pretty output."""
+    return node.html_pretty(**kwargs).strip()
+
+
+def _selectolax_start_tag_source(node):
+    """Return the first pretty-printed start-tag line for a selectolax node."""
+    pretty = _selectolax_node_html_pretty(node, tag_with_ns=True, full_doctype=True)
+    for line in pretty.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("<") and not stripped.startswith(("</", "<!")):
+            return stripped
+    return None
+
+
+def _selectolax_tag_name(node):
+    """Return html5lib tree-test element names, including SVG/MathML namespaces."""
+    start_tag = _selectolax_start_tag_source(node)
+    if not start_tag:
+        return None
+    match = re.match(r"<([^\s>/]+)", start_tag)
+    if not match:
+        return None
+    name = match.group(1)
+    if ":" not in name:
+        return name
+    namespace, local_name = name.split(":", 1)
+    if namespace in ("math", "svg"):
+        return f"{namespace} {local_name}"
+    return name
+
+
+def _selectolax_attributes(node, test_tag):
+    """Return sorted html5lib tree-test attributes for a selectolax element."""
+    if not node.attributes:
+        return []
+
+    is_foreign = test_tag.startswith(("math ", "svg "))
+    attr_name_map = _selectolax_pretty_attr_name_map(node, is_foreign=is_foreign)
+    attrs = []
+
+    for raw_name, value in node.attributes.items():
+        test_name = attr_name_map.get(raw_name, raw_name)
+        attrs.append((test_name, value))
+
+    return sorted(attrs, key=lambda item: item[0])
+
+
+def _selectolax_pretty_attr_name_map(node, *, is_foreign):
+    """Map selectolax's attribute keys to namespaced names from html_pretty()."""
+    start_tag = _selectolax_start_tag_source(node)
+    if not start_tag:
+        return {}
+
+    names = re.findall(r"\s([^\s=<>\"]+)(?==)", start_tag)
+    mapping = {}
+    attrs = node.attributes
+
+    for pretty_name in names:
+        test_name = _selectolax_attr_test_name(pretty_name, is_foreign=is_foreign)
+        candidates = [pretty_name]
+        if ":" in pretty_name:
+            candidates.append(pretty_name.split(":", 1)[1])
+        for candidate in candidates:
+            if candidate in attrs:
+                mapping[candidate] = test_name
+                break
+
+    return mapping
+
+
+def _selectolax_attr_test_name(name, *, is_foreign):
+    if is_foreign and ":" in name:
+        namespace, local_name = name.split(":", 1)
+        if namespace in ("xlink", "xml", "xmlns"):
+            return f"{namespace} {local_name}"
+    return name
+
+
+def _selectolax_doctype_content(doctype_html):
+    """Convert a serialized doctype into html5lib tree-test doctype content."""
+    decl = doctype_html.strip()
+    match = re.match(r"<!DOCTYPE\s+([^\s>]+)\s*(.*?)>$", decl, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return decl[9:-1].strip()
+
+    name, rest = match.groups()
+    rest = rest.strip()
+    if not rest:
+        return name
+
+    keyword, _, identifier_text = rest.partition(" ")
+    ids = [double or single for double, single in re.findall(r'"([^"]*)"|\'([^\']*)\'', identifier_text)]
+
+    if keyword.upper() == "PUBLIC":
+        public_id = ids[0] if ids else ""
+        system_id = ids[1] if len(ids) > 1 else ""
+        return f'{name} "{public_id}" "{system_id}"'
+    if keyword.upper() == "SYSTEM":
+        system_id = ids[0] if ids else ""
+        return f'{name} "" "{system_id}"'
+
+    return decl[9:-1].strip()
 
 
 def _markupever_to_test_format(nodes):
@@ -942,7 +1052,7 @@ def run_correctness_tests(args):
         if check_parser_available(name):
             available_parsers.append(name)
         else:
-            print(f"Note: Parser '{name}' not available (not installed), skipping")
+            print(f"Note: Parser '{name}' not available (not installed or missing required API), skipping")
 
     if not available_parsers:
         print("Error: No parsers available", file=sys.stderr)
