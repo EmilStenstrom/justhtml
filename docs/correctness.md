@@ -58,7 +58,7 @@ We run the same test suite against other Python parsers to compare compliance:
 | Parser | Tests Passed | Compliance | Notes |
 |--------|-------------|------------|-------|
 | **JustHTML** | 1743/1743 | **100%** | Full spec compliance |
-| selectolax | 1734/1743 | 99.5% | C-based (Lexbor), fast and nearly spec-compliant with dev `html5test` output API |
+| selectolax | 1742/1743 | 99.9% | C-based (Lexbor), fast and nearly spec-compliant with dev `html5test` output API |
 | markupever | 1545/1743 | 89% | Rust-based (html5ever), mostly correct |
 | html5lib | 1496/1743 | 86% | Reference implementation, but incomplete |
 | html5_parser | 862/1743 | 49% | C-based (Gumbo), fast but loses exposed tree information |

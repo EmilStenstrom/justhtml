@@ -113,8 +113,8 @@ curl -Ls https://en.wikipedia.org/wiki/HTML -o /tmp/justhtml-bench.html
 | Tool | HTML5 parsing [1][2] | Speed | Query | Build | Sanitize | Notes |
 |------|------------------------------------------|-------|----------|-------|------------------|-------|
 | **JustHTML**<br>Pure Python | ✅&nbsp;100% | ⚡ Fast | ✅ CSS selectors | ✅ `element()` | ✅ Built-in | Correct, secure, easy to install, and fast enough. |
+| **`selectolax`**<br>Python wrapper of C-based Lexbor | ✅&nbsp;99.9% | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast and spec-compliant |
 | **Chromium**<br>browser engine | ✅&nbsp;99.6% | 🚀&nbsp;Very&nbsp;Fast | — | — | — | — |
-| **`selectolax`**<br>Python wrapper of C-based Lexbor | ✅ 99.5% | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast and nearly spec-compliant with its dev `html5test` output API. |
 | **WebKit**<br>browser engine | ✅ 98% | 🚀 Very Fast | — | — | — | — |
 | **Firefox**<br>browser engine | ✅ 98% | 🚀 Very Fast | — | — | — | — |
 | **`markupever`**<br>Python wrapper of Rust-based html5ever | 🟡 89% | 🚀 Very Fast | ✅ CSS selectors | ✅ `TreeDom.create_*()` | ❌ Needs sanitization | Fast and mostly correct, but missing benchmarked capabilities count against compliance. |
@@ -124,7 +124,7 @@ curl -Ls https://en.wikipedia.org/wiki/HTML -o /tmp/justhtml-bench.html
 | **`html.parser`**<br>Python stdlib | 🔴 <1% | ⚡ Fast | ❌ None | ❌ None | ❌ Needs sanitization | Standard library. Chokes on malformed HTML. |
 | **`lxml`**<br>Python wrapper of C-based libxml2 | 🔴 <1% | 🚀 Very Fast | 🟡 XPath | ✅ `etree` / E-factory | ❌ Needs sanitization | Fast but not HTML5 compliant. Context-fragment cases are skipped; supported cases still perform poorly. Don't use the old lxml.html.clean module! |
 
-[1]: Parser compliance scores are from a strict run of the [html5lib-tests](https://github.com/html5lib/html5lib-tests) tree-construction fixtures (1,743 non-script tests). The score is `pass / (pass + fail + error)`; unsupported public API capabilities count as failures rather than being faked. The benchmark may compose multiple public APIs from the same parser, but does not use testcase-specific shims or synthetic adapters when an API surface is missing. The selectolax score uses its dev `html5test` output and fragment-context APIs. See [docs/correctness.md](docs/correctness.md) for details.
+[1]: Parser compliance scores are from a strict run of the [html5lib-tests](https://github.com/html5lib/html5lib-tests) tree-construction fixtures (1,743 non-script tests). The score is `pass / (pass + fail + error)`; unsupported public API capabilities count as failures rather than being faked. The benchmark may compose multiple public APIs from the same parser, but does not use testcase-specific shims or synthetic adapters when an API surface is missing. The selectolax score is 1742/1743 (99.94%) using its dev `html5test` output and fragment-context APIs. See [docs/correctness.md](docs/correctness.md) for details.
 
 [2]: Browser numbers are from a local rerun of [`justhtml-html5lib-tests-bench`](https://github.com/EmilStenstrom/justhtml-html5lib-tests-bench) against this repo's `tests/html5lib-tests-tree/*.dat` corpus: Chromium 1763/1770, WebKit 1741/1770, Firefox 1727/1770, with 8 skipped cases per engine.
 
