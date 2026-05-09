@@ -117,6 +117,56 @@ class TestTransformsSanitizeIntegration(unittest.TestCase):
         assert doc.to_html(pretty=False) == "<p>ok</p>"
         assert [e for e in doc.errors if e.category == "security"] == []
 
+    def test_explicit_sanitize_uses_constructor_policy_when_policy_omitted(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"p"},
+            allowed_attributes={"*": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+        )
+
+        doc = JustHTML(
+            '<p id="x">ok</p><a href="https://example.com">x</a><img src="/x">',
+            fragment=True,
+            policy=policy,
+            transforms=[Sanitize()],
+        )
+
+        assert doc.to_html(pretty=False) == "<p>ok</p>x"
+
+    def test_explicit_sanitize_uses_constructor_policy_when_sanitize_is_disabled(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"p"},
+            allowed_attributes={"*": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+        )
+
+        doc = JustHTML(
+            '<p id="x">ok</p><a href="https://example.com">x</a><img src="/x">',
+            fragment=True,
+            sanitize=False,
+            policy=policy,
+            transforms=[Sanitize()],
+        )
+
+        assert doc.to_html(pretty=False) == "<p>ok</p>x"
+
+    def test_explicit_sanitize_uses_constructor_escape_policy_when_policy_omitted(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"p"},
+            allowed_attributes={"*": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            disallowed_tag_handling="escape",
+        )
+
+        doc = JustHTML(
+            "<p>ok</p><x-test>keep text</x-test><broken",
+            fragment=True,
+            policy=policy,
+            transforms=[Sanitize()],
+        )
+
+        assert doc.to_html(pretty=False) == "<p>ok</p>&lt;x-test&gt;keep text&lt;/x-test&gt;&lt;broken"
+
     def test_explicit_sanitize_disables_implicit_final_sanitize(self) -> None:
         doc = JustHTML(
             '<img src="/x">',

@@ -164,7 +164,7 @@ class JustHTML:
                     has_sanitize_transform = True
                     if explicit_sanitize_policy is None:
                         explicit_sanitize_policy = t.policy
-                    effective = t.policy or DEFAULT_POLICY
+                    effective = t.policy or policy or DEFAULT_POLICY
                     if effective.disallowed_tag_handling == "escape":
                         track_tag_spans = True
                         needs_escape_incomplete_tags = True
@@ -260,10 +260,14 @@ class JustHTML:
             final_transforms: list[TransformSpec] = list(transforms or [])
             terminal_sanitize_policy: SanitizationPolicy | None = None
 
-            # Normalize explicit Sanitize() transforms to use the same default policy
-            # choice as the old safe-output sanitizer (document vs fragment).
+            # Normalize explicit Sanitize() transforms without their own policy
+            # to the constructor policy when supplied, otherwise to the same
+            # default policy choice as the old safe-output sanitizer (document
+            # vs fragment).
             if final_transforms:
-                default_mode_policy = DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY
+                default_mode_policy = policy or (
+                    DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY
+                )
                 for i, t in enumerate(final_transforms):
                     if isinstance(t, Sanitize) and t.policy is None:
                         final_transforms[i] = Sanitize(

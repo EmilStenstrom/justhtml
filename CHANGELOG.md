@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Moderate) Apply the constructor `policy` to explicit `Sanitize()` transforms that omit their own policy. Previously, `JustHTML(..., policy=custom, transforms=[Sanitize()])` fell back to the default policy and could preserve tags, attributes, or URLs outside the caller's custom allowlist.
 - (Severity: Low) Prevent stale collected sanitizer findings from leaking into later `JustHTML(..., transforms=[Sanitize(policy=...)], collect_errors=True)` results when a collect-mode policy object is reused.
 
 ## [1.19.0] - 2026-05-09
