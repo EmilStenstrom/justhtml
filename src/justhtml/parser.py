@@ -282,13 +282,26 @@ class JustHTML:
                     if policy is not None
                     else (DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY)
                 )
-                # Avoid stale collected errors on reused policy objects.
-                if effective_policy.unsafe_handling == "collect":
-                    effective_policy.reset_collected_security_errors()
                 final_transforms.append(Sanitize(policy=effective_policy))
                 terminal_sanitize_policy = effective_policy
 
             if final_transforms:
+                # Avoid stale collected errors on reused policy objects. Constructor
+                # `doc.errors` should describe this parse, including when callers
+                # provide explicit Sanitize(...) transforms.
+                reset_collect_policy_ids: set[int] = set()
+                for t in final_transforms:
+                    if not isinstance(t, Sanitize) or not t.enabled:
+                        continue
+                    t_policy = t.policy
+                    if t_policy is None or t_policy.unsafe_handling != "collect":
+                        continue
+                    policy_id = id(t_policy)
+                    if policy_id in reset_collect_policy_ids:
+                        continue
+                    t_policy.reset_collected_security_errors()
+                    reset_collect_policy_ids.add(policy_id)
+
                 compiled_transforms: Any = None
                 if len(final_transforms) == 1 and isinstance(final_transforms[0], Sanitize):
                     only = final_transforms[0]
@@ -319,7 +332,7 @@ class JustHTML:
                 # This mirrors the old behavior where safe output could feed
                 # security findings into doc.errors.
                 for t in final_transforms:
-                    if isinstance(t, Sanitize):
+                    if isinstance(t, Sanitize) and t.enabled:
                         t_policy = t.policy
                         if t_policy is not None and t_policy.unsafe_handling == "collect":
                             if t_policy.collects_security_errors_into(transform_errors):

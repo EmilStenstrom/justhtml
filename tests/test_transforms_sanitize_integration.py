@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
-from justhtml import JustHTML, SetAttrs
+from justhtml import DEFAULT_POLICY, JustHTML, SetAttrs
 from justhtml.context import FragmentContext
 from justhtml.node import DocumentFragment, Element, Template
 from justhtml.parser import JustHTML as ParserJustHTML
@@ -77,6 +78,44 @@ class TestTransformsSanitizeIntegration(unittest.TestCase):
             fragment=True,
         )
         assert safe_doc.to_html(pretty=False) == "<p><a>xy</a></p>"
+
+    def test_explicit_sanitize_collect_policy_does_not_leak_stale_errors(self) -> None:
+        policy = replace(DEFAULT_POLICY, unsafe_handling="collect")
+
+        unsafe_doc = JustHTML(
+            "<script>x</script>",
+            fragment=True,
+            transforms=[Sanitize(policy=policy)],
+            collect_errors=True,
+        )
+        assert unsafe_doc.to_html(pretty=False) == ""
+        assert [e.message for e in unsafe_doc.errors if e.category == "security"] == [
+            "Unsafe tag 'script' (dropped content)"
+        ]
+
+        clean_doc = JustHTML(
+            "<p>ok</p>",
+            fragment=True,
+            transforms=[Sanitize(policy=policy)],
+            collect_errors=True,
+        )
+        assert clean_doc.to_html(pretty=False) == "<p>ok</p>"
+        assert [e for e in clean_doc.errors if e.category == "security"] == []
+        assert policy.collected_security_errors() == []
+
+    def test_disabled_explicit_sanitize_does_not_merge_stale_collected_errors(self) -> None:
+        policy = replace(DEFAULT_POLICY, unsafe_handling="collect")
+        policy.handle_unsafe("stale finding")
+
+        doc = JustHTML(
+            "<p>ok</p>",
+            fragment=True,
+            transforms=[Sanitize(policy=policy, enabled=False)],
+            collect_errors=True,
+        )
+
+        assert doc.to_html(pretty=False) == "<p>ok</p>"
+        assert [e for e in doc.errors if e.category == "security"] == []
 
     def test_explicit_sanitize_disables_implicit_final_sanitize(self) -> None:
         doc = JustHTML(
