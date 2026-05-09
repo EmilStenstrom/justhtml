@@ -33,6 +33,7 @@ from .sanitize import (
     _effective_url_handling,
     _has_potential_foreign_content,
     _replace_container_children,
+    _sanitize_comma_or_space_separated_url_list,
     _sanitize_foreign_html_integration_point_contents,
     _sanitize_inline_style,
     _sanitize_rawtext_element_contents,
@@ -1351,6 +1352,14 @@ def compile_transforms(
 
                     if lower_key in {"srcset", "imagesrcset"}:
                         sanitized = _sanitize_srcset_value(
+                            url_policy=url_policy,
+                            rule=rule,
+                            tag=tag,
+                            attr=lower_key,
+                            value=str(raw_value),
+                        )
+                    elif lower_key in {"archive", "profile"}:
+                        sanitized = _sanitize_comma_or_space_separated_url_list(
                             url_policy=url_policy,
                             rule=rule,
                             tag=tag,

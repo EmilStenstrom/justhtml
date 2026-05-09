@@ -1486,6 +1486,47 @@ def _sanitize_space_separated_url_list(
     return None if not out_tokens else " ".join(out_tokens)
 
 
+def _sanitize_comma_or_space_separated_url_list(
+    *,
+    url_policy: UrlPolicy,
+    rule: UrlRule,
+    tag: str,
+    attr: str,
+    value: str,
+) -> str | None:
+    v = value
+    if url_policy.url_filter is not None:
+        rewritten = url_policy.url_filter(tag, attr, v)
+        if rewritten is None:
+            return None
+        v = rewritten
+
+    stripped = str(v).strip()
+    if not stripped:
+        return None
+
+    tokens = [token for token in re.split(r"[\s,]+", stripped) if token]
+
+    out_tokens: list[str] = []
+    for token in tokens:
+        sanitized = _sanitize_url_value_with_rule(
+            rule=rule,
+            value=token,
+            tag=tag,
+            attr=attr,
+            handling=_effective_url_handling(url_policy=url_policy, rule=rule),
+            allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
+            proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+            url_filter=None,
+            apply_filter=False,
+        )
+        if sanitized is None:
+            return None
+        out_tokens.append(sanitized)
+
+    return None if not out_tokens else " ".join(out_tokens)
+
+
 _URL_LIKE_ATTRS: frozenset[str] = frozenset(
     {
         # Common URL-valued attributes.
@@ -1499,7 +1540,16 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
         "data",
         "cite",
         "background",
+        "classid",
+        "code",
+        "codebase",
+        "longdesc",
+        "manifest",
+        "object",
+        "profile",
+        "usemap",
         # Can trigger requests/pings.
+        "archive",
         "ping",
         "attributionsrc",
     }

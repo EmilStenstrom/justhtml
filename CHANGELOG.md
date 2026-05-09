@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Treat legacy browser URL attributes such as `archive`, `codebase`, `longdesc`, `manifest`, `profile`, and `usemap` as URL-bearing attributes that require explicit `UrlPolicy` rules. Previously, custom policies could allow these attributes as ordinary text attributes and preserve browser-fetching URLs without URL validation.
 - (Severity: Low) Report dropped comments and doctypes through the sanitizer policy's `unsafe_handling` mode. Previously, collect- and raise-mode policies stripped these nodes silently instead of recording or raising security findings.
 - (Severity: Low) Harden programmatic template DOM mutation against cycles through `template.template_content`. Previously, appending a template into its own template content could make operations such as deep cloning or HTML serialization loop indefinitely.
 - (Severity: Low) Prevent stale collected sanitizer findings from leaking across repeated `sanitize(...)` and `sanitize_dom(...)` calls when a collect-mode policy object is reused.

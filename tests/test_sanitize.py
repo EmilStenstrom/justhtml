@@ -21,6 +21,7 @@ from justhtml.sanitize import (
     _effective_url_handling,
     _is_valid_css_property_name,
     _neutralize_rawtext_end_tag_sequences,
+    _sanitize_comma_or_space_separated_url_list,
     _sanitize_css_url_functions,
     _sanitize_inline_style,
     _sanitize_rawtext_element_contents,
@@ -1039,6 +1040,100 @@ class TestSanitizeDom(unittest.TestCase):
             is None
         )
 
+    def test_sanitize_comma_or_space_separated_url_list(self) -> None:
+        url_policy = UrlPolicy(
+            allow_rules={
+                ("object", "archive"): UrlRule(
+                    allowed_schemes={"https"},
+                    allowed_hosts={"trusted.example"},
+                )
+            }
+        )
+        rule = url_policy.allow_rules[("object", "archive")]
+
+        assert (
+            _sanitize_comma_or_space_separated_url_list(
+                url_policy=url_policy,
+                rule=rule,
+                tag="object",
+                attr="archive",
+                value="https://trusted.example/a.jar, https://trusted.example/b.jar",
+            )
+            == "https://trusted.example/a.jar https://trusted.example/b.jar"
+        )
+
+        assert (
+            _sanitize_comma_or_space_separated_url_list(
+                url_policy=url_policy,
+                rule=rule,
+                tag="object",
+                attr="archive",
+                value="https://trusted.example/a.jar, https://evil.example/b.jar",
+            )
+            is None
+        )
+
+        def rewrite_filter(tag: str, attr: str, value: str) -> str | None:
+            assert tag == "object"
+            assert attr == "archive"
+            assert value == "ignored"
+            return "https://trusted.example/rewrite.jar"
+
+        rewrite_policy = UrlPolicy(
+            allow_rules={
+                ("object", "archive"): UrlRule(
+                    allowed_schemes={"https"},
+                    allowed_hosts={"trusted.example"},
+                )
+            },
+            url_filter=rewrite_filter,
+        )
+        rewrite_rule = rewrite_policy.allow_rules[("object", "archive")]
+
+        assert (
+            _sanitize_comma_or_space_separated_url_list(
+                url_policy=rewrite_policy,
+                rule=rewrite_rule,
+                tag="object",
+                attr="archive",
+                value="ignored",
+            )
+            == "https://trusted.example/rewrite.jar"
+        )
+
+        drop_policy = UrlPolicy(
+            allow_rules={
+                ("object", "archive"): UrlRule(
+                    allowed_schemes={"https"},
+                    allowed_hosts={"trusted.example"},
+                )
+            },
+            url_filter=lambda tag, attr, value: None,
+        )
+        drop_rule = drop_policy.allow_rules[("object", "archive")]
+
+        assert (
+            _sanitize_comma_or_space_separated_url_list(
+                url_policy=drop_policy,
+                rule=drop_rule,
+                tag="object",
+                attr="archive",
+                value="https://trusted.example/a.jar",
+            )
+            is None
+        )
+
+        assert (
+            _sanitize_comma_or_space_separated_url_list(
+                url_policy=url_policy,
+                rule=rule,
+                tag="object",
+                attr="archive",
+                value=" \t\n ",
+            )
+            is None
+        )
+
     def test_sanitize_inline_style_drops_url_declaration_when_url_policy_missing(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["div"],
@@ -1866,6 +1961,90 @@ class TestSanitizeDom(unittest.TestCase):
             out
             == '<a href="https://trusted.example/x" ping="https://trusted.example/p https://trusted.example/q">x</a>'
         )
+
+    def test_legacy_url_attrs_require_explicit_url_rules(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["object", "img"],
+            allowed_attributes={
+                "*": [],
+                "object": ["archive", "classid", "code", "codebase", "data", "object"],
+                "img": ["longdesc", "usemap"],
+            },
+            url_policy=UrlPolicy(allow_rules={}),
+        )
+
+        out = JustHTML(
+            (
+                '<object archive="https://evil.example/a.jar" classid="https://evil.example/c" '
+                'code="https://evil.example/code.class" codebase="https://evil.example/" '
+                'data="https://evil.example/object" object="https://evil.example/serialized"></object>'
+                '<img longdesc="https://evil.example/desc" usemap="https://evil.example/map">'
+            ),
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<object></object><img>"
+
+    def test_document_manifest_and_profile_require_explicit_url_rules(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["html", "head", "body"],
+            allowed_attributes={"*": [], "html": ["manifest"], "head": ["profile"]},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_doctype=False,
+        )
+
+        out = JustHTML(
+            '<!DOCTYPE html><html manifest="https://evil.example/app.appcache">'
+            '<head profile="https://evil.example/profile"></head><body></body></html>',
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<!DOCTYPE html><html><head></head><body></body></html>"
+
+    def test_archive_drops_when_any_comma_or_space_separated_url_is_invalid(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["object"],
+            allowed_attributes={"*": [], "object": ["archive"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("object", "archive"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    ),
+                },
+            ),
+        )
+
+        out = JustHTML(
+            '<object archive="https://trusted.example/a.jar, https://evil.example/b.jar"></object>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<object></object>"
+
+    def test_archive_preserves_allowed_comma_or_space_separated_urls(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["object"],
+            allowed_attributes={"*": [], "object": ["archive"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("object", "archive"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    ),
+                },
+            ),
+        )
+
+        out = JustHTML(
+            '<object archive="https://trusted.example/a.jar, https://trusted.example/b.jar"></object>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<object archive="https://trusted.example/a.jar https://trusted.example/b.jar"></object>'
 
     def test_policy_accepts_pre_normalized_sets(self) -> None:
         policy = SanitizationPolicy(
