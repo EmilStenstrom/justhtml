@@ -3,11 +3,11 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from justhtml import DEFAULT_POLICY, JustHTML, SetAttrs
+from justhtml import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, JustHTML, SetAttrs
 from justhtml.context import FragmentContext
 from justhtml.node import DocumentFragment, Element, Template
 from justhtml.parser import JustHTML as ParserJustHTML
-from justhtml.sanitize import SanitizationPolicy, UrlPolicy, UrlRule
+from justhtml.sanitize import SanitizationPolicy, UnsafeHtmlError, UrlPolicy, UrlRule
 from justhtml.transforms import Linkify, Sanitize, Stage
 
 
@@ -140,6 +140,39 @@ class TestTransformsSanitizeIntegration(unittest.TestCase):
 
         assert doc.to_html(pretty=False) == "<p>ok</p>"
         assert [e for e in doc.errors if e.category == "security"] == []
+
+    def test_sanitize_collects_dropped_comment_and_doctype_findings(self) -> None:
+        policy = replace(DEFAULT_POLICY, unsafe_handling="collect")
+
+        doc = JustHTML(
+            "<!DOCTYPE html><!--secret--><p>ok</p>",
+            fragment=True,
+            policy=policy,
+            collect_errors=True,
+        )
+
+        assert doc.to_html(pretty=False) == "<p>ok</p>"
+        assert [e.message for e in doc.errors if e.category == "security"] == ["Dropped comment"]
+
+        document_policy = replace(DEFAULT_DOCUMENT_POLICY, drop_doctype=True, unsafe_handling="collect")
+        document_doc = JustHTML(
+            "<!DOCTYPE html><html><head></head><body><p>ok</p></body></html>",
+            policy=document_policy,
+            collect_errors=True,
+        )
+
+        assert document_doc.to_html(pretty=False) == "<html><head></head><body><p>ok</p></body></html>"
+        assert [e.message for e in document_doc.errors if e.category == "security"] == ["Dropped doctype"]
+
+    def test_sanitize_raises_for_dropped_comments_and_doctypes(self) -> None:
+        policy = replace(DEFAULT_POLICY, unsafe_handling="raise")
+
+        with self.assertRaisesRegex(UnsafeHtmlError, "Dropped comment"):
+            JustHTML("<!--secret--><p>ok</p>", fragment=True, policy=policy)
+
+        document_policy = replace(DEFAULT_DOCUMENT_POLICY, drop_doctype=True, unsafe_handling="raise")
+        with self.assertRaisesRegex(UnsafeHtmlError, "Dropped doctype"):
+            JustHTML("<!DOCTYPE html><html><head></head><body><p>ok</p></body></html>", policy=document_policy)
 
     def test_explicit_sanitize_uses_constructor_policy_when_policy_omitted(self) -> None:
         policy = SanitizationPolicy(

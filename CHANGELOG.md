@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Report dropped comments and doctypes through the sanitizer policy's `unsafe_handling` mode. Previously, collect- and raise-mode policies stripped these nodes silently instead of recording or raising security findings.
 - (Severity: Low) Harden programmatic template DOM mutation against cycles through `template.template_content`. Previously, appending a template into its own template content could make operations such as deep cloning or HTML serialization loop indefinitely.
 - (Severity: Low) Prevent stale collected sanitizer findings from leaking across repeated `sanitize(...)` and `sanitize_dom(...)` calls when a collect-mode policy object is reused.
 - (Severity: Moderate) Apply the constructor `policy` to nested explicit `Sanitize()` transforms inside `Stage(...)`, and treat staged `Sanitize()` transforms as the documented sanitization point. Previously, `JustHTML(..., policy=custom, sanitize=False, transforms=[Stage([Sanitize()])])` fell back to the default policy and could preserve content outside the caller's custom allowlist.

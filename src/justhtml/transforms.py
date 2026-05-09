@@ -1719,7 +1719,7 @@ def compile_transforms(
                     _CompiledDropCommentsTransform(
                         kind="drop_comments",
                         callback=t.callback,
-                        report=t.report,
+                        report=_report_unsafe,
                     )
                 )
             if policy.drop_doctype:
@@ -1727,7 +1727,7 @@ def compile_transforms(
                     _CompiledDropDoctypeTransform(
                         kind="drop_doctype",
                         callback=t.callback,
-                        report=t.report,
+                        report=_report_unsafe,
                     )
                 )
 
