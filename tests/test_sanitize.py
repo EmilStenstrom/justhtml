@@ -1252,6 +1252,28 @@ class TestSanitizeDom(unittest.TestCase):
             is None
         )
 
+    def test_sanitize_url_value_rejects_control_characters_in_allowed_url(self) -> None:
+        policy = UrlPolicy(allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})})
+        rule = policy.allow_rules[("a", "href")]
+
+        assert (
+            _sanitize_url_value_with_rule(
+                rule=rule,
+                value="https://example.com/a\nb",
+                tag="a",
+                attr="href",
+                handling=_effective_url_handling(url_policy=policy, rule=rule),
+                allow_relative=_effective_allow_relative(url_policy=policy, rule=rule),
+                proxy=_effective_proxy(url_policy=policy, rule=rule),
+                url_filter=policy.url_filter,
+                apply_filter=True,
+            )
+            is None
+        )
+
+        out = JustHTML('<a href="https://example.com/a&#10;b">x</a>', fragment=True).to_html(pretty=False)
+        assert out == "<a>x</a>"
+
     def test_sanitize_url_value_proxy_rejects_invalid_scheme_like_prefix_without_backslash(self) -> None:
         policy = UrlPolicy(proxy=UrlProxy(url="/proxy"), allow_rules={("img", "src"): UrlRule(handling="proxy")})
         rule = policy.allow_rules[("img", "src")]

@@ -479,7 +479,11 @@ class SanitizationPolicy:
 
 _URL_NORMALIZE_STRIP_TABLE = {i: None for i in range(0x21)}
 _URL_NORMALIZE_STRIP_TABLE[0x7F] = None
-_URL_NORMALIZE_STRIP_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x20\x7f]")
+# Used only for scheme checking: HTML URL parsing ignores ASCII whitespace
+# around and within schemes, but ordinary spaces may still be preserved in
+# allowed URLs for callers that later percent-encode them for a stricter context.
+_URL_WHITESPACE_OR_CONTROL_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x20\x7f]")
+_URL_CONTROL_CHAR_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x1f\x7f]")
 
 # Invisible Unicode commonly abused for obfuscation includes zero-width and
 # bidi controls, variation selectors, and private-use characters.
@@ -1216,7 +1220,7 @@ def _normalize_url_for_checking(value: str) -> str:
     # and removing them can turn invalid schemes into valid ones.
     #
     # Fast path: most URLs contain no control/space chars, so avoid allocating.
-    if not _URL_NORMALIZE_STRIP_REGEX.search(value):
+    if not _URL_WHITESPACE_OR_CONTROL_REGEX.search(value):
         return value
     return value.translate(_URL_NORMALIZE_STRIP_TABLE)
 
@@ -1308,6 +1312,9 @@ def _sanitize_url_value_with_rule(
         v = rewritten
 
     stripped = v.strip()
+    if _URL_CONTROL_CHAR_REGEX.search(stripped):
+        return None
+
     normalized = _normalize_url_for_checking(stripped)
     if not normalized:
         # If normalization removes everything, the value was empty/whitespace/

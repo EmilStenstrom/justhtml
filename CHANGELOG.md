@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- (Severity: Low) Harden URL sanitization against control characters in otherwise allowed URLs. Previously, values such as `https://example.com/a&#10;b` could pass validation and serialize with the embedded control character preserved.
+
 ## [1.18.0] - 2026-05-04
 
 ### Security
