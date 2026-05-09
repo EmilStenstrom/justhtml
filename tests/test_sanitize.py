@@ -1222,7 +1222,7 @@ class TestSanitizeDom(unittest.TestCase):
 
     def test_sanitize_url_value_keeps_non_empty_relative_url(self) -> None:
         policy = DEFAULT_POLICY
-        rule = UrlRule(allowed_schemes=[])
+        rule = UrlRule(allowed_schemes=[], handling="allow")
         assert (
             _sanitize_url_value_with_rule(
                 rule=rule,
@@ -1337,14 +1337,14 @@ class TestSanitizeDom(unittest.TestCase):
         out = JustHTML('<img src="/x">', fragment=True, policy=policy).to_html()
         assert out == "<img>"
 
-    def test_url_rule_default_allows_even_when_policy_strip(self) -> None:
+    def test_url_rule_handling_allow_overrides_policy_strip(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["img"],
             allowed_attributes={"*": [], "img": ["src"]},
             url_policy=UrlPolicy(
                 default_handling="strip",
                 default_allow_relative=True,
-                allow_rules={("img", "src"): UrlRule(allowed_schemes={"https"})},
+                allow_rules={("img", "src"): UrlRule(handling="allow", allowed_schemes={"https"})},
             ),
         )
 
@@ -1538,6 +1538,37 @@ class TestSanitizeDom(unittest.TestCase):
 
         out = JustHTML('<img src="https://example.com/x">', fragment=True, policy=policy).to_html()
         assert out == '<img src="/image-proxy?url=https%3A%2F%2Fexample.com%2Fx">'
+
+    def test_url_policy_default_strip_applies_to_rules_without_handling(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href"]},
+            url_policy=UrlPolicy(
+                default_handling="strip",
+                allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})},
+            ),
+        )
+
+        out = JustHTML('<a href="https://example.com/x">x</a>', fragment=True, policy=policy).to_html()
+        assert out == "<a>x</a>"
+
+    def test_url_policy_default_proxy_applies_to_rules_without_handling(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href"]},
+            url_policy=UrlPolicy(
+                default_handling="proxy",
+                proxy=UrlProxy(url="/proxy", param="url"),
+                allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})},
+            ),
+        )
+
+        out = JustHTML('<a href="https://example.com/x">x</a>', fragment=True, policy=policy).to_html()
+        assert out == '<a href="/proxy?url=https%3A%2F%2Fexample.com%2Fx">x</a>'
+
+    def test_builtin_policy_url_rules_still_keep_valid_urls(self) -> None:
+        out = JustHTML('<a href="https://example.com/x">x</a><img src="/x.png">', fragment=True).to_html(pretty=False)
+        assert out == '<a href="https://example.com/x">x</a><img src="/x.png">'
 
     def test_url_policy_proxy_does_not_bypass_scheme_checks(self) -> None:
         policy = SanitizationPolicy(

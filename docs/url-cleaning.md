@@ -94,16 +94,16 @@ For a URL-like attribute (like `img[src]` or `a[href]`), JustHTML applies these 
 5. The value is normalized and validated by the matching `UrlRule`.
 6. If it validates the *effective* URL handling is applied:
     - if `UrlRule.handling` is set, it is applied
-    - otherwise the URL is kept ("allow")
+    - otherwise `UrlPolicy.default_handling` is applied
 
 ## UrlPolicy: URL allowlisting and defaults
 
 URL behavior is controlled by `UrlPolicy`:
 
-- `default_handling`: the default action for URL-like attributes.
+- `default_handling`: the default post-validation action for URL-like attributes that match an allow rule and do not set `UrlRule.handling`.
 - `default_allow_relative`: whether **relative** URLs (like `/path`, `./path`, `../path`, `?q`) are allowed by default.
 
-For URL-like attributes that match an explicit `(tag, attr)` rule in `allow_rules`, validated URLs are kept by default. To strip or proxy a specific attribute, set `UrlRule.handling`.
+For URL-like attributes that match an explicit `(tag, attr)` rule in `allow_rules`, validated URLs use `UrlPolicy.default_handling` unless that specific `UrlRule` overrides it with `handling=...`.
 
 Note: URL validation is always enforced by `UrlRule`.
 
@@ -111,7 +111,7 @@ Note: URL validation is always enforced by `UrlRule`.
 from justhtml import UrlPolicy
 
 UrlPolicy(
-    default_handling="strip",  # or "allow" / "proxy"
+    default_handling="allow",  # or "strip" / "proxy"
     default_allow_relative=True,
     allow_rules={},
     url_filter=None,
@@ -122,9 +122,9 @@ UrlPolicy(
 <a id="default_handling-allow"></a>
 ### Allow all URL-like attributes (default_handling=`"allow"`)
 
-This is the “keep validated URLs” behavior.
+This is the default “keep validated URLs” behavior for attributes with a matching allow rule.
 
-For URL-like attributes that match an explicit `(tag, attr)` rule in `UrlPolicy(allow_rules=...)`, a validated URL is kept by default unless you override handling with `UrlRule.handling`.
+For URL-like attributes that match an explicit `(tag, attr)` rule in `UrlPolicy(allow_rules=...)`, a validated URL is kept when `default_handling="allow"` unless you override handling with `UrlRule.handling`.
 
 <a id="default_handling-strip"></a>
 ### Default: Strip all URL-like attributes (default_handling=`"strip"`)
@@ -133,7 +133,7 @@ Some renderers (notably email clients) want to avoid loading remote resources by
 
 The built-in `DEFAULT_POLICY` already blocks remote image loads by default (`img[src]` only allows relative URLs).
 
-To strip URL-valued attributes, either omit the `(tag, attr)` rule (so the attribute is dropped), or set `UrlRule(handling="strip")` for that attribute.
+To strip URL-valued attributes, either omit the `(tag, attr)` rule (so the attribute is dropped), set `default_handling="strip"` for matching rules, or set `UrlRule(handling="strip")` for a specific attribute.
 
 ```python
 from justhtml import JustHTML, SanitizationPolicy, UrlPolicy, UrlRule
@@ -142,7 +142,8 @@ policy = SanitizationPolicy(
     allowed_tags=["img"],
     allowed_attributes={"*": [], "img": ["src"]},
     url_policy=UrlPolicy(
-        allow_rules={("img", "src"): UrlRule(handling="strip", allowed_schemes={"http", "https"})},
+        default_handling="strip",
+        allow_rules={("img", "src"): UrlRule(allowed_schemes={"http", "https"})},
     ),
 )
 
@@ -166,6 +167,7 @@ policy = SanitizationPolicy(
     allowed_tags=["img"],
     allowed_attributes={"*": [], "img": ["src"]},
     url_policy=UrlPolicy(
+        default_handling="allow",
         allow_rules={
             ("img", "src"): UrlRule(
                 allow_relative=True,
@@ -199,9 +201,10 @@ policy = SanitizationPolicy(
     allowed_tags=["a"],
     allowed_attributes={"*": [], "a": ["href"]},
     url_policy=UrlPolicy(
+        default_handling="proxy",
         proxy=UrlProxy(url="/proxy", param="url"),
         allow_rules={
-            ("a", "href"): UrlRule(handling="proxy", allowed_schemes={"https"}),
+            ("a", "href"): UrlRule(allowed_schemes={"https"}),
         },
     ),
 )
@@ -351,7 +354,7 @@ Field reference:
 - `resolve_protocol_relative` (default: `"https"`): how to resolve protocol-relative URLs like `//example.com` before validation; set to `None` to reject them.
 - `allowed_schemes` (default: `set()`): allowed schemes for absolute URLs (lowercased), e.g. `{"https"}`; empty means disallow all absolute URLs.
 - `allowed_hosts` (default: `None`): optional host allowlist for absolute URLs; if set, the parsed host must be in this set.
-- `handling` (default: `None`): optional handling override for an allowlisted attribute; `"strip"` drops it, `"proxy"` rewrites it, and `None` keeps it after validation.
+- `handling` (default: `None`): optional handling override for an allowlisted attribute; `"strip"` drops it, `"proxy"` rewrites it, and `None` uses `UrlPolicy.default_handling`.
 - `allow_relative` (default: `None`): optional override for `UrlPolicy.default_allow_relative` (relative URLs like `/x`, `./x`, `?q`).
 - `proxy` (default: `None`): optional per-rule proxy config used when effective handling is `"proxy"` (overrides `UrlPolicy.proxy`).
 
@@ -441,7 +444,7 @@ UrlRule(allowed_schemes={"tel"})
 UrlRule(allowed_schemes={"https", "mailto"}, resolve_protocol_relative="https")
 ```
 
-- Strip a URL-valued attribute even if it validates (explicit drop):
+- Strip a URL-valued attribute even if it validates (per-rule override):
 
 ```python
 UrlRule(handling="strip", allowed_schemes={"https"})
@@ -450,7 +453,7 @@ UrlRule(handling="strip", allowed_schemes={"https"})
 - Proxy validated URLs:
 
 ```python
-# Uses UrlPolicy.proxy (global proxy config)
+# Uses UrlPolicy.proxy (global proxy config), overriding any non-proxy default handling.
 UrlRule(handling="proxy", allowed_schemes={"https"})
 ```
 

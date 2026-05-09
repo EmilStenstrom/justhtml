@@ -522,7 +522,7 @@ Wraps URL rules and controls what happens to URL-valued attributes.
 
 ```python
 UrlPolicy(
-    default_handling="strip",  # or "allow" / "proxy"
+    default_handling="allow",  # or "strip" / "proxy"
     default_allow_relative=True,
     allow_rules={},
     url_filter=None,
@@ -532,7 +532,7 @@ UrlPolicy(
 
 ### `UrlProxy`
 
-Proxy rewrite configuration used when `default_handling="proxy"`.
+Proxy rewrite configuration used when effective URL handling is `"proxy"`.
 
 ```python
 UrlProxy(
@@ -551,6 +551,7 @@ UrlRule(
     resolve_protocol_relative="https",
     allowed_schemes=set(),
     allowed_hosts=None,
+    handling=None,
     proxy=None,
 )
 ```
@@ -561,7 +562,8 @@ UrlRule(
 | `resolve_protocol_relative` | `str \| None` | `"https"` | Scheme to resolve protocol-relative URLs (`//...`) to before checking. If `None`, they are dropped. |
 | `allowed_schemes` | `set[str]` | `set()` | Allowed schemes for absolute URLs (e.g. `{"https", "mailto"}`) |
 | `allowed_hosts` | `set[str] \| None` | `None` | If set, only allow these hosts (e.g. `{"example.com"}`) |
-| `proxy` | `UrlProxy \| None` | `None` | Per-rule proxy override used when `UrlPolicy.default_handling="proxy"` |
+| `handling` | `"allow" \| "strip" \| "proxy" \| None` | `None` | Per-rule override. If `None`, `UrlPolicy.default_handling` is used. |
+| `proxy` | `UrlProxy \| None` | `None` | Per-rule proxy override used when effective handling is `"proxy"` |
 
 ---
 

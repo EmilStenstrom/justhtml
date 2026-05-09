@@ -73,7 +73,7 @@ class UrlRule:
     allowed_hosts: Collection[str] | None = None
 
     # Optional per-rule handling override.
-    # If None, the URL is kept ("allow") after it passes validation.
+    # If None, UrlPolicy.default_handling is used after validation.
     handling: UrlHandling | None = None
 
     # Optional per-rule override of UrlPolicy.default_allow_relative.
@@ -110,7 +110,7 @@ class UrlPolicy:
     # - "allow": keep the URL as-is
     # - "strip": drop the attribute
     # - "proxy": rewrite the URL through a proxy (UrlPolicy.proxy or UrlRule.proxy)
-    default_handling: UrlHandling = "strip"
+    default_handling: UrlHandling = "allow"
 
     # Default allowance for relative URLs (including /path, ./path, ../path, ?query)
     # for URL-like attributes that have a matching UrlRule.
@@ -147,8 +147,9 @@ class UrlPolicy:
         for rule in self.allow_rules.values():
             if not isinstance(rule, UrlRule):
                 raise TypeError("UrlPolicy.allow_rules values must be UrlRule")
-            if rule.handling == "proxy" and self.proxy is None and rule.proxy is None:
-                raise ValueError("UrlRule.handling='proxy' requires a UrlPolicy.proxy or a per-rule UrlRule.proxy")
+            effective_handling = rule.handling if rule.handling is not None else mode
+            if effective_handling == "proxy" and self.proxy is None and rule.proxy is None:
+                raise ValueError("URL handling 'proxy' requires a UrlPolicy.proxy or a per-rule UrlRule.proxy")
 
 
 def _proxy_url_value(*, proxy: UrlProxy, value: str) -> str:
@@ -599,10 +600,12 @@ DEFAULT_POLICY: SanitizationPolicy = SanitizationPolicy(
         allow_rules={
             ("a", "href"): UrlRule(
                 allowed_schemes=["http", "https", "mailto", "tel"],
+                handling="allow",
                 resolve_protocol_relative="https",
             ),
             ("img", "src"): UrlRule(
                 allowed_schemes=[],
+                handling="allow",
                 resolve_protocol_relative=None,
             ),
         },
@@ -1282,9 +1285,7 @@ def _effective_proxy(*, url_policy: UrlPolicy, rule: UrlRule) -> UrlProxy | None
 
 
 def _effective_url_handling(*, url_policy: UrlPolicy, rule: UrlRule) -> UrlHandling:
-    # URL-like attributes are allowlisted via UrlPolicy.allow_rules. When they are
-    # allowlisted and the URL passes validation, the default action is to keep the URL.
-    return rule.handling if rule.handling is not None else "allow"
+    return rule.handling if rule.handling is not None else url_policy.default_handling
 
 
 def _effective_allow_relative(*, url_policy: UrlPolicy, rule: UrlRule) -> bool:
