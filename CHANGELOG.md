@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-05-09
+
 ### Security
 - (Severity: Moderate) Honor `UrlPolicy.default_handling` for URL rules that do not set `UrlRule.handling`. Previously, policies that set `default_handling="strip"` or `"proxy"` could still keep validated URLs as live links unless every rule also set its own handling.
 - (Severity: Low) Harden URL sanitization against control characters in otherwise allowed URLs. Previously, values such as `https://example.com/a&#10;b` could pass validation and serialize with the embedded control character preserved.
