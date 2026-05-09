@@ -438,7 +438,7 @@ class Node:
             children = getattr(node, "children", None)
             if not children:
                 template_content = getattr(node, "template_content", None)
-                if template_content is None or not template_content.children:
+                if template_content is None:
                     return None, None
 
         current: Any | None = self
@@ -609,13 +609,14 @@ class Node:
 
         try:
             index = self.children.index(reference_node)
-            old_parent, old_index = self._adopt_child(node)
-            if old_parent is self and old_index is not None and old_index < index:
-                index -= 1
-            self.children.insert(index, node)
-            node.parent = self
         except ValueError:
             raise ValueError("Reference node is not a child of this node") from None
+
+        old_parent, old_index = self._adopt_child(node)
+        if old_parent is self and old_index is not None and old_index < index:
+            index -= 1
+        self.children.insert(index, node)
+        node.parent = self
 
     def replace_child(self, new_node: Any, old_node: Any) -> Any:
         """
@@ -805,6 +806,7 @@ class Template(Element):
         super().__init__(name, attrs, namespace)
         if self.namespace == "html":
             self.template_content = DocumentFragment()
+            self.template_content.parent = self
         else:
             self.template_content = None
 
@@ -840,6 +842,7 @@ def _clone_subtree_iterative(root: Any) -> Any:
 
         if type(source) is Template and source.template_content is not None:
             target.template_content = source.template_content.clone_node(deep=False)
+            target.template_content.parent = target
             stack.append((source.template_content, target.template_content))
 
         children = source.children

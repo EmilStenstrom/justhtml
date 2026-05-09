@@ -918,6 +918,7 @@ class TestNode(unittest.TestCase):
         clone = template.clone_node(deep=True)
         assert clone is not template
         assert clone.template_content is not template.template_content
+        assert clone.template_content.parent is clone
         assert len(clone.template_content.children) == 1
         assert clone.template_content.children[0].name == "div"
 
@@ -1044,6 +1045,32 @@ class TestNode(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "ancestor"):
             child.append_child(parent)
+
+    def test_template_content_append_child_rejects_template_cycle(self):
+        template = Template("template", namespace="html")
+        assert template.template_content is not None
+        assert template.template_content.parent is template
+
+        with self.assertRaisesRegex(ValueError, "ancestor"):
+            template.template_content.append_child(template)
+
+    def test_template_content_insert_before_rejects_template_cycle(self):
+        template = Template("template", namespace="html")
+        placeholder = Node("span")
+        assert template.template_content is not None
+        template.template_content.append_child(placeholder)
+
+        with self.assertRaisesRegex(ValueError, "ancestor"):
+            template.template_content.insert_before(template, placeholder)
+
+    def test_template_content_replace_child_rejects_template_cycle(self):
+        template = Template("template", namespace="html")
+        placeholder = Node("span")
+        assert template.template_content is not None
+        template.template_content.append_child(placeholder)
+
+        with self.assertRaisesRegex(ValueError, "ancestor"):
+            template.template_content.replace_child(template, placeholder)
 
     def test_append_child_rejects_self(self):
         parent = Node("div")
