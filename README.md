@@ -117,7 +117,7 @@ curl -Ls https://en.wikipedia.org/wiki/HTML -o /tmp/justhtml-bench.html
 | **Chromium**<br>browser engine | ✅&nbsp;99.6% | 🚀&nbsp;Very&nbsp;Fast | — | — | — | — |
 | **WebKit**<br>browser engine | ✅ 98% | 🚀 Very Fast | — | — | — | — |
 | **Firefox**<br>browser engine | ✅ 98% | 🚀 Very Fast | — | — | — | — |
-| **`markupever`**<br>Python wrapper of Rust-based html5ever | 🟡 89% | 🚀 Very Fast | ✅ CSS selectors | ✅ `TreeDom.create_*()` | ❌ Needs sanitization | Fast and mostly correct, but missing benchmarked capabilities count against compliance. |
+| **`markupever`**<br>Python wrapper of Rust-based html5ever | 🟡 89% | 🚀 Very Fast | ✅ CSS selectors | ✅ `TreeDom .create_*()` | ❌ Needs sanitization | Fast and mostly correct, but missing benchmarked capabilities count against compliance. |
 | **`html5lib`**<br>Pure Python | 🟡 86% | 🐢 Slow | 🟡 XPath (lxml) | 🟡 Tree API | 🔴 [Deprecated](https://github.com/html5lib/html5lib-python/issues/443) | Unmaintained reference implementation; incomplete coverage of the tree-construction fixtures. |
 | **`html5_parser`**<br>Python wrapper of C-based Gumbo | 🔴 49% | 🚀 Very Fast | 🟡 XPath (lxml) | 🟡 `etree` (lxml) | ❌ Needs sanitization | Fast, but its public tree API loses information needed by many fixtures. |
 | **`BeautifulSoup`**<br>Pure Python | 🔴 <1% (default) | 🐢 Slow | 🟡 Custom API | ✅ `new_tag()` API | ❌ Needs sanitization | Wraps `html.parser` (default). Can use lxml or html5lib. |
