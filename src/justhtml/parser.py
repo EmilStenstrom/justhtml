@@ -157,9 +157,9 @@ class JustHTML:
         needs_escape_incomplete_tags = False
         if transforms:
             from .sanitize import DEFAULT_POLICY  # noqa: PLC0415
-            from .transforms import Sanitize  # noqa: PLC0415
+            from .transforms import Sanitize, _iter_flattened_transforms  # noqa: PLC0415
 
-            for t in transforms:
+            for t in _iter_flattened_transforms(transforms):
                 if isinstance(t, Sanitize):
                     has_sanitize_transform = True
                     if explicit_sanitize_policy is None:
@@ -255,7 +255,39 @@ class JustHTML:
         # position becomes the sanitize point (no extra final pass is appended).
         if transforms or sanitize_enabled:
             from .sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
-            from .transforms import Sanitize  # noqa: PLC0415
+            from .transforms import Sanitize, Stage, _iter_flattened_transforms  # noqa: PLC0415
+
+            def _normalize_sanitize_policies(
+                items: list[TransformSpec] | tuple[TransformSpec, ...],
+                *,
+                default_policy: SanitizationPolicy,
+            ) -> list[TransformSpec]:
+                normalized: list[TransformSpec] = []
+                for item in items:
+                    if isinstance(item, Sanitize) and item.policy is None:
+                        normalized.append(
+                            Sanitize(
+                                policy=default_policy,
+                                enabled=item.enabled,
+                                callback=item.callback,
+                                report=item.report,
+                            )
+                        )
+                        continue
+
+                    if isinstance(item, Stage):
+                        normalized.append(
+                            Stage(
+                                _normalize_sanitize_policies(item.transforms, default_policy=default_policy),
+                                enabled=item.enabled,
+                                callback=item.callback,
+                                report=item.report,
+                            )
+                        )
+                        continue
+
+                    normalized.append(item)
+                return normalized
 
             final_transforms: list[TransformSpec] = list(transforms or [])
             terminal_sanitize_policy: SanitizationPolicy | None = None
@@ -268,11 +300,10 @@ class JustHTML:
                 default_mode_policy = policy or (
                     DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY
                 )
-                for i, t in enumerate(final_transforms):
-                    if isinstance(t, Sanitize) and t.policy is None:
-                        final_transforms[i] = Sanitize(
-                            policy=default_mode_policy, enabled=t.enabled, callback=t.callback, report=t.report
-                        )
+                final_transforms = _normalize_sanitize_policies(
+                    final_transforms,
+                    default_policy=default_mode_policy,
+                )
                 terminal_sanitize_policy = self._terminal_sanitize_policy(
                     final_transforms,
                     default_policy=default_mode_policy,
@@ -294,10 +325,10 @@ class JustHTML:
                 # `doc.errors` should describe this parse, including when callers
                 # provide explicit Sanitize(...) transforms.
                 reset_collect_policy_ids: set[int] = set()
-                for t in final_transforms:
-                    if not isinstance(t, Sanitize) or not t.enabled:
+                for transform_item in _iter_flattened_transforms(final_transforms):
+                    if not isinstance(transform_item, Sanitize) or not transform_item.enabled:
                         continue
-                    t_policy = t.policy
+                    t_policy = transform_item.policy
                     if t_policy is None or t_policy.unsafe_handling != "collect":
                         continue
                     policy_id = id(t_policy)
@@ -335,9 +366,9 @@ class JustHTML:
                 # Merge collected security errors into the document error list.
                 # This mirrors the old behavior where safe output could feed
                 # security findings into doc.errors.
-                for t in final_transforms:
-                    if isinstance(t, Sanitize) and t.enabled:
-                        t_policy = t.policy
+                for transform_item in _iter_flattened_transforms(final_transforms):
+                    if isinstance(transform_item, Sanitize) and transform_item.enabled:
+                        t_policy = transform_item.policy
                         if t_policy is not None and t_policy.unsafe_handling == "collect":
                             if t_policy.collects_security_errors_into(transform_errors):
                                 continue

@@ -1626,6 +1626,9 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     if policy is None:
         policy = DEFAULT_DOCUMENT_POLICY if node.name == "#document" else DEFAULT_POLICY
 
+    if policy.unsafe_handling == "collect":
+        policy.reset_collected_security_errors()
+
     # Escape-mode tag reconstruction may need access to the original source HTML.
     # Historically we allow a child element to inherit _source_html from an
     # ancestor container; keep that behavior even though we sanitize a clone.
@@ -1777,6 +1780,9 @@ def sanitize_dom(
 
     if policy is None:
         policy = DEFAULT_DOCUMENT_POLICY if node.name == "#document" else DEFAULT_POLICY
+
+    if policy.unsafe_handling == "collect":
+        policy.reset_collected_security_errors()
 
     result = _sanitize_dom_once(node, policy=policy, errors=errors)
 

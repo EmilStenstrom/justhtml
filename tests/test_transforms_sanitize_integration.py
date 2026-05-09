@@ -8,7 +8,7 @@ from justhtml.context import FragmentContext
 from justhtml.node import DocumentFragment, Element, Template
 from justhtml.parser import JustHTML as ParserJustHTML
 from justhtml.sanitize import SanitizationPolicy, UrlPolicy, UrlRule
-from justhtml.transforms import Linkify, Sanitize
+from justhtml.transforms import Linkify, Sanitize, Stage
 
 
 class TestTransformsSanitizeIntegration(unittest.TestCase):
@@ -103,6 +103,30 @@ class TestTransformsSanitizeIntegration(unittest.TestCase):
         assert [e for e in clean_doc.errors if e.category == "security"] == []
         assert policy.collected_security_errors() == []
 
+    def test_staged_explicit_sanitize_collect_policy_does_not_leak_stale_errors(self) -> None:
+        policy = replace(DEFAULT_POLICY, unsafe_handling="collect")
+
+        unsafe_doc = JustHTML(
+            "<script>x</script>",
+            fragment=True,
+            transforms=[Stage([Sanitize(policy=policy)])],
+            collect_errors=True,
+        )
+        assert unsafe_doc.to_html(pretty=False) == ""
+        assert [e.message for e in unsafe_doc.errors if e.category == "security"] == [
+            "Unsafe tag 'script' (dropped content)"
+        ]
+
+        clean_doc = JustHTML(
+            "<p>ok</p>",
+            fragment=True,
+            transforms=[Stage([Sanitize(policy=policy)])],
+            collect_errors=True,
+        )
+        assert clean_doc.to_html(pretty=False) == "<p>ok</p>"
+        assert [e for e in clean_doc.errors if e.category == "security"] == []
+        assert policy.collected_security_errors() == []
+
     def test_disabled_explicit_sanitize_does_not_merge_stale_collected_errors(self) -> None:
         policy = replace(DEFAULT_POLICY, unsafe_handling="collect")
         policy.handle_unsafe("stale finding")
@@ -149,6 +173,32 @@ class TestTransformsSanitizeIntegration(unittest.TestCase):
         )
 
         assert doc.to_html(pretty=False) == "<p>ok</p>x"
+
+    def test_staged_explicit_sanitize_uses_constructor_policy_when_policy_omitted(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"p"},
+            allowed_attributes={"*": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+        )
+
+        doc = JustHTML(
+            '<p id="x">ok</p><a href="https://example.com">x</a><img src="/x">',
+            fragment=True,
+            sanitize=False,
+            policy=policy,
+            transforms=[Stage([Sanitize()])],
+        )
+
+        assert doc.to_html(pretty=False) == "<p>ok</p>x"
+
+    def test_staged_explicit_sanitize_becomes_sanitization_point(self) -> None:
+        doc = JustHTML(
+            '<img src="/x">',
+            fragment=True,
+            transforms=[Stage([Sanitize()]), SetAttrs("img", onerror="alert(1)")],
+        )
+
+        assert doc.to_html(pretty=False) == '<img src="/x" onerror="alert(1)">'
 
     def test_explicit_sanitize_uses_constructor_escape_policy_when_policy_omitted(self) -> None:
         policy = SanitizationPolicy(

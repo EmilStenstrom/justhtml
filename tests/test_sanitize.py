@@ -2478,6 +2478,42 @@ class TestSanitizeUnsafe(unittest.TestCase):
         assert errors[0].code == "unsafe-html"
         assert "Unsafe tag 'script'" in errors[0].message
 
+    def test_sanitize_collect_policy_does_not_leak_stale_errors(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"p"},
+            allowed_attributes={},
+            url_policy=UrlPolicy(allow_rules={}),
+            unsafe_handling="collect",
+        )
+
+        unsafe_node = JustHTML("<script>alert(1)</script>", fragment=True, sanitize=False).root
+        out = sanitize(unsafe_node, policy=policy)
+        assert to_html(out) == ""
+        assert [e.message for e in policy.collected_security_errors()] == ["Unsafe tag 'script' (dropped content)"]
+
+        clean_node = JustHTML("<p>ok</p>", fragment=True, sanitize=False).root
+        out = sanitize(clean_node, policy=policy)
+        assert to_html(out, pretty=False) == "<p>ok</p>"
+        assert policy.collected_security_errors() == []
+
+    def test_sanitize_dom_collect_policy_does_not_leak_stale_errors(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"p"},
+            allowed_attributes={},
+            url_policy=UrlPolicy(allow_rules={}),
+            unsafe_handling="collect",
+        )
+
+        unsafe_node = JustHTML("<script>alert(1)</script>", fragment=True, sanitize=False).root
+        out = sanitize_dom(unsafe_node, policy=policy)
+        assert to_html(out) == ""
+        assert [e.message for e in policy.collected_security_errors()] == ["Unsafe tag 'script' (dropped content)"]
+
+        clean_node = JustHTML("<p>ok</p>", fragment=True, sanitize=False).root
+        out = sanitize_dom(clean_node, policy=policy)
+        assert to_html(out, pretty=False) == "<p>ok</p>"
+        assert policy.collected_security_errors() == []
+
     def test_sanitize_dom_collects_rawtext_invariant_violations(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["style"],
