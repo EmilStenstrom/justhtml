@@ -152,13 +152,17 @@ Promise:
 - When callers enable sanitization and supply no `Sanitize` transform, JustHTML
   adds a sanitization step to the end, automatically.
 - If callers supply an explicit `Sanitize` transform, its position becomes the
-  sanitization point for the transform pipeline.
+  sanitization point for the transform pipeline. JustHTML does not add another
+  sanitization step after later transforms.
 - Built-in URL-aware transforms reuse sanitizer URL cleaning where they can.
 - Linkification operates on DOM text nodes rather than raw HTML strings.
 
 Out of scope:
 - Safety of arbitrary user callbacks passed to transform APIs.
-- Safety of transforms intentionally run after sanitization.
+- Safety of transforms intentionally run after sanitization, including built-in
+  transforms. If a transform can create or change markup, attributes, URLs, or
+  text after `Sanitize`, callers must place another explicit `Sanitize` later
+  when they need sanitized output.
 - Treating transform APIs as a sandbox.
 
 ### 6. Selector Engine
