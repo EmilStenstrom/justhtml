@@ -58,7 +58,7 @@ We run the same test suite against other Python parsers to compare compliance:
 | Parser | Tests Passed | Compliance | Notes |
 |--------|-------------|------------|-------|
 | **JustHTML** | 1743/1743 | **100%** | Full spec compliance |
-| selectolax | 1742/1743 | 99.9% | C-based (Lexbor), fast and nearly spec-compliant with dev `html5test` output API |
+| selectolax | 1743/1743 | 100% | C-based (Lexbor), fast and spec-compliant with dev `html5test` output API |
 | markupever | 1545/1743 | 89% | Rust-based (html5ever), mostly correct |
 | html5lib | 1496/1743 | 86% | Reference implementation, but incomplete |
 | html5_parser | 862/1743 | 49% | C-based (Gumbo), fast but loses exposed tree information |
@@ -66,7 +66,7 @@ We run the same test suite against other Python parsers to compare compliance:
 | html.parser | 6/1743 | <1% | Python stdlib, basic error recovery only |
 | lxml | 5/1743 | <1% | XML-based, not HTML5 compliant |
 
-*Run `python benchmarks/correctness.py` to reproduce these results. The selectolax score requires its dev `html5test` output and fragment-context APIs.*
+*Run `python benchmarks/correctness.py` to reproduce these results. The selectolax score requires its dev `html5test` output and fragment-context APIs. These scores were refreshed against html5lib-tests `e446320`.*
 
 These numbers come from a strict tree comparison against the expected output in the `html5lib-tests` tree-construction fixtures (excluding `#script-on` / `#script-off` cases). Unsupported parser capabilities count as failures for this compliance table. The numbers will not match the `html5lib` project’s own reported totals, because `html5lib` runs the suite in multiple configurations and also has its own skip/xfail lists.
 

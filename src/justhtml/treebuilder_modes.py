@@ -930,6 +930,14 @@ class TreeBuilderModesMixin:
         return
 
     def _handle_body_start_input(self, token: Tag) -> None:
+        if (
+            self.fragment_context is not None
+            and self.fragment_context.namespace in {None, "html"}
+            and self.fragment_context.tag_name.lower() == "select"
+        ):
+            self._parse_error("unexpected-start-tag-in-select", tag_name=token.name)
+            return
+
         input_type = None
         for name, value in token.attrs.items():
             if name == "type":
