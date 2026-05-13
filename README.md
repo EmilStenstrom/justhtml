@@ -114,9 +114,9 @@ curl -Ls https://en.wikipedia.org/wiki/HTML -o /tmp/justhtml-bench.html
 |------|------------------------------------------|-------|----------|-------|------------------|-------|
 | **JustHTML**<br>Pure Python | ✅&nbsp;100% | ⚡ Fast | ✅ CSS selectors | ✅ `element()` | ✅ Built-in | Correct, secure, easy to install, and fast enough. |
 | **`selectolax`**<br>Python wrapper of C-based Lexbor | ✅&nbsp;100% | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast and spec-compliant. |
-| **Chromium**<br>browser engine | ✅&nbsp;99.6% | 🚀&nbsp;Very&nbsp;Fast | — | — | — | — |
-| **WebKit**<br>browser engine | ✅ 98% | 🚀 Very Fast | — | — | — | — |
-| **Firefox**<br>browser engine | ✅ 98% | 🚀 Very Fast | — | — | — | — |
+| **Chromium**<br>browser engine | ✅&nbsp;99.5% | 🚀&nbsp;Very&nbsp;Fast | — | — | — | — |
+| **WebKit**<br>browser engine | ✅ 98.4% | 🚀 Very Fast | — | — | — | — |
+| **Firefox**<br>browser engine | ✅ 97.6% | 🚀 Very Fast | — | — | — | — |
 | **`markupever`**<br>Python wrapper of Rust-based html5ever | 🟡 89% | 🚀 Very Fast | ✅ CSS selectors | ✅ `TreeDom .create_*()` | ❌ Needs sanitization | Fast and mostly correct, but missing benchmarked capabilities count against compliance. |
 | **`html5lib`**<br>Pure Python | 🟡 86% | 🐢 Slow | 🟡 XPath (lxml) | 🟡 Tree API | 🔴 [Deprecated](https://github.com/html5lib/html5lib-python/issues/443) | Unmaintained reference implementation; incomplete coverage of the tree-construction fixtures. |
 | **`html5_parser`**<br>Python wrapper of C-based Gumbo | 🔴 49% | 🚀 Very Fast | 🟡 XPath (lxml) | 🟡 `etree` (lxml) | ❌ Needs sanitization | Fast, but its public tree API loses information needed by many fixtures. |
@@ -126,7 +126,7 @@ curl -Ls https://en.wikipedia.org/wiki/HTML -o /tmp/justhtml-bench.html
 
 [1]: Parser compliance scores are from a strict run of the [html5lib-tests](https://github.com/html5lib/html5lib-tests) tree-construction fixtures (1,743 non-script tests). The score is `pass / (pass + fail + error)`; unsupported public API capabilities count as failures rather than being faked. The benchmark may compose multiple public APIs from the same parser, but does not use testcase-specific shims or synthetic adapters when an API surface is missing. See [docs/correctness.md](docs/correctness.md) for details.
 
-[2]: Browser numbers are from a local rerun of [`justhtml-html5lib-tests-bench`](https://github.com/EmilStenstrom/justhtml-html5lib-tests-bench) against this repo's `tests/html5lib-tests-tree/*.dat` corpus: Chromium 1763/1770, WebKit 1741/1770, Firefox 1727/1770, with 8 skipped cases per engine.
+[2]: Browser numbers are from a local rerun of [`justhtml-html5lib-tests-bench`](https://github.com/EmilStenstrom/justhtml-html5lib-tests-bench) against this repo's `tests/html5lib-tests-tree/*.dat` corpus: Chromium 1762/1770, WebKit 1742/1770, Firefox 1728/1770, with 12 skipped scripting-enabled cases per engine.
 
 
 ## Installation
