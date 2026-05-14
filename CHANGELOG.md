@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Allow the public `AllowStyleAttrs(...)` transform to receive a `url_policy` so custom transform pipelines can opt in to the same CSS `url(...)` validation used by sanitizer policies.
+
+### Security
+- (Severity: Low) Treat legacy image attributes `dynsrc` and `lowsrc` as URL-bearing attributes that require explicit `UrlPolicy` rules. Previously, custom policies could allow these attributes as ordinary text attributes and preserve browser-fetching URLs without URL validation.
+- (Severity: Moderate) Harden custom foreign-namespace policies against additional active SVG elements. Previously, preserved SVG elements such as `<script>`, `<animateMotion>`, `<animateTransform>`, `<discard>`, and `<mpath>` could survive custom policies that allowed foreign content.
+- (Severity: Low) Apply sanitizer URL rules to allowed inline CSS `url(...)` declarations during `JustHTML(..., policy=...)` sanitization. Previously, the helper path could validate CSS URLs, but the constructor-time sanitizer transform did not pass the policy through and dropped those declarations instead of enforcing the configured URL rule.
+
 ## [1.20.0] - 2026-05-14
 
 ### Changed

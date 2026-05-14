@@ -557,6 +557,7 @@ class AllowStyleAttrs:
 
     selector: str
     allowed_css_properties: tuple[str, ...]
+    url_policy: UrlPolicy | None
     enabled: bool
     callback: NodeCallback | None
     report: ReportCallback | None
@@ -566,6 +567,7 @@ class AllowStyleAttrs:
         selector: str,
         *,
         allowed_css_properties: Collection[str],
+        url_policy: UrlPolicy | None = None,
         enabled: bool = True,
         callback: NodeCallback | None = None,
         report: ReportCallback | None = None,
@@ -576,6 +578,7 @@ class AllowStyleAttrs:
             "allowed_css_properties",
             tuple(sorted({str(p).strip().lower() for p in allowed_css_properties if str(p).strip()})),
         )
+        object.__setattr__(self, "url_policy", url_policy)
         object.__setattr__(self, "enabled", bool(enabled))
         object.__setattr__(self, "callback", callback)
         object.__setattr__(self, "report", report)

@@ -1228,6 +1228,31 @@ class TestSanitizeDom(unittest.TestCase):
             == value
         )
 
+    def test_sanitize_transform_allows_css_url_only_when_url_policy_allows_it(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["div"],
+            allowed_attributes={"*": [], "div": ["style"]},
+            allowed_css_properties={"background-image"},
+            url_policy=UrlPolicy(
+                default_handling="allow",
+                allow_rules={
+                    ("*", "style:background-image"): UrlRule(
+                        allowed_schemes=set(),
+                        resolve_protocol_relative=None,
+                        allow_relative=True,
+                    )
+                },
+            ),
+        )
+
+        out = JustHTML(
+            '<div style="background-image: url(/safe.png)">x</div>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<div style=\"background-image: url('/safe.png')\">x</div>"
+
     def test_sanitize_inline_style_still_blocks_background_image_with_absolute_url(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["div"],
@@ -1968,7 +1993,7 @@ class TestSanitizeDom(unittest.TestCase):
             allowed_attributes={
                 "*": [],
                 "object": ["archive", "classid", "code", "codebase", "data", "object"],
-                "img": ["longdesc", "usemap"],
+                "img": ["dynsrc", "longdesc", "lowsrc", "usemap"],
             },
             url_policy=UrlPolicy(allow_rules={}),
         )
@@ -1978,7 +2003,8 @@ class TestSanitizeDom(unittest.TestCase):
                 '<object archive="https://evil.example/a.jar" classid="https://evil.example/c" '
                 'code="https://evil.example/code.class" codebase="https://evil.example/" '
                 'data="https://evil.example/object" object="https://evil.example/serialized"></object>'
-                '<img longdesc="https://evil.example/desc" usemap="https://evil.example/map">'
+                '<img dynsrc="https://evil.example/movie" longdesc="https://evil.example/desc" '
+                'lowsrc="https://evil.example/low" usemap="https://evil.example/map">'
             ),
             fragment=True,
             policy=policy,
@@ -3197,6 +3223,45 @@ class TestSanitizeUnsafe(unittest.TestCase):
         ).to_html(pretty=False)
 
         assert out == '<svg><image id="img" href="#ok" width="10" height="10"></image></svg>'
+
+    def test_sanitize_drops_additional_active_foreign_svg_elements_even_when_allowlisted(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "script", "animateMotion", "animateTransform", "discard", "mpath"},
+            allowed_attributes={
+                "svg": set(),
+                "script": set(),
+                "animatemotion": {"href"},
+                "animatetransform": {"href"},
+                "discard": {"href"},
+                "mpath": {"href"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("animatemotion", "href"): UrlRule(
+                        allowed_schemes=set(), allow_relative=False, allow_fragment=True
+                    ),
+                    ("animatetransform", "href"): UrlRule(
+                        allowed_schemes=set(), allow_relative=False, allow_fragment=True
+                    ),
+                    ("discard", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("mpath", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            (
+                '<svg><script>alert(1)</script><animateMotion href="#x"></animateMotion>'
+                '<animateTransform href="#x"></animateTransform><discard href="#x"></discard>'
+                '<mpath href="#x"></mpath></svg>'
+            ),
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<svg></svg>"
 
     def test_sanitize_drops_active_foreign_svg_foreignobject_even_when_allowlisted(self) -> None:
         policy = SanitizationPolicy(

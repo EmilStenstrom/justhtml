@@ -98,9 +98,14 @@ _ERROR_SINK: ContextVar[list[ParseError] | None] = ContextVar("justhtml_transfor
 _ACTIVE_FOREIGN_MUTATION_TAGS: frozenset[str] = frozenset(
     {
         "animate",
+        "animatemotion",
+        "animatetransform",
         "annotation-xml",
+        "discard",
         "foreignobject",
+        "mpath",
         "set",
+        "script",
     }
 )
 _FOREIGN_ROOT_TAGS: frozenset[str] = frozenset({"math", "svg"})
@@ -1454,12 +1459,14 @@ def compile_transforms(
 
         if isinstance(t, AllowStyleAttrs):
             allowed_css_properties = t.allowed_css_properties
+            style_url_policy = t.url_policy
             on_hook = t.callback
             on_report = t.report
 
             def _allow_style_attrs(
                 node: Node,
                 allowed_css_properties: tuple[str, ...] = allowed_css_properties,
+                url_policy: UrlPolicy | None = style_url_policy,
                 on_hook: NodeCallback | None = on_hook,
                 on_report: ReportCallback | None = on_report,
             ) -> dict[str, str | None] | None:
@@ -1491,7 +1498,7 @@ def compile_transforms(
                     allowed_css_properties=allowed_css_properties,
                     value=str(raw_value),
                     tag=str(node.name).lower(),
-                    url_policy=None,
+                    url_policy=url_policy,
                 )
                 if sanitized_style is None:
                     if on_report is not None:
@@ -1703,6 +1710,7 @@ def compile_transforms(
                 AllowStyleAttrs(
                     selector="*",
                     allowed_css_properties=policy.allowed_css_properties,
+                    url_policy=policy.url_policy,
                     enabled=bool(policy.allowed_css_properties),
                     callback=t.callback,
                     report=_report_unsafe,
