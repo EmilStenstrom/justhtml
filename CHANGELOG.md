@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-05-14
+
+### Changed
+- Improve public type hints for DOM query, serialization, sanitization, and streaming APIs so editor autocomplete and downstream type checking see concrete JustHTML node and event types instead of broad `Any` values.
+
 ### Security
 - (Severity: Low) Treat legacy browser URL attributes such as `archive`, `codebase`, `longdesc`, `manifest`, `profile`, and `usemap` as URL-bearing attributes that require explicit `UrlPolicy` rules. Previously, custom policies could allow these attributes as ordinary text attributes and preserve browser-fetching URLs without URL validation.
 - (Severity: Low) Report dropped comments and doctypes through the sanitizer policy's `unsafe_handling` mode. Previously, collect- and raise-mode policies stripped these nodes silently instead of recording or raising security findings.
