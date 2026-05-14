@@ -110,6 +110,7 @@ _ACTIVE_FOREIGN_MUTATION_TAGS: frozenset[str] = frozenset(
     }
 )
 _FOREIGN_ROOT_TAGS: frozenset[str] = frozenset({"math", "svg"})
+_TARGET_BLANK_REL_TAGS: frozenset[str] = frozenset({"a", "area", "form"})
 
 
 def _is_effectively_foreign_node(node: Node) -> bool:
@@ -1302,6 +1303,9 @@ def compile_transforms(
                 http_equiv_key: str | None = None
                 content_key: str | None = None
                 param_name_value: str | None = None
+                target_blank = False
+                rel_keys: list[str] = []
+                rel_tokens: list[str] = []
                 for key, raw_value in attrs.items():
                     lower_key = key if key.islower() else key.lower()
                     if lower_key == "http-equiv" and raw_value is not None:
@@ -1310,6 +1314,19 @@ def compile_transforms(
                         content_key = key
                     elif tag == "param" and lower_key == "name" and raw_value is not None:
                         param_name_value = str(raw_value).strip().lower()
+                    elif tag in _TARGET_BLANK_REL_TAGS and lower_key == "target" and raw_value is not None:
+                        target_blank = str(raw_value).strip().lower() == "_blank"
+                    elif tag in _TARGET_BLANK_REL_TAGS and lower_key == "rel":
+                        rel_keys.append(key)
+                        if isinstance(raw_value, str) and raw_value:
+                            for tok in raw_value.split():
+                                normalized_token = tok.strip().lower()
+                                if (
+                                    normalized_token
+                                    and normalized_token != "opener"
+                                    and normalized_token not in rel_tokens
+                                ):
+                                    rel_tokens.append(normalized_token)
 
                 if http_equiv_key is not None and content_key is not None:
                     http_equiv_value = attrs.get(http_equiv_key)
@@ -1317,6 +1334,24 @@ def compile_transforms(
                         if on_report is not None:  # pragma: no cover
                             on_report("Unsafe URL in attribute 'content' (meta refresh)", node=node)
                         to_drop = [content_key]
+
+                if target_blank:
+                    if "noopener" not in rel_tokens:
+                        rel_tokens.append("noopener")
+                    normalized_rel = " ".join(rel_tokens)
+
+                    if rel_keys:
+                        for rel_key in rel_keys:
+                            if rel_key != "rel":
+                                if to_drop is None:  # pragma: no branch
+                                    to_drop = []
+                                to_drop.append(rel_key)
+
+                    existing_rel = attrs.get("rel")
+                    if existing_rel != normalized_rel:
+                        if to_set is None:  # pragma: no branch
+                            to_set = {}
+                        to_set["rel"] = normalized_rel
 
                 # Most nodes have no URL-like attrs; avoid allocations in that case.
                 for key in attrs:

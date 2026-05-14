@@ -2120,6 +2120,124 @@ class TestSanitizeDom(unittest.TestCase):
             == '<object data="https://trusted.example/player"><param name="SRC" value="https://trusted.example/movie.swf"></object>'
         )
 
+    def test_target_blank_links_force_noopener_and_remove_opener(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href", "target", "rel"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("a", "href"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                }
+            ),
+        )
+
+        out = JustHTML(
+            '<a href="https://trusted.example/" target="_blank" rel="nofollow opener">x</a>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<a href="https://trusted.example/" target="_blank" rel="nofollow noopener">x</a>'
+
+    def test_target_blank_adds_rel_even_when_rel_not_allowed(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href", "target"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("a", "href"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                }
+            ),
+        )
+
+        out = JustHTML(
+            '<a href="https://trusted.example/" target="_blank">x</a>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<a href="https://trusted.example/" target="_blank" rel="noopener">x</a>'
+
+    def test_target_blank_hardening_normalizes_mixed_case_rel(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href", "target", "rel"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("a", "href"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                }
+            ),
+        )
+
+        out = sanitize_dom(
+            Node(
+                "a",
+                attrs={
+                    "href": "https://trusted.example/",
+                    "target": " _BLANK ",
+                    "Rel": "noreferrer",
+                },
+            ),
+            policy=policy,
+        )
+
+        assert to_html(out, pretty=False) == (
+            '<a href="https://trusted.example/" target=" _BLANK " rel="noreferrer noopener"></a>'
+        )
+
+    def test_non_blank_target_does_not_force_noopener(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href", "target"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("a", "href"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                }
+            ),
+        )
+
+        out = JustHTML(
+            '<a href="https://trusted.example/" target="_self">x</a>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<a href="https://trusted.example/" target="_self">x</a>'
+
+    def test_target_blank_form_force_noopener_and_remove_opener(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["form"],
+            allowed_attributes={"*": [], "form": ["action", "target", "rel"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("form", "action"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                }
+            ),
+        )
+
+        out = JustHTML(
+            '<form action="https://trusted.example/" target="_blank" rel="opener external"></form>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<form action="https://trusted.example/" target="_blank" rel="external noopener"></form>'
+
     def test_document_manifest_and_profile_require_explicit_url_rules(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["html", "head", "body"],

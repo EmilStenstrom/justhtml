@@ -733,6 +733,21 @@ class TestTransforms(unittest.TestCase):
         assert s_partial.attrs.get("style") == "color: red"
         assert seen == ["a", "a", "span", "span", "span"]
 
+    def test_dropurlattrs_hardens_target_blank_rel_edge_cases(self) -> None:
+        root = DocumentFragment()
+        already_safe = Element("a", {"target": "_blank", "rel": "noopener"}, "html")
+        mixed_case_rel = Element("a", {"target": "_blank", "Rel": "noreferrer"}, "html")
+        empty_rel = Element("a", {"target": "_blank", "rel": None}, "html")
+        root.append_child(already_safe)
+        root.append_child(mixed_case_rel)
+        root.append_child(empty_rel)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
+
+        assert already_safe.attrs == {"target": "_blank", "rel": "noopener"}
+        assert mixed_case_rel.attrs == {"target": "_blank", "rel": "noreferrer noopener"}
+        assert empty_rel.attrs == {"target": "_blank", "rel": "noopener"}
+
     def test_sanitize_can_forward_user_callback_and_report(self) -> None:
         events: list[str] = []
 

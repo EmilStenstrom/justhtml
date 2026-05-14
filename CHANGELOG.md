@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - (Severity: Low) Apply sanitizer URL rules to allowed inline CSS `url(...)` declarations during `JustHTML(..., policy=...)` sanitization. Previously, the helper path could validate CSS URLs, but the constructor-time sanitizer transform did not pass the policy through and dropped those declarations instead of enforcing the configured URL rule.
 - (Severity: Low) Treat CSS `var(...)` references as unsafe in inline styles and preserved `<style>` blocks. Previously, custom policies that allowed CSS properties such as `background-image` could preserve variable indirection that resolves to a URL at render time, bypassing per-declaration URL validation.
 - (Severity: Low) Treat URL-bearing `<param name="...">` values such as `movie`, `src`, `url`, `href`, and `data` as URL sinks that require explicit `UrlPolicy` rules. Previously, custom policies could allow `<param name="movie" value="...">` as ordinary text and preserve plugin/resource URLs without URL validation.
+- (Severity: Low) Force `rel="noopener"` and remove `rel="opener"` on preserved `target="_blank"` links and forms. Previously, custom policies that allowed `target` could emit reverse-tabnabbing-prone markup without explicit opener protection for older browsers and embedded WebViews.
 
 ## [1.20.0] - 2026-05-14
 
