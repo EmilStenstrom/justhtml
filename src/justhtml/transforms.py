@@ -21,6 +21,7 @@ from .constants import VOID_ELEMENTS
 from .linkify import LinkifyConfig, find_links_with_config
 from .node import Element, Node, Template, Text
 from .sanitize import (
+    _URL_BEARING_PARAM_NAMES,
     _URL_FUNCTION_LIKE_ATTRS,
     _URL_LIKE_ATTRS,
     DEFAULT_POLICY,
@@ -1300,12 +1301,15 @@ def compile_transforms(
 
                 http_equiv_key: str | None = None
                 content_key: str | None = None
+                param_name_value: str | None = None
                 for key, raw_value in attrs.items():
                     lower_key = key if key.islower() else key.lower()
                     if lower_key == "http-equiv" and raw_value is not None:
                         http_equiv_key = key
                     elif lower_key == "content":
                         content_key = key
+                    elif tag == "param" and lower_key == "name" and raw_value is not None:
+                        param_name_value = str(raw_value).strip().lower()
 
                 if http_equiv_key is not None and content_key is not None:
                     http_equiv_value = attrs.get(http_equiv_key)
@@ -1327,7 +1331,11 @@ def compile_transforms(
                     ):
                         is_url_function_attr = _css_value_may_load_external_resource(str(raw_value))
 
-                    if lower_key not in _URL_LIKE_ATTRS and not is_url_function_attr:
+                    is_param_url_value = (
+                        tag == "param" and lower_key == "value" and param_name_value in _URL_BEARING_PARAM_NAMES
+                    )
+
+                    if lower_key not in _URL_LIKE_ATTRS and not is_url_function_attr and not is_param_url_value:
                         continue
 
                     if tag == "base" and lower_key == "href":

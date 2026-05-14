@@ -944,6 +944,12 @@ def _css_value_contains_disallowed_functions(value: str, *, allow_url: bool) -> 
         if len(buf) >= 7 and buf[-7:] == ["@", "i", "m", "p", "o", "r", "t"]:
             return True
 
+        # CSS variables defer value resolution until render time. A declaration
+        # such as `background-image: var(--bg)` can resolve to a URL supplied by
+        # surrounding page CSS, bypassing per-declaration URL validation.
+        if len(buf) >= 4 and buf[-4:] == ["v", "a", "r", "("]:
+            return True
+
         # Check for url( and image-set( anywhere in the normalized stream.
         if not allow_url and len(buf) >= 4 and buf[-4:] == ["u", "r", "l", "("]:
             return True
@@ -1571,6 +1577,19 @@ _URL_FUNCTION_LIKE_ATTRS: frozenset[str] = frozenset(
         "marker-start",
         "mask",
         "stroke",
+    }
+)
+
+_URL_BEARING_PARAM_NAMES: frozenset[str] = frozenset(
+    {
+        "code",
+        "codebase",
+        "data",
+        "filename",
+        "href",
+        "movie",
+        "src",
+        "url",
     }
 )
 

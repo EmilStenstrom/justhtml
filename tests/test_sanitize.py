@@ -1281,6 +1281,40 @@ class TestSanitizeDom(unittest.TestCase):
             is None
         )
 
+    def test_sanitize_inline_style_drops_css_variable_indirection(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["div"],
+            allowed_attributes={"*": [], "div": ["style"]},
+            allowed_css_properties={"background-image"},
+            url_policy=UrlPolicy(
+                default_handling="allow",
+                allow_rules={
+                    ("*", "style:background-image"): UrlRule(
+                        allowed_schemes=set(),
+                        resolve_protocol_relative=None,
+                        allow_relative=True,
+                    )
+                },
+            ),
+        )
+
+        assert (
+            _sanitize_inline_style(
+                allowed_css_properties=policy.allowed_css_properties,
+                value="background-image: var(--bg)",
+                tag="div",
+                url_policy=policy.url_policy,
+            )
+            is None
+        )
+
+        out = JustHTML(
+            '<div style="background-image: var(--bg)">x</div>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+        assert out == "<div>x</div>"
+
     def test_css_preset_text_is_conservative(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["div"],
@@ -1312,6 +1346,8 @@ class TestSanitizeDom(unittest.TestCase):
         assert _css_value_may_load_external_resource("u\\72l(https://evil.example/x)") is True
         assert _css_value_may_load_external_resource("u/**/rl(https://evil.example/x)") is True
         assert _css_value_may_load_external_resource("u/*x*/rl(https://evil.example/x)") is True
+        assert _css_value_may_load_external_resource("var(--bg)") is True
+        assert _css_value_may_load_external_resource("v/**/ar(--bg)") is True
         assert _css_value_may_load_external_resource("IMAGE-SET(foo)") is True
         assert _css_value_may_load_external_resource("image/**/-set(foo)") is True
         assert _css_value_may_load_external_resource("expression(alert(1))") is True
@@ -1334,6 +1370,7 @@ class TestSanitizeDom(unittest.TestCase):
         assert _css_value_has_disallowed_resource_functions("behavior: url(x)") is True
         assert _css_value_has_disallowed_resource_functions("-moz-binding: url(x)") is True
         assert _css_value_has_disallowed_resource_functions("AlphaImageLoader") is True
+        assert _css_value_has_disallowed_resource_functions("var(--bg)") is True
         assert (
             _css_value_has_disallowed_resource_functions("progid:DXImageTransform.Microsoft.AlphaImageLoader") is True
         )
@@ -2012,6 +2049,77 @@ class TestSanitizeDom(unittest.TestCase):
 
         assert out == "<object></object><img>"
 
+    def test_param_value_is_url_checked_for_url_bearing_param_names(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["object", "param"],
+            allowed_attributes={
+                "*": [],
+                "object": ["data"],
+                "param": ["name", "value"],
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("object", "data"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                }
+            ),
+        )
+
+        out = JustHTML(
+            (
+                '<object data="https://trusted.example/player">'
+                '<param name="movie" value="https://evil.example/movie.swf">'
+                '<param name="quality" value="high">'
+                "</object>"
+            ),
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert (
+            out
+            == '<object data="https://trusted.example/player"><param name="movie"><param name="quality" value="high"></object>'
+        )
+
+    def test_param_value_preserves_allowed_url_bearing_param_urls(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["object", "param"],
+            allowed_attributes={
+                "*": [],
+                "object": ["data"],
+                "param": ["name", "value"],
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("object", "data"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    ),
+                    ("param", "value"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    ),
+                }
+            ),
+        )
+
+        out = JustHTML(
+            (
+                '<object data="https://trusted.example/player">'
+                '<param name="SRC" value="https://trusted.example/movie.swf">'
+                "</object>"
+            ),
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert (
+            out
+            == '<object data="https://trusted.example/player"><param name="SRC" value="https://trusted.example/movie.swf"></object>'
+        )
+
     def test_document_manifest_and_profile_require_explicit_url_rules(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["html", "head", "body"],
@@ -2388,6 +2496,23 @@ class TestSanitizeDom(unittest.TestCase):
 
         doc = JustHTML(
             '<style>@import "https://evil.example/x.css"; body{background-image:url(/x.png)}</style>',
+            fragment=True,
+            sanitize=True,
+            policy=policy,
+        )
+
+        assert doc.to_html(pretty=False) == "<style></style>"
+
+    def test_constructor_sanitize_drops_style_content_with_css_variable_indirection(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["style"],
+            allowed_attributes={"style": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+
+        doc = JustHTML(
+            "<style>:root{--bg:url(https://evil.example/x)} body{background-image:var(--bg)}</style>",
             fragment=True,
             sanitize=True,
             policy=policy,
