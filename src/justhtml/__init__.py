@@ -1,4 +1,4 @@
-from .node import Comment, Document, DocumentFragment, Element, Node, Template, Text
+from .node import Comment, Document, DocumentFragment, Element, Node, NodeType, QueryMatch, Template, Text
 from .parser import JustHTML, StrictModeError
 from .sanitize import (
     CSS_PRESET_TEXT,
@@ -69,8 +69,10 @@ __all__ = [
     "Linkify",
     "MergeAttrs",
     "Node",
+    "NodeType",
     "ParseError",
     "PruneEmpty",
+    "QueryMatch",
     "RewriteAttrs",
     "SanitizationPolicy",
     "Sanitize",

@@ -5,7 +5,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .node import NodeType, QueryMatch
 
 
 class SelectorError(ValueError):
@@ -1379,7 +1382,7 @@ def _selector_allows_non_elements(selector: ParsedSelector | CompoundSelector | 
 def _query_descendants_tag(
     node: Any,
     tag_lower: str,
-    results: list[Any],
+    results: list[QueryMatch],
     context: SelectorQueryContext | None = None,
 ) -> None:
     context = context or SelectorQueryContext()
@@ -1393,7 +1396,7 @@ def _query_descendants_tag(
         stack.extend(reversed(root_children))
 
     if node.name == "template" and node.namespace == "html":
-        template_content = node.template_content
+        template_content = getattr(node, "template_content", None)
         if template_content:
             stack.append(template_content)
 
@@ -1420,7 +1423,7 @@ def _query_descendants_tag(
                 stack.append(template_content)
 
 
-def query(root: Any, selector_string: str) -> list[Any]:
+def query(root: NodeType, selector_string: str) -> list[QueryMatch]:
     """
     Query the DOM tree starting from root, returning all matching nodes.
 
@@ -1445,7 +1448,7 @@ def query(root: Any, selector_string: str) -> list[Any]:
     if len(selector_string) > DEFAULT_SELECTOR_LIMITS.max_length:
         raise SelectorError("Selector is too long")
 
-    results: list[Any] = []
+    results: list[QueryMatch] = []
     context = SelectorQueryContext()
 
     if _is_simple_tag_selector(selector_string):
@@ -1459,9 +1462,9 @@ def query(root: Any, selector_string: str) -> list[Any]:
 
 
 def _query_descendants(
-    node: Any,
+    node: NodeType,
     selector: ParsedSelector,
-    results: list[Any],
+    results: list[QueryMatch],
     *,
     context: SelectorQueryContext | None = None,
     allow_non_elements: bool = False,
@@ -1480,7 +1483,7 @@ def _query_descendants(
         stack.extend(reversed(root_children))
 
     if node.name == "template" and node.namespace == "html":
-        template_content = node.template_content
+        template_content = getattr(node, "template_content", None)
         if template_content:
             stack.append(template_content)
 
@@ -1510,7 +1513,7 @@ def _query_descendants(
                 stack.append(template_content)
 
 
-def matches(node: Any, selector_string: str) -> bool:
+def matches(node: NodeType, selector_string: str) -> bool:
     """
     Check if a node matches a CSS selector.
 

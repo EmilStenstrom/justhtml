@@ -15,6 +15,9 @@ from .context import FragmentContext
 from .selector import SelectorError
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from .node import Node
     from .transforms import TransformSpec
 
 
@@ -214,7 +217,11 @@ def main() -> None:
         raise SystemExit(2) from e
 
     try:
-        nodes = doc.query(args.selector) if args.selector else [doc.root]
+        nodes: Sequence[Node]
+        if args.selector:
+            nodes = doc.query(args.selector)
+        else:
+            nodes = [doc.root]
     except SelectorError as e:
         print(str(e), file=sys.stderr)
         raise SystemExit(2) from e

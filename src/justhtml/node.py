@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 from urllib.parse import quote
 
-from .selector import query
 from .serialize import to_html
 
 if TYPE_CHECKING:
@@ -243,19 +242,15 @@ class _MarkdownBuilder:
         return out.strip(" \t\n")
 
 
-# Type alias for any node type
-NodeType = "Node | Element | Template | Text | Comment | Document | DocumentFragment"
-
-
-def _to_text_collect(node: Any, parts: list[str], strip: bool) -> None:
+def _to_text_collect(node: NodeType, parts: list[str], strip: bool) -> None:
     # Iterative traversal avoids recursion overhead on large documents.
-    stack: list[Any] = [node]
+    stack: list[NodeType] = [node]
     while stack:
         current = stack.pop()
         name: str = current.name
 
         if name == "#text":
-            data: str | None = current.data
+            data = current.data if isinstance(current.data, str) else None
             if not data:
                 continue
             if strip:
@@ -326,11 +321,11 @@ def _to_text_break(chunks: list[list[str]]) -> None:
         chunks.append([])
 
 
-def _to_text_collect_block_chunks(node: Any, chunks: list[list[str]], strip: bool) -> None:
+def _to_text_collect_block_chunks(node: NodeType, chunks: list[list[str]], strip: bool) -> None:
     # Depth-first walk that inserts chunk boundaries for block-level elements.
     # This lets callers join chunks with a separator (e.g. "\n") without
     # introducing separators inside inline elements like <b> or <span>.
-    stack: list[tuple[Any, int]] = [(node, 0)]  # (node, state), state: 0=enter, 1=exit
+    stack: list[tuple[NodeType, int]] = [(node, 0)]  # (node, state), state: 0=enter, 1=exit
     while stack:
         current, state = stack.pop()
         name: str = current.name
@@ -340,7 +335,7 @@ def _to_text_collect_block_chunks(node: Any, chunks: list[list[str]], strip: boo
             continue
 
         if name == "#text":
-            data: str | None = current.data
+            data = current.data if isinstance(current.data, str) else None
             if not data:
                 continue
             if strip:
@@ -383,7 +378,7 @@ class Node:
     )
 
     name: str
-    parent: Node | Element | Template | None
+    parent: Node | None
     attrs: dict[str, str | None] | None
     children: list[Any] | None
     data: str | Doctype | None
@@ -421,13 +416,13 @@ class Node:
             self.children = []
             self.attrs = attrs if attrs is not None else {}
 
-    def append_child(self, node: Any) -> None:
+    def append_child(self, node: NodeType) -> None:
         if self.children is not None:
             self._adopt_child(node)
             self.children.append(node)
             node.parent = self
 
-    def _adopt_child(self, node: Any) -> tuple[Any | None, int | None]:
+    def _adopt_child(self, node: NodeType) -> tuple[Node | None, int | None]:
         if node is self:
             raise ValueError("Cannot insert a node into itself")
 
@@ -441,7 +436,7 @@ class Node:
                 if template_content is None:
                     return None, None
 
-        current: Any | None = self
+        current: Node | None = self
         while current is not None:
             if current is node:
                 raise ValueError("Cannot insert an ancestor into its descendant")
@@ -478,7 +473,7 @@ class Node:
             return None
         return (self._origin_line, self._origin_col)
 
-    def remove_child(self, node: Any) -> None:
+    def remove_child(self, node: NodeType) -> None:
         if self.children is not None:
             self.children.remove(node)
             node.parent = None
@@ -495,7 +490,7 @@ class Node:
         """Convert node to HTML string."""
         return to_html(self, indent, indent_size, pretty=pretty, context=context, quote=quote)
 
-    def query(self, selector: str) -> list[Any]:
+    def query(self, selector: str) -> list[QueryMatch]:
         """
         Query this subtree using a CSS selector.
 
@@ -508,10 +503,11 @@ class Node:
         Raises:
             ValueError: If the selector is invalid
         """
-        result: list[Any] = query(self, selector)
-        return result
+        from .selector import query  # noqa: PLC0415
 
-    def query_one(self, selector: str) -> Any | None:
+        return query(self, selector)
+
+    def query_one(self, selector: str) -> QueryMatch | None:
         """Return the first matching descendant for a CSS selector, or None."""
         matches = self.query(selector)
         if not matches:
@@ -547,7 +543,7 @@ class Node:
           elements, avoiding separators inside inline elements (like `<b>`).
         Template element contents are included via `template_content`.
         """
-        node: Any = self
+        node: NodeType = self
         if not separator_blocks_only:
             parts: list[str] = []
             _to_text_collect(node, parts, strip=strip)
@@ -586,7 +582,7 @@ class Node:
         )
         return builder.finish()
 
-    def insert_before(self, node: Any, reference_node: Any | None) -> None:
+    def insert_before(self, node: NodeType, reference_node: NodeType | None) -> None:
         """
         Insert a node before a reference node.
 
@@ -618,7 +614,7 @@ class Node:
         self.children.insert(index, node)
         node.parent = self
 
-    def replace_child(self, new_node: Any, old_node: Any) -> Any:
+    def replace_child(self, new_node: NodeType, old_node: NodeType) -> NodeType:
         """
         Replace a child node with a new node.
 
@@ -678,7 +674,7 @@ class Node:
         clone._origin_line = self._origin_line
         clone._origin_col = self._origin_col
         if deep:
-            return cast("Node", _clone_subtree_iterative(self))
+            return _clone_subtree_iterative(self)
         return clone
 
 
@@ -833,14 +829,14 @@ class Template(Element):
         return clone
 
 
-def _clone_subtree_iterative(root: Any) -> Any:
+def _clone_subtree_iterative(root: Node) -> Node:
     clone_root = root.clone_node(deep=False)
-    stack: list[tuple[Any, Any]] = [(root, clone_root)]
+    stack: list[tuple[Node, Node]] = [(root, clone_root)]
 
     while stack:
         source, target = stack.pop()
 
-        if type(source) is Template and source.template_content is not None:
+        if isinstance(source, Template) and isinstance(target, Template) and source.template_content is not None:
             target.template_content = source.template_content.clone_node(deep=False)
             target.template_content.parent = target
             stack.append((source.template_content, target.template_content))
@@ -849,11 +845,12 @@ def _clone_subtree_iterative(root: Any) -> Any:
         if not children:
             continue
 
-        pending: list[tuple[Any, Any]] = []
+        pending: list[tuple[Node, Node]] = []
         for child in children:
             child_clone = child.clone_node(deep=False)
             target.append_child(child_clone)
-            pending.append((child, child_clone))
+            if isinstance(child, Node) and isinstance(child_clone, Node):
+                pending.append((child, child_clone))
 
         stack.extend(reversed(pending))
 
@@ -866,7 +863,7 @@ class Text:
     data: str | None
     name: str
     namespace: None
-    parent: Node | Element | Template | None
+    parent: Node | None
     _origin_pos: int | None
     _origin_line: int | None
     _origin_col: int | None
@@ -935,11 +932,17 @@ class Text:
         return False
 
     def clone_node(self, deep: bool = False) -> Text:
+        _ = deep
         clone = Text(self.data)
         clone._origin_pos = self._origin_pos
         clone._origin_line = self._origin_line
         clone._origin_col = self._origin_col
         return clone
+
+
+# Public type aliases for users who accept or return JustHTML DOM nodes.
+NodeType: TypeAlias = Node | Text
+QueryMatch: TypeAlias = Element | Comment
 
 
 _MARKDOWN_BLOCK_ELEMENTS: frozenset[str] = frozenset(
@@ -971,7 +974,7 @@ _MARKDOWN_BLOCK_ELEMENTS: frozenset[str] = frozenset(
 
 
 def _to_markdown_walk(
-    node: Any,
+    node: NodeType,
     builder: _MarkdownBuilder,
     preserve_whitespace: bool,
     list_depth: int,

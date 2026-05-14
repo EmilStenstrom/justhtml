@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, Literal, overload
 
 from .node import Comment, Element, Node, Template, Text
 from .serialize import _validate_serializable_attr_name, _validate_serializable_tag_name
@@ -42,6 +42,24 @@ def doctype(
         "!doctype",
         data=Doctype(name=name, public_id=public_id, system_id=system_id, force_quirks=force_quirks),
     )
+
+
+@overload
+def element(  # pragma: no cover
+    name: Literal["template"],
+    attrs: Mapping[str, Any] | Any | None = None,
+    *children: Any,
+    namespace: Literal["html"] | None = "html",
+) -> Template: ...
+
+
+@overload
+def element(  # pragma: no cover
+    name: str,
+    attrs: Mapping[str, Any] | Any | None = None,
+    *children: Any,
+    namespace: str | None = "html",
+) -> Element | Template: ...
 
 
 def element(

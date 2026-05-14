@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -9,8 +9,12 @@ from .encoding import decode_html
 from .tokenizer import Tokenizer
 from .tokens import CommentToken, DoctypeToken, Tag
 
-# Type alias for stream events
-StreamEvent = tuple[str, Any]
+StartEvent: TypeAlias = tuple[Literal["start"], tuple[str, dict[str, str | None]]]
+EndEvent: TypeAlias = tuple[Literal["end"], str]
+TextEvent: TypeAlias = tuple[Literal["text"], str]
+CommentEvent: TypeAlias = tuple[Literal["comment"], str]
+DoctypeEvent: TypeAlias = tuple[Literal["doctype"], tuple[str | None, str | None, str | None]]
+StreamEvent: TypeAlias = StartEvent | EndEvent | TextEvent | CommentEvent | DoctypeEvent
 
 
 class _DummyNode:
@@ -31,12 +35,10 @@ class StreamSink:
         # Tokenizer reuses token objects, so we must copy data
         if isinstance(token, Tag):
             # Copy tag data
-            self.tokens.append(
-                (
-                    "start" if token.kind == Tag.START else "end",
-                    (token.name, token.attrs.copy()) if token.kind == Tag.START else token.name,
-                )
-            )
+            if token.kind == Tag.START:
+                self.tokens.append(("start", (token.name, token.attrs.copy())))
+            else:
+                self.tokens.append(("end", token.name))
             # Maintain open_elements stack for tokenizer's rawtext checks
             if token.kind == Tag.START:
                 # We need a dummy object with namespace for tokenizer checks
@@ -91,12 +93,12 @@ def stream(
             text_buffer: list[str] = []
             for event, data in sink.tokens:
                 if event == "text":
-                    text_buffer.append(data)
+                    text_buffer.append(cast("str", data))
                 else:
                     if text_buffer:
                         yield ("text", "".join(text_buffer))
                         text_buffer = []
-                    yield (event, data)
+                    yield cast("StartEvent | EndEvent | CommentEvent | DoctypeEvent", (event, data))
 
             if text_buffer:
                 yield ("text", "".join(text_buffer))

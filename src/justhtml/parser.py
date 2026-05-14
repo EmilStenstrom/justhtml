@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .context import FragmentContext
 from .encoding import decode_html
-from .node import Node, Text
+from .node import Document, DocumentFragment, Node, QueryMatch, Text
 from .sanitize import UrlRule, _compiled_sanitize_transforms_for_policy, _sanitize_url_value_with_rule
 from .serialize import to_html as serialize_html
 from .tokenizer import Tokenizer, TokenizerOpts
@@ -50,7 +50,7 @@ class JustHTML:
     encoding: str | None
     errors: list[ParseError]
     fragment_context: FragmentContext | None
-    root: Node
+    root: Document | DocumentFragment
     tokenizer: Tokenizer
     tree_builder: TreeBuilder
 
@@ -99,7 +99,7 @@ class JustHTML:
         iframe_srcdoc: bool,
         scripting_enabled: bool,
         errors: list[ParseError],
-    ) -> Node:
+    ) -> Document | DocumentFragment:
         from .sanitize import sanitize_dom  # noqa: PLC0415
 
         reparsed = JustHTML(
@@ -244,7 +244,7 @@ class JustHTML:
         self.tree_builder.tokenizer = self.tokenizer
 
         self.tokenizer.run(html_str)
-        self.root = self.tree_builder.finish()
+        self.root = cast("Document | DocumentFragment", self.tree_builder.finish())
 
         transform_errors: list[ParseError] = []
 
@@ -479,11 +479,11 @@ class JustHTML:
 
         return JustHTML.escape_js_string(_escape_text(value), quote=quote)
 
-    def query(self, selector: str) -> list[Any]:
+    def query(self, selector: str) -> list[QueryMatch]:
         """Query the document using a CSS selector. Delegates to root.query()."""
         return self.root.query(selector)
 
-    def query_one(self, selector: str) -> Any | None:
+    def query_one(self, selector: str) -> QueryMatch | None:
         """Return the first matching descendant for a CSS selector, or None."""
         return self.root.query_one(selector)
 

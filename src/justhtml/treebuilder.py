@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .constants import (
     BUTTON_SCOPE_TERMINATORS,
@@ -478,13 +478,14 @@ class TreeBuilder(TreeBuilderModesMixin):
             # For fragments, remove the html wrapper and promote its children
             # Note: html element is always created in fragment setup, so children[0] is always "html"
             assert self.document.children is not None
-            root = self.document.children[0]
+            root = cast("Node", self.document.children[0])
             context_elem = self.fragment_context_element
             if context_elem is not None and context_elem.parent is root:
                 for child in list(context_elem.children):
                     context_elem.remove_child(child)
                     root.append_child(child)
                 root.remove_child(context_elem)
+            assert root.children is not None
             for child in list(root.children):
                 root.remove_child(child)
                 self.document.append_child(child)

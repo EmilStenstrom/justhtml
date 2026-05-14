@@ -6,10 +6,13 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote as url_quote
 
 from .constants import FOREIGN_ATTRIBUTE_ADJUSTMENTS, SPECIAL_ELEMENTS, VOID_ELEMENTS, WHITESPACE_PRESERVING_ELEMENTS
+
+if TYPE_CHECKING:
+    from .node import NodeType
 
 # Matches characters that prevent an attribute value from being unquoted.
 # Note: This matches the logic of the previous loop-based implementation.
@@ -345,7 +348,7 @@ def _node_to_html_compact(node: Any) -> str:
 
 
 def to_html(
-    node: Any,
+    node: NodeType,
     indent: int = 0,
     indent_size: int = 2,
     *,
@@ -1217,14 +1220,14 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
     return results[-1] if results else ""
 
 
-def to_test_format(node: Any, indent: int = 0) -> str:
+def to_test_format(node: NodeType, indent: int = 0) -> str:
     """Convert node to html5lib test format string.
 
     This format is used by html5lib-tests for validating parser output.
     Uses '| ' prefixes and specific indentation rules.
     """
     if node.name in {"#document", "#document-fragment"}:
-        parts = [_node_to_test_format(child, 0) for child in node.children]
+        parts = [_node_to_test_format(child, 0) for child in node.children or ()]
         return "\n".join(parts)
     return _node_to_test_format(node, indent)
 

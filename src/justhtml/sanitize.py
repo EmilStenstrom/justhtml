@@ -18,6 +18,9 @@ from urllib.parse import quote, urlsplit
 from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits
 from .tokens import ParseError
 
+if TYPE_CHECKING:
+    from .node import NodeType
+
 UrlFilter = Callable[[str, str, str], str | None]
 
 
@@ -1815,11 +1818,11 @@ def _replace_container_children(target: Any, source: Any) -> None:
 
 
 def sanitize_dom(
-    node: Any,
+    node: NodeType,
     *,
     policy: SanitizationPolicy | None = None,
     errors: list[ParseError] | None = None,
-) -> Any:
+) -> NodeType:
     """Sanitize a DOM tree in place.
 
     For document roots (`#document` or `#document-fragment`), this mutates the
@@ -1837,7 +1840,7 @@ def sanitize_dom(
     result = _sanitize_dom_once(node, policy=policy, errors=errors)
 
     if policy.drop_foreign_namespaces or not _has_potential_foreign_content(result):
-        return result
+        return cast("NodeType", result)
 
     stabilized = _stabilize_sanitized_dom_once(result, policy=policy, errors=errors)
     if node.name in {"#document", "#document-fragment"}:
@@ -1849,6 +1852,6 @@ def sanitize_dom(
         only = children[0]
         only.parent = None
         stabilized.children = []
-        return only
+        return cast("NodeType", only)
 
-    return stabilized
+    return cast("NodeType", stabilized)

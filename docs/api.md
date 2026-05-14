@@ -197,7 +197,8 @@ Sanitization happens at construction time. `JustHTML(..., sanitize=True)` (the d
 
 #### `query(selector)`
 
-Find all nodes matching a CSS selector.
+Find all nodes matching a CSS selector. Type hint: `list[QueryMatch]`, where
+`QueryMatch` is `Element | Comment`.
 
 ```python
 doc.query("div.container > p")  # Returns list of matching nodes
@@ -206,7 +207,8 @@ doc.query(":comment")           # Returns comment nodes
 
 #### `query_one(selector)`
 
-Return the first matching descendant for a CSS selector, or `None`.
+Return the first matching descendant for a CSS selector, or `None`. Type hint:
+`QueryMatch | None`.
 
 ```python
 node = doc.query_one("div.container > p")
@@ -217,6 +219,11 @@ node = doc.query_one("div.container > p")
 ## Node
 
 Base type for all DOM nodes.
+
+Public node type aliases:
+
+- `NodeType`: any DOM node accepted by JustHTML public helpers (`Node | Text`).
+- `QueryMatch`: nodes returned by selector queries (`Element | Comment`).
 
 Node types:
 
@@ -361,7 +368,7 @@ node.to_html(context=HTMLContext.JS_STRING)  # HTML -> JS string literal
 
 #### `query(selector)`
 
-Find descendants matching a CSS selector.
+Find descendants matching a CSS selector. Type hint: `list[QueryMatch]`.
 
 ```python
 div.query("p.intro")  # Search within this node
@@ -369,7 +376,8 @@ div.query("p.intro")  # Search within this node
 
 #### `query_one(selector)`
 
-Return the first matching descendant for a CSS selector, or `None`.
+Return the first matching descendant for a CSS selector, or `None`. Type hint:
+`QueryMatch | None`.
 
 ```python
 p = div.query_one("p.intro")
@@ -671,6 +679,7 @@ Inherits from `SyntaxError`, so it displays source location in tracebacks.
 ### `query(node, selector)`
 
 Query a node without using the method syntax.
+Type hint: `(node: NodeType, selector: str) -> list[QueryMatch]`.
 
 ```python
 from justhtml import query
@@ -680,6 +689,7 @@ results = query(doc.root, "div.main")
 ### `matches(node, selector)`
 
 Check if a node matches a selector.
+Type hint: `(node: NodeType, selector: str) -> bool`.
 
 ```python
 from justhtml import matches
