@@ -2026,11 +2026,13 @@ class TestSanitizeDom(unittest.TestCase):
 
     def test_legacy_url_attrs_require_explicit_url_rules(self) -> None:
         policy = SanitizationPolicy(
-            allowed_tags=["object", "img"],
+            allowed_tags=["object", "img", "command", "menuitem"],
             allowed_attributes={
                 "*": [],
                 "object": ["archive", "classid", "code", "codebase", "data", "object"],
                 "img": ["dynsrc", "longdesc", "lowsrc", "usemap"],
+                "command": ["icon"],
+                "menuitem": ["icon"],
             },
             url_policy=UrlPolicy(allow_rules={}),
         )
@@ -2042,12 +2044,14 @@ class TestSanitizeDom(unittest.TestCase):
                 'data="https://evil.example/object" object="https://evil.example/serialized"></object>'
                 '<img dynsrc="https://evil.example/movie" longdesc="https://evil.example/desc" '
                 'lowsrc="https://evil.example/low" usemap="https://evil.example/map">'
+                '<command icon="https://evil.example/command">'
+                '<menuitem icon="https://evil.example/menuitem">'
             ),
             fragment=True,
             policy=policy,
         ).to_html(pretty=False)
 
-        assert out == "<object></object><img>"
+        assert out == "<object></object><img><command><menuitem></menuitem></command>"
 
     def test_param_value_is_url_checked_for_url_bearing_param_names(self) -> None:
         policy = SanitizationPolicy(
@@ -3469,10 +3473,11 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_drops_additional_active_foreign_svg_elements_even_when_allowlisted(self) -> None:
         policy = SanitizationPolicy(
-            allowed_tags={"svg", "script", "animateMotion", "animateTransform", "discard", "mpath"},
+            allowed_tags={"svg", "script", "animateColor", "animateMotion", "animateTransform", "discard", "mpath"},
             allowed_attributes={
                 "svg": set(),
                 "script": set(),
+                "animatecolor": {"attributeName", "values"},
                 "animatemotion": {"href"},
                 "animatetransform": {"href"},
                 "discard": {"href"},
@@ -3496,7 +3501,8 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         out = JustHTML(
             (
-                '<svg><script>alert(1)</script><animateMotion href="#x"></animateMotion>'
+                '<svg><script>alert(1)</script><animateColor attributeName="fill" values="red;blue"></animateColor>'
+                '<animateMotion href="#x"></animateMotion>'
                 '<animateTransform href="#x"></animateTransform><discard href="#x"></discard>'
                 '<mpath href="#x"></mpath></svg>'
             ),
@@ -3765,6 +3771,23 @@ class TestSanitizeUnsafe(unittest.TestCase):
         ).to_html(pretty=False)
 
         assert out == '<svg><rect width="10" height="10"></rect></svg>'
+
+    def test_sanitize_svg_color_profile_attr_is_dropped_without_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "image"},
+            allowed_attributes={"svg": set(), "image": {"color-profile"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<svg><image color-profile="https://evil.example/profile.icc"></image></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<svg><image></image></svg>"
 
     def test_sanitize_html_namespace_svg_url_function_attr_is_dropped_without_rule(self) -> None:
         policy = SanitizationPolicy(

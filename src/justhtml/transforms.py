@@ -99,6 +99,7 @@ _ERROR_SINK: ContextVar[list[ParseError] | None] = ContextVar("justhtml_transfor
 _ACTIVE_FOREIGN_MUTATION_TAGS: frozenset[str] = frozenset(
     {
         "animate",
+        "animatecolor",
         "animatemotion",
         "animatetransform",
         "annotation-xml",

@@ -1540,6 +1540,7 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
     {
         # Common URL-valued attributes.
         "href",
+        "icon",
         "dynsrc",
         "lowsrc",
         "src",
@@ -1554,6 +1555,7 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
         "classid",
         "code",
         "codebase",
+        "color-profile",
         "longdesc",
         "manifest",
         "object",
