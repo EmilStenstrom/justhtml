@@ -1189,16 +1189,19 @@ class TestSanitizeDom(unittest.TestCase):
             ),
         )
 
-        value = "background-image: image-set(url('/x.png') 1x)"
-        assert (
-            _sanitize_inline_style(
-                allowed_css_properties=policy.allowed_css_properties,
-                value=value,
-                tag="div",
-                url_policy=policy.url_policy,
+        for value in (
+            "background-image: image-set(url('/x.png') 1x)",
+            "background-image: image('https://evil.example/x.png')",
+        ):
+            assert (
+                _sanitize_inline_style(
+                    allowed_css_properties=policy.allowed_css_properties,
+                    value=value,
+                    tag="div",
+                    url_policy=policy.url_policy,
+                )
+                is None
             )
-            is None
-        )
 
     def test_sanitize_inline_style_can_allow_background_image_relative_url_via_url_policy(self) -> None:
         policy = SanitizationPolicy(
@@ -1348,6 +1351,8 @@ class TestSanitizeDom(unittest.TestCase):
         assert _css_value_may_load_external_resource("u/*x*/rl(https://evil.example/x)") is True
         assert _css_value_may_load_external_resource("var(--bg)") is True
         assert _css_value_may_load_external_resource("v/**/ar(--bg)") is True
+        assert _css_value_may_load_external_resource("IMAGE(foo)") is True
+        assert _css_value_may_load_external_resource("im/**/age(foo)") is True
         assert _css_value_may_load_external_resource("IMAGE-SET(foo)") is True
         assert _css_value_may_load_external_resource("image/**/-set(foo)") is True
         assert _css_value_may_load_external_resource("expression(alert(1))") is True
@@ -1365,6 +1370,7 @@ class TestSanitizeDom(unittest.TestCase):
         assert _css_value_contains_disallowed_functions("url(/x)", allow_url=True) is False
 
     def test_css_value_has_disallowed_resource_functions(self) -> None:
+        assert _css_value_has_disallowed_resource_functions("image(foo)") is True
         assert _css_value_has_disallowed_resource_functions("image-set(foo)") is True
         assert _css_value_has_disallowed_resource_functions("expression(alert(1))") is True
         assert _css_value_has_disallowed_resource_functions("behavior: url(x)") is True
