@@ -1578,6 +1578,8 @@ _URL_FUNCTION_LIKE_ATTRS: frozenset[str] = frozenset(
         "marker-mid",
         "marker-start",
         "mask",
+        "shape-inside",
+        "shape-outside",
         "stroke",
     }
 )

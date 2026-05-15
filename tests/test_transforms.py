@@ -1583,6 +1583,23 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy(allow_rules={}))]))
         assert rect.attrs == {"width": "10"}
 
+    def test_dropurlattrs_treats_svg_shape_attrs_as_url_function_attrs(self) -> None:
+        root = DocumentFragment()
+        svg = Element("svg", {}, "svg")
+        text = Element(
+            "text",
+            {
+                "shape-inside": "url(https://evil.example/wrap.svg#shape)",
+                "shape-outside": "url(https://evil.example/float.png)",
+            },
+            "svg",
+        )
+        svg.append_child(text)
+        root.append_child(svg)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy(allow_rules={}))]))
+        assert text.attrs == {}
+
     def test_dropurlattrs_can_be_disabled(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["a"],

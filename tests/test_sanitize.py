@@ -3836,6 +3836,26 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert out == '<svg><rect width="10" height="10"></rect></svg>'
 
+    def test_sanitize_svg_shape_attrs_are_dropped_without_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "text"},
+            allowed_attributes={"svg": set(), "text": {"shape-inside", "shape-outside"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            (
+                '<svg><text shape-inside="url(https://evil.example/wrap.svg#shape)" '
+                'shape-outside="url(https://evil.example/float.png)">x</text></svg>'
+            ),
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<svg><text>x</text></svg>"
+
     def test_sanitize_svg_color_profile_attr_is_dropped_without_rule(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "image"},

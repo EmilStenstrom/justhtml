@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - (Severity: Low) Force `rel="noopener"` and remove `rel="opener"` on preserved `target="_blank"` links and forms. Previously, custom policies that allowed `target` could emit reverse-tabnabbing-prone markup without explicit opener protection for older browsers and embedded WebViews.
 - (Severity: Low) Treat SVG `color-profile` IRIs as URL-bearing attributes that require explicit `UrlPolicy` rules. Previously, custom foreign-content policies could preserve external ICC profile references without URL validation.
 - (Severity: Low) Drop `<base target>` attributes even when custom policies allow them. Previously, sanitized output could still contain a document-wide default navigation target for later links and forms.
+- (Severity: Low) Treat SVG `shape-inside` and `shape-outside` presentation attributes as URL-function sinks. Previously, custom foreign-content policies could preserve external shape references without URL validation.
 
 ## [1.20.0] - 2026-05-14
 
