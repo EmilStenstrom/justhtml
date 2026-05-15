@@ -3233,6 +3233,27 @@ class TestSanitizeUnsafe(unittest.TestCase):
         ).to_html(pretty=False)
         assert out == '<base><img src="pixel">'
 
+    def test_sanitize_base_target_is_dropped(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["base", "a", "form"],
+            allowed_attributes={"*": [], "base": ["target"], "a": ["href"], "form": ["action"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("a", "href"): UrlRule(allow_relative=True, allowed_schemes=set()),
+                    ("form", "action"): UrlRule(allow_relative=True, allowed_schemes=set()),
+                }
+            ),
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<base target="_blank"><a href="/x">x</a><form action="/submit"></form>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<base><a href="/x">x</a><form action="/submit"></form>'
+
     def test_sanitize_link_imagesrcset_raises(self) -> None:
         html = '<link rel="preload" as="image" imagesrcset="https://evil.example/a 1x">'
         node = JustHTML(html, fragment=True, sanitize=False).root
@@ -3268,6 +3289,19 @@ class TestSanitizeUnsafe(unittest.TestCase):
             drop_content_tags=set(),
         )
         with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'href'"):
+            sanitize(node, policy=policy)
+
+    def test_sanitize_base_target_raises(self) -> None:
+        html = '<base target="_blank">'
+        node = JustHTML(html, fragment=True, sanitize=False).root
+        policy = SanitizationPolicy(
+            allowed_tags={"base"},
+            allowed_attributes={"base": {"target"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            unsafe_handling="raise",
+            drop_content_tags=set(),
+        )
+        with self.assertRaisesRegex(ValueError, "Unsafe attribute 'target'"):
             sanitize(node, policy=policy)
 
     def test_sanitize_img_attributionsrc_raises(self) -> None:
@@ -3413,7 +3447,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsafe tag.*foreign namespace"):
             sanitize(div, policy=policy)
 
-    def test_sanitize_drops_active_foreign_svg_set_elements_even_when_allowlisted(self) -> None:
+    def test_sanitize_preserves_allowlisted_foreign_svg_set_elements(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "image", "set"},
             allowed_attributes={
@@ -3440,9 +3474,12 @@ class TestSanitizeUnsafe(unittest.TestCase):
             policy=policy,
         ).to_html(pretty=False)
 
-        assert out == '<svg><image id="img" href="#ok" width="10" height="10"></image></svg>'
+        assert (
+            out == '<svg><image id="img" href="#ok" width="10" height="10"></image>'
+            '<set href="#img" attributename="href" to="https://evil.example/pwn" begin="0s"></set></svg>'
+        )
 
-    def test_sanitize_drops_active_foreign_svg_animate_elements_even_when_allowlisted(self) -> None:
+    def test_sanitize_preserves_allowlisted_foreign_svg_animate_elements(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "image", "animate"},
             allowed_attributes={
@@ -3469,9 +3506,12 @@ class TestSanitizeUnsafe(unittest.TestCase):
             policy=policy,
         ).to_html(pretty=False)
 
-        assert out == '<svg><image id="img" href="#ok" width="10" height="10"></image></svg>'
+        assert (
+            out == '<svg><image id="img" href="#ok" width="10" height="10"></image>'
+            '<animate href="#img" attributename="href" values="https://evil.example/pwn;#ok" dur="1s"></animate></svg>'
+        )
 
-    def test_sanitize_drops_additional_active_foreign_svg_elements_even_when_allowlisted(self) -> None:
+    def test_sanitize_preserves_additional_allowlisted_foreign_svg_elements(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={
                 "svg",
@@ -3521,9 +3561,15 @@ class TestSanitizeUnsafe(unittest.TestCase):
             policy=policy,
         ).to_html(pretty=False)
 
-        assert out == "<svg></svg>"
+        assert out == (
+            '<svg><script>alert(1)</script><handler type="application/ecmascript">alert(1)</handler>'
+            '<animateColor attributename="fill" values="red;blue"></animateColor>'
+            '<animateMotion href="#x"></animateMotion>'
+            '<animateTransform href="#x"></animateTransform><discard href="#x"></discard>'
+            '<mpath href="#x"></mpath></svg>'
+        )
 
-    def test_sanitize_drops_active_foreign_svg_foreignobject_even_when_allowlisted(self) -> None:
+    def test_sanitize_preserves_allowlisted_foreign_svg_foreignobject(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "foreignobject", "script"},
             allowed_attributes={
@@ -3542,9 +3588,9 @@ class TestSanitizeUnsafe(unittest.TestCase):
             policy=policy,
         ).to_html(pretty=False)
 
-        assert out == "<svg></svg>"
+        assert out == "<svg><foreignObject><script>document.body.dataset.pwn=1</script></foreignObject></svg>"
 
-    def test_sanitize_drops_active_foreign_math_annotation_xml_even_when_allowlisted(self) -> None:
+    def test_sanitize_preserves_allowlisted_foreign_math_annotation_xml(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"math", "annotation-xml", "script"},
             allowed_attributes={
@@ -3563,7 +3609,10 @@ class TestSanitizeUnsafe(unittest.TestCase):
             policy=policy,
         ).to_html(pretty=False)
 
-        assert out == "<math></math>"
+        assert out == (
+            '<math><annotation-xml encoding="text/html">'
+            "<script>document.body.dataset.pwn=1</script></annotation-xml></math>"
+        )
 
     def test_sanitize_preserves_text_in_svg_title_and_desc(self) -> None:
         policy = SanitizationPolicy(
@@ -3679,7 +3728,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert out == "<math><mtext>Hello</mtext></math>"
 
-    def test_sanitize_active_foreign_content_raises(self) -> None:
+    def test_sanitize_allowlisted_active_foreign_content_does_not_raise(self) -> None:
         svg = Element("svg", {}, "svg")
         image = Element("image", {"id": "img", "href": "#ok", "width": "10", "height": "10"}, "svg")
         set_node = Element(
@@ -3708,8 +3757,12 @@ class TestSanitizeUnsafe(unittest.TestCase):
             unsafe_handling="raise",
         )
 
-        with self.assertRaisesRegex(ValueError, "Unsafe tag 'set' \\(active foreign content\\)"):
-            sanitize(svg, policy=policy)
+        out = sanitize(svg, policy=policy)
+
+        assert out.to_html(pretty=False) == (
+            '<svg><image id="img" href="#ok" width="10" height="10"></image>'
+            '<set href="#img" attributename="href" to="https://evil.example/pwn" begin="0s"></set></svg>'
+        )
 
     def test_sanitize_svg_url_function_attr_is_dropped_without_rule(self) -> None:
         policy = SanitizationPolicy(
@@ -3818,7 +3871,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert out.to_html(pretty=False) == '<svg><rect width="10" height="10"></rect></svg>'
 
-    def test_sanitize_html_namespace_svg_active_foreign_content_is_dropped(self) -> None:
+    def test_sanitize_html_namespace_svg_allowlisted_foreign_content_is_preserved(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "image", "set"},
             allowed_attributes={
@@ -3847,7 +3900,10 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         out = sanitize_dom(svg, policy=policy)
 
-        assert out.to_html(pretty=False) == '<svg><image id="img" href="#ok" width="10" height="10"></image></svg>'
+        assert out.to_html(pretty=False) == (
+            '<svg><image id="img" href="#ok" width="10" height="10"></image>'
+            '<set href="#img" attributename="href" to="https://evil.example/pwn" begin="0s"></set></svg>'
+        )
 
     def test_sanitize_html_namespace_svg_root_raises_when_foreign_namespaces_are_dropped(self) -> None:
         svg = Element("svg", {}, "html")
@@ -4040,7 +4096,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
             "</body></html>"
         )
 
-    def test_sanitize_clone_drops_active_foreign_integration_points_during_stabilization(self) -> None:
+    def test_sanitize_clone_stabilizes_disallowed_foreign_integration_points(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "style", "img"},
             allowed_attributes={"svg": set(), "style": set(), "img": {"src"}},
@@ -4059,10 +4115,10 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         out = sanitize(svg, policy=policy)
 
-        assert out.name == "svg"
-        assert to_html(out, pretty=False) == "<svg></svg>"
+        assert out.name == "#document-fragment"
+        assert to_html(out, pretty=False) == "<svg><style></style></svg><img>"
 
-    def test_sanitize_dom_drops_active_foreign_integration_points_during_stabilization(self) -> None:
+    def test_sanitize_dom_stabilizes_disallowed_foreign_integration_points(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "style", "img"},
             allowed_attributes={"svg": set(), "style": set(), "img": {"src"}},
@@ -4081,8 +4137,8 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         out = sanitize_dom(svg, policy=policy)
 
-        assert out.name == "svg"
-        assert to_html(out, pretty=False) == "<svg></svg>"
+        assert out.name == "#document-fragment"
+        assert to_html(out, pretty=False) == "<svg><style></style></svg><img>"
 
     def test_sanitize_clone_can_return_fragment_after_foreign_stabilization(self) -> None:
         policy = SanitizationPolicy(

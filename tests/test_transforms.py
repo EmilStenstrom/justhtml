@@ -927,7 +927,7 @@ class TestTransforms(unittest.TestCase):
         assert _is_effectively_foreign_node(Element("div", {}, "html")) is False
         assert _is_effectively_foreign_node(Element("svg", {}, "svg")) is True
 
-    def test_sanitize_drops_active_foreign_content_and_calls_callback(self) -> None:
+    def test_sanitize_preserves_allowlisted_active_foreign_content(self) -> None:
         calls: list[str] = []
 
         def on_node(node: Node) -> None:
@@ -964,10 +964,13 @@ class TestTransforms(unittest.TestCase):
 
         apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy, callback=on_node)]))
 
-        assert root.to_html(pretty=False) == '<svg><image id="img" href="#ok" width="10" height="10"></image></svg>'
+        assert (
+            root.to_html(pretty=False) == '<svg><image id="img" href="#ok" width="10" height="10"></image>'
+            '<set href="#img" attributename="href" to="https://evil.example/pwn" begin="0s"></set></svg>'
+        )
         assert calls == ["set"]
 
-    def test_sanitize_drops_active_foreign_foreignobject_and_calls_callback(self) -> None:
+    def test_sanitize_preserves_allowlisted_active_foreign_foreignobject(self) -> None:
         calls: list[str] = []
 
         def on_node(node: Node) -> None:
@@ -996,8 +999,11 @@ class TestTransforms(unittest.TestCase):
 
         apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy, callback=on_node)]))
 
-        assert root.to_html(pretty=False) == "<svg></svg>"
-        assert calls == ["foreignObject"]
+        assert (
+            root.to_html(pretty=False)
+            == "<svg><foreignObject><script>document.body.dataset.pwn=1</script></foreignObject></svg>"
+        )
+        assert calls == []
 
     def test_sanitize_strips_html_descendants_inside_svg_title(self) -> None:
         policy = SanitizationPolicy(
@@ -1432,6 +1438,22 @@ class TestTransforms(unittest.TestCase):
         root.append_child(base)
 
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert base.attrs == {}
+
+    def test_dropurlattrs_drops_base_target_without_report_callback(self) -> None:
+        root = DocumentFragment()
+        base = Element("base", {"target": "_blank"}, "html")
+        root.append_child(base)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
+        assert base.attrs == {}
+
+    def test_dropurlattrs_drops_base_target_when_drop_list_already_exists(self) -> None:
+        root = DocumentFragment()
+        base = Element("base", {"src": None, "target": "_blank"}, "html")
+        root.append_child(base)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
         assert base.attrs == {}
 
     def test_dropurlattrs_sanitizes_svg_url_function_attrs(self) -> None:
