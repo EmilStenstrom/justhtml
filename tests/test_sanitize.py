@@ -3473,10 +3473,20 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
     def test_sanitize_drops_additional_active_foreign_svg_elements_even_when_allowlisted(self) -> None:
         policy = SanitizationPolicy(
-            allowed_tags={"svg", "script", "animateColor", "animateMotion", "animateTransform", "discard", "mpath"},
+            allowed_tags={
+                "svg",
+                "script",
+                "handler",
+                "animateColor",
+                "animateMotion",
+                "animateTransform",
+                "discard",
+                "mpath",
+            },
             allowed_attributes={
                 "svg": set(),
                 "script": set(),
+                "handler": {"type"},
                 "animatecolor": {"attributeName", "values"},
                 "animatemotion": {"href"},
                 "animatetransform": {"href"},
@@ -3501,7 +3511,8 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         out = JustHTML(
             (
-                '<svg><script>alert(1)</script><animateColor attributeName="fill" values="red;blue"></animateColor>'
+                '<svg><script>alert(1)</script><handler type="application/ecmascript">alert(1)</handler>'
+                '<animateColor attributeName="fill" values="red;blue"></animateColor>'
                 '<animateMotion href="#x"></animateMotion>'
                 '<animateTransform href="#x"></animateTransform><discard href="#x"></discard>'
                 '<mpath href="#x"></mpath></svg>'

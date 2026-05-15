@@ -105,6 +105,7 @@ _ACTIVE_FOREIGN_MUTATION_TAGS: frozenset[str] = frozenset(
         "annotation-xml",
         "discard",
         "foreignobject",
+        "handler",
         "mpath",
         "set",
         "script",
