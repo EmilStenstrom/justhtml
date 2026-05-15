@@ -44,8 +44,11 @@ class UrlProxy:
         proxy_url = str(self.url)
         if not proxy_url:
             raise ValueError("UrlProxy.url must be a non-empty string")
+        proxy_param = str(self.param)
+        if not proxy_param:
+            raise ValueError("UrlProxy.param must be a non-empty string")
         object.__setattr__(self, "url", proxy_url)
-        object.__setattr__(self, "param", str(self.param))
+        object.__setattr__(self, "param", proxy_param)
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,7 +160,7 @@ class UrlPolicy:
 
 def _proxy_url_value(*, proxy: UrlProxy, value: str) -> str:
     sep = "&" if "?" in proxy.url else "?"
-    return f"{proxy.url}{sep}{proxy.param}={quote(value, safe='')}"
+    return f"{proxy.url}{sep}{quote(proxy.param, safe='')}={quote(value, safe='')}"
 
 
 @dataclass(slots=True)

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve explicitly allowlisted attributes instead of silently removing selected browser-sensitive attributes after the allowlist check.
 
 ### Security
+- (Severity: Low) Percent-encode `UrlProxy.param` names when rewriting URLs through a sanitizer proxy. Previously, custom proxy parameter names containing query separators could inject additional proxy query parameters into sanitized output.
 - (Severity: Low) Treat legacy image attributes `dynsrc`, `lowsrc`, and `icon` as URL-bearing attributes that require explicit `UrlPolicy` rules. Previously, custom policies could allow these attributes as ordinary text attributes and preserve browser-fetching URLs without URL validation.
 - (Severity: Low) Apply sanitizer URL rules to allowed inline CSS `url(...)` declarations during `JustHTML(..., policy=...)` sanitization. Previously, the helper path could validate CSS URLs, but the constructor-time sanitizer transform did not pass the policy through and dropped those declarations instead of enforcing the configured URL rule.
 - (Severity: Low) Treat CSS `var(...)` references as unsafe in inline styles and preserved `<style>` blocks. Previously, custom policies that allowed CSS properties such as `background-image` could preserve variable indirection that resolves to a URL at render time, bypassing per-declaration URL validation.

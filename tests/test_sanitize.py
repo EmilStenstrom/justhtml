@@ -91,6 +91,23 @@ class TestSanitizePlumbing(unittest.TestCase):
         with self.assertRaises(ValueError):
             UrlProxy(url="")
 
+    def test_urlproxy_rejects_empty_param(self) -> None:
+        with self.assertRaises(ValueError):
+            UrlProxy(url="/proxy", param="")
+
+    def test_urlproxy_encodes_param_name(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["img"],
+            allowed_attributes={"img": ["src"]},
+            url_policy=UrlPolicy(
+                proxy=UrlProxy(url="/proxy", param="url&next"),
+                allow_rules={("img", "src"): UrlRule(allowed_schemes={"https"}, handling="proxy")},
+            ),
+        )
+
+        out = JustHTML('<img src="https://example.com/x">', fragment=True, policy=policy).to_html(pretty=False)
+        assert out == '<img src="/proxy?url%26next=https%3A%2F%2Fexample.com%2Fx">'
+
     def test_urlrule_and_policy_normalize_inputs(self) -> None:
         rule = UrlRule(allowed_schemes=["https"], allowed_hosts=["example.com"])
         assert isinstance(rule.allowed_schemes, set)
