@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-05-15
+
 ### Changed
 - Allow the public `AllowStyleAttrs(...)` transform to receive a `url_policy` so custom transform pipelines can opt in to the same CSS `url(...)` validation used by sanitizer policies.
 - Preserve explicitly allowlisted foreign-content tags when `drop_foreign_namespaces=False`, instead of silently removing selected SVG and MathML tags after the allowlist check.
