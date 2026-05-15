@@ -2124,124 +2124,6 @@ class TestSanitizeDom(unittest.TestCase):
             == '<object data="https://trusted.example/player"><param name="SRC" value="https://trusted.example/movie.swf"></object>'
         )
 
-    def test_target_blank_links_force_noopener_and_remove_opener(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags=["a"],
-            allowed_attributes={"*": [], "a": ["href", "target", "rel"]},
-            url_policy=UrlPolicy(
-                allow_rules={
-                    ("a", "href"): UrlRule(
-                        allowed_schemes={"https"},
-                        allowed_hosts={"trusted.example"},
-                    )
-                }
-            ),
-        )
-
-        out = JustHTML(
-            '<a href="https://trusted.example/" target="_blank" rel="nofollow opener">x</a>',
-            fragment=True,
-            policy=policy,
-        ).to_html(pretty=False)
-
-        assert out == '<a href="https://trusted.example/" target="_blank" rel="nofollow noopener">x</a>'
-
-    def test_target_blank_adds_rel_even_when_rel_not_allowed(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags=["a"],
-            allowed_attributes={"*": [], "a": ["href", "target"]},
-            url_policy=UrlPolicy(
-                allow_rules={
-                    ("a", "href"): UrlRule(
-                        allowed_schemes={"https"},
-                        allowed_hosts={"trusted.example"},
-                    )
-                }
-            ),
-        )
-
-        out = JustHTML(
-            '<a href="https://trusted.example/" target="_blank">x</a>',
-            fragment=True,
-            policy=policy,
-        ).to_html(pretty=False)
-
-        assert out == '<a href="https://trusted.example/" target="_blank" rel="noopener">x</a>'
-
-    def test_target_blank_hardening_normalizes_mixed_case_rel(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags=["a"],
-            allowed_attributes={"*": [], "a": ["href", "target", "rel"]},
-            url_policy=UrlPolicy(
-                allow_rules={
-                    ("a", "href"): UrlRule(
-                        allowed_schemes={"https"},
-                        allowed_hosts={"trusted.example"},
-                    )
-                }
-            ),
-        )
-
-        out = sanitize_dom(
-            Node(
-                "a",
-                attrs={
-                    "href": "https://trusted.example/",
-                    "target": " _BLANK ",
-                    "Rel": "noreferrer",
-                },
-            ),
-            policy=policy,
-        )
-
-        assert to_html(out, pretty=False) == (
-            '<a href="https://trusted.example/" target=" _BLANK " rel="noreferrer noopener"></a>'
-        )
-
-    def test_non_blank_target_does_not_force_noopener(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags=["a"],
-            allowed_attributes={"*": [], "a": ["href", "target"]},
-            url_policy=UrlPolicy(
-                allow_rules={
-                    ("a", "href"): UrlRule(
-                        allowed_schemes={"https"},
-                        allowed_hosts={"trusted.example"},
-                    )
-                }
-            ),
-        )
-
-        out = JustHTML(
-            '<a href="https://trusted.example/" target="_self">x</a>',
-            fragment=True,
-            policy=policy,
-        ).to_html(pretty=False)
-
-        assert out == '<a href="https://trusted.example/" target="_self">x</a>'
-
-    def test_target_blank_form_force_noopener_and_remove_opener(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags=["form"],
-            allowed_attributes={"*": [], "form": ["action", "target", "rel"]},
-            url_policy=UrlPolicy(
-                allow_rules={
-                    ("form", "action"): UrlRule(
-                        allowed_schemes={"https"},
-                        allowed_hosts={"trusted.example"},
-                    )
-                }
-            ),
-        )
-
-        out = JustHTML(
-            '<form action="https://trusted.example/" target="_blank" rel="opener external"></form>',
-            fragment=True,
-            policy=policy,
-        ).to_html(pretty=False)
-
-        assert out == '<form action="https://trusted.example/" target="_blank" rel="external noopener"></form>'
-
     def test_document_manifest_and_profile_require_explicit_url_rules(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["html", "head", "body"],
@@ -3159,7 +3041,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
             unsafe_handling="raise",
         )
 
-        with self.assertRaisesRegex(ValueError, "Unsafe attribute.*matched forbidden pattern"):
+        with self.assertRaisesRegex(ValueError, "Unsafe attribute.*not allowed"):
             sanitize(node, policy=policy)
 
     def test_sanitize_unsafe_url_raises(self) -> None:
@@ -3185,35 +3067,36 @@ class TestSanitizeUnsafe(unittest.TestCase):
             url_policy=UrlPolicy(allow_rules={}),
             unsafe_handling="raise",
         )
-        with self.assertRaisesRegex(ValueError, "Unsafe attribute.*xlink:href.*matched forbidden pattern"):
+        with self.assertRaisesRegex(ValueError, "Unsafe attribute.*xlink:href.*not allowed"):
             sanitize(node, policy=policy)
 
-    def test_sanitize_unsafe_srcdoc_attribute_raises(self) -> None:
-        html = '<iframe srcdoc="<script>"></iframe>'
-        node = JustHTML(html, fragment=True, sanitize=False).root
+    def test_sanitize_explicitly_allowlisted_attributes_are_preserved(self) -> None:
         policy = SanitizationPolicy(
-            allowed_tags={"iframe"},
-            allowed_attributes={"iframe": {"srcdoc"}},  # Even if allowed, srcdoc is dangerous
+            allowed_tags={"iframe", "meta", "p"},
+            allowed_attributes={
+                "iframe": {"srcdoc"},
+                "meta": {"http-equiv", "content"},
+                "p": {"is"},
+            },
             url_policy=UrlPolicy(allow_rules={}),
-            unsafe_handling="raise",
-        )
-        with self.assertRaisesRegex(ValueError, "Unsafe attribute.*srcdoc.*matched forbidden pattern"):
-            sanitize(node, policy=policy)
-
-    def test_sanitize_meta_refresh_content_raises(self) -> None:
-        html = '<meta http-equiv="refresh" content="0;url=javascript:alert(1)">'
-        node = JustHTML(html, fragment=True, sanitize=False).root
-        policy = SanitizationPolicy(
-            allowed_tags={"meta"},
-            allowed_attributes={"meta": {"http-equiv", "content"}},
-            url_policy=UrlPolicy(allow_rules={}),
-            unsafe_handling="raise",
             drop_content_tags=set(),
         )
-        with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'content'"):
-            sanitize(node, policy=policy)
 
-    def test_sanitize_base_href_is_dropped_even_with_rule(self) -> None:
+        out = JustHTML(
+            '<iframe srcdoc="<script>"></iframe>'
+            '<meta http-equiv="refresh" content="0;url=javascript:alert(1)">'
+            '<p is="x-note">x</p>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == (
+            '<iframe srcdoc="&lt;script&gt;"></iframe>'
+            '<meta http-equiv="refresh" content="0;url=javascript:alert(1)">'
+            '<p is="x-note">x</p>'
+        )
+
+    def test_sanitize_base_href_is_preserved_with_rule(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["base", "img"],
             allowed_attributes={"*": [], "base": ["href"], "img": ["src"]},
@@ -3231,28 +3114,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
             fragment=True,
             policy=policy,
         ).to_html(pretty=False)
-        assert out == '<base><img src="pixel">'
-
-    def test_sanitize_base_target_is_dropped(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags=["base", "a", "form"],
-            allowed_attributes={"*": [], "base": ["target"], "a": ["href"], "form": ["action"]},
-            url_policy=UrlPolicy(
-                allow_rules={
-                    ("a", "href"): UrlRule(allow_relative=True, allowed_schemes=set()),
-                    ("form", "action"): UrlRule(allow_relative=True, allowed_schemes=set()),
-                }
-            ),
-            drop_content_tags=set(),
-        )
-
-        out = JustHTML(
-            '<base target="_blank"><a href="/x">x</a><form action="/submit"></form>',
-            fragment=True,
-            policy=policy,
-        ).to_html(pretty=False)
-
-        assert out == '<base><a href="/x">x</a><form action="/submit"></form>'
+        assert out == '<base href="https://evil.example/assets/"><img src="pixel">'
 
     def test_sanitize_link_imagesrcset_raises(self) -> None:
         html = '<link rel="preload" as="image" imagesrcset="https://evil.example/a 1x">'
@@ -3274,7 +3136,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'imagesrcset'"):
             sanitize(node, policy=policy)
 
-    def test_sanitize_base_href_raises(self) -> None:
+    def test_sanitize_base_href_still_uses_url_policy(self) -> None:
         html = '<base href="https://evil.example/assets/">'
         node = JustHTML(html, fragment=True, sanitize=False).root
         policy = SanitizationPolicy(
@@ -3282,26 +3144,13 @@ class TestSanitizeUnsafe(unittest.TestCase):
             allowed_attributes={"base": {"href"}},
             url_policy=UrlPolicy(
                 allow_rules={
-                    ("base", "href"): UrlRule(allowed_schemes={"https"}),
+                    ("base", "href"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
                 }
             ),
             unsafe_handling="raise",
             drop_content_tags=set(),
         )
         with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'href'"):
-            sanitize(node, policy=policy)
-
-    def test_sanitize_base_target_raises(self) -> None:
-        html = '<base target="_blank">'
-        node = JustHTML(html, fragment=True, sanitize=False).root
-        policy = SanitizationPolicy(
-            allowed_tags={"base"},
-            allowed_attributes={"base": {"target"}},
-            url_policy=UrlPolicy(allow_rules={}),
-            unsafe_handling="raise",
-            drop_content_tags=set(),
-        )
-        with self.assertRaisesRegex(ValueError, "Unsafe attribute 'target'"):
             sanitize(node, policy=policy)
 
     def test_sanitize_img_attributionsrc_raises(self) -> None:

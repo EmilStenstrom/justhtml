@@ -496,11 +496,6 @@ _INVISIBLE_UNICODE_STRIP_REGEX: re.Pattern[str] = re.compile(
     r"\U000E0100-\U000E01EF\U000F0000-\U000FFFFD\U00100000-\U0010FFFD]"
 )
 
-_ATTR_DROP_PATTERNS: tuple[str, ...] = ("on*", "srcdoc", "*:*")
-_ATTR_DROP_REGEX: re.Pattern[str] = re.compile(
-    "^(?:" + "|".join(re.escape(p).replace(r"\*", ".*").replace(r"\?", ".") for p in _ATTR_DROP_PATTERNS) + ")$"
-)
-
 
 def _compiled_sanitize_transforms_for_policy(policy: SanitizationPolicy) -> tuple[Any, ...]:
     from .transforms import Sanitize, compile_transforms  # noqa: PLC0415

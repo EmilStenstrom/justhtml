@@ -733,21 +733,6 @@ class TestTransforms(unittest.TestCase):
         assert s_partial.attrs.get("style") == "color: red"
         assert seen == ["a", "a", "span", "span", "span"]
 
-    def test_dropurlattrs_hardens_target_blank_rel_edge_cases(self) -> None:
-        root = DocumentFragment()
-        already_safe = Element("a", {"target": "_blank", "rel": "noopener"}, "html")
-        mixed_case_rel = Element("a", {"target": "_blank", "Rel": "noreferrer"}, "html")
-        empty_rel = Element("a", {"target": "_blank", "rel": None}, "html")
-        root.append_child(already_safe)
-        root.append_child(mixed_case_rel)
-        root.append_child(empty_rel)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
-
-        assert already_safe.attrs == {"target": "_blank", "rel": "noopener"}
-        assert mixed_case_rel.attrs == {"target": "_blank", "rel": "noreferrer noopener"}
-        assert empty_rel.attrs == {"target": "_blank", "rel": "noopener"}
-
     def test_sanitize_can_forward_user_callback_and_report(self) -> None:
         events: list[str] = []
 
@@ -1134,7 +1119,18 @@ class TestTransforms(unittest.TestCase):
 
         apply_compiled_transforms(
             root,
-            compile_transforms([DropAttrs("*", patterns=("on*", "*:*", "srcdoc"), report=None)]),
+            compile_transforms([DropAttrs("*", patterns=("*:*", "on*", "srcdoc"), report=None)]),
+        )
+        assert node.attrs == {"data-x": "safe"}
+
+    def test_dropattrs_hot_path_noops_without_matching_attrs(self) -> None:
+        root = DocumentFragment()
+        node = Element("div", {"data-x": "safe"}, "html")
+        root.append_child(node)
+
+        apply_compiled_transforms(
+            root,
+            compile_transforms([DropAttrs("*", patterns=("*:*", "on*", "srcdoc"), report=None)]),
         )
         assert node.attrs == {"data-x": "safe"}
 
@@ -1379,34 +1375,7 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert a.attrs == {"href": "https://trusted.example/x", "ping": "https://trusted.example/p"}
 
-    def test_dropurlattrs_drops_meta_refresh_content(self) -> None:
-        url_policy = UrlPolicy(default_handling="allow", allow_rules={})
-
-        root = DocumentFragment()
-        meta_refresh = Element(
-            "meta",
-            {
-                "http-equiv": "refresh",
-                "content": "0;url=https://evil.example/",
-            },
-            "html",
-        )
-        meta_charset = Element(
-            "meta",
-            {
-                "http-equiv": "content-type",
-                "content": "text/html; charset=utf-8",
-            },
-            "html",
-        )
-        root.append_child(meta_refresh)
-        root.append_child(meta_charset)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
-        assert meta_refresh.attrs == {"http-equiv": "refresh"}
-        assert meta_charset.attrs == {"http-equiv": "content-type", "content": "text/html; charset=utf-8"}
-
-    def test_dropurlattrs_drops_base_href_even_with_rule(self) -> None:
+    def test_dropurlattrs_preserves_base_href_with_rule(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",
             allow_rules={
@@ -1422,10 +1391,10 @@ class TestTransforms(unittest.TestCase):
         root.append_child(img)
 
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
-        assert base.attrs == {}
+        assert base.attrs == {"href": "https://trusted.example/assets/"}
         assert img.attrs == {"src": "pixel"}
 
-    def test_dropurlattrs_drops_base_href_when_drop_list_already_exists(self) -> None:
+    def test_dropurlattrs_preserves_base_href_when_other_url_attr_drops(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",
             allow_rules={
@@ -1438,23 +1407,7 @@ class TestTransforms(unittest.TestCase):
         root.append_child(base)
 
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
-        assert base.attrs == {}
-
-    def test_dropurlattrs_drops_base_target_without_report_callback(self) -> None:
-        root = DocumentFragment()
-        base = Element("base", {"target": "_blank"}, "html")
-        root.append_child(base)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
-        assert base.attrs == {}
-
-    def test_dropurlattrs_drops_base_target_when_drop_list_already_exists(self) -> None:
-        root = DocumentFragment()
-        base = Element("base", {"src": None, "target": "_blank"}, "html")
-        root.append_child(base)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
-        assert base.attrs == {}
+        assert base.attrs == {"href": "https://trusted.example/assets/"}
 
     def test_dropurlattrs_sanitizes_svg_url_function_attrs(self) -> None:
         url_policy = UrlPolicy(

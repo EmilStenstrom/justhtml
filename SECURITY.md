@@ -64,6 +64,9 @@ Promise:
 - `JustHTML(html)` sanitizes by default.
 - The sanitizer removes, unwraps, escapes, or drops tags and attributes outside
   the allowlist according to policy.
+- Custom allowlists are authoritative. If a caller explicitly allows a tag or
+  attribute, JustHTML preserves that choice instead of silently overriding it
+  with extra hardcoded tag or attribute bans.
 - The default policy blocks event handler attributes and executable tags.
 - The default policy drops the contents of dangerous rawtext containers such as
   `<script>` and `<style>`.
@@ -79,6 +82,9 @@ Out of scope:
   already run.
 - Safety of custom allowlists that allow dangerous tags, attributes, URL
   schemes, CSS properties, or foreign content.
+- Protecting callers from intentionally permissive custom policies. JustHTML
+  does not try to outsmart an explicit allowlist; callers who allow dangerous
+  browser features are responsible for that policy decision.
 
 ### 3. URL and CSS Handling
 
