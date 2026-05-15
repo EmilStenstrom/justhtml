@@ -1574,6 +1574,7 @@ _URL_FUNCTION_LIKE_ATTRS: frozenset[str] = frozenset(
         "cursor",
         "filter",
         "fill",
+        "marker",
         "marker-end",
         "marker-mid",
         "marker-start",

@@ -3708,6 +3708,23 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert out == '<svg><rect width="10" height="10"></rect></svg>'
 
+    def test_sanitize_svg_marker_attr_is_dropped_without_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "path"},
+            allowed_attributes={"svg": set(), "path": {"marker"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<svg><path marker="url(https://evil.example/marker.svg#arrow)"></path></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<svg><path></path></svg>"
+
     def test_sanitize_svg_shape_attrs_are_dropped_without_rule(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "text"},
