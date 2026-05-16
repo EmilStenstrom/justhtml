@@ -3766,6 +3766,42 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert out == "<svg><image></image></svg>"
 
+    def test_sanitize_svg_xlink_href_uses_url_policy(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "image"},
+            allowed_attributes={"svg": set(), "image": {"xlink:href"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("image", "xlink:href"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        trusted = JustHTML(
+            '<svg><image xlink:href="https://trusted.example/x.png"></image></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+        untrusted = JustHTML(
+            '<svg><image xlink:href="https://evil.example/x.png"></image></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+        script = JustHTML(
+            '<svg><image xlink:href="javascript:alert(1)"></image></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert trusted == '<svg><image xlink:href="https://trusted.example/x.png"></image></svg>'
+        assert untrusted == "<svg><image></image></svg>"
+        assert script == "<svg><image></image></svg>"
+
     def test_sanitize_html_namespace_svg_url_function_attr_is_dropped_without_rule(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "rect"},

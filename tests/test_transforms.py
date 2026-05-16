@@ -1409,6 +1409,27 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert base.attrs == {"href": "https://trusted.example/assets/"}
 
+    def test_dropurlattrs_sanitizes_svg_xlink_href(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("image", "xlink:href"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+            },
+        )
+
+        root = DocumentFragment()
+        trusted = Element("image", {"xlink:href": "https://trusted.example/x.png"}, "svg")
+        untrusted = Element("image", {"xlink:href": "https://evil.example/x.png"}, "svg")
+        script = Element("image", {"xlink:href": "javascript:alert(1)"}, "svg")
+        root.append_child(trusted)
+        root.append_child(untrusted)
+        root.append_child(script)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert trusted.attrs == {"xlink:href": "https://trusted.example/x.png"}
+        assert untrusted.attrs == {}
+        assert script.attrs == {}
+
     def test_dropurlattrs_sanitizes_svg_url_function_attrs(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",
