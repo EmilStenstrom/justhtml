@@ -951,6 +951,8 @@ def _css_value_contains_disallowed_functions(value: str, *, allow_url: bool) -> 
         # Check for URL/image-loading functions anywhere in the normalized stream.
         if not allow_url and len(buf) >= 4 and buf[-4:] == ["u", "r", "l", "("]:
             return True
+        if len(buf) >= 4 and buf[-4:] == ["s", "r", "c", "("]:
+            return True
         if len(buf) >= 6 and buf[-6:] == ["i", "m", "a", "g", "e", "("]:
             return True
         if len(buf) >= 10 and buf[-10:] == [

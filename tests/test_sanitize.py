@@ -1209,6 +1209,7 @@ class TestSanitizeDom(unittest.TestCase):
         for value in (
             "background-image: image-set(url('/x.png') 1x)",
             "background-image: image('https://evil.example/x.png')",
+            "background-image: src('https://evil.example/x.png')",
         ):
             assert (
                 _sanitize_inline_style(
@@ -1368,6 +1369,8 @@ class TestSanitizeDom(unittest.TestCase):
         assert _css_value_may_load_external_resource("u/*x*/rl(https://evil.example/x)") is True
         assert _css_value_may_load_external_resource("var(--bg)") is True
         assert _css_value_may_load_external_resource("v/**/ar(--bg)") is True
+        assert _css_value_may_load_external_resource("SRC(foo)") is True
+        assert _css_value_may_load_external_resource("s/**/rc(foo)") is True
         assert _css_value_may_load_external_resource("IMAGE(foo)") is True
         assert _css_value_may_load_external_resource("im/**/age(foo)") is True
         assert _css_value_may_load_external_resource("IMAGE-SET(foo)") is True
@@ -1387,6 +1390,7 @@ class TestSanitizeDom(unittest.TestCase):
         assert _css_value_contains_disallowed_functions("url(/x)", allow_url=True) is False
 
     def test_css_value_has_disallowed_resource_functions(self) -> None:
+        assert _css_value_has_disallowed_resource_functions("src(foo)") is True
         assert _css_value_has_disallowed_resource_functions("image(foo)") is True
         assert _css_value_has_disallowed_resource_functions("image-set(foo)") is True
         assert _css_value_has_disallowed_resource_functions("expression(alert(1))") is True

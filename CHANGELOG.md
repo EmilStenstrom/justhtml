@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- (Severity: Low) Treat CSS `src(...)` references as unsafe in inline styles and preserved `<style>` blocks. Previously, custom policies that allowed image-valued CSS properties could preserve URL-bearing `src(...)` values that bypassed per-declaration URL validation.
+
 ## [1.21.0] - 2026-05-15
 
 ### Changed
