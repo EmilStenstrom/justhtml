@@ -850,6 +850,10 @@ class TestSanitizeDom(unittest.TestCase):
 
     def test_css_value_may_load_external_resource_rejects_ambient_value_keywords(self) -> None:
         for value in (
+            "inherit",
+            "revert",
+            "revert-layer",
+            "unset",
             "background-image: inherit",
             "background-image: re/**/vert",
             "background-image: revert-layer",
@@ -3728,6 +3732,23 @@ class TestSanitizeUnsafe(unittest.TestCase):
         ).to_html(pretty=False)
 
         assert out == '<svg><rect width="10" height="10" fill="red"></rect></svg>'
+
+    def test_sanitize_svg_presentation_attr_drops_ambient_value_keywords_without_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "rect"},
+            allowed_attributes={"svg": set(), "rect": {"fill", "width", "height"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        for value in ("inherit", "revert", "revert-layer", "unset"):
+            out = JustHTML(
+                f'<svg><rect width="10" height="10" fill="{value}"></rect></svg>',
+                fragment=True,
+                policy=policy,
+            ).to_html(pretty=False)
+            assert out == '<svg><rect width="10" height="10"></rect></svg>'
 
     def test_sanitize_svg_url_function_attr_preserves_allowed_fragments(self) -> None:
         policy = SanitizationPolicy(
