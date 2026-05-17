@@ -1543,6 +1543,8 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
         # Common URL-valued attributes.
         "href",
         "xlink:href",
+        "xml:base",
+        "definitionurl",
         "icon",
         "dynsrc",
         "lowsrc",

@@ -1430,6 +1430,48 @@ class TestTransforms(unittest.TestCase):
         assert untrusted.attrs == {}
         assert script.attrs == {}
 
+    def test_dropurlattrs_sanitizes_svg_xml_base(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("svg", "xml:base"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+            },
+        )
+
+        root = DocumentFragment()
+        trusted = Element("svg", {"xml:base": "https://trusted.example/assets/"}, "svg")
+        untrusted = Element("svg", {"xml:base": "https://evil.example/assets/"}, "svg")
+        root.append_child(trusted)
+        root.append_child(untrusted)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert trusted.attrs == {"xml:base": "https://trusted.example/assets/"}
+        assert untrusted.attrs == {}
+
+    def test_dropurlattrs_sanitizes_mathml_definitionurl(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("csymbol", "definitionurl"): UrlRule(
+                    allowed_schemes={"https"},
+                    allowed_hosts={"trusted.example"},
+                ),
+            },
+        )
+
+        root = DocumentFragment()
+        trusted = Element("csymbol", {"definitionURL": "https://trusted.example/def"}, "math")
+        untrusted = Element("csymbol", {"definitionURL": "https://evil.example/def"}, "math")
+        script = Element("csymbol", {"definitionURL": "javascript:alert(1)"}, "math")
+        root.append_child(trusted)
+        root.append_child(untrusted)
+        root.append_child(script)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert trusted.attrs == {"definitionurl": "https://trusted.example/def"}
+        assert untrusted.attrs == {}
+        assert script.attrs == {}
+
     def test_dropurlattrs_sanitizes_svg_url_function_attrs(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",

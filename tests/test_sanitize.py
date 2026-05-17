@@ -3802,6 +3802,73 @@ class TestSanitizeUnsafe(unittest.TestCase):
         assert untrusted == "<svg><image></image></svg>"
         assert script == "<svg><image></image></svg>"
 
+    def test_sanitize_svg_xml_base_uses_url_policy(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "image"},
+            allowed_attributes={"svg": {"xml:base"}, "image": {"href"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("svg", "xml:base"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    ),
+                    ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        trusted = JustHTML(
+            '<svg xml:base="https://trusted.example/assets/"><image href="x.png"></image></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+        untrusted = JustHTML(
+            '<svg xml:base="https://evil.example/assets/"><image href="x.png"></image></svg>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert trusted == '<svg xml:base="https://trusted.example/assets/"><image href="x.png"></image></svg>'
+        assert untrusted == '<svg><image href="x.png"></image></svg>'
+
+    def test_sanitize_mathml_definitionurl_uses_url_policy(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"math", "csymbol"},
+            allowed_attributes={"math": set(), "csymbol": {"definitionURL"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("csymbol", "definitionurl"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        trusted = JustHTML(
+            '<math><csymbol definitionURL="https://trusted.example/def">x</csymbol></math>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+        untrusted = JustHTML(
+            '<math><csymbol definitionURL="https://evil.example/def">x</csymbol></math>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+        script = JustHTML(
+            '<math><csymbol definitionURL="javascript:alert(1)">x</csymbol></math>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert trusted == '<math><csymbol definitionurl="https://trusted.example/def">x</csymbol></math>'
+        assert untrusted == "<math><csymbol>x</csymbol></math>"
+        assert script == "<math><csymbol>x</csymbol></math>"
+
     def test_sanitize_html_namespace_svg_url_function_attr_is_dropped_without_rule(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "rect"},

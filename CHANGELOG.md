@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Treat MathML `definitionURL` attributes as URL-bearing attributes that require explicit `UrlPolicy` rules. Previously, custom foreign-content policies could allow `definitionURL` as ordinary text and preserve external-definition URIs without URL validation.
+- (Severity: Low) Treat SVG/XML `xml:base` attributes as URL-bearing attributes that require explicit `UrlPolicy` rules. Previously, custom foreign-content policies could allow `xml:base` as ordinary text and let it change the base URL used by accepted descendant relative URLs without URL validation.
 - (Severity: Low) Treat SVG `xlink:href` attributes as URL-bearing attributes that require explicit `UrlPolicy` rules. Previously, custom foreign-content policies could allow `xlink:href` as ordinary text and preserve browser-fetching URLs without URL validation.
 - (Severity: Low) Treat CSS `src(...)` references as unsafe in inline styles and preserved `<style>` blocks. Previously, custom policies that allowed image-valued CSS properties could preserve URL-bearing `src(...)` values that bypassed per-declaration URL validation.
 
