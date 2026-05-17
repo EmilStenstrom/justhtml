@@ -907,9 +907,7 @@ def _css_value_contains_disallowed_functions(value: str, *, allow_url: bool) -> 
     if "\\" in value:
         return True
 
-    buf: list[str] = []
-    max_len = len("alphaimageloader")
-
+    normalized: list[str] = []
     i = 0
     n = len(value)
     while i < n:
@@ -933,116 +931,30 @@ def _css_value_contains_disallowed_functions(value: str, *, allow_url: bool) -> 
             i += 1
             continue
 
-        lower_ch = chr(o + 0x20) if "A" <= ch <= "Z" else ch
-
-        buf.append(lower_ch)
-        if len(buf) > max_len:
-            buf.pop(0)
-
-        if len(buf) >= 7 and buf[-7:] == ["@", "i", "m", "p", "o", "r", "t"]:
-            return True
-
-        # CSS variables defer value resolution until render time. A declaration
-        # such as `background-image: var(--bg)` can resolve to a URL supplied by
-        # surrounding page CSS, bypassing per-declaration URL validation.
-        if len(buf) >= 4 and buf[-4:] == ["v", "a", "r", "("]:
-            return True
-
-        # CSS-wide keywords such as `inherit` and `revert` can also resolve to
-        # ambient values supplied outside the sanitized declaration. Detect the
-        # normalized `:<keyword>` form so comments/whitespace cannot hide it in
-        # full stylesheet text such as `background-image: inherit`.
-        if len(buf) >= 8 and buf[-8:] == [":", "i", "n", "h", "e", "r", "i", "t"]:
-            return True
-        # This also catches `revert-layer`, which begins with the `revert`
-        # keyword before the streaming scan reaches the suffix.
-        if len(buf) >= 7 and buf[-7:] == [":", "r", "e", "v", "e", "r", "t"]:
-            return True
-        if len(buf) >= 6 and buf[-6:] == [":", "u", "n", "s", "e", "t"]:
-            return True
-
-        # Check for URL/image-loading functions anywhere in the normalized stream.
-        if not allow_url and len(buf) >= 4 and buf[-4:] == ["u", "r", "l", "("]:
-            return True
-        if len(buf) >= 4 and buf[-4:] == ["s", "r", "c", "("]:
-            return True
-        if len(buf) >= 6 and buf[-6:] == ["i", "m", "a", "g", "e", "("]:
-            return True
-        if len(buf) >= 10 and buf[-10:] == [
-            "i",
-            "m",
-            "a",
-            "g",
-            "e",
-            "-",
-            "s",
-            "e",
-            "t",
-            "(",
-        ]:
-            return True
-
-        # IE-only but still worth blocking defensively.
-        if len(buf) >= 11 and buf[-11:] == [
-            "e",
-            "x",
-            "p",
-            "r",
-            "e",
-            "s",
-            "s",
-            "i",
-            "o",
-            "n",
-            "(",
-        ]:
-            return True
-
-        # Legacy IE CSS filters that can fetch remote resources.
-        if len(buf) >= 7 and buf[-7:] == ["p", "r", "o", "g", "i", "d", ":"]:
-            return True
-        if len(buf) >= 16 and buf[-16:] == [
-            "a",
-            "l",
-            "p",
-            "h",
-            "a",
-            "i",
-            "m",
-            "a",
-            "g",
-            "e",
-            "l",
-            "o",
-            "a",
-            "d",
-            "e",
-            "r",
-        ]:
-            return True
-
-        # Legacy bindings/behaviors that can pull remote content.
-        if len(buf) >= 9 and buf[-9:] == ["b", "e", "h", "a", "v", "i", "o", "r", ":"]:
-            return True
-        if len(buf) >= 12 and buf[-12:] == [
-            "-",
-            "m",
-            "o",
-            "z",
-            "-",
-            "b",
-            "i",
-            "n",
-            "d",
-            "i",
-            "n",
-            "g",
-        ]:
-            return True
-
+        normalized.append(chr(o + 0x20) if "A" <= ch <= "Z" else ch)
         i += 1
 
-    return False
+    compact = "".join(normalized)
+
+    blocked_tokens = (
+        "@import",
+        "var(",
+        ":inherit",
+        ":revert",
+        ":unset",
+        "src(",
+        "image(",
+        "image-set(",
+        "expression(",
+        "progid:",
+        "alphaimageloader",
+        "behavior:",
+        "-moz-binding",
+    )
+    if any(token in compact for token in blocked_tokens):
+        return True
+
+    return not allow_url and "url(" in compact
 
 
 def _css_value_may_load_external_resource(value: str) -> bool:
