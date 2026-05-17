@@ -1114,6 +1114,7 @@ def _sanitize_inline_style(
         return None
 
     out_parts: list[str] = []
+    lower_tag = str(tag).lower()
     for decl in v.split(";"):
         d = decl.strip()
         if not d:
@@ -1143,7 +1144,7 @@ def _sanitize_inline_style(
                 continue
 
             sanitized_with_urls = _sanitize_css_url_functions(
-                url_policy=url_policy, tag=str(tag).lower(), prop=prop, value=prop_value
+                url_policy=url_policy, tag=lower_tag, prop=prop, value=prop_value
             )
             if sanitized_with_urls is None:
                 continue
@@ -1184,8 +1185,8 @@ def _is_valid_scheme(scheme: str) -> bool:
     return True
 
 
-def _get_scheme(value: str) -> str | None:
-    """Return the URL scheme (lowercased) if present and valid, else None."""
+def _scheme_like_prefix(value: str) -> str | None:
+    """Return text before a URL-like colon, if it precedes path/query/fragment separators."""
     idx = value.find(":")
     if idx <= 0:
         return None
@@ -1197,26 +1198,22 @@ def _get_scheme(value: str) -> str | None:
             end = j
     if idx >= end:
         return None
-    scheme = value[:idx]
+    return value[:idx]
+
+
+def _get_scheme(value: str) -> str | None:
+    """Return the URL scheme (lowercased) if present and valid, else None."""
+    scheme = _scheme_like_prefix(value)
+    if scheme is None:
+        return None
     if not _is_valid_scheme(scheme):
         return None
     return scheme.lower()
 
 
 def _has_invalid_scheme_like_prefix(value: str) -> bool:
-    idx = value.find(":")
-    if idx <= 0:
-        return False
-
-    end = len(value)
-    for sep in ("/", "?", "#"):
-        j = value.find(sep)
-        if j != -1 and j < end:
-            end = j
-    if idx >= end:
-        return False
-
-    return not _is_valid_scheme(value[:idx])
+    scheme = _scheme_like_prefix(value)
+    return scheme is not None and not _is_valid_scheme(scheme)
 
 
 def _effective_proxy(*, url_policy: UrlPolicy, rule: UrlRule) -> UrlProxy | None:
@@ -1355,6 +1352,10 @@ def _sanitize_srcset_value(
     if not stripped:
         return None
 
+    handling = _effective_url_handling(url_policy=url_policy, rule=rule)
+    allow_relative = _effective_allow_relative(url_policy=url_policy, rule=rule)
+    proxy = _effective_proxy(url_policy=url_policy, rule=rule)
+
     out_candidates: list[str] = []
     for raw_candidate in stripped.split(","):
         c = raw_candidate.strip()
@@ -1364,21 +1365,19 @@ def _sanitize_srcset_value(
         parts = c.split(None, 1)
         url_token = parts[0]
         desc = parts[1].strip() if len(parts) == 2 else ""
-
         sanitized_url = _sanitize_url_value_with_rule(
             rule=rule,
             value=url_token,
             tag=tag,
             attr=attr,
-            handling=_effective_url_handling(url_policy=url_policy, rule=rule),
-            allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
-            proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+            handling=handling,
+            allow_relative=allow_relative,
+            proxy=proxy,
             url_filter=None,
             apply_filter=False,
         )
         if sanitized_url is None:
             return None
-
         out_candidates.append(f"{sanitized_url} {desc}".strip())
 
     return None if not out_candidates else ", ".join(out_candidates)
@@ -1405,22 +1404,7 @@ def _sanitize_space_separated_url_list(
 
     tokens = stripped.split()
 
-    out_tokens: list[str] = []
-    for token in tokens:
-        sanitized = _sanitize_url_value_with_rule(
-            rule=rule,
-            value=token,
-            tag=tag,
-            attr=attr,
-            handling=_effective_url_handling(url_policy=url_policy, rule=rule),
-            allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
-            proxy=_effective_proxy(url_policy=url_policy, rule=rule),
-            url_filter=None,
-            apply_filter=False,
-        )
-        if sanitized is None:
-            return None
-        out_tokens.append(sanitized)
+    out_tokens = _sanitize_url_tokens(tokens, url_policy=url_policy, rule=rule, tag=tag, attr=attr)
 
     return None if not out_tokens else " ".join(out_tokens)
 
@@ -1446,6 +1430,23 @@ def _sanitize_comma_or_space_separated_url_list(
 
     tokens = [token for token in re.split(r"[\s,]+", stripped) if token]
 
+    out_tokens = _sanitize_url_tokens(tokens, url_policy=url_policy, rule=rule, tag=tag, attr=attr)
+
+    return None if not out_tokens else " ".join(out_tokens)
+
+
+def _sanitize_url_tokens(
+    tokens: list[str],
+    *,
+    url_policy: UrlPolicy,
+    rule: UrlRule,
+    tag: str,
+    attr: str,
+) -> list[str] | None:
+    handling = _effective_url_handling(url_policy=url_policy, rule=rule)
+    allow_relative = _effective_allow_relative(url_policy=url_policy, rule=rule)
+    proxy = _effective_proxy(url_policy=url_policy, rule=rule)
+
     out_tokens: list[str] = []
     for token in tokens:
         sanitized = _sanitize_url_value_with_rule(
@@ -1453,9 +1454,9 @@ def _sanitize_comma_or_space_separated_url_list(
             value=token,
             tag=tag,
             attr=attr,
-            handling=_effective_url_handling(url_policy=url_policy, rule=rule),
-            allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
-            proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+            handling=handling,
+            allow_relative=allow_relative,
+            proxy=proxy,
             url_filter=None,
             apply_filter=False,
         )
@@ -1463,7 +1464,7 @@ def _sanitize_comma_or_space_separated_url_list(
             return None
         out_tokens.append(sanitized)
 
-    return None if not out_tokens else " ".join(out_tokens)
+    return None if not out_tokens else out_tokens
 
 
 _URL_LIKE_ATTRS: frozenset[str] = frozenset(
