@@ -848,6 +848,15 @@ class TestSanitizeDom(unittest.TestCase):
     def test_css_value_has_disallowed_resource_functions_rejects_unterminated_comment(self) -> None:
         assert _css_value_has_disallowed_resource_functions("/*x") is True
 
+    def test_css_value_may_load_external_resource_rejects_ambient_value_keywords(self) -> None:
+        for value in (
+            "background-image: inherit",
+            "background-image: re/**/vert",
+            "background-image: revert-layer",
+            "background-image: unset",
+        ):
+            assert _css_value_may_load_external_resource(value) is True
+
     def test_css_value_has_disallowed_resource_functions_allows_closed_comment_then_url(self) -> None:
         # Exercise the comment-skip "break" path.
         assert _css_value_has_disallowed_resource_functions("/*x*/ url('/x.png')") is False
@@ -1335,6 +1344,52 @@ class TestSanitizeDom(unittest.TestCase):
             policy=policy,
         ).to_html(pretty=False)
         assert out == "<div>x</div>"
+
+    def test_sanitize_inline_style_drops_css_ambient_value_keywords(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["div"],
+            allowed_attributes={"*": [], "div": ["style"]},
+            allowed_css_properties={"background-image"},
+            url_policy=UrlPolicy(
+                default_handling="allow",
+                allow_rules={
+                    ("*", "style:background-image"): UrlRule(
+                        allowed_schemes=set(),
+                        resolve_protocol_relative=None,
+                        allow_relative=True,
+                    )
+                },
+            ),
+        )
+
+        for value in ("inherit", "revert", "revert-layer", "unset"):
+            assert (
+                _sanitize_inline_style(
+                    allowed_css_properties=policy.allowed_css_properties,
+                    value=f"background-image: {value}",
+                    tag="div",
+                    url_policy=policy.url_policy,
+                )
+                is None
+            )
+            assert (
+                JustHTML(
+                    f'<div style="background-image: {value}">x</div>',
+                    fragment=True,
+                    policy=policy,
+                ).to_html(pretty=False)
+                == "<div>x</div>"
+            )
+
+        assert (
+            _sanitize_inline_style(
+                allowed_css_properties=policy.allowed_css_properties,
+                value="background-image: initial",
+                tag="div",
+                url_policy=policy.url_policy,
+            )
+            == "background-image: initial"
+        )
 
     def test_css_preset_text_is_conservative(self) -> None:
         policy = SanitizationPolicy(

@@ -948,6 +948,19 @@ def _css_value_contains_disallowed_functions(value: str, *, allow_url: bool) -> 
         if len(buf) >= 4 and buf[-4:] == ["v", "a", "r", "("]:
             return True
 
+        # CSS-wide keywords such as `inherit` and `revert` can also resolve to
+        # ambient values supplied outside the sanitized declaration. Detect the
+        # normalized `:<keyword>` form so comments/whitespace cannot hide it in
+        # full stylesheet text such as `background-image: inherit`.
+        if len(buf) >= 8 and buf[-8:] == [":", "i", "n", "h", "e", "r", "i", "t"]:
+            return True
+        # This also catches `revert-layer`, which begins with the `revert`
+        # keyword before the streaming scan reaches the suffix.
+        if len(buf) >= 7 and buf[-7:] == [":", "r", "e", "v", "e", "r", "t"]:
+            return True
+        if len(buf) >= 6 and buf[-6:] == [":", "u", "n", "s", "e", "t"]:
+            return True
+
         # Check for URL/image-loading functions anywhere in the normalized stream.
         if not allow_url and len(buf) >= 4 and buf[-4:] == ["u", "r", "l", "("]:
             return True
@@ -1205,6 +1218,9 @@ def _sanitize_inline_style(
 
         prop_value = d[colon + 1 :].strip()
         if not prop_value:
+            continue
+
+        if prop_value.lower() in {"inherit", "revert", "revert-layer", "unset"}:
             continue
 
         if _css_value_may_load_external_resource(prop_value):
