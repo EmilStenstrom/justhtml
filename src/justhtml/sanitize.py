@@ -935,7 +935,8 @@ def _css_value_contains_disallowed_functions(value: str, *, allow_url: bool) -> 
         i += 1
 
     compact = "".join(normalized)
-    if compact in {"inherit", "revert", "revert-layer", "unset"}:
+    ambient_value = compact.removesuffix("!important")
+    if ambient_value in {"inherit", "revert", "revert-layer", "unset"}:
         return True
 
     blocked_tokens = (

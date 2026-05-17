@@ -1503,12 +1503,15 @@ class TestTransforms(unittest.TestCase):
         root = DocumentFragment()
         inherit_rect = Element("rect", {"fill": "inherit", "width": "10", "height": "10"}, "svg")
         revert_rect = Element("rect", {"fill": "revert-layer", "width": "10", "height": "10"}, "svg")
+        important_rect = Element("rect", {"fill": "inherit!important", "width": "10", "height": "10"}, "svg")
         root.append_child(inherit_rect)
         root.append_child(revert_rect)
+        root.append_child(important_rect)
 
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
         assert inherit_rect.attrs == {"width": "10", "height": "10"}
         assert revert_rect.attrs == {"width": "10", "height": "10"}
+        assert important_rect.attrs == {"width": "10", "height": "10"}
 
     def test_dropurlattrs_drops_svg_url_function_attrs_without_rule(self) -> None:
         root = DocumentFragment()

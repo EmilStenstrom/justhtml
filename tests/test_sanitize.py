@@ -851,8 +851,10 @@ class TestSanitizeDom(unittest.TestCase):
     def test_css_value_may_load_external_resource_rejects_ambient_value_keywords(self) -> None:
         for value in (
             "inherit",
+            "inherit!important",
             "revert",
             "revert-layer",
+            "revert-layer!important",
             "unset",
             "background-image: inherit",
             "background-image: re/**/vert",
@@ -3742,7 +3744,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
             drop_content_tags=set(),
         )
 
-        for value in ("inherit", "revert", "revert-layer", "unset"):
+        for value in ("inherit", "inherit!important", "revert", "revert-layer", "revert-layer!important", "unset"):
             out = JustHTML(
                 f'<svg><rect width="10" height="10" fill="{value}"></rect></svg>',
                 fragment=True,
