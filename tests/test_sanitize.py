@@ -3184,6 +3184,40 @@ class TestSanitizeUnsafe(unittest.TestCase):
             '<p is="x-note">x</p>'
         )
 
+    def test_sanitize_meta_refresh_content_uses_url_policy_when_rule_present(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"meta"},
+            allowed_attributes={"meta": {"http-equiv", "content"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("meta", "content"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                }
+            ),
+        )
+
+        trusted = JustHTML(
+            '<meta http-equiv="refresh" content="0;url=https://trusted.example/x">',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+        untrusted = JustHTML(
+            '<meta http-equiv="refresh" content="0;url=https://evil.example/x">',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+        script = JustHTML(
+            '<meta http-equiv="refresh" content="0;url=javascript:alert(1)">',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert trusted == '<meta http-equiv="refresh" content="0;url=https://trusted.example/x">'
+        assert untrusted == '<meta http-equiv="refresh">'
+        assert script == '<meta http-equiv="refresh">'
+
     def test_sanitize_base_href_is_preserved_with_rule(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["base", "img"],

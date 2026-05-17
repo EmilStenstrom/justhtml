@@ -1287,10 +1287,13 @@ def compile_transforms(
                 to_set: dict[str, str] | None = None
 
                 param_name_value: str | None = None
+                meta_http_equiv_value: str | None = None
                 for key, raw_value in attrs.items():
                     lower_key = key if key.islower() else key.lower()
                     if tag == "param" and lower_key == "name" and raw_value is not None:
                         param_name_value = str(raw_value).strip().lower()
+                    elif tag == "meta" and lower_key == "http-equiv" and raw_value is not None:
+                        meta_http_equiv_value = str(raw_value).strip().lower()
 
                 # Most nodes have no URL-like attrs; avoid allocations in that case.
                 for key in attrs:
@@ -1308,8 +1311,19 @@ def compile_transforms(
                     is_param_url_value = (
                         tag == "param" and lower_key == "value" and param_name_value in _URL_BEARING_PARAM_NAMES
                     )
+                    is_meta_refresh_content = (
+                        tag == "meta"
+                        and lower_key == "content"
+                        and meta_http_equiv_value == "refresh"
+                        and (tag, lower_key) in url_policy.allow_rules
+                    )
 
-                    if lower_key not in _URL_LIKE_ATTRS and not is_url_function_attr and not is_param_url_value:
+                    if (
+                        lower_key not in _URL_LIKE_ATTRS
+                        and not is_url_function_attr
+                        and not is_param_url_value
+                        and not is_meta_refresh_content
+                    ):
                         continue
 
                     if raw_value is None:
@@ -1369,6 +1383,25 @@ def compile_transforms(
                                 url_filter=url_policy.url_filter,
                                 apply_filter=True,
                             )
+                    elif is_meta_refresh_content:
+                        raw_value_str = str(raw_value)
+                        prefix, sep, url_value = raw_value_str.partition(";")
+                        url_prefix, url_sep, candidate = url_value.partition("=")
+                        if not sep or url_prefix.strip().lower() != "url" or not url_sep or not candidate.strip():
+                            sanitized = None
+                        else:
+                            sanitized_url = _sanitize_url_value_with_rule(
+                                rule=rule,
+                                value=candidate.strip(),
+                                tag=tag,
+                                attr=lower_key,
+                                handling=_effective_url_handling(url_policy=url_policy, rule=rule),
+                                allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
+                                proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+                                url_filter=url_policy.url_filter,
+                                apply_filter=True,
+                            )
+                            sanitized = None if sanitized_url is None else f"{prefix.strip()};url={sanitized_url}"
                     else:
                         sanitized = _sanitize_url_value_with_rule(
                             rule=rule,

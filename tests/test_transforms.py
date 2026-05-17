@@ -1472,6 +1472,30 @@ class TestTransforms(unittest.TestCase):
         assert untrusted.attrs == {}
         assert script.attrs == {}
 
+    def test_dropurlattrs_sanitizes_meta_refresh_content_when_rule_present(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("meta", "content"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
+            },
+        )
+
+        root = DocumentFragment()
+        trusted = Element("meta", {"http-equiv": "refresh", "content": "0;url=https://trusted.example/x"}, "html")
+        untrusted = Element("meta", {"http-equiv": "refresh", "content": "0;url=https://evil.example/x"}, "html")
+        script = Element("meta", {"http-equiv": "refresh", "content": "0;url=javascript:alert(1)"}, "html")
+        malformed = Element("meta", {"http-equiv": "refresh", "content": "0"}, "html")
+        root.append_child(trusted)
+        root.append_child(untrusted)
+        root.append_child(script)
+        root.append_child(malformed)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert trusted.attrs == {"http-equiv": "refresh", "content": "0;url=https://trusted.example/x"}
+        assert untrusted.attrs == {"http-equiv": "refresh"}
+        assert script.attrs == {"http-equiv": "refresh"}
+        assert malformed.attrs == {"http-equiv": "refresh"}
+
     def test_dropurlattrs_sanitizes_svg_url_function_attrs(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",
