@@ -120,6 +120,29 @@ def _is_effectively_foreign_node(node: Node) -> bool:
     return False
 
 
+def _extract_meta_refresh_url(value: str) -> tuple[str, str] | None:
+    """Return the delay prefix and browser-parsed refresh URL, if present."""
+    prefix, sep, url_value = value.partition(";")
+    url_prefix, url_sep, candidate = url_value.partition("=")
+    if not sep or url_prefix.strip().lower() != "url" or not url_sep:
+        return None
+
+    candidate = candidate.strip()
+    if not candidate:
+        return None
+
+    if candidate[0] in {"'", '"'}:
+        quote = candidate[0]
+        candidate = candidate[1:]
+        end_quote = candidate.find(quote)
+        if end_quote != -1:
+            candidate = candidate[:end_quote]
+
+    if not candidate:
+        return None
+    return prefix.strip(), candidate
+
+
 def emit_error(
     code: str,
     *,
@@ -1385,14 +1408,14 @@ def compile_transforms(
                             )
                     elif is_meta_refresh_content:
                         raw_value_str = str(raw_value)
-                        prefix, sep, url_value = raw_value_str.partition(";")
-                        url_prefix, url_sep, candidate = url_value.partition("=")
-                        if not sep or url_prefix.strip().lower() != "url" or not url_sep or not candidate.strip():
+                        refresh_parts = _extract_meta_refresh_url(raw_value_str)
+                        if refresh_parts is None:
                             sanitized = None
                         else:
+                            prefix, candidate = refresh_parts
                             sanitized_url = _sanitize_url_value_with_rule(
                                 rule=rule,
-                                value=candidate.strip(),
+                                value=candidate,
                                 tag=tag,
                                 attr=lower_key,
                                 handling=_effective_url_handling(url_policy=url_policy, rule=rule),

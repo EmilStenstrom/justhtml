@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Validate the browser-parsed target URL for quoted allowlisted meta-refresh `content` values. Previously, a refresh target such as `url='https://evil.example/x'` could be treated as a relative URL by JustHTML while browsers strip the quotes before navigation, bypassing host-restricted explicit `UrlPolicy` rules when relative URLs were allowed.
 - (Severity: Low) Apply explicit `UrlPolicy` rules for allowlisted meta-refresh `content` values. Previously, policies that configured `("meta", "content")` as a URL sink still preserved untrusted refresh targets because the redirect URL was embedded inside the attribute value instead of being validated.
 - (Severity: Low) Treat CSS-wide ambient-value keywords such as `inherit`, `revert`, `revert-layer`, and `unset` as unsafe in inline styles, SVG presentation attributes, and preserved `<style>` blocks. Previously, custom policies that allowed image-valued CSS properties or SVG URL-function presentation attributes could preserve declarations that resolve to URL-bearing values supplied by surrounding page CSS, bypassing per-declaration URL validation.
 - (Severity: Low) Treat MathML `definitionURL` attributes as URL-bearing attributes that require explicit `UrlPolicy` rules. Previously, custom foreign-content policies could allow `definitionURL` as ordinary text and preserve external-definition URIs without URL validation.

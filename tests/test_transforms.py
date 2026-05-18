@@ -1483,16 +1483,46 @@ class TestTransforms(unittest.TestCase):
         root = DocumentFragment()
         trusted = Element("meta", {"http-equiv": "refresh", "content": "0;url=https://trusted.example/x"}, "html")
         untrusted = Element("meta", {"http-equiv": "refresh", "content": "0;url=https://evil.example/x"}, "html")
+        quoted_trusted = Element(
+            "meta",
+            {"http-equiv": "refresh", "content": "0;url='https://trusted.example/x'"},
+            "html",
+        )
+        quoted_untrusted = Element(
+            "meta",
+            {"http-equiv": "refresh", "content": "0;url='https://evil.example/x'"},
+            "html",
+        )
+        unterminated_quoted_trusted = Element(
+            "meta",
+            {"http-equiv": "refresh", "content": "0;url='https://trusted.example/x"},
+            "html",
+        )
+        empty_unquoted = Element("meta", {"http-equiv": "refresh", "content": "0;url="}, "html")
+        empty_quoted = Element("meta", {"http-equiv": "refresh", "content": "0;url=''"}, "html")
         script = Element("meta", {"http-equiv": "refresh", "content": "0;url=javascript:alert(1)"}, "html")
         malformed = Element("meta", {"http-equiv": "refresh", "content": "0"}, "html")
         root.append_child(trusted)
         root.append_child(untrusted)
+        root.append_child(quoted_trusted)
+        root.append_child(quoted_untrusted)
+        root.append_child(unterminated_quoted_trusted)
+        root.append_child(empty_unquoted)
+        root.append_child(empty_quoted)
         root.append_child(script)
         root.append_child(malformed)
 
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert trusted.attrs == {"http-equiv": "refresh", "content": "0;url=https://trusted.example/x"}
         assert untrusted.attrs == {"http-equiv": "refresh"}
+        assert quoted_trusted.attrs == {"http-equiv": "refresh", "content": "0;url=https://trusted.example/x"}
+        assert quoted_untrusted.attrs == {"http-equiv": "refresh"}
+        assert unterminated_quoted_trusted.attrs == {
+            "http-equiv": "refresh",
+            "content": "0;url=https://trusted.example/x",
+        }
+        assert empty_unquoted.attrs == {"http-equiv": "refresh"}
+        assert empty_quoted.attrs == {"http-equiv": "refresh"}
         assert script.attrs == {"http-equiv": "refresh"}
         assert malformed.attrs == {"http-equiv": "refresh"}
 
