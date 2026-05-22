@@ -1157,6 +1157,8 @@ def _to_markdown_walk(
 
             next_preserve = current_preserve or (tag in {"textarea", "script", "style"})
             if tag in _MARKDOWN_BLOCK_ELEMENTS:
+                if not current_in_link:
+                    current_builder.ensure_newlines(2 if current_builder._buf else 0)
                 tasks.append(("after_block_container", current_builder, current_in_link))
             if isinstance(current, Element) and current.template_content:
                 tasks.append(

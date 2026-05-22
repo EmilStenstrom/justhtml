@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- (Severity: Moderate) Harden `to_markdown()` block-container spacing so malformed nested `<code>` content cannot merge adjacent code spans and expose sanitized text as raw HTML/Markdown in compliant renderers.
+
 ## [1.22.0] - 2026-05-22
 
 ### Security

@@ -363,6 +363,11 @@ class TestNode(unittest.TestCase):
 
         assert doc.to_markdown() == "`q  <img src=x onerror=alert(1)>`"
 
+    def test_to_markdown_block_after_empty_code_does_not_merge_code_spans(self):
+        doc = JustHTML("<code><div>\n&lt;img src=x onerror=alert(1)&gt;</code>", fragment=True)
+
+        assert doc.to_markdown() == "``\n\n` <img src=x onerror=alert(1)>`"
+
     def test_to_markdown_pre_inside_link_collapses_blank_lines_inside_inline_code_span(self):
         doc = JustHTML(
             "<a href='https://e.com'><pre>q\n\n&lt;img src=x onerror=alert(1)&gt;</pre></a>",
