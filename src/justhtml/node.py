@@ -32,6 +32,11 @@ def _markdown_escape_text(s: str) -> str:
 def _markdown_code_span(s: str | None) -> str:
     if s is None:
         s = ""
+    # Inline code spans are inline Markdown constructs; line breaks can create
+    # block boundaries in compliant renderers, so keep this representation
+    # single-line.
+    if "\n" in s or "\r" in s:
+        s = " ".join(s.splitlines())
     # Use a backtick fence longer than any run of backticks inside.
     fence = _markdown_backtick_fence(s, minimum=1)
     # CommonMark requires a space if the content starts/ends with backticks.

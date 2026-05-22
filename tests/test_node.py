@@ -358,6 +358,19 @@ class TestNode(unittest.TestCase):
         # Inline code uses a longer fence when content contains backticks.
         assert "inline ``a`b``" in md
 
+    def test_to_markdown_code_collapses_blank_lines_inside_inline_code_span(self):
+        doc = JustHTML("<code>q\n\n&lt;img src=x onerror=alert(1)&gt;</code>", fragment=True)
+
+        assert doc.to_markdown() == "`q  <img src=x onerror=alert(1)>`"
+
+    def test_to_markdown_pre_inside_link_collapses_blank_lines_inside_inline_code_span(self):
+        doc = JustHTML(
+            "<a href='https://e.com'><pre>q\n\n&lt;img src=x onerror=alert(1)&gt;</pre></a>",
+            fragment=True,
+        )
+
+        assert doc.to_markdown() == "[`q  <img src=x onerror=alert(1)>`](https://e.com)"
+
     def test_to_markdown_blockquote_and_br(self):
         doc = JustHTML("<blockquote><p>Q<br>R</p></blockquote>")
         assert doc.to_markdown() == "> Q\n> R"
@@ -575,6 +588,7 @@ class TestNode(unittest.TestCase):
     def test_markdown_code_span_edge_cases(self):
         # Cover helper edge cases (None input and leading/trailing backticks).
         assert _markdown_code_span(None) == "``"
+        assert _markdown_code_span("a\n\nb") == "`a  b`"
         assert _markdown_code_span("`x") == "`` `x ``"
         assert _markdown_code_span("x`") == "`` x` ``"
         # Exercise backtick runs that don't increase the longest run.
