@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-05-22
+
 ### Security
 - (Severity: Moderate) Harden `to_markdown()` inline code-span generation against blank-line breakout. Previously, sanitized text inside `<code>` or linked `<pre>` elements could contain a blank line that ended the inline Markdown paragraph and exposed following text as raw HTML/Markdown in compliant renderers.
 - (Severity: Low) Validate the browser-parsed target URL for quoted allowlisted meta-refresh `content` values. Previously, a refresh target such as `url='https://evil.example/x'` could be treated as a relative URL by JustHTML while browsers strip the quotes before navigation, bypassing host-restricted explicit `UrlPolicy` rules when relative URLs were allowed.
