@@ -366,7 +366,14 @@ class TestNode(unittest.TestCase):
     def test_to_markdown_block_after_empty_code_does_not_merge_code_spans(self):
         doc = JustHTML("<code><div>\n&lt;img src=x onerror=alert(1)&gt;</code>", fragment=True)
 
-        assert doc.to_markdown() == "``\n\n` <img src=x onerror=alert(1)>`"
+        assert doc.to_markdown() == "` <img src=x onerror=alert(1)>`"
+
+    def test_to_markdown_adjacent_code_spans_do_not_merge_backtick_runs(self):
+        before = JustHTML("<code></code><code>&lt;img src=x onerror=alert(1)&gt;</code>", fragment=True)
+        after = JustHTML("<code>&lt;img src=x onerror=alert(1)&gt;</code><code></code>", fragment=True)
+
+        assert before.to_markdown() == "`<img src=x onerror=alert(1)>`"
+        assert after.to_markdown() == "`<img src=x onerror=alert(1)>`"
 
     def test_to_markdown_pre_inside_link_collapses_blank_lines_inside_inline_code_span(self):
         doc = JustHTML(
@@ -375,6 +382,16 @@ class TestNode(unittest.TestCase):
         )
 
         assert doc.to_markdown() == "[`q  <img src=x onerror=alert(1)>`](https://e.com)"
+
+    def test_to_markdown_inline_marker_does_not_wrap_fenced_code_block(self):
+        doc = JustHTML("<em><pre>&lt;img src=x onerror=alert(1)&gt;</pre>", fragment=True)
+
+        assert doc.to_markdown() == "```\n<img src=x onerror=alert(1)>\n```"
+
+    def test_to_markdown_inline_marker_block_content_starts_on_new_line(self):
+        doc = JustHTML("x<b><pre>&lt;img src=x onerror=alert(1)&gt;</pre>", fragment=True)
+
+        assert doc.to_markdown() == "x\n\n```\n<img src=x onerror=alert(1)>\n```"
 
     def test_to_markdown_blockquote_and_br(self):
         doc = JustHTML("<blockquote><p>Q<br>R</p></blockquote>")
@@ -592,7 +609,7 @@ class TestNode(unittest.TestCase):
 
     def test_markdown_code_span_edge_cases(self):
         # Cover helper edge cases (None input and leading/trailing backticks).
-        assert _markdown_code_span(None) == "``"
+        assert _markdown_code_span(None) == ""
         assert _markdown_code_span("a\n\nb") == "`a  b`"
         assert _markdown_code_span("`x") == "`` `x ``"
         assert _markdown_code_span("x`") == "`` x` ``"
@@ -684,6 +701,12 @@ class TestNode(unittest.TestCase):
         b = _MarkdownBuilder()
         b.text("   a")
         assert b.finish() == "a"
+
+    def test_markdown_builder_raw_separates_adjacent_backtick_runs(self):
+        b = _MarkdownBuilder()
+        b.raw("`a`")
+        b.raw("`b`")
+        assert b.finish() == "`a` `b`"
 
     def test_to_markdown_raw_with_internal_newline_no_trailing_newline(self):
         # Covers raw() newline handling when the string contains a newline but doesn't end with one.

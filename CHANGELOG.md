@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Moderate) Harden `to_markdown()` inline code generation against adjacent code-span delimiter merging. Previously, empty neighboring `<code>` elements could combine with a following or preceding code span and expose sanitized code text as raw HTML/Markdown in compliant renderers.
+- (Severity: Moderate) Harden `to_markdown()` inline formatting around block content. Previously, malformed inputs that placed `<pre>` inside inline formatting could emit `*` or `**` before a fenced code block, preventing the fence from being recognized and exposing sanitized code text as raw HTML/Markdown in compliant renderers.
 - (Severity: Moderate) Harden `to_markdown()` block-container spacing so malformed nested `<code>` content cannot merge adjacent code spans and expose sanitized text as raw HTML/Markdown in compliant renderers.
 
 ## [1.22.0] - 2026-05-22

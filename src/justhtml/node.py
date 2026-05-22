@@ -32,6 +32,8 @@ def _markdown_escape_text(s: str) -> str:
 def _markdown_code_span(s: str | None) -> str:
     if s is None:
         s = ""
+    if not s:
+        return ""
     # Inline code spans are inline Markdown constructs; line breaks can create
     # block boundaries in compliant renderers, so keep this representation
     # single-line.
@@ -192,6 +194,11 @@ class _MarkdownBuilder:
             if first not in " \t\n\r\f" and self._buf and self._newline_count == 0:
                 self._buf.append(" ")
             self._pending_space = False
+
+        # Adjacent raw backtick runs can merge into a different Markdown code
+        # span delimiter and expose code text as ordinary Markdown/HTML.
+        if self._buf and self._newline_count == 0 and self._buf[-1].endswith("`") and s.startswith("`"):
+            self._buf.append(" ")
 
         self._buf.append(s)
         if "\n" in s:
@@ -1233,6 +1240,10 @@ def _to_markdown_walk(
             parent_builder, inner_builder, marker = task[1], task[2], task[3]
             content = inner_builder.finish()
             if content:
+                if "\n" in content:
+                    parent_builder.ensure_newlines(2 if parent_builder._buf else 0)
+                    parent_builder.raw(content)
+                    continue
                 parent_builder.raw(marker)
                 parent_builder.raw(content)
                 parent_builder.raw(marker)
