@@ -111,7 +111,7 @@ test_transforms.py: 144/144 (100%) [............................................
 test_transforms_compiler.py: 10/10 (100%) [..........]
 test_transforms_edge_cases.py: 21/21 (100%) [.....................]
 test_transforms_sanitize_integration.py: 21/21 (100%) [.....................]
-test_treebuilder.py: 11/11 (100%) [...........]
+test_treebuilder.py: 17/17 (100%) [.................]
 test_wikipedia.py: 1/1 (100%) [.]
 
-PASSED: 10270/10270 passed (100.0%), 6 skipped
+PASSED: 10276/10276 passed (100.0%), 6 skipped

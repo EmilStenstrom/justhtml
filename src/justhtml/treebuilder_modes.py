@@ -186,7 +186,7 @@ class TreeBuilderModesMixin:
                 return None
             if token.kind == Tag.END and token.name == "template":
                 # Check if template is on the stack (don't use scope check as table blocks it)
-                has_template = any(node.name == "template" for node in self.open_elements)
+                has_template = any(node is not None and node.name == "template" for node in self.open_elements)
                 if not has_template:
                     return None
                 self._generate_implied_end_tags()
@@ -343,7 +343,7 @@ class TreeBuilderModesMixin:
                 self.mode = InsertionMode.IN_HEAD
                 return ("reprocess", InsertionMode.IN_HEAD, token)
             if token.kind == Tag.END and token.name == "template":
-                has_template = any(node.name == "template" for node in self.open_elements)
+                has_template = any(node is not None and node.name == "template" for node in self.open_elements)
                 if not has_template:
                     self._parse_error("unexpected-end-tag", tag_name=token.name)
                     return None
@@ -887,7 +887,7 @@ class TreeBuilderModesMixin:
         return
 
     def _handle_body_end_template(self, token: Tag) -> None:
-        has_template = any(node.name == "template" for node in self.open_elements)
+        has_template = any(node is not None and node.name == "template" for node in self.open_elements)
         if not has_template:
             self._parse_error("unexpected-end-tag", tag_name=token.name)
             return
@@ -1756,7 +1756,7 @@ class TreeBuilderModesMixin:
                 return self._mode_in_head(token)
         if isinstance(token, EOFToken):
             # Check if template is on the stack (don't use _in_scope as table blocks it)
-            has_template = any(node.name == "template" for node in self.open_elements)
+            has_template = any(node is not None and node.name == "template" for node in self.open_elements)
             if not has_template:
                 return None
             # Parse error for EOF in template

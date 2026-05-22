@@ -241,6 +241,8 @@ class TreeBuilder(TreeBuilderModesMixin):
         open_elements = self.open_elements
         for i in range(len(open_elements) - 1, -1, -1):
             node = open_elements[i]
+            if node is None:
+                continue
             name = node.name
             if name == target:
                 return True
@@ -261,7 +263,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         # Callers ensure element exists on stack
         while self.open_elements:  # pragma: no branch
             node = self._pop_current()
-            if node.name == name:
+            if node is not None and node.name == name:
                 break
 
     def _close_p_element(self) -> bool:
@@ -695,8 +697,9 @@ class TreeBuilder(TreeBuilderModesMixin):
         # Caller guarantees name is on the stack via _has_in_scope check
         index = len(self.open_elements) - 1
         while index >= 0:  # pragma: no branch
-            if self.open_elements[index].name == name:
-                self._maybe_mark_end_tag(self.open_elements[index])
+            node = self.open_elements[index]
+            if node is not None and node.name == name:
+                self._maybe_mark_end_tag(node)
                 del self.open_elements[index:]
                 return
             index -= 1
@@ -707,9 +710,13 @@ class TreeBuilder(TreeBuilderModesMixin):
         index = len(self.open_elements) - 1
         while index >= 0:  # pragma: no branch
             node = self.open_elements[index]
+            if node is None:
+                index -= 1
+                continue
+            node_name = node.name
 
             # If node's name matches the end tag name
-            if node.name == name:
+            if node_name == name:
                 # Generate implied end tags (except for this name)
                 # If current node is not this node, parse error
                 if index != len(self.open_elements) - 1:
@@ -879,7 +886,7 @@ class TreeBuilder(TreeBuilderModesMixin):
 
     def _find_last_on_stack(self, name: str) -> Any | None:
         for node in reversed(self.open_elements):
-            if node.name == name:
+            if node is not None and node.name == name:
                 return node
         return None
 
@@ -887,7 +894,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         # All callers include "html" in names, so this always terminates via break
         while self.open_elements:
             node = self.open_elements[-1]
-            if node.name in names and node.namespace in {None, "html"}:
+            if node is not None and node.name in names and node.namespace in {None, "html"}:
                 break
             self._pop_current()
 
@@ -895,7 +902,10 @@ class TreeBuilder(TreeBuilderModesMixin):
         # Always terminates: html is not in IMPLIED_END_TAGS
         while self.open_elements:  # pragma: no branch
             node = self.open_elements[-1]
-            if node.name in IMPLIED_END_TAGS and node.name != exclude:
+            if node is None:
+                break
+            name = node.name
+            if name in IMPLIED_END_TAGS and name != exclude:
                 self._pop_current()
                 continue
             break
@@ -916,7 +926,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         self._generate_implied_end_tags(name)
         while self.open_elements:
             node = self._pop_current()
-            if node.name == name and node.namespace in {None, "html"}:
+            if node is not None and node.name == name and node.namespace in {None, "html"}:
                 break
         self._clear_active_formatting_up_to_marker()
         self.mode = InsertionMode.IN_ROW
@@ -963,6 +973,9 @@ class TreeBuilder(TreeBuilderModesMixin):
         idx = len(self.open_elements) - 1
         while idx >= 0:
             node = self.open_elements[idx]
+            if node is None:
+                idx -= 1
+                continue
             name = node.name
             if name == "select":
                 self.mode = InsertionMode.IN_SELECT
