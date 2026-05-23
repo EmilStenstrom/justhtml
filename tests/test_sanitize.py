@@ -1553,6 +1553,34 @@ class TestSanitizeDom(unittest.TestCase):
         out = JustHTML('<a href="https://example.com/a&#10;b">x</a>', fragment=True).to_html(pretty=False)
         assert out == "<a>x</a>"
 
+    def test_sanitize_url_value_strips_invisible_unicode_from_url_filter_rewrites(self) -> None:
+        def url_filter(tag: str, attr: str, value: str) -> str | None:
+            assert tag == "a"
+            assert attr == "href"
+            assert value == "/safe"
+            return "java\u200bscript:alert(1)"
+
+        policy = UrlPolicy(
+            allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})},
+            url_filter=url_filter,
+        )
+        rule = policy.allow_rules[("a", "href")]
+
+        assert (
+            _sanitize_url_value_with_rule(
+                rule=rule,
+                value="/safe",
+                tag="a",
+                attr="href",
+                handling=_effective_url_handling(url_policy=policy, rule=rule),
+                allow_relative=_effective_allow_relative(url_policy=policy, rule=rule),
+                proxy=_effective_proxy(url_policy=policy, rule=rule),
+                url_filter=policy.url_filter,
+                apply_filter=True,
+            )
+            is None
+        )
+
     def test_sanitize_url_value_proxy_rejects_invalid_scheme_like_prefix_without_backslash(self) -> None:
         policy = UrlPolicy(proxy=UrlProxy(url="/proxy"), allow_rules={("img", "src"): UrlRule(handling="proxy")})
         rule = policy.allow_rules[("img", "src")]

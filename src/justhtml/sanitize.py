@@ -1287,7 +1287,7 @@ def _sanitize_url_value_with_rule(
         rewritten = url_filter(tag, attr, v)
         if rewritten is None:
             return None
-        v = rewritten
+        v = _strip_invisible_unicode(rewritten)
 
     stripped = v.strip()
     if _URL_CONTROL_CHAR_REGEX.search(stripped):
@@ -1387,7 +1387,7 @@ def _sanitize_srcset_value(
         rewritten = url_policy.url_filter(tag, attr, v)
         if rewritten is None:
             return None
-        v = rewritten
+        v = _strip_invisible_unicode(rewritten)
 
     stripped = str(v).strip()
     if not stripped:
@@ -1437,7 +1437,7 @@ def _sanitize_space_separated_url_list(
         rewritten = url_policy.url_filter(tag, attr, v)
         if rewritten is None:
             return None
-        v = rewritten
+        v = _strip_invisible_unicode(rewritten)
 
     stripped = str(v).strip()
     if not stripped:
@@ -1463,7 +1463,7 @@ def _sanitize_comma_or_space_separated_url_list(
         rewritten = url_policy.url_filter(tag, attr, v)
         if rewritten is None:
             return None
-        v = rewritten
+        v = _strip_invisible_unicode(rewritten)
 
     stripped = str(v).strip()
     if not stripped:
