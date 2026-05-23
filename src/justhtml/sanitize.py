@@ -1252,6 +1252,9 @@ def _validate_proxy_url(proxy_url: str) -> None:
     normalized_proxy_url = _normalize_url_for_checking(proxy_url)
     if _has_invalid_scheme_like_prefix(normalized_proxy_url):
         raise ValueError("UrlProxy.url contains an invalid URL scheme")
+    scheme = _get_scheme(normalized_proxy_url)
+    if scheme in {"http", "https"} and not normalized_proxy_url.startswith(f"{scheme}://"):
+        raise ValueError("UrlProxy.url must be relative or use the http/https scheme")
     if (
         _sanitize_url_value_with_rule(
             rule=_URL_PROXY_RULE,
