@@ -1335,10 +1335,7 @@ def compile_transforms(
                         tag == "param" and lower_key == "value" and param_name_value in _URL_BEARING_PARAM_NAMES
                     )
                     is_meta_refresh_content = (
-                        tag == "meta"
-                        and lower_key == "content"
-                        and meta_http_equiv_value == "refresh"
-                        and (tag, lower_key) in url_policy.allow_rules
+                        tag == "meta" and lower_key == "content" and meta_http_equiv_value == "refresh"
                     )
 
                     if (

@@ -3212,11 +3212,22 @@ class TestSanitizeUnsafe(unittest.TestCase):
             policy=policy,
         ).to_html(pretty=False)
 
-        assert out == (
-            '<iframe srcdoc="&lt;script&gt;"></iframe>'
-            '<meta http-equiv="refresh" content="0;url=javascript:alert(1)">'
-            '<p is="x-note">x</p>'
+        assert out == ('<iframe srcdoc="&lt;script&gt;"></iframe><meta http-equiv="refresh"><p is="x-note">x</p>')
+
+    def test_sanitize_meta_refresh_content_requires_url_rule(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"meta"},
+            allowed_attributes={"meta": {"http-equiv", "content"}},
+            url_policy=UrlPolicy(allow_rules={}),
         )
+
+        out = JustHTML(
+            '<meta http-equiv="refresh" content="0;url=https://example.com/x">',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<meta http-equiv="refresh">'
 
     def test_sanitize_meta_refresh_content_uses_url_policy_when_rule_present(self) -> None:
         policy = SanitizationPolicy(

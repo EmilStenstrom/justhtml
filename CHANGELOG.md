@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Require explicit `UrlPolicy` rules for allowlisted meta-refresh `content` values. Previously, a custom policy that allowlisted `<meta http-equiv="refresh" content="...">` without a `("meta", "content")` URL rule could preserve unchecked refresh targets.
 - (Severity: Low) Reject active or ambiguous `UrlProxy.url` values in sanitizer URL proxy mode. Previously, a misconfigured proxy base such as `javascript:alert(1)` could rewrite an otherwise validated safe URL into an active `href`/`src` value in sanitized output.
 - (Severity: Low) Harden fragment parsing of malformed nested `<template>` content against uncaught tree-builder exceptions. Previously, inputs such as `<template></script><template>` could leave a placeholder on the open-elements stack and crash parsing before sanitization, causing denial of service for applications that parse untrusted fragments.
 - (Severity: Moderate) Harden `to_markdown()` inline code generation against adjacent code-span delimiter merging. Previously, empty neighboring `<code>` elements could combine with a following or preceding code span and expose sanitized code text as raw HTML/Markdown in compliant renderers.
