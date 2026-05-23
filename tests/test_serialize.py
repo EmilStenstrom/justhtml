@@ -245,6 +245,15 @@ class TestSerialize(unittest.TestCase):
         assert _JustHTML.clean_url_value(value="https://[evil.example]/x", url_rule=rule) is None
         assert _JustHTML.clean_url_value(value="https://ex[ample].com/x", url_rule=rule) is None
 
+    def test_clean_url_value_rejects_whitespace_in_allowlisted_authority(self):
+        rule = UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}, allow_relative=True)
+        assert _JustHTML.clean_url_value(value="https://tru sted.example/x", url_rule=rule) is None
+        assert _JustHTML.clean_url_value(value="https://trusted.example :443/x", url_rule=rule) is None
+        assert (
+            _JustHTML.clean_url_value(value="https://trusted.example/a b", url_rule=rule)
+            == "https://trusted.example/a%20b"
+        )
+
     def test_clean_url_in_js_string(self):
         rule = UrlRule(allowed_schemes={"https"})
         output = _JustHTML.clean_url_in_js_string(

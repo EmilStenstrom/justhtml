@@ -1969,6 +1969,34 @@ class TestSanitizeDom(unittest.TestCase):
             out = JustHTML(f'<a href="{value}">x</a>', fragment=True, policy=policy).to_html()
             assert out == "<a>x</a>"
 
+    def test_url_rule_allowed_hosts_rejects_whitespace_in_authority(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("a", "href"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                },
+            ),
+        )
+
+        for value in (
+            "https://tru sted.example/x",
+            "https://trusted.example :443/x",
+            "https://trusted.example: 443/x",
+            "//tru sted.example/x",
+            "//trusted.example :443/x",
+            "//trusted.example: 443/x",
+        ):
+            out = JustHTML(f'<a href="{value}">x</a>', fragment=True, policy=policy).to_html()
+            assert out == "<a>x</a>"
+
+        out = JustHTML('<a href="https://trusted.example/a b">x</a>', fragment=True, policy=policy).to_html()
+        assert out == '<a href="https://trusted.example/a b">x</a>'
+
     def test_url_policy_remote_proxy_global_and_img_override(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["a", "img"],

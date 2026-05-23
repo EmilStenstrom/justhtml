@@ -498,6 +498,7 @@ _URL_NORMALIZE_STRIP_TABLE[0x7F] = None
 # allowed URLs for callers that later percent-encode them for a stricter context.
 _URL_WHITESPACE_OR_CONTROL_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x20\x7f]")
 _URL_CONTROL_CHAR_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x1f\x7f]")
+_URL_AUTHORITY_WHITESPACE_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x20\x7f]")
 
 # Invisible Unicode commonly abused for obfuscation includes zero-width and
 # bidi controls, variation selectors, and private-use characters.
@@ -1242,6 +1243,8 @@ def _url_host_matches_allowed_hosts(value: str, allowed_hosts: Collection[str]) 
         _ = parsed.port
     except ValueError:
         return False
+    if _URL_AUTHORITY_WHITESPACE_REGEX.search(parsed.netloc):
+        return False
     host = (parsed.hostname or "").lower()
     return bool(host and host in allowed_hosts)
 
@@ -1340,11 +1343,12 @@ def _sanitize_url_value_with_rule(
         # Resolve to absolute URL for checking.
         resolved_scheme = rule.resolve_protocol_relative.lower()
         resolved_url = f"{resolved_scheme}:{normalized}"
+        raw_resolved_url = f"{resolved_scheme}:{stripped}"
         if resolved_scheme not in rule.allowed_schemes:
             return None
 
         if rule.allowed_hosts is not None:
-            if not _url_host_matches_allowed_hosts(resolved_url, rule.allowed_hosts):
+            if not _url_host_matches_allowed_hosts(raw_resolved_url, rule.allowed_hosts):
                 return None
 
         if handling == "strip":
@@ -1372,7 +1376,7 @@ def _sanitize_url_value_with_rule(
                 return None if proxy is None else _proxy_url_value(proxy=proxy, value=stripped)
             return stripped
         if rule.allowed_hosts is not None:
-            if not _url_host_matches_allowed_hosts(normalized, rule.allowed_hosts):
+            if not _url_host_matches_allowed_hosts(stripped, rule.allowed_hosts):
                 return None
         if handling == "strip":
             return None
