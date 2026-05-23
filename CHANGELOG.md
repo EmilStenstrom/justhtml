@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Reject malformed URL ports when host allowlists are enabled. Previously, a URL such as `https://trusted.example:bad/x` could pass an `allowed_hosts={"trusted.example"}` check because Python exposed the hostname before the port was validated.
 - (Severity: Low) Treat `http:`/`https:` URL values without `//` as base-dependent special-scheme URLs for relative-URL policy checks. Previously, values such as `https:example/x` could bypass `UrlRule(allow_relative=False)` because they were treated as absolute solely by scheme.
 - (Severity: Low) Strip invisible Unicode from sanitizer `url_filter` rewrites before URL validation. Previously, filter-produced scheme-obfuscated values could bypass the same invisible-Unicode hardening applied to parsed input.
 - (Severity: Low) Strip invisible Unicode before validating URLs in `JustHTML.clean_url_value()` and `clean_url_in_js_string()`. Previously, these helpers could accept scheme-obfuscated values that the sanitizer path would reject.

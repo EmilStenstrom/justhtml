@@ -1236,6 +1236,16 @@ def _has_invalid_scheme_like_prefix(value: str) -> bool:
     return scheme is not None and not _is_valid_scheme(scheme)
 
 
+def _url_host_matches_allowed_hosts(value: str, allowed_hosts: Collection[str]) -> bool:
+    try:
+        parsed = urlsplit(value)
+        _ = parsed.port
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").lower()
+    return bool(host and host in allowed_hosts)
+
+
 def _effective_proxy(*, url_policy: UrlPolicy, rule: UrlRule) -> UrlProxy | None:
     return rule.proxy if rule.proxy is not None else url_policy.proxy
 
@@ -1334,12 +1344,7 @@ def _sanitize_url_value_with_rule(
             return None
 
         if rule.allowed_hosts is not None:
-            try:
-                parsed = urlsplit(resolved_url)
-            except ValueError:
-                return None
-            host = (parsed.hostname or "").lower()
-            if not host or host not in rule.allowed_hosts:
+            if not _url_host_matches_allowed_hosts(resolved_url, rule.allowed_hosts):
                 return None
 
         if handling == "strip":
@@ -1367,12 +1372,7 @@ def _sanitize_url_value_with_rule(
                 return None if proxy is None else _proxy_url_value(proxy=proxy, value=stripped)
             return stripped
         if rule.allowed_hosts is not None:
-            try:
-                parsed = urlsplit(normalized)
-            except ValueError:
-                return None
-            host = (parsed.hostname or "").lower()
-            if not host or host not in rule.allowed_hosts:
+            if not _url_host_matches_allowed_hosts(normalized, rule.allowed_hosts):
                 return None
         if handling == "strip":
             return None
