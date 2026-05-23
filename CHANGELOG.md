@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Strip invisible Unicode before validating URLs in `JustHTML.clean_url_value()` and `clean_url_in_js_string()`. Previously, these helpers could accept scheme-obfuscated values that the sanitizer path would reject.
 - (Severity: Low) Require explicit `UrlPolicy` rules for allowlisted meta-refresh `content` values. Previously, a custom policy that allowlisted `<meta http-equiv="refresh" content="...">` without a `("meta", "content")` URL rule could preserve unchecked refresh targets.
 - (Severity: Low) Reject active or ambiguous `UrlProxy.url` values in sanitizer URL proxy mode. Previously, a misconfigured proxy base such as `javascript:alert(1)` could rewrite an otherwise validated safe URL into an active `href`/`src` value in sanitized output.
 - (Severity: Low) Harden fragment parsing of malformed nested `<template>` content against uncaught tree-builder exceptions. Previously, inputs such as `<template></script><template>` could leave a placeholder on the open-elements stack and crash parsing before sanitization, causing denial of service for applications that parse untrusted fragments.

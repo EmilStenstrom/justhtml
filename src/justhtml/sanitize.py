@@ -1184,6 +1184,16 @@ def _strip_invisible_unicode(value: str) -> str:
     return _INVISIBLE_UNICODE_STRIP_REGEX.sub("", value)
 
 
+def _prepare_standalone_url_value_for_checking(value: str) -> str:
+    if "&" in value:
+        from .entities import decode_entities_in_text  # noqa: PLC0415
+
+        # Match HTML attribute parsing so helper APIs cannot accept a URL that
+        # only turns into a disallowed scheme after embedding into markup.
+        value = decode_entities_in_text(value, in_attribute=True)
+    return _strip_invisible_unicode(value)
+
+
 def _is_valid_scheme(scheme: str) -> bool:
     first = scheme[0]
     if not ("a" <= first <= "z" or "A" <= first <= "Z"):

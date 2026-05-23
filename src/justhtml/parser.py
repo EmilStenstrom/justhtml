@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Any, cast
 from .context import FragmentContext
 from .encoding import decode_html
 from .node import Document, DocumentFragment, Node, QueryMatch, Text
-from .sanitize import UrlRule, _compiled_sanitize_transforms_for_policy, _sanitize_url_value_with_rule
+from .sanitize import (
+    UrlRule,
+    _compiled_sanitize_transforms_for_policy,
+    _prepare_standalone_url_value_for_checking,
+    _sanitize_url_value_with_rule,
+)
 from .serialize import to_html as serialize_html
 from .tokenizer import Tokenizer, TokenizerOpts
 from .transforms import apply_compiled_transforms, compile_transforms
@@ -424,12 +429,7 @@ class JustHTML:
         if url_rule.handling == "proxy" and url_rule.proxy is None:
             raise ValueError("UrlRule.handling='proxy' requires a per-rule UrlRule.proxy")
 
-        if "&" in value:
-            from .entities import decode_entities_in_text  # noqa: PLC0415
-
-            # Match HTML attribute parsing so the helper cannot accept a URL that
-            # only turns into a disallowed scheme after embedding into markup.
-            value = decode_entities_in_text(value, in_attribute=True)
+        value = _prepare_standalone_url_value_for_checking(value)
 
         cleaned = _sanitize_url_value_with_rule(
             rule=url_rule,
