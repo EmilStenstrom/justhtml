@@ -1635,6 +1635,108 @@ class TestSanitizeDom(unittest.TestCase):
             is None
         )
 
+    def test_sanitize_url_value_rejects_base_dependent_special_scheme_when_relative_disallowed(self) -> None:
+        policy = UrlPolicy(allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"}, allow_relative=False)})
+        rule = policy.allow_rules[("a", "href")]
+
+        for value in ("https:evil.example/x", "https:/evil.example/x"):
+            assert (
+                _sanitize_url_value_with_rule(
+                    rule=rule,
+                    value=value,
+                    tag="a",
+                    attr="href",
+                    handling=_effective_url_handling(url_policy=policy, rule=rule),
+                    allow_relative=_effective_allow_relative(url_policy=policy, rule=rule),
+                    proxy=_effective_proxy(url_policy=policy, rule=rule),
+                    url_filter=policy.url_filter,
+                    apply_filter=True,
+                )
+                is None
+            )
+
+    def test_sanitize_url_value_rejects_base_dependent_special_scheme_with_host_allowlist(self) -> None:
+        policy = UrlPolicy(
+            allow_rules={
+                ("a", "href"): UrlRule(
+                    allowed_schemes={"https"},
+                    allowed_hosts={"trusted.example"},
+                    allow_relative=True,
+                )
+            }
+        )
+        rule = policy.allow_rules[("a", "href")]
+
+        assert (
+            _sanitize_url_value_with_rule(
+                rule=rule,
+                value="https:trusted.example/x",
+                tag="a",
+                attr="href",
+                handling=_effective_url_handling(url_policy=policy, rule=rule),
+                allow_relative=_effective_allow_relative(url_policy=policy, rule=rule),
+                proxy=_effective_proxy(url_policy=policy, rule=rule),
+                url_filter=policy.url_filter,
+                apply_filter=True,
+            )
+            is None
+        )
+
+    def test_sanitize_url_value_handles_base_dependent_special_scheme_as_relative_when_allowed(self) -> None:
+        allow_policy = UrlPolicy(allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})})
+        allow_rule = allow_policy.allow_rules[("a", "href")]
+        assert (
+            _sanitize_url_value_with_rule(
+                rule=allow_rule,
+                value="https:trusted.example/x",
+                tag="a",
+                attr="href",
+                handling=_effective_url_handling(url_policy=allow_policy, rule=allow_rule),
+                allow_relative=_effective_allow_relative(url_policy=allow_policy, rule=allow_rule),
+                proxy=_effective_proxy(url_policy=allow_policy, rule=allow_rule),
+                url_filter=allow_policy.url_filter,
+                apply_filter=True,
+            )
+            == "https:trusted.example/x"
+        )
+
+        strip_policy = UrlPolicy(allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"}, handling="strip")})
+        strip_rule = strip_policy.allow_rules[("a", "href")]
+        assert (
+            _sanitize_url_value_with_rule(
+                rule=strip_rule,
+                value="https:trusted.example/x",
+                tag="a",
+                attr="href",
+                handling=_effective_url_handling(url_policy=strip_policy, rule=strip_rule),
+                allow_relative=_effective_allow_relative(url_policy=strip_policy, rule=strip_rule),
+                proxy=_effective_proxy(url_policy=strip_policy, rule=strip_rule),
+                url_filter=strip_policy.url_filter,
+                apply_filter=True,
+            )
+            is None
+        )
+
+        proxy_policy = UrlPolicy(
+            proxy=UrlProxy(url="/proxy"),
+            allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"}, handling="proxy")},
+        )
+        proxy_rule = proxy_policy.allow_rules[("a", "href")]
+        assert (
+            _sanitize_url_value_with_rule(
+                rule=proxy_rule,
+                value="https:trusted.example/x",
+                tag="a",
+                attr="href",
+                handling=_effective_url_handling(url_policy=proxy_policy, rule=proxy_rule),
+                allow_relative=_effective_allow_relative(url_policy=proxy_policy, rule=proxy_rule),
+                proxy=_effective_proxy(url_policy=proxy_policy, rule=proxy_rule),
+                url_filter=proxy_policy.url_filter,
+                apply_filter=True,
+            )
+            == "/proxy?url=https%3Atrusted.example%2Fx"
+        )
+
     def test_url_like_attributes_require_explicit_rules(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["img"],
@@ -1660,6 +1762,24 @@ class TestSanitizeDom(unittest.TestCase):
 
         out = JustHTML('<img src="/x">', fragment=True, policy=policy).to_html()
         assert out == '<img src="/x">'
+
+    def test_url_rule_allow_relative_false_drops_base_dependent_special_scheme_urls(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("a", "href"): UrlRule(
+                        allowed_schemes={"https"},
+                        allow_relative=False,
+                    )
+                },
+            ),
+        )
+
+        for value in ("https:evil.example/x", "https:/evil.example/x"):
+            out = JustHTML(f'<a href="{value}">x</a>', fragment=True, policy=policy).to_html()
+            assert out == "<a>x</a>"
 
     def test_url_rule_handling_strip_drops_absolute_url(self) -> None:
         policy = SanitizationPolicy(

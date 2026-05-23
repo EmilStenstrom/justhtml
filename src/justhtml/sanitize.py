@@ -1349,6 +1349,20 @@ def _sanitize_url_value_with_rule(
     if scheme is not None:
         if scheme not in rule.allowed_schemes:
             return None
+        if scheme in {"http", "https"} and not normalized.startswith(f"{scheme}://"):
+            # URL-standard special schemes without "//" are base-dependent in
+            # browsers (for example, "https:foo" can resolve like a relative
+            # path on an HTTPS page). Do not let them bypass allow_relative or
+            # host allowlists by treating them as ordinary absolute URLs.
+            if rule.allowed_hosts is not None:
+                return None
+            if not allow_relative:
+                return None
+            if handling == "strip":
+                return None
+            if handling == "proxy":
+                return None if proxy is None else _proxy_url_value(proxy=proxy, value=stripped)
+            return stripped
         if rule.allowed_hosts is not None:
             try:
                 parsed = urlsplit(normalized)
