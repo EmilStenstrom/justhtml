@@ -95,6 +95,40 @@ class TestSanitizePlumbing(unittest.TestCase):
         with self.assertRaises(ValueError):
             UrlProxy(url="/proxy", param="")
 
+    def test_urlproxy_rejects_active_or_ambiguous_proxy_urls(self) -> None:
+        for proxy_url in (
+            "javascript:alert(1)",
+            "java\nscript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "vbscript:msgbox(1)",
+            "/proxy\x00path",
+            "https\\://example.com/proxy",
+            "//evil.example/proxy",
+            "proxy:target",
+            "1http://example.com/proxy",
+        ):
+            with self.subTest(proxy_url=proxy_url):
+                with self.assertRaises(ValueError):
+                    UrlProxy(url=proxy_url)
+
+    def test_urlproxy_allows_relative_and_http_https_proxy_urls(self) -> None:
+        assert UrlProxy(url="/proxy").url == "/proxy"
+        assert UrlProxy(url="proxy/path?x=1").url == "proxy/path?x=1"
+        assert UrlProxy(url="https://proxy.example/p").url == "https://proxy.example/p"
+        assert UrlProxy(url="http://proxy.example/p").url == "http://proxy.example/p"
+
+    def test_urlproxy_does_not_rewrite_safe_url_to_active_href(self) -> None:
+        with self.assertRaises(ValueError):
+            SanitizationPolicy(
+                allowed_tags=["a"],
+                allowed_attributes={"a": ["href"]},
+                url_policy=UrlPolicy(
+                    default_handling="proxy",
+                    proxy=UrlProxy(url="javascript:alert(1)"),
+                    allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})},
+                ),
+            )
+
     def test_urlproxy_encodes_param_name(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["img"],

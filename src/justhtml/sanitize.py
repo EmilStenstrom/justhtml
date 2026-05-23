@@ -41,9 +41,10 @@ class UrlProxy:
     param: str = "url"
 
     def __post_init__(self) -> None:
-        proxy_url = str(self.url)
+        proxy_url = str(self.url).strip()
         if not proxy_url:
             raise ValueError("UrlProxy.url must be a non-empty string")
+        _validate_proxy_url(proxy_url)
         proxy_param = str(self.param)
         if not proxy_param:
             raise ValueError("UrlProxy.param must be a non-empty string")
@@ -108,6 +109,12 @@ class UrlRule:
 
         if self.allow_relative is not None:
             object.__setattr__(self, "allow_relative", bool(self.allow_relative))
+
+
+_URL_PROXY_RULE = UrlRule(
+    resolve_protocol_relative=None,
+    allowed_schemes=frozenset({"http", "https"}),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1229,6 +1236,27 @@ def _effective_url_handling(*, url_policy: UrlPolicy, rule: UrlRule) -> UrlHandl
 
 def _effective_allow_relative(*, url_policy: UrlPolicy, rule: UrlRule) -> bool:
     return rule.allow_relative if rule.allow_relative is not None else url_policy.default_allow_relative
+
+
+def _validate_proxy_url(proxy_url: str) -> None:
+    normalized_proxy_url = _normalize_url_for_checking(proxy_url)
+    if _has_invalid_scheme_like_prefix(normalized_proxy_url):
+        raise ValueError("UrlProxy.url contains an invalid URL scheme")
+    if (
+        _sanitize_url_value_with_rule(
+            rule=_URL_PROXY_RULE,
+            value=proxy_url,
+            tag="*",
+            attr="urlproxy",
+            handling="allow",
+            allow_relative=True,
+            proxy=None,
+            url_filter=None,
+            apply_filter=False,
+        )
+        is None
+    ):
+        raise ValueError("UrlProxy.url must be relative or use the http/https scheme")
 
 
 def _sanitize_url_value_with_rule(
