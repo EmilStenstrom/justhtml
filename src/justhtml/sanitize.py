@@ -1245,8 +1245,51 @@ def _url_host_matches_allowed_hosts(value: str, allowed_hosts: Collection[str]) 
         return False
     if _URL_AUTHORITY_WHITESPACE_REGEX.search(parsed.netloc):
         return False
+    raw_host = _raw_authority_host(parsed.netloc)
+    if not raw_host or not _uses_canonical_ascii_url_host(raw_host):
+        return False
     host = (parsed.hostname or "").lower()
     return bool(host and host in allowed_hosts)
+
+
+def _raw_authority_host(netloc: str) -> str:
+    authority = netloc.rsplit("@", 1)[-1]
+    if authority.startswith("["):
+        end = authority.find("]")
+        if end == -1:
+            return ""
+        return authority[1:end]
+    return authority.rsplit(":", 1)[0] if ":" in authority else authority
+
+
+def _uses_canonical_ascii_url_host(host: str) -> bool:
+    if "%" in host:
+        return False
+    if any(ord(ch) > 0x7F for ch in host):
+        return False
+    if ":" not in host and _is_noncanonical_numeric_ipv4_host(host):
+        return False
+    return True
+
+
+def _is_noncanonical_numeric_ipv4_host(host: str) -> bool:
+    labels = host.split(".")
+    if not 1 <= len(labels) <= 4:
+        return False
+    if not all(_is_legacy_ipv4_number(label) for label in labels):
+        return False
+    return not (
+        len(labels) == 4
+        and all(label.isdecimal() and str(int(label)) == label and 0 <= int(label) <= 255 for label in labels)
+    )
+
+
+def _is_legacy_ipv4_number(value: str) -> bool:
+    if not value:
+        return False
+    if value.lower().startswith("0x"):
+        return len(value) > 2 and all(ch in "0123456789abcdefABCDEF" for ch in value[2:])
+    return value.isdecimal()
 
 
 def _effective_proxy(*, url_policy: UrlPolicy, rule: UrlRule) -> UrlProxy | None:

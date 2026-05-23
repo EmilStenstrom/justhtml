@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Reject noncanonical URL hosts when host allowlists are enabled, including percent-encoded host labels, non-ASCII host text, and legacy numeric IPv4 forms. Previously, values such as `https://%65xample.com/x` or `https://2130706433/x` could be allowlisted under Python's raw hostname while browsers navigate to a different canonical host.
 - (Severity: Low) Reject whitespace inside URL authorities when host allowlists are enabled. Previously, host checks normalized whitespace before parsing, so malformed values such as `https://tru sted.example/x` could pass an `allowed_hosts={"trusted.example"}` rule.
 - (Severity: Low) Reject malformed URL ports when host allowlists are enabled. Previously, a URL such as `https://trusted.example:bad/x` could pass an `allowed_hosts={"trusted.example"}` check because Python exposed the hostname before the port was validated.
 - (Severity: Low) Treat `http:`/`https:` URL values without `//` as base-dependent special-scheme URLs for relative-URL policy checks. Previously, values such as `https:example/x` could bypass `UrlRule(allow_relative=False)` because they were treated as absolute solely by scheme.

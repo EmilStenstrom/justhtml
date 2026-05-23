@@ -254,6 +254,14 @@ class TestSerialize(unittest.TestCase):
             == "https://trusted.example/a%20b"
         )
 
+    def test_clean_url_value_rejects_noncanonical_allowlisted_authority_hosts(self):
+        rule = UrlRule(allowed_schemes={"https"}, allowed_hosts={"example.com"}, allow_relative=True)
+        assert _JustHTML.clean_url_value(value="https://%65xample.com/x", url_rule=rule) is None
+
+        rule = UrlRule(allowed_schemes={"https"}, allowed_hosts={"127.0.0.1"}, allow_relative=True)
+        assert _JustHTML.clean_url_value(value="https://2130706433/x", url_rule=rule) is None
+        assert _JustHTML.clean_url_value(value="https://127.0.0.1/x", url_rule=rule) == "https://127.0.0.1/x"
+
     def test_clean_url_in_js_string(self):
         rule = UrlRule(allowed_schemes={"https"})
         output = _JustHTML.clean_url_in_js_string(

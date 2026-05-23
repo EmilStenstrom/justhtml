@@ -19,8 +19,11 @@ from justhtml.sanitize import (
     _effective_allow_relative,
     _effective_proxy,
     _effective_url_handling,
+    _is_legacy_ipv4_number,
+    _is_noncanonical_numeric_ipv4_host,
     _is_valid_css_property_name,
     _neutralize_rawtext_end_tag_sequences,
+    _raw_authority_host,
     _sanitize_comma_or_space_separated_url_list,
     _sanitize_css_url_functions,
     _sanitize_inline_style,
@@ -120,6 +123,13 @@ class TestSanitizePlumbing(unittest.TestCase):
         assert UrlProxy(url="proxy/path?x=1").url == "proxy/path?x=1"
         assert UrlProxy(url="https://proxy.example/p").url == "https://proxy.example/p"
         assert UrlProxy(url="http://proxy.example/p").url == "http://proxy.example/p"
+
+    def test_url_authority_helper_edge_cases(self) -> None:
+        assert _raw_authority_host("[2001:db8::1]:443") == "2001:db8::1"
+        assert _raw_authority_host("[2001:db8::1") == ""
+        assert _is_noncanonical_numeric_ipv4_host("1.2.3.4.5") is False
+        assert _is_noncanonical_numeric_ipv4_host("1..2.3") is False
+        assert _is_legacy_ipv4_number("") is False
 
     def test_urlproxy_does_not_rewrite_safe_url_to_active_href(self) -> None:
         with self.assertRaises(ValueError):
@@ -1996,6 +2006,49 @@ class TestSanitizeDom(unittest.TestCase):
 
         out = JustHTML('<a href="https://trusted.example/a b">x</a>', fragment=True, policy=policy).to_html()
         assert out == '<a href="https://trusted.example/a b">x</a>'
+
+    def test_url_rule_allowed_hosts_rejects_noncanonical_authority_hosts(self) -> None:
+        cases = (
+            ("example.com", "https://%65xample.com/x"),
+            ("trusted.example", "https://trusted%2eexample/x"),
+            ("trusted.example", "https://trusted。example/x"),
+            ("xn--n3h.example", "https://☃.example/x"),
+            ("127.0.0.1", "https://2130706433/x"),
+            ("127.0.0.1", "https://0177.0.0.1/x"),
+            ("127.0.0.1", "https://0x7f.1/x"),
+            ("127.0.0.1", "https://127.1/x"),
+        )
+
+        for allowed_host, value in cases:
+            policy = SanitizationPolicy(
+                allowed_tags=["a"],
+                allowed_attributes={"*": [], "a": ["href"]},
+                url_policy=UrlPolicy(
+                    allow_rules={
+                        ("a", "href"): UrlRule(
+                            allowed_schemes={"https"},
+                            allowed_hosts={allowed_host},
+                        )
+                    },
+                ),
+            )
+            out = JustHTML(f'<a href="{value}">x</a>', fragment=True, policy=policy).to_html()
+            assert out == "<a>x</a>"
+
+        policy = SanitizationPolicy(
+            allowed_tags=["a"],
+            allowed_attributes={"*": [], "a": ["href"]},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("a", "href"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"127.0.0.1"},
+                    )
+                },
+            ),
+        )
+        out = JustHTML('<a href="https://127.0.0.1/x">x</a>', fragment=True, policy=policy).to_html()
+        assert out == '<a href="https://127.0.0.1/x">x</a>'
 
     def test_url_policy_remote_proxy_global_and_img_override(self) -> None:
         policy = SanitizationPolicy(
