@@ -98,6 +98,19 @@ class TestSanitizePlumbing(unittest.TestCase):
         with self.assertRaises(ValueError):
             UrlProxy(url="/proxy", param="")
 
+    def test_urlproxy_rejects_fragment_or_duplicate_proxy_param(self) -> None:
+        for proxy_url in (
+            "/proxy#fragment",
+            "/proxy?url=https://evil.example/x",
+            "/proxy?next=/ok&url=",
+            "/proxy?u%72l=https://evil.example/x",
+        ):
+            with self.subTest(proxy_url=proxy_url):
+                with self.assertRaises(ValueError):
+                    UrlProxy(url=proxy_url, param="url")
+
+        assert UrlProxy(url="/proxy?next=/ok", param="url").url == "/proxy?next=/ok"
+
     def test_urlproxy_rejects_active_or_ambiguous_proxy_urls(self) -> None:
         for proxy_url in (
             "javascript:alert(1)",

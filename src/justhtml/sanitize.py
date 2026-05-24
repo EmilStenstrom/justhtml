@@ -13,7 +13,7 @@ from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qsl, quote, urlsplit
 
 from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits
 from .tokens import ParseError
@@ -44,10 +44,10 @@ class UrlProxy:
         proxy_url = str(self.url).strip()
         if not proxy_url:
             raise ValueError("UrlProxy.url must be a non-empty string")
-        _validate_proxy_url(proxy_url)
         proxy_param = str(self.param)
         if not proxy_param:
             raise ValueError("UrlProxy.param must be a non-empty string")
+        _validate_proxy_url(proxy_url, proxy_param)
         object.__setattr__(self, "url", proxy_url)
         object.__setattr__(self, "param", proxy_param)
 
@@ -1304,13 +1304,18 @@ def _effective_allow_relative(*, url_policy: UrlPolicy, rule: UrlRule) -> bool:
     return rule.allow_relative if rule.allow_relative is not None else url_policy.default_allow_relative
 
 
-def _validate_proxy_url(proxy_url: str) -> None:
+def _validate_proxy_url(proxy_url: str, proxy_param: str) -> None:
     normalized_proxy_url = _normalize_url_for_checking(proxy_url)
     if _has_invalid_scheme_like_prefix(normalized_proxy_url):
         raise ValueError("UrlProxy.url contains an invalid URL scheme")
     scheme = _get_scheme(normalized_proxy_url)
     if scheme in {"http", "https"} and not normalized_proxy_url.startswith(f"{scheme}://"):
         raise ValueError("UrlProxy.url must be relative or use the http/https scheme")
+    parsed_proxy_url = urlsplit(proxy_url)
+    if parsed_proxy_url.fragment:
+        raise ValueError("UrlProxy.url must not contain a fragment")
+    if any(name == proxy_param for name, _value in parse_qsl(parsed_proxy_url.query, keep_blank_values=True)):
+        raise ValueError("UrlProxy.url must not already contain UrlProxy.param")
     if (
         _sanitize_url_value_with_rule(
             rule=_URL_PROXY_RULE,
