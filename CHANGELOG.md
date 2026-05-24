@@ -5,13 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Security
-- (Severity: Low) Replace undefined Windows-1252 bytes during byte-input decoding instead of raising `UnicodeDecodeError`. Previously, untrusted byte input containing values such as `0x81` could crash parsing before sanitization.
-- (Severity: Low) Reject ambiguous comma or semicolon delimiters inside allowlisted meta-refresh URL targets. Previously, custom policies that allowed `<meta http-equiv="refresh" content="...">` could preserve refresh values with extra delimiter text after a validated URL.
-- (Severity: Low) Validate `srcset` descriptors while sanitizing URL candidates. Previously, descriptor text after an allowed `srcset` URL was preserved without checking that it was a valid width or density descriptor.
-- (Severity: Low) Harden documentation search result rendering by escaping result titles and restricting indexed result links to same-origin documentation HTML pages. Previously, titles derived from same-origin documentation pages were inserted through `innerHTML` without escaping, and generated result links trusted any `.html` href discovered in the docs index.
+## [2.0.0] - 2026-05-24
 
 ### Changed
 - BREAKING: Sanitization is now HTML-only. SVG and MathML are still parsed and tree-built when sanitization is disabled, but sanitizer output always drops foreign-namespace content. `SanitizationPolicy.drop_foreign_namespaces` has been removed.
@@ -21,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - BREAKING: Remove the deprecated `safe=` alias from `JustHTML(...)`; use `sanitize=` instead.
 - BREAKING: Remove the public `RewriteAttrs` alias; use `EditAttrs` instead.
 - Reorganize the old top-level implementation modules into packages and normalize several package names. Code that stays on the public `from justhtml import ...` API is unaffected. Direct module-path imports are internal implementation details, are not a supported stability surface, and may change without compatibility guarantees.
+
+### Security
+- (Severity: Low) Replace undefined Windows-1252 bytes during byte-input decoding instead of raising `UnicodeDecodeError`. Previously, untrusted byte input containing values such as `0x81` could crash parsing before sanitization.
+- (Severity: Low) Reject ambiguous comma or semicolon delimiters inside allowlisted meta-refresh URL targets. Previously, custom policies that allowed `<meta http-equiv="refresh" content="...">` could preserve refresh values with extra delimiter text after a validated URL.
+- (Severity: Low) Validate `srcset` descriptors while sanitizing URL candidates. Previously, descriptor text after an allowed `srcset` URL was preserved without checking that it was a valid width or density descriptor.
+- (Severity: Low) Harden documentation search result rendering by escaping result titles and restricting indexed result links to same-origin documentation HTML pages. Previously, titles derived from same-origin documentation pages were inserted through `innerHTML` without escaping, and generated result links trusted any `.html` href discovered in the docs index.
 
 ## [1.23.0] - 2026-05-24
 
