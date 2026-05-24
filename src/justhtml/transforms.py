@@ -1077,6 +1077,89 @@ def _compile_drop_attrs_transform(t: DropAttrs, parse: Callable[[str], ParsedSel
     )
 
 
+def _compile_allowlist_attrs_transform(
+    t: AllowlistAttrs, parse: Callable[[str], ParsedSelector]
+) -> _CompiledEditAttrsTransform:
+    allowed_attributes = t.allowed_attributes
+    on_hook = t.callback
+    on_report = t.report
+    allowed_global = allowed_attributes.get("*", set())
+    allowed_by_tag: dict[str, set[str]] = {}
+    for tag, attrs in allowed_attributes.items():
+        if tag == "*":
+            continue
+        allowed_by_tag[str(tag).lower()] = set(allowed_global).union(attrs)
+
+    def _allowlist_attrs(
+        node: Node,
+        allowed_by_tag: dict[str, set[str]] = allowed_by_tag,
+        allowed_global: set[str] = allowed_global,
+        on_hook: NodeCallback | None = on_hook,
+        on_report: ReportCallback | None = on_report,
+    ) -> dict[str, str | None] | None:
+        attrs = node.attrs
+        if not attrs:
+            return None
+        tag = node.name
+        if type(tag) is not str:  # pragma: no cover
+            tag = str(tag)
+
+        allowed = allowed_by_tag.get(tag)
+        if allowed is None:
+            if not tag.islower():  # pragma: no cover
+                allowed = allowed_by_tag.get(tag.lower())
+            if allowed is None:
+                allowed = allowed_global
+
+        for key in attrs:
+            if type(key) is not str:
+                break
+            if not key or key not in allowed:
+                break
+        else:
+            return None
+
+        changed = False
+        out: dict[str, str | None] = {}
+        for raw_key in attrs:
+            value = attrs[raw_key]
+            raw_key_str = raw_key if type(raw_key) is str else str(raw_key)
+            if not raw_key_str.strip():
+                changed = True
+                continue
+            key = raw_key_str
+            if key in allowed:
+                out[key] = value
+                continue
+
+            if not key.islower():
+                lowered = key.lower()
+                if lowered in allowed:
+                    out[lowered] = value
+                    changed = True
+                    continue
+                key = lowered
+
+            changed = True
+            if on_report is not None:
+                on_report(f"Unsafe attribute '{key}' (not allowed)", node=node)
+        if not changed:
+            return None
+        if on_hook is not None:
+            on_hook(node)  # pragma: no cover
+        return out
+
+    selector_str = t.selector
+    all_nodes = selector_str.strip() == "*"
+    return _CompiledEditAttrsTransform(
+        kind="edit_attrs",
+        selector_str=selector_str,
+        selector=None if all_nodes else parse(selector_str),
+        all_nodes=all_nodes,
+        func=_allowlist_attrs,
+    )
+
+
 def compile_transforms(
     transforms: list[TransformSpec] | tuple[TransformSpec, ...],
     *,
@@ -1299,92 +1382,7 @@ def compile_transforms(
             continue
 
         if isinstance(t, AllowlistAttrs):
-            allowed_attributes = t.allowed_attributes
-            on_hook = t.callback
-            on_report = t.report
-            allowed_global = allowed_attributes.get("*", set())
-            allowed_by_tag: dict[str, set[str]] = {}
-            for tag, attrs in allowed_attributes.items():
-                if tag == "*":
-                    continue
-                allowed_by_tag[str(tag).lower()] = set(allowed_global).union(attrs)
-
-            def _allowlist_attrs(
-                node: Node,
-                allowed_by_tag: dict[str, set[str]] = allowed_by_tag,
-                allowed_global: set[str] = allowed_global,
-                on_hook: NodeCallback | None = on_hook,
-                on_report: ReportCallback | None = on_report,
-            ) -> dict[str, str | None] | None:
-                attrs = node.attrs
-                if not attrs:
-                    return None
-                tag = node.name
-                if type(tag) is not str:  # pragma: no cover
-                    tag = str(tag)
-
-                # Most tags fall back to global allowed attrs. Avoid tag
-                # normalization work unless we actually have tag-specific rules.
-                allowed = allowed_by_tag.get(tag)
-                if allowed is None:
-                    if not tag.islower():  # pragma: no cover
-                        allowed = allowed_by_tag.get(tag.lower())
-                    if allowed is None:
-                        allowed = allowed_global
-
-                # Fast path: attrs already normalized and allowed.
-                for key in attrs:
-                    if type(key) is not str:
-                        break
-                    if not key or key not in allowed:
-                        break
-                else:
-                    return None
-
-                changed = False
-                out: dict[str, str | None] = {}
-                for raw_key in attrs:
-                    value = attrs[raw_key]
-                    raw_key_str = raw_key if type(raw_key) is str else str(raw_key)
-                    if not raw_key_str.strip():
-                        # Drop invalid attribute names like '' or whitespace-only.
-                        changed = True
-                        continue
-                    key = raw_key_str
-                    if key in allowed:
-                        out[key] = value
-                        continue
-
-                    # Mixed-case keys (e.g. user-constructed trees): normalize
-                    # only when necessary.
-                    if not key.islower():
-                        lowered = key.lower()
-                        if lowered in allowed:
-                            out[lowered] = value
-                            changed = True
-                            continue
-                        key = lowered
-
-                    changed = True
-                    if on_report is not None:
-                        on_report(f"Unsafe attribute '{key}' (not allowed)", node=node)
-                if not changed:
-                    return None
-                if on_hook is not None:
-                    on_hook(node)  # pragma: no cover
-                return out
-
-            selector_str = t.selector
-            all_nodes = selector_str.strip() == "*"
-            _append_compiled(
-                _CompiledEditAttrsTransform(
-                    kind="edit_attrs",
-                    selector_str=selector_str,
-                    selector=None if all_nodes else _parse_selector(selector_str),
-                    all_nodes=all_nodes,
-                    func=_allowlist_attrs,
-                )
-            )
+            _append_compiled(_compile_allowlist_attrs_transform(t, _parse_selector))
             continue
 
         if isinstance(t, DropUrlAttrs):
