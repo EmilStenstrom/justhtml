@@ -2273,6 +2273,70 @@ class TestSanitizeDom(unittest.TestCase):
         out = JustHTML('<img srcset="  \t\n  ">', fragment=True, policy=policy).to_html()
         assert out == "<img>"
 
+    def test_srcset_is_dropped_if_descriptor_contains_extra_tokens(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["img"],
+            allowed_attributes={"*": [], "img": ["srcset"]},
+            url_policy=UrlPolicy(
+                default_allow_relative=False,
+                allow_rules={
+                    ("img", "srcset"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    )
+                },
+            ),
+        )
+
+        out = JustHTML(
+            '<img srcset="https://trusted.example/a 1x https://evil.example/b 2x">',
+            fragment=True,
+            policy=policy,
+        ).to_html()
+        assert out == "<img>"
+
+    def test_srcset_is_dropped_if_descriptor_is_invalid(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["img"],
+            allowed_attributes={"*": [], "img": ["srcset"]},
+            url_policy=UrlPolicy(
+                default_allow_relative=True,
+                allow_rules={("img", "srcset"): UrlRule(allowed_schemes={"https"})},
+            ),
+        )
+
+        for descriptor in ("0w", "0x", "-1x", "1.5w", "1e3x", "nanx", "infx", "bad"):
+            out = JustHTML(
+                f'<img srcset="https://example.com/a {descriptor}">',
+                fragment=True,
+                policy=policy,
+            ).to_html()
+            assert out == "<img>"
+
+    def test_srcset_preserves_valid_width_and_density_descriptors(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["img"],
+            allowed_attributes={"*": [], "img": ["srcset"]},
+            url_policy=UrlPolicy(
+                default_allow_relative=True,
+                allow_rules={("img", "srcset"): UrlRule(allowed_schemes={"https"})},
+            ),
+        )
+
+        out = JustHTML(
+            '<img srcset="https://example.com/a 640w, https://example.com/b 1.5x">',
+            fragment=True,
+            policy=policy,
+        ).to_html()
+        assert out == '<img srcset="https://example.com/a 640w, https://example.com/b 1.5x">'
+
+        out = JustHTML(
+            '<img srcset="https://example.com/a, https://example.com/b 320h">',
+            fragment=True,
+            policy=policy,
+        ).to_html()
+        assert out == '<img srcset="https://example.com/a, https://example.com/b 320h">'
+
     def test_srcset_url_filter_can_rewrite_value(self) -> None:
         def url_filter(tag: str, attr: str, value: str) -> str | None:
             assert tag == "img"

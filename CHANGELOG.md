@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Validate `srcset` descriptors while sanitizing URL candidates. Previously, descriptor text after an allowed `srcset` URL was preserved without checking that it was a valid width or density descriptor.
 - (Severity: Low) Harden documentation search result rendering by escaping result titles and restricting indexed result links to same-origin documentation HTML pages. Previously, titles derived from same-origin documentation pages were inserted through `innerHTML` without escaping, and generated result links trusted any `.html` href discovered in the docs index.
 
 ### Changed

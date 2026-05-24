@@ -35,6 +35,7 @@ _URL_NORMALIZE_STRIP_TABLE[0x7F] = None
 _URL_WHITESPACE_OR_CONTROL_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x20\x7f]")
 _URL_CONTROL_CHAR_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x1f\x7f]")
 _URL_AUTHORITY_WHITESPACE_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x20\x7f]")
+_SRCSET_DENSITY_DESCRIPTOR_REGEX: re.Pattern[str] = re.compile(r"(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)x\Z")
 
 _INVISIBLE_UNICODE_STRIP_REGEX: re.Pattern[str] = re.compile(
     r"[\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFE00-\uFE0F\uFEFF\uE000-\uF8FF"
@@ -338,9 +339,40 @@ def _sanitize_srcset_value(
         )
         if sanitized_url is None:
             return None
-        out_candidates.append(f"{sanitized_url} {desc}".strip())
+        sanitized_desc = _sanitize_srcset_descriptor(desc)
+        if sanitized_desc is None:
+            return None
+        out_candidates.append(f"{sanitized_url} {sanitized_desc}".strip())
 
     return None if not out_candidates else ", ".join(out_candidates)
+
+
+def _sanitize_srcset_descriptor(value: str) -> str | None:
+    if not value:
+        return ""
+
+    tokens = value.split()
+    if len(tokens) != 1:
+        return None
+
+    token = tokens[0].lower()
+    if token.endswith(("w", "h")):
+        number = token[:-1]
+        if not number.isdecimal():
+            return None
+        if int(number) <= 0:
+            return None
+        return token
+
+    if token.endswith("x"):
+        if _SRCSET_DENSITY_DESCRIPTOR_REGEX.match(token) is None:
+            return None
+        density = float(token[:-1])
+        if density <= 0:
+            return None
+        return token
+
+    return None
 
 
 def _sanitize_space_separated_url_list(
