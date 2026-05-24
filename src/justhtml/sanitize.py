@@ -259,6 +259,14 @@ class UnsafeHandler:
         raise AssertionError(f"Unhandled unsafe_handling: {mode!r}")
 
 
+def _normalize_policy_name(value: Any) -> str:
+    return str(value).strip().lower()
+
+
+def _normalize_policy_name_set(values: Collection[Any]) -> set[str]:
+    return {name for value in values if (name := _normalize_policy_name(value))}
+
+
 @dataclass(frozen=True, slots=True)
 class SanitizationPolicy:
     """An allow-list driven policy for sanitizing a parsed DOM.
@@ -400,17 +408,17 @@ class SanitizationPolicy:
                     f"(e.g. {{'{tag}': ['class', 'id']}}), not a string"
                 )
 
-        normalized_tags = frozenset(str(t).strip().lower() for t in self.allowed_tags if str(t).strip())
+        normalized_tags = frozenset(_normalize_policy_name_set(self.allowed_tags))
         object.__setattr__(self, "allowed_tags", normalized_tags)
 
         normalized_attrs: dict[str, set[str]] = {}
         for tag, attrs in self.allowed_attributes.items():
-            tag_name = str(tag).strip().lower()
+            tag_name = _normalize_policy_name(tag)
             if not tag_name:
                 raise ValueError("SanitizationPolicy.allowed_attributes contains an empty tag key")
 
             attr_set = attrs if isinstance(attrs, set) else set(attrs)
-            normalized_attr_set = {str(a).strip().lower() for a in attr_set if str(a).strip()}
+            normalized_attr_set = _normalize_policy_name_set(attr_set)
 
             if tag_name in normalized_attrs:
                 normalized_attrs[tag_name].update(normalized_attr_set)
@@ -419,9 +427,7 @@ class SanitizationPolicy:
 
         object.__setattr__(self, "allowed_attributes", normalized_attrs)
 
-        if not isinstance(self.drop_content_tags, set):
-            object.__setattr__(self, "drop_content_tags", set(self.drop_content_tags))
-        normalized_drop_content_tags = {str(t).strip().lower() for t in self.drop_content_tags if str(t).strip()}
+        normalized_drop_content_tags = _normalize_policy_name_set(self.drop_content_tags)
         object.__setattr__(self, "drop_content_tags", normalized_drop_content_tags)
 
         if not isinstance(self.allowed_css_properties, set):
@@ -451,7 +457,7 @@ class SanitizationPolicy:
         # Normalize rel tokens once so downstream sanitization can stay allocation-light.
         # (Downstream code expects lowercase tokens and ignores empty/whitespace.)
         if self.force_link_rel:
-            normalized_force_link_rel = {t.strip().lower() for t in self.force_link_rel if str(t).strip()}
+            normalized_force_link_rel = _normalize_policy_name_set(self.force_link_rel)
             object.__setattr__(self, "force_link_rel", normalized_force_link_rel)
 
         style_allowed = any("style" in attrs for attrs in self.allowed_attributes.values())
