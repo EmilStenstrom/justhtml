@@ -2,18 +2,18 @@
 """Interactive release helper for JustHTML.
 
 What it does (in order):
-1) Bumps version in pyproject.toml ([project].version)
-2) Commits the change
-3) Creates an annotated git tag
-4) Pushes commit + tag
-5) Creates a GitHub release (marked as latest) via `gh`
-
-This script is intentionally minimal and uses only `git` and the GitHub CLI (`gh`).
+1) Verifies the repo-wide pre-commit checks CI runs for releases
+2) Bumps version in pyproject.toml ([project].version)
+3) Commits the change
+4) Creates an annotated git tag
+5) Pushes commit + tag
+6) Creates a GitHub release (marked as latest) via `gh`
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shlex
 import subprocess
@@ -42,6 +42,29 @@ def _run(cmd: list[str], *, check: bool = True) -> CmdResult:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+    )
+    out = CmdResult(stdout=p.stdout, returncode=p.returncode)
+    if check and p.returncode != 0:
+        raise RuntimeError(
+            "Command failed (exit {code}): {cmd}\n{out}".format(
+                code=p.returncode,
+                cmd=_quote_cmd(cmd),
+                out=(p.stdout or "").rstrip(),
+            )
+        )
+    return out
+
+
+def _run_with_env(cmd: list[str], *, env: dict[str, str], check: bool = True) -> CmdResult:
+    merged_env = os.environ.copy()
+    merged_env.update(env)
+    p = subprocess.run(  # noqa: S603
+        cmd,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=merged_env,
     )
     out = CmdResult(stdout=p.stdout, returncode=p.returncode)
     if check and p.returncode != 0:
@@ -248,6 +271,13 @@ def _default_repo_from_remote(remote: str) -> str:
     return f"{m.group('owner')}/{m.group('repo')}"
 
 
+def _run_release_checks() -> None:
+    print("Running release checks: SKIP=mypy pre-commit run --all-files")
+    out = _run_with_env(["pre-commit", "run", "--all-files"], env={"SKIP": "mypy"}).stdout
+    if out.strip():
+        print(out.rstrip())
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Bump version, tag, and create a GitHub release.")
     parser.add_argument("--version", help="New version, e.g. 0.21.0 (will be tagged as v0.21.0 unless --tag is set)")
@@ -294,11 +324,19 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Do not prompt for confirmation before push/release.",
     )
+    parser.add_argument(
+        "--skip-checks",
+        action="store_true",
+        help="Skip repo-wide pre-commit validation. Use only when you have already validated the exact release commit.",
+    )
 
     args = parser.parse_args(argv)
 
     try:
         _require_clean_git()
+
+        if not args.skip_checks:
+            _run_release_checks()
 
         py_text = PYPROJECT_PATH.read_text(encoding="utf-8")
         current_version = _read_current_version(py_text)
