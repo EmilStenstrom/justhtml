@@ -767,6 +767,216 @@ def _compile_sanitize_transform(t: Sanitize) -> list[CompiledTransform]:
     return compiled
 
 
+def _compile_drop_transform(t: Drop, parse: Callable[[str], ParsedSelector]) -> CompiledTransform:
+    selector_str = t.selector
+
+    raw_parts = selector_str.split(",")
+    tag_list: list[str] = []
+    for part in raw_parts:
+        p = part.strip().lower()
+        if not p:
+            tag_list = []
+            break
+        if any(ch in p for ch in " .#[:>*+~\t\n\r\f"):
+            tag_list = []
+            break
+        tag_list.append(p)
+
+    if tag_list:
+        tags = frozenset(tag_list)
+        on_drop = t.callback
+        on_report = t.report
+
+        def _drop_if_tag(
+            node: Node,
+            tags: frozenset[str] = tags,
+            selector_str: str = selector_str,
+            on_drop: NodeCallback | None = on_drop,
+            on_report: ReportCallback | None = on_report,
+        ) -> DecideAction:
+            name = node.name
+            if name.startswith("#") or name == "!doctype":
+                return Decide.KEEP
+            tag = str(name).lower()
+            if tag not in tags:
+                return Decide.KEEP
+            if on_drop is not None:
+                on_drop(node)
+            if on_report is not None:
+                on_report(f"Dropped tag '{tag}' (matched selector '{selector_str}')", node=node)
+            return Decide.DROP
+
+        return _CompiledDecideTransform(
+            kind="decide",
+            selector_str="*",
+            selector=None,
+            all_nodes=True,
+            callback=_drop_if_tag,
+        )
+
+    return _CompiledSelectorTransform(
+        kind="drop",
+        selector_str=selector_str,
+        selector=parse(selector_str),
+        payload=None,
+        callback=t.callback,
+        report=t.report,
+    )
+
+
+def _compile_edit_transform(t: Edit, parse: Callable[[str], ParsedSelector]) -> _CompiledSelectorTransform:
+    selector_str = t.selector
+    edit_func = t.func
+    on_hook = t.callback
+    on_report = t.report
+
+    def _wrapped(
+        node: Node,
+        edit_func: NodeCallback = edit_func,
+        selector_str: str = selector_str,
+        on_hook: NodeCallback | None = on_hook,
+        on_report: ReportCallback | None = on_report,
+    ) -> None:
+        if on_hook is not None:
+            on_hook(node)
+        if on_report is not None:
+            tag = str(node.name).lower()
+            on_report(f"Edited <{tag}> (matched selector '{selector_str}')", node=node)
+        edit_func(node)
+
+    return _CompiledSelectorTransform(
+        kind="edit",
+        selector_str=selector_str,
+        selector=parse(selector_str),
+        payload=_wrapped,
+        callback=None,
+        report=None,
+    )
+
+
+def _compile_edit_document_transform(t: EditDocument) -> _CompiledEditDocumentTransform:
+    edit_document_func = t.func
+    on_hook = t.callback
+    on_report = t.report
+
+    def _wrapped_root(
+        node: Node,
+        edit_document_func: NodeCallback = edit_document_func,
+        on_hook: NodeCallback | None = on_hook,
+        on_report: ReportCallback | None = on_report,
+    ) -> None:
+        if on_hook is not None:
+            on_hook(node)
+        if on_report is not None:
+            on_report("Edited document root", node=node)
+        edit_document_func(node)
+
+    return _CompiledEditDocumentTransform(kind="edit_document", callback=_wrapped_root)
+
+
+def _compile_decide_transform(t: Decide, parse: Callable[[str], ParsedSelector]) -> _CompiledDecideTransform:
+    selector_str = t.selector
+    all_nodes = selector_str.strip() == "*"
+    decide_func = t.func
+    on_hook = t.callback
+    on_report = t.report
+
+    if on_hook is None and on_report is None:
+        effective_callback = decide_func
+    else:
+
+        def _wrapped_decide(
+            node: Node,
+            decide_func: Callable[[Node], DecideAction] = decide_func,
+            selector_str: str = selector_str,
+            on_hook: NodeCallback | None = on_hook,
+            on_report: ReportCallback | None = on_report,
+        ) -> DecideAction:
+            action = decide_func(node)
+            if action is DecideAction.KEEP:
+                return action
+            if on_hook is not None:
+                on_hook(node)
+            if on_report is not None:
+                nm = node.name
+                label = str(nm).lower() if not nm.startswith("#") and nm != "!doctype" else str(nm)
+                on_report(f"Decide -> {action.value} '{label}' (matched selector '{selector_str}')", node=node)
+            return action
+
+        effective_callback = _wrapped_decide
+
+    return _CompiledDecideTransform(
+        kind="decide",
+        selector_str=selector_str,
+        selector=None if all_nodes else parse(selector_str),
+        all_nodes=all_nodes,
+        callback=effective_callback,
+    )
+
+
+def _compile_edit_attrs_transform(t: EditAttrs, parse: Callable[[str], ParsedSelector]) -> _CompiledEditAttrsTransform:
+    selector_str = t.selector
+    all_nodes = selector_str.strip() == "*"
+    edit_attrs_func = t.func
+    on_hook = t.callback
+    on_report = t.report
+
+    def _wrapped_attrs(
+        node: Node,
+        edit_attrs_func: EditAttrsCallback = edit_attrs_func,
+        selector_str: str = selector_str,
+        on_hook: NodeCallback | None = on_hook,
+        on_report: ReportCallback | None = on_report,
+    ) -> dict[str, str | None] | None:
+        out = edit_attrs_func(node)
+        if out is None:
+            return None
+        if on_hook is not None:
+            on_hook(node)
+        if on_report is not None:
+            tag = str(node.name).lower()
+            on_report(f"Edited attributes on <{tag}> (matched selector '{selector_str}')", node=node)
+        return out
+
+    return _CompiledEditAttrsTransform(
+        kind="edit_attrs",
+        selector_str=selector_str,
+        selector=None if all_nodes else parse(selector_str),
+        all_nodes=all_nodes,
+        func=_wrapped_attrs,
+    )
+
+
+def _compile_drop_foreign_namespaces_transform(t: DropForeignNamespaces) -> _CompiledDecideTransform:
+    on_hook = t.callback
+    on_report = t.report
+
+    def _drop_foreign(
+        node: Node,
+        on_hook: NodeCallback | None = on_hook,
+        on_report: ReportCallback | None = on_report,
+    ) -> DecideAction:
+        name = node.name
+        if name.startswith("#") or name == "!doctype":
+            return Decide.KEEP
+        if _is_effectively_foreign_node(node):
+            if on_hook is not None:
+                on_hook(node)
+            if on_report is not None:
+                tag = str(name).lower()
+                on_report(f"Unsafe tag '{tag}' (foreign namespace)", node=node)
+            return Decide.DROP
+        return Decide.KEEP
+
+    return _CompiledDecideTransform(
+        kind="decide",
+        selector_str="*",
+        selector=None,
+        all_nodes=True,
+        callback=_drop_foreign,
+    )
+
+
 def compile_transforms(
     transforms: list[TransformSpec] | tuple[TransformSpec, ...],
     *,
@@ -869,68 +1079,7 @@ def compile_transforms(
             )
             continue
         if isinstance(t, Drop):
-            selector_str = t.selector
-
-            # Fast-path: if selector is a simple comma-separated list of tag
-            # names (e.g. "script, style"), avoid selector matching entirely.
-            raw_parts = selector_str.split(",")
-            tag_list: list[str] = []
-            for part in raw_parts:
-                p = part.strip().lower()
-                if not p:
-                    tag_list = []
-                    break
-                # Reject anything that isn't a plain tag name.
-                if any(ch in p for ch in " .#[:>*+~\t\n\r\f"):
-                    tag_list = []
-                    break
-                tag_list.append(p)
-
-            if tag_list:
-                tags = frozenset(tag_list)
-                on_drop = t.callback
-                on_report = t.report
-
-                def _drop_if_tag(
-                    node: Node,
-                    tags: frozenset[str] = tags,
-                    selector_str: str = selector_str,
-                    on_drop: NodeCallback | None = on_drop,
-                    on_report: ReportCallback | None = on_report,
-                ) -> DecideAction:
-                    name = node.name
-                    if name.startswith("#") or name == "!doctype":
-                        return Decide.KEEP
-                    tag = str(name).lower()
-                    if tag not in tags:
-                        return Decide.KEEP
-                    if on_drop is not None:
-                        on_drop(node)
-                    if on_report is not None:
-                        on_report(f"Dropped tag '{tag}' (matched selector '{selector_str}')", node=node)
-                    return Decide.DROP
-
-                compiled.append(
-                    _CompiledDecideTransform(
-                        kind="decide",
-                        selector_str="*",
-                        selector=None,
-                        all_nodes=True,
-                        callback=_drop_if_tag,
-                    )
-                )
-                continue
-
-            compiled.append(
-                _CompiledSelectorTransform(
-                    kind="drop",
-                    selector_str=selector_str,
-                    selector=_parse_selector(selector_str),
-                    payload=None,
-                    callback=t.callback,
-                    report=t.report,
-                )
-            )
+            compiled.append(_compile_drop_transform(t, _parse_selector))
             continue
         if isinstance(t, Unwrap):
             compiled.append(
@@ -970,133 +1119,19 @@ def compile_transforms(
             )
             continue
         if isinstance(t, Edit):
-            selector_str = t.selector
-            edit_func = t.func
-            on_hook = t.callback
-            on_report = t.report
-
-            def _wrapped(
-                node: Node,
-                edit_func: NodeCallback = edit_func,
-                selector_str: str = selector_str,
-                on_hook: NodeCallback | None = on_hook,
-                on_report: ReportCallback | None = on_report,
-            ) -> None:
-                if on_hook is not None:
-                    on_hook(node)
-                if on_report is not None:
-                    tag = str(node.name).lower()
-                    on_report(f"Edited <{tag}> (matched selector '{selector_str}')", node=node)
-                edit_func(node)
-
-            compiled.append(
-                _CompiledSelectorTransform(
-                    kind="edit",
-                    selector_str=t.selector,
-                    selector=_parse_selector(t.selector),
-                    payload=_wrapped,
-                    callback=None,
-                    report=None,
-                )
-            )
+            compiled.append(_compile_edit_transform(t, _parse_selector))
             continue
 
         if isinstance(t, EditDocument):
-            edit_document_func = t.func
-            on_hook = t.callback
-            on_report = t.report
-
-            def _wrapped_root(
-                node: Node,
-                edit_document_func: NodeCallback = edit_document_func,
-                on_hook: NodeCallback | None = on_hook,
-                on_report: ReportCallback | None = on_report,
-            ) -> None:
-                if on_hook is not None:
-                    on_hook(node)
-                if on_report is not None:
-                    on_report("Edited document root", node=node)
-                edit_document_func(node)
-
-            compiled.append(_CompiledEditDocumentTransform(kind="edit_document", callback=_wrapped_root))
+            compiled.append(_compile_edit_document_transform(t))
             continue
 
         if isinstance(t, Decide):
-            selector_str = t.selector
-            all_nodes = selector_str.strip() == "*"
-            decide_func = t.func
-            on_hook = t.callback
-            on_report = t.report
-
-            # Optimization: skip wrapper when there are no callbacks
-            if on_hook is None and on_report is None:
-                effective_callback = decide_func
-            else:
-
-                def _wrapped_decide(
-                    node: Node,
-                    decide_func: Callable[[Node], DecideAction] = decide_func,
-                    selector_str: str = selector_str,
-                    on_hook: NodeCallback | None = on_hook,
-                    on_report: ReportCallback | None = on_report,
-                ) -> DecideAction:
-                    action = decide_func(node)
-                    if action is DecideAction.KEEP:
-                        return action
-                    if on_hook is not None:
-                        on_hook(node)
-                    if on_report is not None:
-                        nm = node.name
-                        label = str(nm).lower() if not nm.startswith("#") and nm != "!doctype" else str(nm)
-                        on_report(f"Decide -> {action.value} '{label}' (matched selector '{selector_str}')", node=node)
-                    return action
-
-                effective_callback = _wrapped_decide
-
-            _append_compiled(
-                _CompiledDecideTransform(
-                    kind="decide",
-                    selector_str=selector_str,
-                    selector=None if all_nodes else _parse_selector(selector_str),
-                    all_nodes=all_nodes,
-                    callback=effective_callback,
-                )
-            )
+            _append_compiled(_compile_decide_transform(t, _parse_selector))
             continue
 
         if isinstance(t, EditAttrs):
-            selector_str = t.selector
-            all_nodes = selector_str.strip() == "*"
-            edit_attrs_func = t.func
-            on_hook = t.callback
-            on_report = t.report
-
-            def _wrapped_attrs(
-                node: Node,
-                edit_attrs_func: EditAttrsCallback = edit_attrs_func,
-                selector_str: str = selector_str,
-                on_hook: NodeCallback | None = on_hook,
-                on_report: ReportCallback | None = on_report,
-            ) -> dict[str, str | None] | None:
-                out = edit_attrs_func(node)
-                if out is None:
-                    return None
-                if on_hook is not None:
-                    on_hook(node)
-                if on_report is not None:
-                    tag = str(node.name).lower()
-                    on_report(f"Edited attributes on <{tag}> (matched selector '{selector_str}')", node=node)
-                return out
-
-            _append_compiled(
-                _CompiledEditAttrsTransform(
-                    kind="edit_attrs",
-                    selector_str=selector_str,
-                    selector=None if all_nodes else _parse_selector(selector_str),
-                    all_nodes=all_nodes,
-                    func=_wrapped_attrs,
-                )
-            )
+            _append_compiled(_compile_edit_attrs_transform(t, _parse_selector))
             continue
 
         if isinstance(t, Linkify):
@@ -1156,35 +1191,7 @@ def compile_transforms(
             continue
 
         if isinstance(t, DropForeignNamespaces):
-            on_hook = t.callback
-            on_report = t.report
-
-            def _drop_foreign(
-                node: Node,
-                on_hook: NodeCallback | None = on_hook,
-                on_report: ReportCallback | None = on_report,
-            ) -> DecideAction:
-                name = node.name
-                if name.startswith("#") or name == "!doctype":
-                    return Decide.KEEP
-                if _is_effectively_foreign_node(node):
-                    if on_hook is not None:
-                        on_hook(node)
-                    if on_report is not None:
-                        tag = str(name).lower()
-                        on_report(f"Unsafe tag '{tag}' (foreign namespace)", node=node)
-                    return Decide.DROP
-                return Decide.KEEP
-
-            compiled.append(
-                _CompiledDecideTransform(
-                    kind="decide",
-                    selector_str="*",
-                    selector=None,
-                    all_nodes=True,
-                    callback=_drop_foreign,
-                )
-            )
+            compiled.append(_compile_drop_foreign_namespaces_transform(t))
             continue
 
         if isinstance(t, DropAttrs):
