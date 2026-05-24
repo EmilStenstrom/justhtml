@@ -36,13 +36,17 @@ class HTMLContext(str, Enum):
     URL = "url"
 
 
+def _escape_html_chars(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _escape_text(text: str | None) -> str:
     if not text:
         return ""
     if "&" not in text and "<" not in text and ">" not in text:
         return text
     # Minimal, but matches html5lib serializer expectations in core cases.
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return _escape_html_chars(text)
 
 
 def _validate_serializable_name(name: str, pattern: re.Pattern[str], kind: str) -> str:
@@ -181,7 +185,7 @@ def _escape_attr_value(value: str | None, quote_char: str) -> str:
         return ""
     if "&" not in value and "<" not in value and ">" not in value and quote_char not in value:
         return value
-    escaped = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    escaped = _escape_html_chars(value)
     if quote_char == '"':
         return escaped.replace('"', "&quot;")
     return escaped.replace("'", "&#39;")
