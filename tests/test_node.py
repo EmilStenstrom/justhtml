@@ -1,13 +1,7 @@
 import unittest
 
 from justhtml import JustHTML
-from justhtml.node import (
-    Comment,
-    Document,
-    Element,
-    Node,
-    Template,
-    Text,
+from justhtml.markdown import (
     _markdown_backtick_fence,
     _markdown_code_span,
     _markdown_escape_line_start,
@@ -15,6 +9,14 @@ from justhtml.node import (
     _markdown_thematic_or_setext_line,
     _MarkdownBuilder,
     _to_markdown_walk,
+)
+from justhtml.node import (
+    Comment,
+    Document,
+    Element,
+    Node,
+    Template,
+    Text,
 )
 from justhtml.sanitize import DEFAULT_POLICY, SanitizationPolicy
 
