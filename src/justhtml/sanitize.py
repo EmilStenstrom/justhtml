@@ -1619,27 +1619,27 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     # Historically we allow a child element to inherit _source_html from an
     # ancestor container; keep that behavior even though we sanitize a clone.
     if policy.disallowed_tag_handling == "escape":
-        root_source_html = getattr(node, "_source_html", None)
-        if root_source_html:
-            from .node import Template  # noqa: PLC0415
+        from .node import Node, Template  # noqa: PLC0415
 
-            stack: list[Any] = [node]
+        root_source_html = node._source_html if isinstance(node, Node) else None
+        if root_source_html:
+            stack: list[Node] = [node]
             while stack:
                 current = stack.pop()
-                current_source_html = getattr(current, "_source_html", None) or root_source_html
+                current_source_html = current._source_html or root_source_html
 
-                children = getattr(current, "children", None) or ()
+                children = current.children or ()
                 for child in children:
                     # Text does not have _source_html.
-                    if getattr(child, "name", "") == "#text":
+                    if not isinstance(child, Node):
                         continue
-                    if getattr(child, "_source_html", None) is None:
+                    if child._source_html is None:
                         child._source_html = current_source_html
                     stack.append(child)
 
                 if type(current) is Template and current.template_content is not None:
                     tc = current.template_content
-                    if getattr(tc, "_source_html", None) is None:
+                    if tc._source_html is None:
                         tc._source_html = current_source_html
                     stack.append(tc)
 
