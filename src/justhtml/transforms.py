@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 from .constants import HTML_FORMATTING_SPACE_CHARACTERS, HTML_SPACE_CHARACTERS, VOID_ELEMENTS
-from .linkify import LinkifyConfig, find_links_with_config
 from .node import Element, Node, Template, Text
 from .sanitize import (
     DEFAULT_POLICY,
@@ -32,6 +31,7 @@ from .sanitize_url import _sanitize_url_sink_value, _url_sink_kind_for_attr
 from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits, SelectorMatcher, parse_selector
 from .serialize import serialize_end_tag, serialize_start_tag
 from .tokens import ParseError
+from .transforms_linkify import CompiledLinkifyTransform, apply_linkify_transform, compile_linkify_transform
 from .transforms_spec import (
     AllowlistAttrs,
     AllowStyleAttrs,
@@ -270,15 +270,6 @@ class _CompiledSelectorTransform:
 
 
 @dataclass(frozen=True, slots=True)
-class _CompiledLinkifyTransform:
-    kind: Literal["linkify"]
-    skip_tags: frozenset[str]
-    config: LinkifyConfig
-    callback: NodeCallback | None
-    report: ReportCallback | None
-
-
-@dataclass(frozen=True, slots=True)
 class _CompiledEditDocumentTransform:
     kind: Literal["edit_document"]
     callback: NodeCallback
@@ -445,7 +436,7 @@ CompiledTransform = (
     | _CompiledEditAttrsTransform
     | _CompiledEditAttrsChain
     | _CompiledStripInvisibleUnicodeTransform
-    | _CompiledLinkifyTransform
+    | CompiledLinkifyTransform
     | _CompiledCollapseWhitespaceTransform
     | _CompiledPruneEmptyTransform
     | _CompiledEditDocumentTransform
@@ -1340,16 +1331,6 @@ def _compile_selector_transform(
     )
 
 
-def _compile_linkify_transform(t: Linkify) -> _CompiledLinkifyTransform:
-    return _CompiledLinkifyTransform(
-        kind="linkify",
-        skip_tags=t.skip_tags,
-        config=LinkifyConfig(fuzzy_ip=t.fuzzy_ip, extra_tlds=t.extra_tlds),
-        callback=t.callback,
-        report=t.report,
-    )
-
-
 def _compile_collapse_whitespace_transform(t: CollapseWhitespace) -> _CompiledCollapseWhitespaceTransform:
     return _CompiledCollapseWhitespaceTransform(
         kind="collapse_whitespace",
@@ -1545,7 +1526,7 @@ def compile_transforms(
             continue
 
         if isinstance(t, Linkify):
-            compiled.append(_compile_linkify_transform(t))
+            compiled.append(compile_linkify_transform(t))
             continue
 
         if isinstance(t, CollapseWhitespace):
@@ -1674,7 +1655,7 @@ def apply_compiled_transforms(
                 return serialize_end_tag(name)
 
             linkify_skip_tags: frozenset[str] = frozenset().union(
-                *(t.skip_tags for t in walk_transforms if isinstance(t, _CompiledLinkifyTransform))
+                *(t.skip_tags for t in walk_transforms if isinstance(t, CompiledLinkifyTransform))
             )
             whitespace_skip_tags: frozenset[str] = frozenset().union(
                 *(t.skip_tags for t in walk_transforms if isinstance(t, _CompiledCollapseWhitespaceTransform))
@@ -2021,45 +2002,17 @@ def apply_compiled_transforms(
                         # Linkify
                         if k == "linkify":
                             if is_text and not skip_linkify:
-                                linkify_text = str(node.data or "")
-                                if linkify_text:
-                                    matches = find_links_with_config(linkify_text, t.config)
-                                    if matches:
-                                        if t.callback is not None:
-                                            t.callback(node)
-                                        if t.report is not None:
-                                            t.report(
-                                                f"Linkified {len(matches)} link(s) in text node",
-                                                node=node,
-                                            )
-                                        ns = parent.namespace or "html"
-                                        replacement: list[Any] = []
-
-                                        cursor = 0
-                                        for m in matches:
-                                            if m.start > cursor:
-                                                txt = Text(linkify_text[cursor : m.start])
-                                                _mark_start(txt, idx + 1)
-                                                txt.parent = parent
-                                                replacement.append(txt)
-
-                                            a = Element("a", {"href": m.href}, ns)
-                                            a.append_child(Text(m.text))
-                                            _mark_start(a, idx + 1)
-                                            a.parent = parent
-                                            replacement.append(a)
-                                            cursor = m.end
-
-                                        if cursor < len(linkify_text):
-                                            tail = Text(linkify_text[cursor:])
-                                            _mark_start(tail, idx + 1)
-                                            tail.parent = parent
-                                            replacement.append(tail)
-
-                                        children[i : i + 1] = replacement
-                                        node.parent = None
-                                        changed = True
-                                        break
+                                changed = apply_linkify_transform(
+                                    parent=parent,
+                                    node=node,
+                                    children=children,
+                                    child_index=i,
+                                    transform_index=idx,
+                                    transform=t,
+                                    mark_start=_mark_start,
+                                )
+                                if changed:
+                                    break
                             continue
 
                         # Decide
@@ -2367,7 +2320,7 @@ def apply_compiled_transforms(
                     _CompiledEditAttrsTransform,
                     _CompiledEditAttrsChain,
                     _CompiledStripInvisibleUnicodeTransform,
-                    _CompiledLinkifyTransform,
+                    CompiledLinkifyTransform,
                     _CompiledCollapseWhitespaceTransform,
                     _CompiledDropCommentsTransform,
                     _CompiledDropDoctypeTransform,
