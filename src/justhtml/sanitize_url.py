@@ -24,6 +24,22 @@ UrlSinkKind = Literal["url", "srcset", "comma_or_space_list", "space_list", "met
 
 
 @dataclass(frozen=True, slots=True)
+class UrlSink:
+    kind: UrlSinkKind
+    tag: str
+    attr: str
+    guard_attr: str | None = None
+    guard_values: Collection[str] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "tag", str(self.tag).lower())
+        object.__setattr__(self, "attr", str(self.attr).lower())
+        if self.guard_attr is not None:
+            object.__setattr__(self, "guard_attr", str(self.guard_attr).lower())
+        object.__setattr__(self, "guard_values", frozenset(str(value).lower() for value in self.guard_values))
+
+
+@dataclass(frozen=True, slots=True)
 class UrlProxy:
     url: str
     param: str = "url"
@@ -607,34 +623,77 @@ def _extract_meta_refresh_url(value: str) -> tuple[str, str] | None:
     return prefix.strip(), candidate
 
 
-_URL_ATTR_SINK_KINDS: Mapping[str, UrlSinkKind] = {
-    "srcset": "srcset",
-    "imagesrcset": "srcset",
-    "archive": "comma_or_space_list",
-    "profile": "comma_or_space_list",
-    "ping": "space_list",
-    "attributionsrc": "space_list",
+_URL_BEARING_PARAM_NAMES: frozenset[str] = frozenset(
+    {
+        "code",
+        "codebase",
+        "data",
+        "filename",
+        "href",
+        "movie",
+        "src",
+        "url",
+    }
+)
+
+_URL_SINKS: tuple[UrlSink, ...] = (
+    UrlSink(kind="url", tag="*", attr="href"),
+    UrlSink(kind="url", tag="*", attr="icon"),
+    UrlSink(kind="url", tag="*", attr="dynsrc"),
+    UrlSink(kind="url", tag="*", attr="lowsrc"),
+    UrlSink(kind="url", tag="*", attr="src"),
+    UrlSink(kind="srcset", tag="*", attr="srcset"),
+    UrlSink(kind="srcset", tag="*", attr="imagesrcset"),
+    UrlSink(kind="url", tag="*", attr="poster"),
+    UrlSink(kind="url", tag="*", attr="action"),
+    UrlSink(kind="url", tag="*", attr="formaction"),
+    UrlSink(kind="url", tag="*", attr="data"),
+    UrlSink(kind="url", tag="*", attr="cite"),
+    UrlSink(kind="url", tag="*", attr="background"),
+    UrlSink(kind="url", tag="*", attr="classid"),
+    UrlSink(kind="url", tag="*", attr="code"),
+    UrlSink(kind="url", tag="*", attr="codebase"),
+    UrlSink(kind="url", tag="*", attr="longdesc"),
+    UrlSink(kind="url", tag="*", attr="manifest"),
+    UrlSink(kind="url", tag="*", attr="object"),
+    UrlSink(kind="comma_or_space_list", tag="*", attr="profile"),
+    UrlSink(kind="url", tag="*", attr="usemap"),
+    UrlSink(kind="comma_or_space_list", tag="*", attr="archive"),
+    UrlSink(kind="space_list", tag="*", attr="ping"),
+    UrlSink(kind="space_list", tag="*", attr="attributionsrc"),
+    UrlSink(
+        kind="meta_refresh",
+        tag="meta",
+        attr="content",
+        guard_attr="http-equiv",
+        guard_values=("refresh",),
+    ),
+    UrlSink(
+        kind="url",
+        tag="param",
+        attr="value",
+        guard_attr="name",
+        guard_values=_URL_BEARING_PARAM_NAMES,
+    ),
+)
+
+_URL_SINKS_BY_ATTR: Mapping[str, tuple[UrlSink, ...]] = {
+    attr: tuple(sink for sink in _URL_SINKS if sink.attr == attr) for attr in {sink.attr for sink in _URL_SINKS}
 }
 
 
 def _url_sink_kind_for_attr(*, tag: str, attr: str, attrs: Mapping[str, str | None]) -> UrlSinkKind | None:
-    kind = _URL_ATTR_SINK_KINDS.get(attr)
-    if kind is not None:
-        return kind
-    if attr in _URL_LIKE_ATTRS:
-        return "url"
-    if tag == "param" and attr == "value":
+    for sink in _URL_SINKS_BY_ATTR.get(attr, ()):
+        if sink.tag != "*" and sink.tag != tag:
+            continue
+        if sink.guard_attr is None:
+            return sink.kind
         for key, raw_value in attrs.items():
             lower_key = key if key.islower() else key.lower()
-            if lower_key == "name" and raw_value is not None:
-                if str(raw_value).strip().lower() in _URL_BEARING_PARAM_NAMES:
-                    return "url"
+            if lower_key == sink.guard_attr and raw_value is not None:
+                if str(raw_value).strip().lower() in sink.guard_values:
+                    return sink.kind
                 break
-    if tag == "meta" and attr == "content":
-        for key, raw_value in attrs.items():
-            lower_key = key if key.islower() else key.lower()
-            if lower_key == "http-equiv" and raw_value is not None and str(raw_value).strip().lower() == "refresh":
-                return "meta_refresh"
     return None
 
 
@@ -689,49 +748,7 @@ def _sanitize_url_sink_value(
     )
 
 
-_URL_LIKE_ATTRS: frozenset[str] = frozenset(
-    {
-        # Common URL-valued attributes.
-        "href",
-        "icon",
-        "dynsrc",
-        "lowsrc",
-        "src",
-        "srcset",
-        "imagesrcset",
-        "poster",
-        "action",
-        "formaction",
-        "data",
-        "cite",
-        "background",
-        "classid",
-        "code",
-        "codebase",
-        "longdesc",
-        "manifest",
-        "object",
-        "profile",
-        "usemap",
-        # Can trigger requests/pings.
-        "archive",
-        "ping",
-        "attributionsrc",
-    }
-)
-
-_URL_BEARING_PARAM_NAMES: frozenset[str] = frozenset(
-    {
-        "code",
-        "codebase",
-        "data",
-        "filename",
-        "href",
-        "movie",
-        "src",
-        "url",
-    }
-)
+_URL_LIKE_ATTRS: frozenset[str] = frozenset(sink.attr for sink in _URL_SINKS if sink.guard_attr is None)
 
 
 def _url_rule_signature(rule: UrlRule) -> tuple[Any, ...]:

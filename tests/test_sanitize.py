@@ -148,6 +148,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         assert _url_sink_kind_for_attr(tag="param", attr="value", attrs={"name": None}) is None
         assert _url_sink_kind_for_attr(tag="meta", attr="content", attrs={"HTTP-EQUIV": "refresh"}) == "meta_refresh"
         assert _url_sink_kind_for_attr(tag="meta", attr="content", attrs={"http-equiv": "content-type"}) is None
+        assert _url_sink_kind_for_attr(tag="div", attr="content", attrs={"http-equiv": "refresh"}) is None
 
     def test_url_authority_helper_edge_cases(self) -> None:
         assert _raw_authority_host("[2001:db8::1]:443") == "2001:db8::1"
