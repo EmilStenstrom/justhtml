@@ -13,11 +13,11 @@ from .constants import (
     FOREIGN_ATTRIBUTE_ADJUSTMENTS,
     HTML_FORMATTING_SPACE_CHARACTERS,
     HTML_SPACE_CHARACTERS,
-    HTML_SPACE_OR_TAG_END_CHARACTERS,
     SPECIAL_ELEMENTS,
     VOID_ELEMENTS,
     WHITESPACE_PRESERVING_ELEMENTS,
 )
+from .rawtext import neutralize_rawtext_end_tag_sequences
 
 if TYPE_CHECKING:
     from .node import NodeType
@@ -92,36 +92,7 @@ def _serialize_comment_data(data: str | None) -> str:
 
 
 def _neutralize_rawtext_end_tag_sequences(text: str, tag_name: str) -> str:
-    if not text:
-        return text
-
-    lower_text = text.lower()
-    needle = f"</{tag_name}"
-    needle_len = len(needle)
-    out: list[str] = []
-    start = 0
-    changed = False
-
-    while True:
-        idx = lower_text.find(needle, start)
-        if idx == -1:
-            break
-
-        boundary = idx + needle_len
-        if boundary == len(text) or text[boundary] in HTML_SPACE_OR_TAG_END_CHARACTERS:
-            out.append(text[start:idx])
-            out.append("&lt;")
-            start = idx + 1
-            changed = True
-            continue
-
-        start = idx + 1
-
-    if not changed:
-        return text
-
-    out.append(text[start:])
-    return "".join(out)
+    return neutralize_rawtext_end_tag_sequences(text, tag_name)[0]
 
 
 def _serialize_text_for_parent(text: str | None, parent_name: str | None) -> str:

@@ -15,7 +15,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import parse_qsl, quote, urlsplit
 
-from .constants import HTML_SPACE_OR_TAG_END_CHARACTERS
+from .rawtext import neutralize_rawtext_end_tag_sequences
 from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits
 from .tokens import ParseError
 
@@ -670,36 +670,7 @@ _RAWTEXT_SERIALIZATION_ELEMENTS: frozenset[str] = frozenset({"script", "style"})
 
 
 def _neutralize_rawtext_end_tag_sequences(text: str, tag_name: str) -> tuple[str, bool]:
-    if not text:
-        return text, False
-
-    lower_text = text.lower()
-    needle = f"</{tag_name}"
-    needle_len = len(needle)
-    out: list[str] = []
-    start = 0
-    changed = False
-
-    while True:
-        idx = lower_text.find(needle, start)
-        if idx == -1:
-            break
-
-        boundary = idx + needle_len
-        if boundary == len(text) or text[boundary] in HTML_SPACE_OR_TAG_END_CHARACTERS:
-            out.append(text[start:idx])
-            out.append("&lt;")
-            start = idx + 1
-            changed = True
-            continue
-
-        start = idx + 1
-
-    if not changed:
-        return text, False
-
-    out.append(text[start:])
-    return "".join(out), True
+    return neutralize_rawtext_end_tag_sequences(text, tag_name)
 
 
 def _record_rawtext_security_issue(
