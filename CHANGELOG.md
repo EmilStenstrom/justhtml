@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- (Severity: Low) Treat MathML `altimg` and `cdgroup` attributes as URL-bearing attributes that require explicit `UrlPolicy` rules. Previously, custom MathML policies could allow fallback-image and content-dictionary group URIs as ordinary text and preserve external or script-like targets without URL validation.
 - (Severity: Low) Reject ambiguous `UrlProxy.url` values with fragments or pre-existing proxy query parameters. Previously, proxy mode could produce rewritten URLs such as `/proxy?url=attacker&url=validated`, leaving proxy handlers that read the first parameter with an unsafe target.
 - (Severity: Low) Reject noncanonical URL hosts when host allowlists are enabled, including percent-encoded host labels, non-ASCII host text, and legacy numeric IPv4 forms. Previously, values such as `https://%65xample.com/x` or `https://2130706433/x` could be allowlisted under Python's raw hostname while browsers navigate to a different canonical host.
 - (Severity: Low) Reject whitespace inside URL authorities when host allowlists are enabled. Previously, host checks normalized whitespace before parsing, so malformed values such as `https://tru sted.example/x` could pass an `allowed_hosts={"trusted.example"}` rule.

@@ -1472,6 +1472,58 @@ class TestTransforms(unittest.TestCase):
         assert untrusted.attrs == {}
         assert script.attrs == {}
 
+    def test_dropurlattrs_sanitizes_mathml_fallback_uri_attrs(self) -> None:
+        url_policy = UrlPolicy(
+            default_handling="allow",
+            allow_rules={
+                ("math", "altimg"): UrlRule(
+                    allowed_schemes={"https"},
+                    allowed_hosts={"trusted.example"},
+                ),
+                ("math", "cdgroup"): UrlRule(
+                    allowed_schemes={"https"},
+                    allowed_hosts={"trusted.example"},
+                ),
+            },
+        )
+
+        root = DocumentFragment()
+        trusted = Element(
+            "math",
+            {
+                "altimg": "https://trusted.example/fallback.png",
+                "cdgroup": "https://trusted.example/cdgroup.xml",
+            },
+            "math",
+        )
+        untrusted = Element(
+            "math",
+            {
+                "altimg": "https://evil.example/fallback.png",
+                "cdgroup": "https://evil.example/cdgroup.xml",
+            },
+            "math",
+        )
+        script = Element(
+            "math",
+            {
+                "altimg": "javascript:alert(1)",
+                "cdgroup": "javascript:alert(1)",
+            },
+            "math",
+        )
+        root.append_child(trusted)
+        root.append_child(untrusted)
+        root.append_child(script)
+
+        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
+        assert trusted.attrs == {
+            "altimg": "https://trusted.example/fallback.png",
+            "cdgroup": "https://trusted.example/cdgroup.xml",
+        }
+        assert untrusted.attrs == {}
+        assert script.attrs == {}
+
     def test_dropurlattrs_sanitizes_meta_refresh_content_when_rule_present(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",

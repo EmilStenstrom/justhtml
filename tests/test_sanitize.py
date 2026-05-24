@@ -4307,6 +4307,66 @@ class TestSanitizeUnsafe(unittest.TestCase):
         assert untrusted == "<math><csymbol>x</csymbol></math>"
         assert script == "<math><csymbol>x</csymbol></math>"
 
+    def test_sanitize_mathml_fallback_uri_attrs_use_url_policy(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"math"},
+            allowed_attributes={"math": {"altimg", "cdgroup"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("math", "altimg"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    ),
+                    ("math", "cdgroup"): UrlRule(
+                        allowed_schemes={"https"},
+                        allowed_hosts={"trusted.example"},
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        trusted = JustHTML(
+            '<math altimg="https://trusted.example/fallback.png" '
+            'cdgroup="https://trusted.example/cdgroup.xml"></math>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+        untrusted = JustHTML(
+            '<math altimg="https://evil.example/fallback.png" cdgroup="https://evil.example/cdgroup.xml"></math>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+        script = JustHTML(
+            '<math altimg="javascript:alert(1)" cdgroup="javascript:alert(1)"></math>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert trusted == (
+            '<math altimg="https://trusted.example/fallback.png" cdgroup="https://trusted.example/cdgroup.xml"></math>'
+        )
+        assert untrusted == "<math></math>"
+        assert script == "<math></math>"
+
+    def test_sanitize_mathml_fallback_uri_attrs_require_url_rules(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"math"},
+            allowed_attributes={"math": {"altimg", "cdgroup"}},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            '<math altimg="https://evil.example/fallback.png" cdgroup="https://evil.example/cdgroup.xml"></math>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == "<math></math>"
+
     def test_sanitize_html_namespace_svg_url_function_attr_is_dropped_without_rule(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"svg", "rect"},

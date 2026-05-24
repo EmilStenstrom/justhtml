@@ -1583,6 +1583,8 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
         "href",
         "xlink:href",
         "xml:base",
+        "altimg",
+        "cdgroup",
         "definitionurl",
         "icon",
         "dynsrc",
