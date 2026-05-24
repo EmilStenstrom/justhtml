@@ -301,12 +301,12 @@ Sanitizes the in-memory DOM tree using the same sanitizer as construction-time s
 `Sanitize(...)` is implemented as an explicit pipeline of smaller, focused transforms (like `DropComments`, `DropAttrs`, `DropUrlAttrs`, …).
 This makes it easier to audit: the sanitizer behavior is a readable list of operations rather than a monolithic “magic” pass.
 
-The `Sanitize(...)` pipeline compiles to this ordered list of transforms (some may be disabled by policy):
+The `Sanitize(...)` pipeline follows this ordered set of operations (some may be disabled by policy):
 
 - `Drop("tag1, tag2, ...", callback=..., report=...)` — Drops dangerous content containers like `script`/`style` (drops the *entire* subtree).
 - `DropComments(callback=..., report=...)` — Drops comments.
 - `DropDoctype(callback=..., report=...)` — Drops doctypes.
-- `DropForeignNamespaces(callback=..., report=...)` — Drops elements in foreign namespaces (SVG/MathML).
+- Foreign namespace dropping — equivalent to `DropForeignNamespaces(callback=..., report=...)`; `Sanitize(...)` always drops SVG/MathML and other non-HTML namespace content.
 - `Unwrap(":not(allowed_tags)", callback=..., report=...)` — Unwraps disallowed elements (keeps their children) for non-container tags.
 - `DropAttrs("*", patterns=("on*", "srcdoc", "*:*"), callback=..., report=...)` — Drops dangerous attributes (`on*`, `srcdoc`, and namespaced attributes like `xlink:href`).
 - `AllowlistAttrs("*", allowed_attributes=..., callback=..., report=...)` — Applies tag/attribute allowlists.
@@ -534,6 +534,8 @@ Drops doctype nodes (`!doctype`).
 ### `DropForeignNamespaces(enabled=True, callback=None, report=None)`
 
 Drops elements in non-HTML namespaces (for example SVG/MathML).
+
+This is useful for custom transform pipelines that want HTML-only output without applying the full `Sanitize(...)` operation.
 
 If provided, `callback(node)` / `report(msg, node=...)` is called when a foreign element is dropped.
 
