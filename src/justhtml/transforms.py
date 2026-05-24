@@ -590,7 +590,7 @@ def _split_into_top_level_stages(specs: list[TransformSpec] | tuple[TransformSpe
 
 def _selector_limits_from_flattened(flattened: list[Transform]) -> SelectorLimits:
     for t in reversed(flattened):
-        if not getattr(t, "enabled", False):
+        if not t.enabled:
             continue
         if isinstance(t, Sanitize):
             return (t.policy or DEFAULT_POLICY).selector_limits
@@ -601,9 +601,8 @@ def _selector_limits_from_compiled(
     compiled: list[CompiledTransform] | tuple[CompiledTransform, ...],
 ) -> SelectorLimits:
     for t in reversed(compiled):
-        policy = getattr(t, "policy", None)
-        if isinstance(policy, SanitizationPolicy):
-            return policy.selector_limits
+        if isinstance(t, _CompiledSanitizeRawtextPolicy):
+            return t.policy.selector_limits
     return DEFAULT_SELECTOR_LIMITS
 
 
@@ -1529,6 +1528,10 @@ def compile_transforms(
         return []
 
     flattened = _iter_flattened_transforms(transforms)
+    for t in flattened:
+        if not isinstance(t, _TRANSFORM_CLASSES):
+            raise TypeError(f"Unsupported transform: {type(t).__name__}")
+
     selector_limits = _selector_limits or _selector_limits_from_flattened(flattened)
 
     def _parse_selector(selector: str) -> ParsedSelector:
@@ -1562,8 +1565,6 @@ def compile_transforms(
     compiled: list[CompiledTransform] = []
 
     for t in flattened:
-        if not isinstance(t, _TRANSFORM_CLASSES):
-            raise TypeError(f"Unsupported transform: {type(t).__name__}")
         if not t.enabled:
             continue
         if isinstance(t, SetAttrs):
