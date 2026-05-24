@@ -45,16 +45,18 @@ def _escape_text(text: str | None) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _validate_serializable_tag_name(name: str) -> str:
-    if not _SERIALIZABLE_TAG_NAME_RE.match(name):
-        raise ValueError(f"Unsafe element name for serialization: {name!r}")
+def _validate_serializable_name(name: str, pattern: re.Pattern[str], kind: str) -> str:
+    if not pattern.match(name):
+        raise ValueError(f"Unsafe {kind} name for serialization: {name!r}")
     return name
+
+
+def _validate_serializable_tag_name(name: str) -> str:
+    return _validate_serializable_name(name, _SERIALIZABLE_TAG_NAME_RE, "element")
 
 
 def _validate_serializable_attr_name(name: str) -> str:
-    if not _SERIALIZABLE_ATTR_NAME_RE.match(name):
-        raise ValueError(f"Unsafe attribute name for serialization: {name!r}")
-    return name
+    return _validate_serializable_name(name, _SERIALIZABLE_ATTR_NAME_RE, "attribute")
 
 
 def _serialize_comment_data(data: str | None) -> str:
