@@ -80,6 +80,7 @@ async function installJusthtmlFromLocalRepo(pyodideInstance) {
 		"stream.py",
 		"transforms.py",
 		"transforms_compile.py",
+		"transforms_runtime.py",
 		"transforms_linkify.py",
 		"transforms_spec.py",
 		"tokenizer.py",
