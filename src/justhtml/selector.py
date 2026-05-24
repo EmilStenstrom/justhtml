@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
+from .constants import HTML_SPACE_CHARACTERS
+
 if TYPE_CHECKING:
     from .node import NodeType, QueryMatch
 
@@ -90,7 +92,7 @@ class SelectorTokenizer:
         return ch
 
     def _skip_whitespace(self) -> None:
-        while self.pos < self.length and self.selector[self.pos] in " \t\n\r\f":
+        while self.pos < self.length and self.selector[self.pos] in HTML_SPACE_CHARACTERS:
             self.pos += 1
 
     def _is_name_start(self, ch: str) -> bool:
@@ -143,7 +145,7 @@ class SelectorTokenizer:
         start = self.pos
         while self.pos < self.length:
             ch = self.selector[self.pos]
-            if ch in " \t\n\r\f]":
+            if ch in HTML_SPACE_CHARACTERS + "]":
                 break
             self.pos += 1
         return self.selector[start : self.pos]
@@ -156,7 +158,7 @@ class SelectorTokenizer:
             ch = self.selector[self.pos]
 
             # Skip whitespace but remember it for combinator detection
-            if ch in " \t\n\r\f":
+            if ch in HTML_SPACE_CHARACTERS:
                 pending_whitespace = True
                 self._skip_whitespace()
                 continue

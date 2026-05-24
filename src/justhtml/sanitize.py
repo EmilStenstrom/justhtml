@@ -15,6 +15,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import parse_qsl, quote, urlsplit
 
+from .constants import HTML_SPACE_OR_TAG_END_CHARACTERS
 from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits
 from .tokens import ParseError
 
@@ -685,7 +686,7 @@ def _neutralize_rawtext_end_tag_sequences(text: str, tag_name: str) -> tuple[str
             break
 
         boundary = idx + needle_len
-        if boundary == len(text) or text[boundary] in " \t\n\r\f/>":
+        if boundary == len(text) or text[boundary] in HTML_SPACE_OR_TAG_END_CHARACTERS:
             out.append(text[start:idx])
             out.append("&lt;")
             start = idx + 1

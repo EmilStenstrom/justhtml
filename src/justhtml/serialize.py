@@ -13,6 +13,7 @@ from .constants import (
     FOREIGN_ATTRIBUTE_ADJUSTMENTS,
     HTML_FORMATTING_SPACE_CHARACTERS,
     HTML_SPACE_CHARACTERS,
+    HTML_SPACE_OR_TAG_END_CHARACTERS,
     SPECIAL_ELEMENTS,
     VOID_ELEMENTS,
     WHITESPACE_PRESERVING_ELEMENTS,
@@ -107,7 +108,7 @@ def _neutralize_rawtext_end_tag_sequences(text: str, tag_name: str) -> str:
             break
 
         boundary = idx + needle_len
-        if boundary == len(text) or text[boundary] in HTML_SPACE_CHARACTERS + "/>":
+        if boundary == len(text) or text[boundary] in HTML_SPACE_OR_TAG_END_CHARACTERS:
             out.append(text[start:idx])
             out.append("&lt;")
             start = idx + 1

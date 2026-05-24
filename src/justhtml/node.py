@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, TypeAlias, cast
 from urllib.parse import quote
 
+from .constants import HTML_SPACE_CHARACTERS
 from .serialize import to_html
 
 if TYPE_CHECKING:
@@ -191,7 +192,7 @@ class _MarkdownBuilder:
         # we still need to emit a single separating space.
         if self._pending_space:
             first = s[0]
-            if first not in " \t\n\r\f" and self._buf and self._newline_count == 0:
+            if first not in HTML_SPACE_CHARACTERS and self._buf and self._newline_count == 0:
                 self._buf.append(" ")
             self._pending_space = False
 
@@ -226,7 +227,7 @@ class _MarkdownBuilder:
         length = len(s)
         while index < length:
             ch = s[index]
-            if ch in " \t\n\r\f":
+            if ch in HTML_SPACE_CHARACTERS:
                 self._pending_space = True
                 index += 1
                 continue

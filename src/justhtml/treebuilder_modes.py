@@ -9,6 +9,7 @@ from .constants import (
     FORMAT_MARKER,
     FORMATTING_ELEMENTS,
     HEADING_ELEMENTS,
+    HTML_SPACE_CHARACTERS,
 )
 from .node import Comment, Node, Template
 from .tokens import AnyToken, CharacterTokens, CommentToken, DoctypeToken, EOFToken, Tag, TokenSinkResult
@@ -96,7 +97,7 @@ class TreeBuilderModesMixin:
             return ("reprocess", InsertionMode.BEFORE_HEAD, token)
 
         if isinstance(token, CharacterTokens):
-            stripped = token.data.lstrip("\t\n\f\r ")
+            stripped = token.data.lstrip(HTML_SPACE_CHARACTERS)
             if len(stripped) != len(token.data):
                 token = CharacterTokens(stripped)
 
@@ -154,7 +155,7 @@ class TreeBuilderModesMixin:
                 return None
             data = token.data or ""
             i = 0
-            while i < len(data) and data[i] in "\t\n\f\r ":
+            while i < len(data) and data[i] in HTML_SPACE_CHARACTERS:
                 i += 1
             leading_ws = data[:i]
             remaining = data[i:]
@@ -1244,7 +1245,7 @@ class TreeBuilderModesMixin:
         if isinstance(token, CharacterTokens):
             data = token.data or ""
             # Find first non-whitespace character
-            stripped = data.lstrip(" \t\n\r\f")
+            stripped = data.lstrip(HTML_SPACE_CHARACTERS)
 
             if len(stripped) < len(data):
                 # Has leading whitespace - insert it
@@ -1822,7 +1823,7 @@ class TreeBuilderModesMixin:
         # Per HTML5 spec §13.2.6.4.16: In frameset insertion mode
         if isinstance(token, CharacterTokens):
             # Only whitespace characters allowed; ignore all others
-            whitespace = "".join(ch for ch in token.data if ch in "\t\n\f\r ")
+            whitespace = "".join(ch for ch in token.data if ch in HTML_SPACE_CHARACTERS)
             if whitespace:
                 self._append_text(whitespace)
             return None
@@ -1865,8 +1866,8 @@ class TreeBuilderModesMixin:
         if isinstance(token, CharacterTokens):
             # Only whitespace characters allowed; non-whitespace is a parse error.
             data = token.data or ""
-            whitespace = "".join(ch for ch in data if ch in "\t\n\f\r ")
-            if any(ch not in "\t\n\f\r " for ch in data):
+            whitespace = "".join(ch for ch in data if ch in HTML_SPACE_CHARACTERS)
+            if any(ch not in HTML_SPACE_CHARACTERS for ch in data):
                 self._parse_error("unexpected-token-after-frameset")
             if whitespace:
                 self._append_text(whitespace)

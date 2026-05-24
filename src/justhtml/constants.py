@@ -6,6 +6,7 @@ from typing import Final
 
 HTML_SPACE_CHARACTERS: Final = "\t\n\f\r "
 HTML_FORMATTING_SPACE_CHARACTERS: Final = "\t\n\f\r"
+HTML_SPACE_OR_TAG_END_CHARACTERS: Final = HTML_SPACE_CHARACTERS + "/>"
 
 # HTML5 spec: Foreign attribute adjustments for SVG/MathML
 # Maps lowercase attribute names to (prefix, local_name, namespace_url)
