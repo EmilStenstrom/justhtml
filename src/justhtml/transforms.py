@@ -1480,6 +1480,46 @@ def _compile_drop_doctype_transform(t: DropDoctype) -> _CompiledDropDoctypeTrans
     )
 
 
+def _append_compiled_transform(compiled: list[CompiledTransform], item: CompiledTransform) -> None:
+    # Optimization: fuse adjacent EditAttrs transforms that target the same
+    # selector into a flat chain. This avoids nested closure overhead.
+    if compiled and isinstance(item, _CompiledEditAttrsTransform):
+        prev = compiled[-1]
+        if isinstance(prev, _CompiledEditAttrsChain):
+            if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
+                prev.funcs.append(item.func)
+                return
+        if isinstance(prev, _CompiledEditAttrsTransform):
+            if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
+                compiled[-1] = _CompiledEditAttrsChain(
+                    selector_str=prev.selector_str,
+                    selector=prev.selector,
+                    all_nodes=prev.all_nodes,
+                    funcs=[prev.func, item.func],
+                )
+                return
+
+    # Optimization: fuse adjacent Decide transforms that target the same
+    # selector into a flat chain. This avoids repeated dispatch overhead.
+    if compiled and isinstance(item, _CompiledDecideTransform):
+        prev = compiled[-1]
+        if isinstance(prev, _CompiledDecideChain):
+            if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
+                prev.callbacks.append(item.callback)
+                return
+        if isinstance(prev, _CompiledDecideTransform):
+            if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
+                compiled[-1] = _CompiledDecideChain(
+                    selector_str=prev.selector_str,
+                    selector=prev.selector,
+                    all_nodes=prev.all_nodes,
+                    callbacks=[prev.callback, item.callback],
+                )
+                return
+
+    compiled.append(item)
+
+
 def compile_transforms(
     transforms: list[TransformSpec] | tuple[TransformSpec, ...],
     *,
@@ -1520,49 +1560,6 @@ def compile_transforms(
         return compiled_stage
 
     compiled: list[CompiledTransform] = []
-
-    def _append_compiled(item: CompiledTransform) -> None:
-        # Optimization: fuse adjacent EditAttrs transforms that target the same
-        # selector into a flat chain. This avoids nested closure overhead.
-        if compiled and isinstance(item, _CompiledEditAttrsTransform):
-            prev = compiled[-1]
-            # Extend existing chain
-            if isinstance(prev, _CompiledEditAttrsChain):
-                if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
-                    prev.funcs.append(item.func)
-                    return
-            # Start new chain from two single transforms
-            if isinstance(prev, _CompiledEditAttrsTransform):
-                if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
-                    compiled[-1] = _CompiledEditAttrsChain(
-                        selector_str=prev.selector_str,
-                        selector=prev.selector,
-                        all_nodes=prev.all_nodes,
-                        funcs=[prev.func, item.func],
-                    )
-                    return
-
-        # Optimization: fuse adjacent Decide transforms that target the same
-        # selector into a flat chain. This avoids repeated dispatch overhead.
-        if compiled and isinstance(item, _CompiledDecideTransform):
-            prev = compiled[-1]
-            # Extend existing chain
-            if isinstance(prev, _CompiledDecideChain):
-                if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
-                    prev.callbacks.append(item.callback)
-                    return
-            # Start new chain from two single transforms
-            if isinstance(prev, _CompiledDecideTransform):
-                if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
-                    compiled[-1] = _CompiledDecideChain(
-                        selector_str=prev.selector_str,
-                        selector=prev.selector,
-                        all_nodes=prev.all_nodes,
-                        callbacks=[prev.callback, item.callback],
-                    )
-                    return
-
-        compiled.append(item)
 
     for t in flattened:
         if not isinstance(t, _TRANSFORM_CLASSES):
@@ -1630,11 +1627,11 @@ def compile_transforms(
             continue
 
         if isinstance(t, Decide):
-            _append_compiled(_compile_decide_transform(t, _parse_selector))
+            _append_compiled_transform(compiled, _compile_decide_transform(t, _parse_selector))
             continue
 
         if isinstance(t, EditAttrs):
-            _append_compiled(_compile_edit_attrs_transform(t, _parse_selector))
+            _append_compiled_transform(compiled, _compile_edit_attrs_transform(t, _parse_selector))
             continue
 
         if isinstance(t, Linkify):
@@ -1662,19 +1659,19 @@ def compile_transforms(
             continue
 
         if isinstance(t, DropAttrs):
-            _append_compiled(_compile_drop_attrs_transform(t, _parse_selector))
+            _append_compiled_transform(compiled, _compile_drop_attrs_transform(t, _parse_selector))
             continue
 
         if isinstance(t, AllowlistAttrs):
-            _append_compiled(_compile_allowlist_attrs_transform(t, _parse_selector))
+            _append_compiled_transform(compiled, _compile_allowlist_attrs_transform(t, _parse_selector))
             continue
 
         if isinstance(t, DropUrlAttrs):
-            _append_compiled(_compile_drop_url_attrs_transform(t, _parse_selector))
+            _append_compiled_transform(compiled, _compile_drop_url_attrs_transform(t, _parse_selector))
             continue
 
         if isinstance(t, AllowStyleAttrs):
-            _append_compiled(_compile_allow_style_attrs_transform(t, _parse_selector))
+            _append_compiled_transform(compiled, _compile_allow_style_attrs_transform(t, _parse_selector))
             continue
 
         if isinstance(t, MergeAttrs):
@@ -1685,7 +1682,7 @@ def compile_transforms(
 
         if isinstance(t, Sanitize):
             for sub_t in _compile_sanitize_transform(t):
-                _append_compiled(sub_t)
+                _append_compiled_transform(compiled, sub_t)
             continue
 
         raise TypeError(f"Unsupported transform: {type(t).__name__}")  # pragma: no cover
