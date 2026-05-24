@@ -607,6 +607,166 @@ def _selector_limits_from_compiled(
     return DEFAULT_SELECTOR_LIMITS
 
 
+def _compile_sanitize_transform(t: Sanitize) -> list[CompiledTransform]:
+    policy = t.policy or DEFAULT_POLICY
+    compiled: list[CompiledTransform] = []
+
+    cb_sanitize = t.callback
+    rep_sanitize = t.report
+
+    def _report_unsafe(
+        msg: str,
+        *,
+        node: Any | None = None,
+        policy: SanitizationPolicy = policy,
+        rep_sanitize: ReportCallback | None = rep_sanitize,
+    ) -> None:
+        policy.handle_unsafe(msg, node=node)
+        if rep_sanitize:
+            rep_sanitize(msg, node=node)
+
+    allowed_tags = frozenset(policy.allowed_tags)
+    drop_content_tags = frozenset(policy.drop_content_tags)
+    handling = policy.disallowed_tag_handling
+
+    def _sanitize_node_decision(
+        node: Node,
+        allowed_tags: frozenset[str] = allowed_tags,
+        drop_content_tags: frozenset[str] = drop_content_tags,
+        handling: str = handling,
+        policy: SanitizationPolicy = policy,
+        cb: NodeCallback | None = cb_sanitize,
+        rep: ReportCallback | None = rep_sanitize,
+    ) -> DecideAction:
+        # This callback is used with an elements-only dispatcher; tag names
+        # produced by the tokenizer are already ASCII-lowercased. Programmatic
+        # DOM input may not be normalized, so match policy semantics
+        # case-insensitively here as well.
+        raw_tag = str(node.name)
+        tag = raw_tag if raw_tag.islower() else raw_tag.lower()
+
+        if tag in allowed_tags:
+            return DecideAction.KEEP
+
+        if tag in drop_content_tags:
+            msg = f"Unsafe tag '{tag}' (dropped content)"
+            policy.handle_unsafe(msg, node=node)
+            if cb:
+                cb(node)
+            if rep:
+                rep(msg, node=node)
+            return DecideAction.DROP
+
+        msg_unsafe = f"Unsafe tag '{tag}' (not allowed)"
+        policy.handle_unsafe(msg_unsafe, node=node)
+        if cb:
+            cb(node)
+        if rep:
+            rep(msg_unsafe, node=node)
+
+        if handling == "drop":
+            return DecideAction.DROP
+        if handling == "unwrap":
+            return DecideAction.UNWRAP
+        if handling == "escape":
+            return DecideAction.ESCAPE
+        return DecideAction.DROP  # pragma: no cover
+
+    effective_allowed_attrs = policy.allowed_attributes
+    if policy.force_link_rel:
+        new_allowed = dict(policy.allowed_attributes)
+        a_attrs = set(new_allowed.get("a", []))
+        global_attrs = set(new_allowed.get("*", []))
+
+        if "rel" not in a_attrs and "rel" not in global_attrs:
+            a_attrs.add("rel")
+            new_allowed["a"] = a_attrs
+            effective_allowed_attrs = new_allowed
+
+    cb_foreign = t.callback
+    rep_foreign = _report_unsafe
+
+    def _drop_foreign_namespace(
+        node: Node,
+        cb: NodeCallback | None = cb_foreign,
+        rep: ReportCallback = rep_foreign,
+    ) -> DecideAction:
+        if _is_effectively_foreign_node(node):
+            if cb is not None:
+                cb(node)
+            rep(f"Unsafe tag '{node.name}' (foreign namespace)", node=node)
+            return DecideAction.DROP
+        return DecideAction.KEEP
+
+    compiled.append(_CompiledDecideElementsChain(callbacks=[_drop_foreign_namespace, _sanitize_node_decision]))
+
+    if policy.strip_invisible_unicode:
+        compiled.append(
+            _CompiledStripInvisibleUnicodeTransform(
+                kind="strip_invisible_unicode",
+                callback=t.callback,
+                report=_report_unsafe,
+            )
+        )
+
+    sub_attrs: list[TransformSpec] = [
+        AllowlistAttrs(
+            selector="*",
+            allowed_attributes=dict(effective_allowed_attrs),
+            callback=t.callback,
+            report=_report_unsafe,
+        ),
+        DropUrlAttrs(
+            selector="*",
+            url_policy=policy.url_policy,
+            callback=t.callback,
+            report=_report_unsafe,
+        ),
+        AllowStyleAttrs(
+            selector="*",
+            allowed_css_properties=policy.allowed_css_properties,
+            url_policy=policy.url_policy,
+            enabled=bool(policy.allowed_css_properties),
+            callback=t.callback,
+            report=_report_unsafe,
+        ),
+        MergeAttrs(
+            tag="a",
+            attr="rel",
+            tokens=policy.force_link_rel,
+            enabled=bool(policy.force_link_rel),
+            callback=t.callback,
+            report=t.report,
+        ),
+    ]
+    compiled.extend(compile_transforms(sub_attrs, _selector_limits=policy.selector_limits))
+
+    if policy.drop_comments:
+        compiled.append(
+            _CompiledDropCommentsTransform(
+                kind="drop_comments",
+                callback=t.callback,
+                report=_report_unsafe,
+            )
+        )
+    if policy.drop_doctype:
+        compiled.append(
+            _CompiledDropDoctypeTransform(
+                kind="drop_doctype",
+                callback=t.callback,
+                report=_report_unsafe,
+            )
+        )
+
+    compiled.append(
+        _CompiledSanitizeRawtextPolicy(
+            kind="sanitize_rawtext_policy",
+            policy=policy,
+        )
+    )
+    return compiled
+
+
 def compile_transforms(
     transforms: list[TransformSpec] | tuple[TransformSpec, ...],
     *,
@@ -1485,179 +1645,8 @@ def compile_transforms(
             continue
 
         if isinstance(t, Sanitize):
-            policy = t.policy or DEFAULT_POLICY
-
-            # Wrapper to trigger policy.handle_unsafe on security findings
-            cb_sanitize = t.callback
-            rep_sanitize = t.report
-
-            def _report_unsafe(
-                msg: str,
-                *,
-                node: Any | None = None,
-                policy: SanitizationPolicy = policy,
-                rep_sanitize: ReportCallback | None = rep_sanitize,
-            ) -> None:
-                policy.handle_unsafe(msg, node=node)
-                if rep_sanitize:
-                    rep_sanitize(msg, node=node)
-
-            # Pre-calc parsing logic
-            allowed_tags = frozenset(policy.allowed_tags)
-            drop_content_tags = frozenset(policy.drop_content_tags)
-            handling = policy.disallowed_tag_handling
-
-            def _sanitize_node_decision(
-                node: Node,
-                allowed_tags: frozenset[str] = allowed_tags,
-                drop_content_tags: frozenset[str] = drop_content_tags,
-                handling: str = handling,
-                policy: SanitizationPolicy = policy,
-                cb: NodeCallback | None = cb_sanitize,
-                rep: ReportCallback | None = rep_sanitize,
-            ) -> DecideAction:
-                # This callback is used with an elements-only dispatcher; tag
-                # names produced by the tokenizer are already ASCII-lowercased.
-                # Programmatic DOM input may not be normalized, so match
-                # policy semantics case-insensitively here as well.
-                raw_tag = str(node.name)
-                tag = raw_tag if raw_tag.islower() else raw_tag.lower()
-
-                if tag in allowed_tags:
-                    return DecideAction.KEEP
-
-                if tag in drop_content_tags:
-                    msg = f"Unsafe tag '{tag}' (dropped content)"
-                    policy.handle_unsafe(msg, node=node)
-                    if cb:
-                        cb(node)
-                    if rep:
-                        rep(msg, node=node)
-                    return DecideAction.DROP
-
-                # Not allowed
-                msg_unsafe = f"Unsafe tag '{tag}' (not allowed)"
-                policy.handle_unsafe(msg_unsafe, node=node)
-                if cb:
-                    cb(node)
-                if rep:
-                    rep(msg_unsafe, node=node)
-
-                if handling == "drop":
-                    return DecideAction.DROP
-                if handling == "unwrap":
-                    return DecideAction.UNWRAP
-                if handling == "escape":
-                    return DecideAction.ESCAPE
-                return DecideAction.DROP  # pragma: no cover
-
-            # Pre-calc attributes logic
-            effective_allowed_attrs = policy.allowed_attributes
-            if policy.force_link_rel:
-                # If force_link_rel is set, we must allow 'rel' on 'a' to preserve existing tokens.
-                new_allowed = dict(policy.allowed_attributes)
-                a_attrs = set(new_allowed.get("a", []))
-                # Also check global allowed attrs
-                global_attrs = set(new_allowed.get("*", []))
-
-                if "rel" not in a_attrs and "rel" not in global_attrs:
-                    a_attrs.add("rel")
-                    new_allowed["a"] = a_attrs
-                    effective_allowed_attrs = new_allowed
-
-            # Decide (elements-only) chain to avoid spending time on text/container nodes.
-            decide_callbacks: list[Callable[[Node], DecideAction]] = []
-
-            cb_foreign = t.callback
-            rep_foreign = _report_unsafe
-
-            def _drop_foreign_namespace(
-                node: Node,
-                cb: NodeCallback | None = cb_foreign,
-                rep: ReportCallback = rep_foreign,
-            ) -> DecideAction:
-                if _is_effectively_foreign_node(node):
-                    if cb is not None:
-                        cb(node)
-                    rep(f"Unsafe tag '{node.name}' (foreign namespace)", node=node)
-                    return DecideAction.DROP
-                return DecideAction.KEEP
-
-            decide_callbacks.append(_drop_foreign_namespace)
-
-            decide_callbacks.append(_sanitize_node_decision)
-            _append_compiled(_CompiledDecideElementsChain(callbacks=decide_callbacks))
-
-            if policy.strip_invisible_unicode:
-                _append_compiled(
-                    _CompiledStripInvisibleUnicodeTransform(
-                        kind="strip_invisible_unicode",
-                        callback=t.callback,
-                        report=_report_unsafe,
-                    )
-                )
-
-            # Attributes pipeline (compiled normally so we can reuse fusion logic).
-            sub_attrs: list[TransformSpec] = [
-                AllowlistAttrs(
-                    selector="*",
-                    allowed_attributes=dict(effective_allowed_attrs),
-                    callback=t.callback,
-                    report=_report_unsafe,
-                ),
-                DropUrlAttrs(
-                    selector="*",
-                    url_policy=policy.url_policy,
-                    callback=t.callback,
-                    report=_report_unsafe,
-                ),
-                AllowStyleAttrs(
-                    selector="*",
-                    allowed_css_properties=policy.allowed_css_properties,
-                    url_policy=policy.url_policy,
-                    enabled=bool(policy.allowed_css_properties),
-                    callback=t.callback,
-                    report=_report_unsafe,
-                ),
-                MergeAttrs(
-                    tag="a",
-                    attr="rel",
-                    tokens=policy.force_link_rel,
-                    enabled=bool(policy.force_link_rel),
-                    callback=t.callback,
-                    report=t.report,
-                ),
-            ]
-
-            # Recursive compile to enable optimization (EditAttrs fusion).
-            for sub_t in compile_transforms(sub_attrs, _selector_limits=policy.selector_limits):
+            for sub_t in _compile_sanitize_transform(t):
                 _append_compiled(sub_t)
-
-            # Drop comments/doctype late so we also catch nodes hoisted by
-            # disallowed-tag handling (unwrap/escape) in the same walk.
-            if policy.drop_comments:
-                _append_compiled(
-                    _CompiledDropCommentsTransform(
-                        kind="drop_comments",
-                        callback=t.callback,
-                        report=_report_unsafe,
-                    )
-                )
-            if policy.drop_doctype:
-                _append_compiled(
-                    _CompiledDropDoctypeTransform(
-                        kind="drop_doctype",
-                        callback=t.callback,
-                        report=_report_unsafe,
-                    )
-                )
-
-            _append_compiled(
-                _CompiledSanitizeRawtextPolicy(
-                    kind="sanitize_rawtext_policy",
-                    policy=policy,
-                )
-            )
             continue
 
         raise TypeError(f"Unsupported transform: {type(t).__name__}")  # pragma: no cover
