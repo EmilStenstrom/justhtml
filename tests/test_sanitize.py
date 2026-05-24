@@ -35,6 +35,7 @@ from justhtml.sanitize import (
     sanitize_dom,
 )
 from justhtml.sanitize import _sanitize as sanitize
+from justhtml.sanitize_url import _url_sink_kind_for_attr
 from justhtml.serialize import to_html
 from justhtml.tokens import ParseError
 
@@ -136,6 +137,13 @@ class TestSanitizePlumbing(unittest.TestCase):
         assert UrlProxy(url="proxy/path?x=1").url == "proxy/path?x=1"
         assert UrlProxy(url="https://proxy.example/p").url == "https://proxy.example/p"
         assert UrlProxy(url="http://proxy.example/p").url == "http://proxy.example/p"
+
+    def test_url_sink_registry_identifies_contextual_url_attributes(self) -> None:
+        assert _url_sink_kind_for_attr(tag="param", attr="value", attrs={"NAME": "movie"}) == "url"
+        assert _url_sink_kind_for_attr(tag="param", attr="value", attrs={"name": "quality"}) is None
+        assert _url_sink_kind_for_attr(tag="param", attr="value", attrs={"name": None}) is None
+        assert _url_sink_kind_for_attr(tag="meta", attr="content", attrs={"HTTP-EQUIV": "refresh"}) == "meta_refresh"
+        assert _url_sink_kind_for_attr(tag="meta", attr="content", attrs={"http-equiv": "content-type"}) is None
 
     def test_url_authority_helper_edge_cases(self) -> None:
         assert _raw_authority_host("[2001:db8::1]:443") == "2001:db8::1"

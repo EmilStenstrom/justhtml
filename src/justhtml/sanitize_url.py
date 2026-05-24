@@ -20,6 +20,7 @@ UnsafeHandling = Literal["strip", "raise", "collect"]
 DisallowedTagHandling = Literal["unwrap", "escape", "drop"]
 
 UrlHandling = Literal["allow", "strip", "proxy"]
+UrlSinkKind = Literal["url", "srcset", "comma_or_space_list", "space_list", "meta_refresh"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -581,6 +582,111 @@ def _sanitize_url_tokens(
         out_tokens.append(sanitized)
 
     return None if not out_tokens else out_tokens
+
+
+def _extract_meta_refresh_url(value: str) -> tuple[str, str] | None:
+    """Return the delay prefix and browser-parsed refresh URL, if present."""
+    prefix, sep, url_value = value.partition(";")
+    url_prefix, url_sep, candidate = url_value.partition("=")
+    if not sep or url_prefix.strip().lower() != "url" or not url_sep:
+        return None
+
+    candidate = candidate.strip()
+    if not candidate:
+        return None
+
+    if candidate[0] in {"'", '"'}:
+        quote_char = candidate[0]
+        candidate = candidate[1:]
+        end_quote = candidate.find(quote_char)
+        if end_quote != -1:
+            candidate = candidate[:end_quote]
+
+    if not candidate:
+        return None
+    return prefix.strip(), candidate
+
+
+_URL_ATTR_SINK_KINDS: Mapping[str, UrlSinkKind] = {
+    "srcset": "srcset",
+    "imagesrcset": "srcset",
+    "archive": "comma_or_space_list",
+    "profile": "comma_or_space_list",
+    "ping": "space_list",
+    "attributionsrc": "space_list",
+}
+
+
+def _url_sink_kind_for_attr(*, tag: str, attr: str, attrs: Mapping[str, str | None]) -> UrlSinkKind | None:
+    kind = _URL_ATTR_SINK_KINDS.get(attr)
+    if kind is not None:
+        return kind
+    if attr in _URL_LIKE_ATTRS:
+        return "url"
+    if tag == "param" and attr == "value":
+        for key, raw_value in attrs.items():
+            lower_key = key if key.islower() else key.lower()
+            if lower_key == "name" and raw_value is not None:
+                if str(raw_value).strip().lower() in _URL_BEARING_PARAM_NAMES:
+                    return "url"
+                break
+    if tag == "meta" and attr == "content":
+        for key, raw_value in attrs.items():
+            lower_key = key if key.islower() else key.lower()
+            if lower_key == "http-equiv" and raw_value is not None and str(raw_value).strip().lower() == "refresh":
+                return "meta_refresh"
+    return None
+
+
+def _sanitize_url_sink_value(
+    *,
+    url_policy: UrlPolicy,
+    rule: UrlRule,
+    tag: str,
+    attr: str,
+    kind: UrlSinkKind,
+    value: str,
+) -> str | None:
+    if kind == "srcset":
+        return _sanitize_srcset_value(url_policy=url_policy, rule=rule, tag=tag, attr=attr, value=value)
+    if kind == "comma_or_space_list":
+        return _sanitize_comma_or_space_separated_url_list(
+            url_policy=url_policy,
+            rule=rule,
+            tag=tag,
+            attr=attr,
+            value=value,
+        )
+    if kind == "space_list":
+        return _sanitize_space_separated_url_list(url_policy=url_policy, rule=rule, tag=tag, attr=attr, value=value)
+    if kind == "meta_refresh":
+        refresh_parts = _extract_meta_refresh_url(value)
+        if refresh_parts is None:
+            return None
+        prefix, candidate = refresh_parts
+        sanitized_url = _sanitize_url_value_with_rule(
+            rule=rule,
+            value=candidate,
+            tag=tag,
+            attr=attr,
+            handling=_effective_url_handling(url_policy=url_policy, rule=rule),
+            allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
+            proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+            url_filter=url_policy.url_filter,
+            apply_filter=True,
+        )
+        return None if sanitized_url is None else f"{prefix.strip()};url={sanitized_url}"
+    return _sanitize_url_value_with_rule(
+        rule=rule,
+        value=value,
+        tag=tag,
+        attr=attr,
+        handling=_effective_url_handling(url_policy=url_policy, rule=rule),
+        allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
+        proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+        url_filter=url_policy.url_filter,
+        apply_filter=True,
+    )
 
 
 _URL_LIKE_ATTRS: frozenset[str] = frozenset(

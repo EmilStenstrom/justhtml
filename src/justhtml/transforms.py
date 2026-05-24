@@ -21,22 +21,14 @@ from .constants import HTML_FORMATTING_SPACE_CHARACTERS, HTML_SPACE_CHARACTERS, 
 from .linkify import LinkifyConfig, find_links_with_config
 from .node import Element, Node, Template, Text
 from .sanitize import (
-    _URL_BEARING_PARAM_NAMES,
-    _URL_LIKE_ATTRS,
     DEFAULT_POLICY,
     SanitizationPolicy,
     UrlPolicy,
-    _effective_allow_relative,
-    _effective_proxy,
-    _effective_url_handling,
-    _sanitize_comma_or_space_separated_url_list,
     _sanitize_inline_style,
     _sanitize_rawtext_element_contents,
-    _sanitize_space_separated_url_list,
-    _sanitize_srcset_value,
-    _sanitize_url_value_with_rule,
     _strip_invisible_unicode,
 )
+from .sanitize_url import _sanitize_url_sink_value, _url_sink_kind_for_attr
 from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits, SelectorMatcher, parse_selector
 from .serialize import serialize_end_tag, serialize_start_tag
 from .tokens import ParseError
@@ -109,29 +101,6 @@ def _is_effectively_foreign_node(node: Node) -> bool:
         current = current.parent
 
     return False
-
-
-def _extract_meta_refresh_url(value: str) -> tuple[str, str] | None:
-    """Return the delay prefix and browser-parsed refresh URL, if present."""
-    prefix, sep, url_value = value.partition(";")
-    url_prefix, url_sep, candidate = url_value.partition("=")
-    if not sep or url_prefix.strip().lower() != "url" or not url_sep:
-        return None
-
-    candidate = candidate.strip()
-    if not candidate:
-        return None
-
-    if candidate[0] in {"'", '"'}:
-        quote = candidate[0]
-        candidate = candidate[1:]
-        end_quote = candidate.find(quote)
-        if end_quote != -1:
-            candidate = candidate[:end_quote]
-
-    if not candidate:
-        return None
-    return prefix.strip(), candidate
 
 
 def emit_error(
@@ -1182,25 +1151,12 @@ def _compile_drop_url_attrs_transform(
         to_drop: list[str] | None = None
         to_set: dict[str, str] | None = None
 
-        param_name_value: str | None = None
-        meta_http_equiv_value: str | None = None
-        for key, raw_value in attrs.items():
-            lower_key = key if key.islower() else key.lower()
-            if tag == "param" and lower_key == "name" and raw_value is not None:
-                param_name_value = str(raw_value).strip().lower()
-            elif tag == "meta" and lower_key == "http-equiv" and raw_value is not None:
-                meta_http_equiv_value = str(raw_value).strip().lower()
-
         for key in attrs:
             lower_key = key if key.islower() else key.lower()
             raw_value = attrs[key]
 
-            is_param_url_value = (
-                tag == "param" and lower_key == "value" and param_name_value in _URL_BEARING_PARAM_NAMES
-            )
-            is_meta_refresh_content = tag == "meta" and lower_key == "content" and meta_http_equiv_value == "refresh"
-
-            if lower_key not in _URL_LIKE_ATTRS and not is_param_url_value and not is_meta_refresh_content:
+            sink_kind = _url_sink_kind_for_attr(tag=tag, attr=lower_key, attrs=attrs)
+            if sink_kind is None:
                 continue
 
             if raw_value is None:
@@ -1220,61 +1176,14 @@ def _compile_drop_url_attrs_transform(
                 to_drop.append(key)
                 continue
 
-            if lower_key in {"srcset", "imagesrcset"}:
-                sanitized = _sanitize_srcset_value(
-                    url_policy=url_policy,
-                    rule=rule,
-                    tag=tag,
-                    attr=lower_key,
-                    value=str(raw_value),
-                )
-            elif lower_key in {"archive", "profile"}:
-                sanitized = _sanitize_comma_or_space_separated_url_list(
-                    url_policy=url_policy,
-                    rule=rule,
-                    tag=tag,
-                    attr=lower_key,
-                    value=str(raw_value),
-                )
-            elif lower_key in {"ping", "attributionsrc"}:
-                sanitized = _sanitize_space_separated_url_list(
-                    url_policy=url_policy,
-                    rule=rule,
-                    tag=tag,
-                    attr=lower_key,
-                    value=str(raw_value),
-                )
-            elif is_meta_refresh_content:
-                raw_value_str = str(raw_value)
-                refresh_parts = _extract_meta_refresh_url(raw_value_str)
-                if refresh_parts is None:
-                    sanitized = None
-                else:
-                    prefix, candidate = refresh_parts
-                    sanitized_url = _sanitize_url_value_with_rule(
-                        rule=rule,
-                        value=candidate,
-                        tag=tag,
-                        attr=lower_key,
-                        handling=_effective_url_handling(url_policy=url_policy, rule=rule),
-                        allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
-                        proxy=_effective_proxy(url_policy=url_policy, rule=rule),
-                        url_filter=url_policy.url_filter,
-                        apply_filter=True,
-                    )
-                    sanitized = None if sanitized_url is None else f"{prefix.strip()};url={sanitized_url}"
-            else:
-                sanitized = _sanitize_url_value_with_rule(
-                    rule=rule,
-                    value=str(raw_value),
-                    tag=tag,
-                    attr=lower_key,
-                    handling=_effective_url_handling(url_policy=url_policy, rule=rule),
-                    allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
-                    proxy=_effective_proxy(url_policy=url_policy, rule=rule),
-                    url_filter=url_policy.url_filter,
-                    apply_filter=True,
-                )
+            sanitized = _sanitize_url_sink_value(
+                url_policy=url_policy,
+                rule=rule,
+                tag=tag,
+                attr=lower_key,
+                kind=sink_kind,
+                value=str(raw_value),
+            )
 
             if sanitized is None:
                 if on_report is not None:
