@@ -69,6 +69,7 @@ async function installJusthtmlFromLocalRepo(pyodideInstance) {
 		"parser.py",
 		"rawtext.py",
 		"sanitize.py",
+		"sanitize_url.py",
 		"selector.py",
 		"serialize.py",
 		"stream.py",
