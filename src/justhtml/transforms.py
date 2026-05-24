@@ -1413,6 +1413,73 @@ def _compile_merge_attrs_transform(t: MergeAttrs) -> _CompiledMergeAttrTokensTra
     )
 
 
+def _compile_selector_transform(
+    *,
+    kind: Literal["setattrs", "unwrap", "escape", "empty"],
+    selector: str,
+    parse: Callable[[str], ParsedSelector],
+    payload: Any,
+    callback: NodeCallback | None,
+    report: ReportCallback | None,
+) -> _CompiledSelectorTransform:
+    return _CompiledSelectorTransform(
+        kind=kind,
+        selector_str=selector,
+        selector=parse(selector),
+        payload=payload,
+        callback=callback,
+        report=report,
+    )
+
+
+def _compile_linkify_transform(t: Linkify) -> _CompiledLinkifyTransform:
+    return _CompiledLinkifyTransform(
+        kind="linkify",
+        skip_tags=t.skip_tags,
+        config=LinkifyConfig(fuzzy_ip=t.fuzzy_ip, extra_tlds=t.extra_tlds),
+        callback=t.callback,
+        report=t.report,
+    )
+
+
+def _compile_collapse_whitespace_transform(t: CollapseWhitespace) -> _CompiledCollapseWhitespaceTransform:
+    return _CompiledCollapseWhitespaceTransform(
+        kind="collapse_whitespace",
+        skip_tags=t.skip_tags,
+        callback=t.callback,
+        report=t.report,
+    )
+
+
+def _compile_prune_empty_transform(
+    t: PruneEmpty, parse: Callable[[str], ParsedSelector]
+) -> _CompiledPruneEmptyTransform:
+    return _CompiledPruneEmptyTransform(
+        kind="prune_empty",
+        selector_str=t.selector,
+        selector=parse(t.selector),
+        strip_whitespace=t.strip_whitespace,
+        callback=t.callback,
+        report=t.report,
+    )
+
+
+def _compile_drop_comments_transform(t: DropComments) -> _CompiledDropCommentsTransform:
+    return _CompiledDropCommentsTransform(
+        kind="drop_comments",
+        callback=t.callback,
+        report=t.report,
+    )
+
+
+def _compile_drop_doctype_transform(t: DropDoctype) -> _CompiledDropDoctypeTransform:
+    return _CompiledDropDoctypeTransform(
+        kind="drop_doctype",
+        callback=t.callback,
+        report=t.report,
+    )
+
+
 def compile_transforms(
     transforms: list[TransformSpec] | tuple[TransformSpec, ...],
     *,
@@ -1504,10 +1571,10 @@ def compile_transforms(
             continue
         if isinstance(t, SetAttrs):
             compiled.append(
-                _CompiledSelectorTransform(
+                _compile_selector_transform(
                     kind="setattrs",
-                    selector_str=t.selector,
-                    selector=_parse_selector(t.selector),
+                    selector=t.selector,
+                    parse=_parse_selector,
                     payload=t.attrs,
                     callback=t.callback,
                     report=t.report,
@@ -1519,10 +1586,10 @@ def compile_transforms(
             continue
         if isinstance(t, Unwrap):
             compiled.append(
-                _CompiledSelectorTransform(
+                _compile_selector_transform(
                     kind="unwrap",
-                    selector_str=t.selector,
-                    selector=_parse_selector(t.selector),
+                    selector=t.selector,
+                    parse=_parse_selector,
                     payload=None,
                     callback=t.callback,
                     report=t.report,
@@ -1532,10 +1599,10 @@ def compile_transforms(
 
         if isinstance(t, Escape):
             compiled.append(
-                _CompiledSelectorTransform(
+                _compile_selector_transform(
                     kind="escape",
-                    selector_str=t.selector,
-                    selector=_parse_selector(t.selector),
+                    selector=t.selector,
+                    parse=_parse_selector,
                     payload=None,
                     callback=t.callback,
                     report=t.report,
@@ -1544,10 +1611,10 @@ def compile_transforms(
             continue
         if isinstance(t, Empty):
             compiled.append(
-                _CompiledSelectorTransform(
+                _compile_selector_transform(
                     kind="empty",
-                    selector_str=t.selector,
-                    selector=_parse_selector(t.selector),
+                    selector=t.selector,
+                    parse=_parse_selector,
                     payload=None,
                     callback=t.callback,
                     report=t.report,
@@ -1571,59 +1638,23 @@ def compile_transforms(
             continue
 
         if isinstance(t, Linkify):
-            compiled.append(
-                _CompiledLinkifyTransform(
-                    kind="linkify",
-                    skip_tags=t.skip_tags,
-                    config=LinkifyConfig(fuzzy_ip=t.fuzzy_ip, extra_tlds=t.extra_tlds),
-                    callback=t.callback,
-                    report=t.report,
-                )
-            )
+            compiled.append(_compile_linkify_transform(t))
             continue
 
         if isinstance(t, CollapseWhitespace):
-            compiled.append(
-                _CompiledCollapseWhitespaceTransform(
-                    kind="collapse_whitespace",
-                    skip_tags=t.skip_tags,
-                    callback=t.callback,
-                    report=t.report,
-                )
-            )
+            compiled.append(_compile_collapse_whitespace_transform(t))
             continue
 
         if isinstance(t, PruneEmpty):
-            compiled.append(
-                _CompiledPruneEmptyTransform(
-                    kind="prune_empty",
-                    selector_str=t.selector,
-                    selector=_parse_selector(t.selector),
-                    strip_whitespace=t.strip_whitespace,
-                    callback=t.callback,
-                    report=t.report,
-                )
-            )
+            compiled.append(_compile_prune_empty_transform(t, _parse_selector))
             continue
 
         if isinstance(t, DropComments):
-            compiled.append(
-                _CompiledDropCommentsTransform(
-                    kind="drop_comments",
-                    callback=t.callback,
-                    report=t.report,
-                )
-            )
+            compiled.append(_compile_drop_comments_transform(t))
             continue
 
         if isinstance(t, DropDoctype):
-            compiled.append(
-                _CompiledDropDoctypeTransform(
-                    kind="drop_doctype",
-                    callback=t.callback,
-                    report=t.report,
-                )
-            )
+            compiled.append(_compile_drop_doctype_transform(t))
             continue
 
         if isinstance(t, DropForeignNamespaces):
