@@ -254,7 +254,7 @@ Advanced building blocks (useful for policy-driven pipelines):
 
 - `EditDocument(func)` — Run once on the root container.
 - `Decide(selector, func)` — Keep/drop/unwrap/empty based on a callback.
-- `EditAttrs(selector, func)` — Rewrite attributes based on a callback (`RewriteAttrs` is an alias).
+- `EditAttrs(selector, func)` — Rewrite attributes based on a callback.
 - `DropComments()` — Drop `#comment` nodes.
 - `DropDoctype()` — Drop `!doctype` nodes.
 - `DropForeignNamespaces()` — Drop elements in foreign namespaces (SVG/MathML).
@@ -522,8 +522,6 @@ Rewrite element attributes using a callback.
 
 - Return `None` to leave attributes unchanged.
 - Return a `dict[str, str | None]` to replace the node’s attributes.
-
-`RewriteAttrs` is a backwards-compatible alias for `EditAttrs`.
 
 ### `DropComments(enabled=True, callback=None, report=None)`
 

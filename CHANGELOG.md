@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - BREAKING: Remove the deprecated `safe=` alias from `JustHTML(...)`; use `sanitize=` instead.
+- BREAKING: Remove the public `RewriteAttrs` alias; use `EditAttrs` instead.
 
 ## [1.23.0] - 2026-05-24
 

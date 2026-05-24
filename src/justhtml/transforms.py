@@ -72,7 +72,6 @@ from .transforms_spec import (
     Linkify,
     MergeAttrs,
     PruneEmpty,
-    RewriteAttrs,  # noqa: F401
     Sanitize,
     SetAttrs,
     Unwrap,
@@ -353,7 +352,7 @@ class _CompiledDecideTransform:
 
 
 @dataclass(frozen=True, slots=True)
-class _CompiledRewriteAttrsTransform:
+class _CompiledEditAttrsTransform:
     kind: Literal["rewrite_attrs"]
     selector_str: str
     selector: ParsedSelector | None
@@ -368,7 +367,7 @@ class _CompiledStripInvisibleUnicodeTransform:
     report: ReportCallback
 
 
-class _CompiledRewriteAttrsChain:
+class _CompiledEditAttrsChain:
     """Optimized chain of attribute transforms using a flat list instead of nested closures.
 
     This avoids the call-stack depth and allocation overhead of nested `_chained` closures.
@@ -498,8 +497,8 @@ CompiledTransform = (
     | _CompiledDecideTransform
     | _CompiledDecideChain
     | _CompiledDecideElementsChain
-    | _CompiledRewriteAttrsTransform
-    | _CompiledRewriteAttrsChain
+    | _CompiledEditAttrsTransform
+    | _CompiledEditAttrsChain
     | _CompiledStripInvisibleUnicodeTransform
     | _CompiledLinkifyTransform
     | _CompiledCollapseWhitespaceTransform
@@ -716,17 +715,17 @@ def compile_transforms(
     def _append_compiled(item: CompiledTransform) -> None:
         # Optimization: fuse adjacent EditAttrs transforms that target the same
         # selector into a flat chain. This avoids nested closure overhead.
-        if compiled and isinstance(item, _CompiledRewriteAttrsTransform):
+        if compiled and isinstance(item, _CompiledEditAttrsTransform):
             prev = compiled[-1]
             # Extend existing chain
-            if isinstance(prev, _CompiledRewriteAttrsChain):
+            if isinstance(prev, _CompiledEditAttrsChain):
                 if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
                     prev.funcs.append(item.func)
                     return
             # Start new chain from two single transforms
-            if isinstance(prev, _CompiledRewriteAttrsTransform):
+            if isinstance(prev, _CompiledEditAttrsTransform):
                 if prev.selector_str == item.selector_str and prev.all_nodes == item.all_nodes:
-                    compiled[-1] = _CompiledRewriteAttrsChain(
+                    compiled[-1] = _CompiledEditAttrsChain(
                         selector_str=prev.selector_str,
                         selector=prev.selector,
                         all_nodes=prev.all_nodes,
@@ -994,7 +993,7 @@ def compile_transforms(
                 return out
 
             _append_compiled(
-                _CompiledRewriteAttrsTransform(
+                _CompiledEditAttrsTransform(
                     kind="rewrite_attrs",
                     selector_str=selector_str,
                     selector=None if all_nodes else _parse_selector(selector_str),
@@ -1193,7 +1192,7 @@ def compile_transforms(
             selector_str = t.selector
             all_nodes = selector_str.strip() == "*"
             _append_compiled(
-                _CompiledRewriteAttrsTransform(
+                _CompiledEditAttrsTransform(
                     kind="rewrite_attrs",
                     selector_str=selector_str,
                     selector=None if all_nodes else _parse_selector(selector_str),
@@ -1282,7 +1281,7 @@ def compile_transforms(
             selector_str = t.selector
             all_nodes = selector_str.strip() == "*"
             _append_compiled(
-                _CompiledRewriteAttrsTransform(
+                _CompiledEditAttrsTransform(
                     kind="rewrite_attrs",
                     selector_str=selector_str,
                     selector=None if all_nodes else _parse_selector(selector_str),
@@ -1515,7 +1514,7 @@ def compile_transforms(
             selector_str = t.selector
             all_nodes = selector_str.strip() == "*"
             _append_compiled(
-                _CompiledRewriteAttrsTransform(
+                _CompiledEditAttrsTransform(
                     kind="rewrite_attrs",
                     selector_str=selector_str,
                     selector=None if all_nodes else _parse_selector(selector_str),
@@ -1591,7 +1590,7 @@ def compile_transforms(
             selector_str = t.selector
             all_nodes = selector_str.strip() == "*"
             _append_compiled(
-                _CompiledRewriteAttrsTransform(
+                _CompiledEditAttrsTransform(
                     kind="rewrite_attrs",
                     selector_str=selector_str,
                     selector=None if all_nodes else _parse_selector(selector_str),
@@ -1762,7 +1761,7 @@ def compile_transforms(
                 ),
             ]
 
-            # Recursive compile to enable optimization (RewriteAttrs fusion).
+            # Recursive compile to enable optimization (EditAttrs fusion).
             for sub_t in compile_transforms(sub_attrs, _selector_limits=policy.selector_limits):
                 _append_compiled(sub_t)
 
@@ -2612,8 +2611,8 @@ def apply_compiled_transforms(
                     _CompiledDecideTransform,
                     _CompiledDecideChain,
                     _CompiledDecideElementsChain,
-                    _CompiledRewriteAttrsTransform,
-                    _CompiledRewriteAttrsChain,
+                    _CompiledEditAttrsTransform,
+                    _CompiledEditAttrsChain,
                     _CompiledStripInvisibleUnicodeTransform,
                     _CompiledLinkifyTransform,
                     _CompiledCollapseWhitespaceTransform,

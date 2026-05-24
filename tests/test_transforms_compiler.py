@@ -11,7 +11,7 @@ from justhtml.transforms import (
     DropUrlAttrs,
     _CompiledDecideChain,
     _CompiledDecideElementsChain,
-    _CompiledRewriteAttrsChain,
+    _CompiledEditAttrsChain,
     apply_compiled_transforms,
     compile_transforms,
 )
@@ -27,7 +27,7 @@ class TestTransformsCompiler(unittest.TestCase):
             ]
         )
         assert len(compiled) == 1
-        assert isinstance(compiled[0], _CompiledRewriteAttrsChain)
+        assert isinstance(compiled[0], _CompiledEditAttrsChain)
         assert len(compiled[0].funcs) == 3
 
         compiled_mixed = compile_transforms(
@@ -38,7 +38,7 @@ class TestTransformsCompiler(unittest.TestCase):
             ]
         )
         assert len(compiled_mixed) == 2
-        assert isinstance(compiled_mixed[0], _CompiledRewriteAttrsChain)
+        assert isinstance(compiled_mixed[0], _CompiledEditAttrsChain)
 
     def test_compile_transforms_fuses_decide_chain(self) -> None:
         def _keep(_node):

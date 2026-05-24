@@ -301,10 +301,6 @@ class EditAttrs:
         object.__setattr__(self, "report", report)
 
 
-# Backwards-compatible alias.
-RewriteAttrs = EditAttrs
-
-
 @dataclass(frozen=True, slots=True)
 class Linkify:
     """Linkify URLs/emails in text nodes.
@@ -672,7 +668,6 @@ __all__ = [
     "Linkify",
     "MergeAttrs",
     "PruneEmpty",
-    "RewriteAttrs",
     "Sanitize",
     "SetAttrs",
     "Unwrap",
