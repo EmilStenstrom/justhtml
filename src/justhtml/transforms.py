@@ -42,6 +42,7 @@ from .sanitize import (
     _sanitize_rawtext_element_contents,
     _sanitize_space_separated_url_list,
     _sanitize_srcset_value,
+    _sanitize_svg_animation_url_function_value,
     _sanitize_svg_animation_url_value,
     _sanitize_url_function_value,
     _sanitize_url_value_with_rule,
@@ -1351,6 +1352,14 @@ def compile_transforms(
                         and lower_key in _SVG_ANIMATION_VALUE_ATTRS
                         and svg_animation_target_attr in _URL_LIKE_ATTRS
                     )
+                    is_svg_animation_url_function_value = (
+                        raw_value is not None
+                        and is_effectively_foreign_node
+                        and tag in _SVG_URL_ANIMATION_TAGS
+                        and lower_key in _SVG_ANIMATION_VALUE_ATTRS
+                        and svg_animation_target_attr in _URL_FUNCTION_LIKE_ATTRS
+                        and _css_value_may_load_external_resource(str(raw_value))
+                    )
 
                     if (
                         lower_key not in _URL_LIKE_ATTRS
@@ -1358,6 +1367,7 @@ def compile_transforms(
                         and not is_param_url_value
                         and not is_meta_refresh_content
                         and not is_svg_animation_url_value
+                        and not is_svg_animation_url_function_value
                     ):
                         continue
 
@@ -1439,6 +1449,14 @@ def compile_transforms(
                             sanitized = None if sanitized_url is None else f"{prefix.strip()};url={sanitized_url}"
                     elif is_svg_animation_url_value:
                         sanitized = _sanitize_svg_animation_url_value(
+                            url_policy=url_policy,
+                            rule=rule,
+                            tag=tag,
+                            attr=lower_key,
+                            value=str(raw_value),
+                        )
+                    elif is_svg_animation_url_function_value:
+                        sanitized = _sanitize_svg_animation_url_function_value(
                             url_policy=url_policy,
                             rule=rule,
                             tag=tag,

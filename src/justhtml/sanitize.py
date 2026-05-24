@@ -1527,6 +1527,58 @@ def _sanitize_svg_animation_url_value(
     return ";".join(out_tokens) if attr == "values" else out_tokens[0]
 
 
+def _sanitize_svg_animation_url_function_value(
+    *,
+    url_policy: UrlPolicy,
+    rule: UrlRule,
+    tag: str,
+    attr: str,
+    value: str,
+) -> str | None:
+    v = value
+    if url_policy.url_filter is not None:
+        rewritten = url_policy.url_filter(tag, attr, v)
+        if rewritten is None:
+            return None
+        v = _strip_invisible_unicode(rewritten)
+
+    stripped = str(v).strip()
+    if not stripped:
+        return None
+
+    tokens = [token.strip() for token in stripped.split(";")] if attr == "values" else [stripped]
+    if not tokens or any(not token for token in tokens):
+        return None
+
+    handling = _effective_url_handling(url_policy=url_policy, rule=rule)
+    allow_relative = _effective_allow_relative(url_policy=url_policy, rule=rule)
+    proxy = _effective_proxy(url_policy=url_policy, rule=rule)
+
+    out_tokens: list[str] = []
+    for token in tokens:
+        if _css_value_has_disallowed_resource_functions(token):
+            return None
+        if not _css_value_may_load_external_resource(token):
+            out_tokens.append(token)
+            continue
+        sanitized = _sanitize_url_function_value(
+            rule=rule,
+            value=token,
+            tag=tag,
+            attr=attr,
+            handling=handling,
+            allow_relative=allow_relative,
+            proxy=proxy,
+            url_filter=None,
+            apply_filter=False,
+        )
+        if sanitized is None:
+            return None
+        out_tokens.append(sanitized)
+
+    return ";".join(out_tokens)
+
+
 def _sanitize_space_separated_url_list(
     *,
     url_policy: UrlPolicy,

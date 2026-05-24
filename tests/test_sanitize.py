@@ -29,6 +29,7 @@ from justhtml.sanitize import (
     _sanitize_inline_style,
     _sanitize_rawtext_element_contents,
     _sanitize_space_separated_url_list,
+    _sanitize_svg_animation_url_function_value,
     _sanitize_svg_animation_url_value,
     _sanitize_url_function_value,
     _sanitize_url_value_with_rule,
@@ -1621,6 +1622,80 @@ class TestSanitizeDom(unittest.TestCase):
                 tag="animate",
                 attr="values",
                 value="https://trusted.example/a;",
+            )
+            is None
+        )
+
+    def test_sanitize_svg_animation_url_function_value_branches(self) -> None:
+        rule = UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"})
+
+        assert (
+            _sanitize_svg_animation_url_function_value(
+                url_policy=UrlPolicy(),
+                rule=rule,
+                tag="set",
+                attr="to",
+                value="red",
+            )
+            == "red"
+        )
+        assert (
+            _sanitize_svg_animation_url_function_value(
+                url_policy=UrlPolicy(),
+                rule=rule,
+                tag="set",
+                attr="to",
+                value="url(https://trusted.example/fill.svg#x) red",
+            )
+            == "url('https://trusted.example/fill.svg#x') red"
+        )
+        assert (
+            _sanitize_svg_animation_url_function_value(
+                url_policy=UrlPolicy(url_filter=lambda _tag, _attr, _value: None),
+                rule=rule,
+                tag="set",
+                attr="to",
+                value="url(https://trusted.example/fill.svg#x)",
+            )
+            is None
+        )
+        assert (
+            _sanitize_svg_animation_url_function_value(
+                url_policy=UrlPolicy(url_filter=lambda _tag, _attr, _value: "red"),
+                rule=rule,
+                tag="set",
+                attr="to",
+                value="url(https://trusted.example/fill.svg#x)",
+            )
+            == "red"
+        )
+        assert (
+            _sanitize_svg_animation_url_function_value(
+                url_policy=UrlPolicy(),
+                rule=rule,
+                tag="set",
+                attr="to",
+                value=" ",
+            )
+            is None
+        )
+        assert (
+            _sanitize_svg_animation_url_function_value(
+                url_policy=UrlPolicy(),
+                rule=rule,
+                tag="animate",
+                attr="values",
+                value="red;",
+            )
+            is None
+        )
+        assert (
+            _sanitize_svg_animation_url_function_value(
+                url_policy=UrlPolicy(),
+                rule=rule,
+                tag="set",
+                attr="to",
+                value="inherit",
             )
             is None
         )
@@ -3913,6 +3988,68 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'to'"):
             sanitize(node, policy=policy)
+
+    def test_sanitize_svg_animation_url_function_values_require_url_rules(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "rect", "set"},
+            allowed_attributes={
+                "svg": set(),
+                "rect": {"id", "fill"},
+                "set": {"href", "attributeName", "to"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            (
+                '<svg><rect id="r" fill="red"></rect>'
+                '<set href="#r" attributeName="fill" to="url(https://evil.example/fill.svg#x)"></set></svg>'
+            ),
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<svg><rect id="r" fill="red"></rect><set href="#r" attributename="fill"></set></svg>'
+
+    def test_sanitize_svg_animation_url_function_values_use_url_policy(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "rect", "animate"},
+            allowed_attributes={
+                "svg": set(),
+                "rect": {"id", "fill"},
+                "animate": {"href", "attributeName", "values"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("animate", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("animate", "values"): UrlRule(
+                        allowed_schemes={"https"}, allowed_hosts={"trusted.example"}, allow_fragment=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            (
+                '<svg><rect id="r" fill="red"></rect><animate href="#r" attributeName="fill" '
+                'values="red;url(https://trusted.example/fill.svg#x) blue"></animate></svg>'
+            ),
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert (
+            out == '<svg><rect id="r" fill="red"></rect><animate href="#r" attributename="fill" '
+            "values=\"red;url('https://trusted.example/fill.svg#x') blue\"></animate></svg>"
+        )
 
     def test_sanitize_preserves_additional_allowlisted_foreign_svg_elements(self) -> None:
         policy = SanitizationPolicy(

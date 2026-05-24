@@ -999,6 +999,49 @@ class TestTransforms(unittest.TestCase):
             '<animate href="#img" attributename="href"></animate></svg>'
         )
 
+    def test_sanitize_svg_animation_url_function_values_use_url_policy(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "rect", "set"},
+            allowed_attributes={
+                "svg": set(),
+                "rect": {"id", "fill"},
+                "set": {"href", "attributeName", "to"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("set", "to"): UrlRule(
+                        allowed_schemes={"https"}, allowed_hosts={"trusted.example"}, allow_fragment=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        root = DocumentFragment()
+        svg = Element("svg", {}, "svg")
+        rect = Element("rect", {"id": "r", "fill": "red"}, "svg")
+        set_node = Element(
+            "set",
+            {
+                "href": "#r",
+                "attributeName": "fill",
+                "to": "url(https://evil.example/fill.svg#x) red",
+            },
+            "svg",
+        )
+        svg.append_child(rect)
+        svg.append_child(set_node)
+        root.append_child(svg)
+
+        apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy)]))
+
+        assert (
+            root.to_html(pretty=False)
+            == '<svg><rect id="r" fill="red"></rect><set href="#r" attributename="fill"></set></svg>'
+        )
+
     def test_sanitize_preserves_allowlisted_active_foreign_foreignobject(self) -> None:
         calls: list[str] = []
 
