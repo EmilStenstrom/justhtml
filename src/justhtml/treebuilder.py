@@ -13,6 +13,7 @@ from .constants import (
     FORMAT_MARKER,
     FORMATTING_ELEMENTS,
     HTML_INTEGRATION_POINT_SET,
+    HTML_SPACE_CHARACTERS,
     IMPLIED_END_TAGS,
     LIST_ITEM_SCOPE_TERMINATORS,
     MATHML_ATTRIBUTE_ADJUSTMENTS,
@@ -943,7 +944,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         if self.pending_table_text_should_error:
             # html5lib reports one foster-parenting error per non-whitespace character.
             for ch in data:
-                if ch not in " \t\n\r\f":
+                if ch not in HTML_SPACE_CHARACTERS:
                     self._parse_error("foster-parenting-character")
         self.pending_table_text_should_error = False
 
@@ -1140,7 +1141,7 @@ class TreeBuilder(TreeBuilderModesMixin):
                     cleaned.append("\ufffd")
                     continue
                 cleaned.append(ch)
-                if ch not in "\t\n\f\r ":
+                if ch not in HTML_SPACE_CHARACTERS:
                     has_non_null_non_ws = True
             data = "".join(cleaned)
             if has_non_null_non_ws:

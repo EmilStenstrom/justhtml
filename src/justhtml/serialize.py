@@ -9,7 +9,14 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote as url_quote
 
-from .constants import FOREIGN_ATTRIBUTE_ADJUSTMENTS, SPECIAL_ELEMENTS, VOID_ELEMENTS, WHITESPACE_PRESERVING_ELEMENTS
+from .constants import (
+    FOREIGN_ATTRIBUTE_ADJUSTMENTS,
+    HTML_FORMATTING_SPACE_CHARACTERS,
+    HTML_SPACE_CHARACTERS,
+    SPECIAL_ELEMENTS,
+    VOID_ELEMENTS,
+    WHITESPACE_PRESERVING_ELEMENTS,
+)
 
 if TYPE_CHECKING:
     from .node import NodeType
@@ -100,7 +107,7 @@ def _neutralize_rawtext_end_tag_sequences(text: str, tag_name: str) -> str:
             break
 
         boundary = idx + needle_len
-        if boundary == len(text) or text[boundary] in " \t\n\r\f/>":
+        if boundary == len(text) or text[boundary] in HTML_SPACE_CHARACTERS + "/>":
             out.append(text[start:idx])
             out.append("&lt;")
             start = idx + 1
@@ -412,7 +419,7 @@ def _collapse_html_whitespace(text: str) -> str:
         parts: list[str] = []
         in_whitespace = False
         for ch in text:
-            if ch in {" ", "\t", "\n", "\f", "\r"}:
+            if ch in HTML_SPACE_CHARACTERS:
                 if not in_whitespace:
                     parts.append(" ")
                     in_whitespace = True
@@ -438,11 +445,11 @@ def _normalize_formatting_whitespace(text: str) -> str:
     if not text:
         return ""
 
-    if "\n" not in text and "\r" not in text and "\t" not in text and "\f" not in text:
+    if not any(ch in text for ch in HTML_FORMATTING_SPACE_CHARACTERS):
         return text
 
-    starts_with_formatting = text[0] in {"\n", "\r", "\t", "\f"}
-    ends_with_formatting = text[-1] in {"\n", "\r", "\t", "\f"}
+    starts_with_formatting = text[0] in HTML_FORMATTING_SPACE_CHARACTERS
+    ends_with_formatting = text[-1] in HTML_FORMATTING_SPACE_CHARACTERS
 
     out: list[str] = []
     in_ws = False
@@ -461,7 +468,7 @@ def _normalize_formatting_whitespace(text: str) -> str:
             out.append(" ")
             continue
 
-        if ch in {"\n", "\r", "\t", "\f"}:
+        if ch in HTML_FORMATTING_SPACE_CHARACTERS:
             if in_ws:
                 saw_formatting_ws = True
                 continue

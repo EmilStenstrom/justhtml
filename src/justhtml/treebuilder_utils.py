@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from .constants import (
     HTML4_PUBLIC_PREFIXES,
+    HTML_SPACE_CHARACTERS,
     LIMITED_QUIRKY_PUBLIC_PREFIXES,
     QUIRKY_PUBLIC_MATCHES,
     QUIRKY_PUBLIC_PREFIXES,
@@ -41,7 +42,7 @@ class InsertionMode(enum.IntEnum):
 
 
 def is_all_whitespace(text: str) -> bool:
-    return text.strip("\t\n\f\r ") == ""
+    return text.strip(HTML_SPACE_CHARACTERS) == ""
 
 
 def contains_prefix(haystack: tuple[str, ...], needle: str) -> bool:

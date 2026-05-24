@@ -17,7 +17,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
-from .constants import VOID_ELEMENTS
+from .constants import HTML_FORMATTING_SPACE_CHARACTERS, HTML_SPACE_CHARACTERS, VOID_ELEMENTS
 from .linkify import LinkifyConfig, find_links_with_config
 from .node import Element, Node, Template, Text
 from .sanitize import (
@@ -175,14 +175,14 @@ def _collapse_html_space_characters(text: str) -> str:
     """
 
     # Fast path: no formatting whitespace and no double spaces.
-    if "\t" not in text and "\n" not in text and "\r" not in text and "\f" not in text and "  " not in text:
+    if not any(ch in text for ch in HTML_FORMATTING_SPACE_CHARACTERS) and "  " not in text:
         return text
 
     out: list[str] = []
     in_ws = False
 
     for ch in text:
-        if ch == " " or ch == "\t" or ch == "\n" or ch == "\r" or ch == "\f":
+        if ch in HTML_SPACE_CHARACTERS:
             if in_ws:
                 continue
             out.append(" ")
