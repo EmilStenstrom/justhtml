@@ -9,7 +9,6 @@ from .encoding import decode_html
 from .node import Document, DocumentFragment, Node, QueryMatch, Text
 from .sanitize import (
     UrlRule,
-    _compiled_sanitize_transforms_for_policy,
     _prepare_standalone_url_value_for_checking,
     _sanitize_url_value_with_rule,
 )
@@ -285,7 +284,7 @@ class JustHTML:
                     only = final_transforms[0]
                     p = only.policy
                     if only.enabled and only.callback is None and only.report is None and p is not None:
-                        compiled_transforms = _compiled_sanitize_transforms_for_policy(p)
+                        compiled_transforms = p.compile().transforms
 
                 if compiled_transforms is None:
                     compiled_transforms = compile_transforms(tuple(final_transforms))

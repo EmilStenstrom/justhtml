@@ -81,6 +81,30 @@ class TestSanitizePlumbing(unittest.TestCase):
 
         assert JustHTML('<a href="javascript:alert(1)">x</a>', fragment=True).to_html(pretty=False) == "<a>x</a>"
 
+    def test_policy_compiled_sanitize_cache_accessors_are_none_before_compile(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["p"],
+            allowed_attributes={"p": []},
+            url_policy=UrlPolicy(allow_rules={}),
+        )
+
+        assert policy._compiled_sanitize_transforms is None
+        assert policy._compiled_sanitize_signature is None
+
+    def test_policy_compile_reuses_cached_compiled_policy(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["p"],
+            allowed_attributes={"p": []},
+            url_policy=UrlPolicy(allow_rules={}),
+        )
+
+        compiled_policy = policy.compile()
+        compiled_policy_again = policy.compile()
+
+        assert compiled_policy_again is compiled_policy
+        assert policy._compiled_sanitize_transforms is compiled_policy.transforms
+        assert policy._compiled_sanitize_signature == compiled_policy.signature
+
     def test_seal_url_policy_normalizes_and_freezes_allowed_hosts(self) -> None:
         url_policy = UrlPolicy(
             allow_rules={

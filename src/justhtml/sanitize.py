@@ -26,7 +26,6 @@ from .sanitize_policy import (
     CompiledSanitizationPolicy,
     SanitizationPolicy,
     UnsafeHandler,
-    _compiled_sanitize_transforms_for_policy,
     _seal_url_policy,
 )
 from .sanitize_rawtext import (
@@ -75,7 +74,6 @@ __all__ = [
     "UrlPolicy",
     "UrlProxy",
     "UrlRule",
-    "_compiled_sanitize_transforms_for_policy",
     "_css_value_contains_disallowed_functions",
     "_css_value_has_disallowed_resource_functions",
     "_css_value_may_load_external_resource",

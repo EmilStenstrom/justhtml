@@ -232,20 +232,7 @@ class SanitizationPolicy:
         compare=False,
     )
 
-    # Cache for the compiled `Sanitize(policy=...)` transform pipeline.
-    # This lets safe serialization reuse the same compiled transforms.
-    _compiled_sanitize_transforms: tuple[Any, ...] | None = field(
-        default=None,
-        init=False,
-        repr=False,
-        compare=False,
-    )
-    _compiled_sanitize_signature: Any = field(
-        default=None,
-        init=False,
-        repr=False,
-        compare=False,
-    )
+    # Cache for the compiled `Sanitize(policy=...)` execution plan.
     _compiled_sanitize_policy: CompiledSanitizationPolicy | None = field(
         default=None,
         init=False,
@@ -363,6 +350,20 @@ class SanitizationPolicy:
     def handle_unsafe(self, msg: str, *, node: Any | None = None) -> None:
         self._unsafe_handler.handle(msg, node=node)
 
+    @property
+    def _compiled_sanitize_transforms(self) -> tuple[Any, ...] | None:
+        compiled_policy = self._compiled_sanitize_policy
+        if compiled_policy is None:
+            return None
+        return compiled_policy.transforms
+
+    @property
+    def _compiled_sanitize_signature(self) -> Any:
+        compiled_policy = self._compiled_sanitize_policy
+        if compiled_policy is None:
+            return None
+        return compiled_policy.signature
+
     def compile(self) -> CompiledSanitizationPolicy:
         return _compiled_sanitization_policy_for_policy(self)
 
@@ -383,14 +384,8 @@ def _compiled_sanitization_policy_for_policy(policy: SanitizationPolicy) -> Comp
             signature=signature,
             transforms=compiled_transforms,
         )
-        object.__setattr__(policy, "_compiled_sanitize_transforms", compiled_transforms)
-        object.__setattr__(policy, "_compiled_sanitize_signature", signature)
         object.__setattr__(policy, "_compiled_sanitize_policy", compiled_policy)
     return compiled_policy
-
-
-def _compiled_sanitize_transforms_for_policy(policy: SanitizationPolicy) -> tuple[Any, ...]:
-    return policy.compile().transforms
 
 
 def _seal_url_policy(url_policy: UrlPolicy) -> None:
