@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - BREAKING: Remove `to_test_format` from the top-level `justhtml` export. The html5lib fixture formatter remains available from `justhtml.serialize` for tests and conformance tooling.
 - BREAKING: Remove the deprecated `safe=` alias from `JustHTML(...)`; use `sanitize=` instead.
 - BREAKING: Remove the public `RewriteAttrs` alias; use `EditAttrs` instead.
+- Reorganize the old top-level implementation modules into packages and normalize several package names. Code that stays on the public `from justhtml import ...` API is unaffected. Direct module-path imports are internal implementation details, are not a supported stability surface, and may change without compatibility guarantees.
 
 ## [1.23.0] - 2026-05-24
 
