@@ -1409,6 +1409,200 @@ def _append_compiled_transform(compiled: list[CompiledTransform], item: Compiled
     compiled.append(item)
 
 
+def _lower_setattrs_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    item = cast("SetAttrs", t)
+    compiled.append(
+        _compile_selector_transform(
+            kind="setattrs",
+            selector=item.selector,
+            parse=parse,
+            payload=item.attrs,
+            callback=item.callback,
+            report=item.report,
+        )
+    )
+
+
+def _lower_drop_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    compiled.append(_compile_drop_transform(cast("Drop", t), parse))
+
+
+def _lower_unwrap_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    item = cast("Unwrap", t)
+    compiled.append(
+        _compile_selector_transform(
+            kind="unwrap",
+            selector=item.selector,
+            parse=parse,
+            payload=None,
+            callback=item.callback,
+            report=item.report,
+        )
+    )
+
+
+def _lower_escape_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    item = cast("Escape", t)
+    compiled.append(
+        _compile_selector_transform(
+            kind="escape",
+            selector=item.selector,
+            parse=parse,
+            payload=None,
+            callback=item.callback,
+            report=item.report,
+        )
+    )
+
+
+def _lower_empty_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    item = cast("Empty", t)
+    compiled.append(
+        _compile_selector_transform(
+            kind="empty",
+            selector=item.selector,
+            parse=parse,
+            payload=None,
+            callback=item.callback,
+            report=item.report,
+        )
+    )
+
+
+def _lower_edit_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    compiled.append(_compile_edit_transform(cast("Edit", t), parse))
+
+
+def _lower_edit_document_transform(
+    t: Transform, _parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    compiled.append(_compile_edit_document_transform(cast("EditDocument", t)))
+
+
+def _lower_decide_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    _append_compiled_transform(compiled, _compile_decide_transform(cast("Decide", t), parse))
+
+
+def _lower_edit_attrs_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    _append_compiled_transform(compiled, _compile_edit_attrs_transform(cast("EditAttrs", t), parse))
+
+
+def _lower_linkify_transform(
+    t: Transform, _parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    compiled.append(compile_linkify_transform(cast("Linkify", t)))
+
+
+def _lower_collapse_whitespace_transform(
+    t: Transform, _parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    compiled.append(_compile_collapse_whitespace_transform(cast("CollapseWhitespace", t)))
+
+
+def _lower_prune_empty_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    compiled.append(_compile_prune_empty_transform(cast("PruneEmpty", t), parse))
+
+
+def _lower_drop_comments_transform(
+    t: Transform, _parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    compiled.append(_compile_drop_comments_transform(cast("DropComments", t)))
+
+
+def _lower_drop_doctype_transform(
+    t: Transform, _parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    compiled.append(_compile_drop_doctype_transform(cast("DropDoctype", t)))
+
+
+def _lower_drop_foreign_namespaces_transform(
+    t: Transform, _parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    compiled.append(_compile_drop_foreign_namespaces_transform(cast("DropForeignNamespaces", t)))
+
+
+def _lower_drop_attrs_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    _append_compiled_transform(compiled, _compile_drop_attrs_transform(cast("DropAttrs", t), parse))
+
+
+def _lower_allowlist_attrs_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    _append_compiled_transform(compiled, _compile_allowlist_attrs_transform(cast("AllowlistAttrs", t), parse))
+
+
+def _lower_drop_url_attrs_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    _append_compiled_transform(compiled, _compile_drop_url_attrs_transform(cast("DropUrlAttrs", t), parse))
+
+
+def _lower_allow_style_attrs_transform(
+    t: Transform, parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    _append_compiled_transform(compiled, _compile_allow_style_attrs_transform(cast("AllowStyleAttrs", t), parse))
+
+
+def _lower_merge_attrs_transform(
+    t: Transform, _parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    compiled_merge = _compile_merge_attrs_transform(cast("MergeAttrs", t))
+    if compiled_merge is not None:
+        compiled.append(compiled_merge)
+
+
+def _lower_sanitize_transform(
+    t: Transform, _parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    for sub_t in _compile_sanitize_transform(cast("Sanitize", t)):
+        _append_compiled_transform(compiled, sub_t)
+
+
+_TRANSFORM_LOWERERS = {
+    SetAttrs: _lower_setattrs_transform,
+    Drop: _lower_drop_transform,
+    Unwrap: _lower_unwrap_transform,
+    Escape: _lower_escape_transform,
+    Empty: _lower_empty_transform,
+    Edit: _lower_edit_transform,
+    EditDocument: _lower_edit_document_transform,
+    Decide: _lower_decide_transform,
+    EditAttrs: _lower_edit_attrs_transform,
+    Linkify: _lower_linkify_transform,
+    CollapseWhitespace: _lower_collapse_whitespace_transform,
+    PruneEmpty: _lower_prune_empty_transform,
+    DropComments: _lower_drop_comments_transform,
+    DropDoctype: _lower_drop_doctype_transform,
+    DropForeignNamespaces: _lower_drop_foreign_namespaces_transform,
+    DropAttrs: _lower_drop_attrs_transform,
+    AllowlistAttrs: _lower_allowlist_attrs_transform,
+    DropUrlAttrs: _lower_drop_url_attrs_transform,
+    AllowStyleAttrs: _lower_allow_style_attrs_transform,
+    MergeAttrs: _lower_merge_attrs_transform,
+    Sanitize: _lower_sanitize_transform,
+}
+
+
 def compile_transforms(
     transforms: list[TransformSpec] | tuple[TransformSpec, ...],
     *,
@@ -1457,126 +1651,10 @@ def compile_transforms(
     for t in flattened:
         if not t.enabled:
             continue
-        if isinstance(t, SetAttrs):
-            compiled.append(
-                _compile_selector_transform(
-                    kind="setattrs",
-                    selector=t.selector,
-                    parse=_parse_selector,
-                    payload=t.attrs,
-                    callback=t.callback,
-                    report=t.report,
-                )
-            )
-            continue
-        if isinstance(t, Drop):
-            compiled.append(_compile_drop_transform(t, _parse_selector))
-            continue
-        if isinstance(t, Unwrap):
-            compiled.append(
-                _compile_selector_transform(
-                    kind="unwrap",
-                    selector=t.selector,
-                    parse=_parse_selector,
-                    payload=None,
-                    callback=t.callback,
-                    report=t.report,
-                )
-            )
-            continue
-
-        if isinstance(t, Escape):
-            compiled.append(
-                _compile_selector_transform(
-                    kind="escape",
-                    selector=t.selector,
-                    parse=_parse_selector,
-                    payload=None,
-                    callback=t.callback,
-                    report=t.report,
-                )
-            )
-            continue
-        if isinstance(t, Empty):
-            compiled.append(
-                _compile_selector_transform(
-                    kind="empty",
-                    selector=t.selector,
-                    parse=_parse_selector,
-                    payload=None,
-                    callback=t.callback,
-                    report=t.report,
-                )
-            )
-            continue
-        if isinstance(t, Edit):
-            compiled.append(_compile_edit_transform(t, _parse_selector))
-            continue
-
-        if isinstance(t, EditDocument):
-            compiled.append(_compile_edit_document_transform(t))
-            continue
-
-        if isinstance(t, Decide):
-            _append_compiled_transform(compiled, _compile_decide_transform(t, _parse_selector))
-            continue
-
-        if isinstance(t, EditAttrs):
-            _append_compiled_transform(compiled, _compile_edit_attrs_transform(t, _parse_selector))
-            continue
-
-        if isinstance(t, Linkify):
-            compiled.append(compile_linkify_transform(t))
-            continue
-
-        if isinstance(t, CollapseWhitespace):
-            compiled.append(_compile_collapse_whitespace_transform(t))
-            continue
-
-        if isinstance(t, PruneEmpty):
-            compiled.append(_compile_prune_empty_transform(t, _parse_selector))
-            continue
-
-        if isinstance(t, DropComments):
-            compiled.append(_compile_drop_comments_transform(t))
-            continue
-
-        if isinstance(t, DropDoctype):
-            compiled.append(_compile_drop_doctype_transform(t))
-            continue
-
-        if isinstance(t, DropForeignNamespaces):
-            compiled.append(_compile_drop_foreign_namespaces_transform(t))
-            continue
-
-        if isinstance(t, DropAttrs):
-            _append_compiled_transform(compiled, _compile_drop_attrs_transform(t, _parse_selector))
-            continue
-
-        if isinstance(t, AllowlistAttrs):
-            _append_compiled_transform(compiled, _compile_allowlist_attrs_transform(t, _parse_selector))
-            continue
-
-        if isinstance(t, DropUrlAttrs):
-            _append_compiled_transform(compiled, _compile_drop_url_attrs_transform(t, _parse_selector))
-            continue
-
-        if isinstance(t, AllowStyleAttrs):
-            _append_compiled_transform(compiled, _compile_allow_style_attrs_transform(t, _parse_selector))
-            continue
-
-        if isinstance(t, MergeAttrs):
-            compiled_merge = _compile_merge_attrs_transform(t)
-            if compiled_merge is not None:
-                compiled.append(compiled_merge)
-            continue
-
-        if isinstance(t, Sanitize):
-            for sub_t in _compile_sanitize_transform(t):
-                _append_compiled_transform(compiled, sub_t)
-            continue
-
-        raise TypeError(f"Unsupported transform: {type(t).__name__}")  # pragma: no cover
+        lowerer = _TRANSFORM_LOWERERS.get(type(t))
+        if lowerer is None:
+            raise TypeError(f"Unsupported transform: {type(t).__name__}")  # pragma: no cover
+        lowerer(t, _parse_selector, compiled)
 
     return compiled
 
