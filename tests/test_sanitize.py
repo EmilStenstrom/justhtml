@@ -8,6 +8,7 @@ from justhtml.node import Comment, DocumentFragment, Element, Node, Template, Te
 from justhtml.sanitize import (
     CSS_PRESET_TEXT,
     DEFAULT_POLICY,
+    CompiledSanitizationPolicy,
     SanitizationPolicy,
     UnsafeHandler,
     UrlPolicy,
@@ -71,6 +72,9 @@ class TestSanitizePlumbing(unittest.TestCase):
 
         compiled = DEFAULT_POLICY._compiled_sanitize_transforms
         assert isinstance(compiled, tuple)
+        compiled_policy = DEFAULT_POLICY.compile()
+        assert isinstance(compiled_policy, CompiledSanitizationPolicy)
+        assert compiled_policy.transforms is compiled
 
         with self.assertRaises(AttributeError):
             compiled.clear()  # type: ignore[union-attr]

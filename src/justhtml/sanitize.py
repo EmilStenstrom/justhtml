@@ -64,6 +64,7 @@ __all__ = [
     "DEFAULT_POLICY",
     "_URL_BEARING_PARAM_NAMES",
     "_URL_LIKE_ATTRS",
+    "CompiledSanitizationPolicy",
     "DisallowedTagHandling",
     "SanitizationPolicy",
     "UnsafeHandler",
@@ -191,6 +192,20 @@ class UnsafeHandler:
         raise AssertionError(f"Unhandled unsafe_handling: {mode!r}")
 
 
+@dataclass(frozen=True, slots=True)
+class CompiledSanitizationPolicy:
+    """Cached sanitizer execution plan for a normalized policy."""
+
+    policy: SanitizationPolicy
+    signature: tuple[Any, ...]
+    transforms: tuple[Any, ...]
+
+    def apply_to(self, node: Any, *, errors: list[ParseError] | None = None) -> None:
+        from .transforms import apply_compiled_transforms  # noqa: PLC0415
+
+        apply_compiled_transforms(node, self.transforms, errors=errors)
+
+
 def _normalize_policy_name(value: Any) -> str:
     return str(value).strip().lower()
 
@@ -315,6 +330,12 @@ class SanitizationPolicy:
         repr=False,
         compare=False,
     )
+    _compiled_sanitize_policy: CompiledSanitizationPolicy | None = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         # Validate and normalize allowlists once so the sanitizer can do fast
@@ -426,21 +447,34 @@ class SanitizationPolicy:
     def handle_unsafe(self, msg: str, *, node: Any | None = None) -> None:
         self._unsafe_handler.handle(msg, node=node)
 
+    def compile(self) -> CompiledSanitizationPolicy:
+        return _compiled_sanitization_policy_for_policy(self)
 
-def _compiled_sanitize_transforms_for_policy(policy: SanitizationPolicy) -> tuple[Any, ...]:
+
+def _compiled_sanitization_policy_for_policy(policy: SanitizationPolicy) -> CompiledSanitizationPolicy:
     from .transforms import Sanitize, compile_transforms  # noqa: PLC0415
 
     signature = _sanitization_policy_signature(policy)
-    compiled = policy._compiled_sanitize_transforms
-    if compiled is None or policy._compiled_sanitize_signature != signature:
-        compiled = tuple(
+    compiled_policy = policy._compiled_sanitize_policy
+    if compiled_policy is None or compiled_policy.signature != signature:
+        compiled_transforms = tuple(
             compile_transforms(
                 (Sanitize(policy=policy),),
             )
         )
-        object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
+        compiled_policy = CompiledSanitizationPolicy(
+            policy=policy,
+            signature=signature,
+            transforms=compiled_transforms,
+        )
+        object.__setattr__(policy, "_compiled_sanitize_transforms", compiled_transforms)
         object.__setattr__(policy, "_compiled_sanitize_signature", signature)
-    return compiled
+        object.__setattr__(policy, "_compiled_sanitize_policy", compiled_policy)
+    return compiled_policy
+
+
+def _compiled_sanitize_transforms_for_policy(policy: SanitizationPolicy) -> tuple[Any, ...]:
+    return policy.compile().transforms
 
 
 def _seal_url_policy(url_policy: UrlPolicy) -> None:
@@ -645,26 +679,24 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
                         tc._source_html = current_source_html
                     stack.append(tc)
 
-    # We intentionally implement safe-output sanitization by applying the
-    # `Sanitize(policy=...)` transform pipeline to a clone of the node.
-    # This keeps a single canonical sanitization algorithm.
-    from .transforms import apply_compiled_transforms  # noqa: PLC0415
-
-    compiled = _compiled_sanitize_transforms_for_policy(policy)
+    # We intentionally implement safe-output sanitization through the compiled
+    # `Sanitize(policy=...)` transform pipeline. This keeps a single canonical
+    # sanitization algorithm for both sanitizer entry points and transforms.
+    compiled_policy = policy.compile()
 
     # Container-root rule: transforms walk children of the provided root.
     # For non-container roots, wrap the cloned node in a document fragment so
     # the sanitizer can act on the root node itself.
     if node.name in {"#document", "#document-fragment"}:
         cloned = node.clone_node(deep=True)
-        apply_compiled_transforms(cloned, compiled, errors=None)
+        compiled_policy.apply_to(cloned, errors=None)
         result: Any = cloned
     else:
         from .node import DocumentFragment  # noqa: PLC0415
 
         wrapper = DocumentFragment()
         wrapper.append_child(node.clone_node(deep=True))
-        apply_compiled_transforms(wrapper, compiled, errors=None)
+        compiled_policy.apply_to(wrapper, errors=None)
 
         children = cast("list[Any]", wrapper.children)
         if len(children) == 1:
@@ -684,19 +716,17 @@ def _sanitize_dom_once(
     policy: SanitizationPolicy,
     errors: list[ParseError] | None,
 ) -> Any:
-    from .transforms import apply_compiled_transforms  # noqa: PLC0415
-
-    compiled = _compiled_sanitize_transforms_for_policy(policy)
+    compiled_policy = policy.compile()
 
     if node.name in {"#document", "#document-fragment"}:
-        apply_compiled_transforms(node, compiled, errors=errors)
+        compiled_policy.apply_to(node, errors=errors)
         return node
 
     from .node import DocumentFragment  # noqa: PLC0415
 
     wrapper = DocumentFragment()
     wrapper.append_child(node)
-    apply_compiled_transforms(wrapper, compiled, errors=errors)
+    compiled_policy.apply_to(wrapper, errors=errors)
 
     children = cast("list[Any]", wrapper.children)
     if len(children) == 1:
