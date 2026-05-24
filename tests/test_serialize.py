@@ -27,7 +27,7 @@ from justhtml.tokens import Doctype
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802
-    if "sanitize" not in kwargs and "safe" not in kwargs:
+    if "sanitize" not in kwargs:
         kwargs["sanitize"] = False
     return _JustHTML(*args, **kwargs)
 
@@ -625,20 +625,20 @@ class TestSerialize(unittest.TestCase):
 
     def test_script_text_round_trip_does_not_escape_raw_text(self):
         html = "<!DOCTYPE html><html><head><script>var x = 3 > 5 && y > 1;</script></head><body></body></html>"
-        doc = JustHTML(html, strict=True, safe=False)
+        doc = JustHTML(html, strict=True, sanitize=False)
 
         assert doc.query("script")[0].to_html(pretty=False) == "<script>var x = 3 > 5 && y > 1;</script>"
 
-        round_tripped = JustHTML(doc.to_html(pretty=False), strict=True, safe=False)
+        round_tripped = JustHTML(doc.to_html(pretty=False), strict=True, sanitize=False)
         assert round_tripped.query("script")[0].children[0].data == "var x = 3 > 5 && y > 1;"
 
     def test_style_text_round_trip_does_not_escape_raw_text(self):
         html = '<!DOCTYPE html><html><head><style>body::before { content: "a > b & c"; }</style></head><body></body></html>'
-        doc = JustHTML(html, strict=True, safe=False)
+        doc = JustHTML(html, strict=True, sanitize=False)
 
         assert doc.query("style")[0].to_html(pretty=False) == '<style>body::before { content: "a > b & c"; }</style>'
 
-        round_tripped = JustHTML(doc.to_html(pretty=False), strict=True, safe=False)
+        round_tripped = JustHTML(doc.to_html(pretty=False), strict=True, sanitize=False)
         assert round_tripped.query("style")[0].children[0].data == 'body::before { content: "a > b & c"; }'
 
     def test_programmatic_style_text_breakout_is_neutralized(self) -> None:

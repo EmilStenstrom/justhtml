@@ -122,7 +122,6 @@ class JustHTML:
         html: str | bytes | bytearray | memoryview | Node | Text | None,
         *,
         sanitize: bool | None = None,
-        safe: bool | None = None,
         policy: SanitizationPolicy | None = None,
         collect_errors: bool = False,
         track_node_locations: bool = False,
@@ -137,18 +136,7 @@ class JustHTML:
         tree_builder: TreeBuilder | None = None,
         transforms: list[TransformSpec] | None = None,
     ) -> None:
-        # `sanitize` is the primary API (preferred). `safe` is kept as a
-        # backwards-compatible alias.
-        if sanitize is None and safe is None:
-            sanitize_enabled = True
-        elif sanitize is None and safe is not None:
-            sanitize_enabled = bool(safe)
-        elif sanitize is not None and safe is None:
-            sanitize_enabled = bool(sanitize)
-        else:
-            sanitize_enabled = bool(sanitize)
-            if sanitize_enabled != bool(safe):
-                raise ValueError("Conflicting values for sanitize and safe; use only sanitize=")
+        sanitize_enabled = True if sanitize is None else bool(sanitize)
 
         if fragment_context is not None:
             fragment = True

@@ -28,7 +28,7 @@ from justhtml.selector import (
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802
-    if "sanitize" not in kwargs and "safe" not in kwargs:
+    if "sanitize" not in kwargs:
         kwargs["sanitize"] = False
     return _JustHTML(*args, **kwargs)
 

@@ -60,7 +60,7 @@ doc = JustHTML(
         SetAttrs("a", rel="nofollow"),
     ],
     fragment=True,
-    safe=False,
+    sanitize=False,
 )
 print(doc.to_html(pretty=False))
 # => <p>Hello world <a href="http://example.com" rel="nofollow">example.com</a></p>

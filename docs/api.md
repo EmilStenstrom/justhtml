@@ -18,7 +18,6 @@ JustHTML(
     html,
     *,
     sanitize=True,
-    safe=None,
     policy=None,
     collect_errors=False,
     track_node_locations=False,
@@ -37,7 +36,6 @@ JustHTML(
 |-----------|------|---------|-------------|
 | `html` | `str \| bytes \| bytearray \| memoryview \| Node \| Text` | required | HTML input to parse, or a built node to normalize by serializing and reparsing. Bytes are decoded using HTML encoding sniffing. |
 | `sanitize` | `bool` | `True` | Sanitize untrusted HTML during construction |
-| `safe` | `bool \| None` | `None` | Backwards-compatible alias for `sanitize` (prefer `sanitize`) |
 | `policy` | `SanitizationPolicy \| None` | `None` | Override the default sanitization policy |
 | `collect_errors` | `bool` | `False` | Collect all parse errors (enables `errors` property) |
 | `track_node_locations` | `bool` | `False` | Track line/column positions for nodes (slower) |

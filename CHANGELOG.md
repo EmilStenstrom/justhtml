@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- BREAKING: Remove the deprecated `safe=` alias from `JustHTML(...)`; use `sanitize=` instead.
+
 ## [1.23.0] - 2026-05-24
 
 ### Security

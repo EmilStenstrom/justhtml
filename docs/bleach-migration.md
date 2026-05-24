@@ -15,7 +15,7 @@ This guide covers common migration patterns.
 - Bleach takes a string and returns a cleaned string.
 - JustHTML parses into a DOM and sanitizes by default at construction time:
     - `JustHTML(html)` sanitizes by default (`sanitize=True`).
-    - `JustHTML(html, sanitize=False)` disables sanitization (trusted input only). (`safe` is a backwards-compatible alias.)
+    - `JustHTML(html, sanitize=False)` disables sanitization (trusted input only).
 
 JustHTML also supports constructor-time **transforms** (a DOM equivalent of Bleach/html5lib filter pipelines): see [Transforms](transforms.md).
 

@@ -9,8 +9,8 @@ from justhtml.transforms import Linkify, apply_compiled_transforms, compile_tran
 
 class TestLinkifyTransform(unittest.TestCase):
     def _parse(self, html: str, **kwargs) -> _JustHTML:
-        if "safe" not in kwargs:
-            kwargs["safe"] = False
+        if "sanitize" not in kwargs:
+            kwargs["sanitize"] = False
         return _JustHTML(html, **kwargs)
 
     def test_linkify_wraps_fuzzy_domain_in_text_node(self) -> None:
