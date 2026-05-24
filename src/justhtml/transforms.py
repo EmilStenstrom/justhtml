@@ -1710,9 +1710,15 @@ def apply_compiled_transforms(
             if not walk_transforms:
                 return
 
-            def _raw_tag_text(node: Node, start_attr: str, end_attr: str) -> str | None:
-                start = getattr(node, start_attr, None)
-                end = getattr(node, end_attr, None)
+            def _raw_tag_text(node: Node, *, start_tag: bool) -> str | None:
+                if not isinstance(node, Element):
+                    return None
+                if start_tag:
+                    start = node._start_tag_start
+                    end = node._start_tag_end
+                else:
+                    start = node._end_tag_start
+                    end = node._end_tag_end
                 if start is None or end is None:
                     return None
                 src = node._source_html
@@ -1733,19 +1739,19 @@ def apply_compiled_transforms(
                 if node.name.startswith("#") or node.name == "!doctype":
                     return None
                 name = str(node.name)
-                attrs = getattr(node, "attrs", None)
-                tag = serialize_start_tag(name, attrs)
-                if getattr(node, "_self_closing", False):
+                tag = serialize_start_tag(name, node.attrs)
+                if isinstance(node, Element) and node._self_closing:
                     tag = f"{tag[:-1]}/>"
                 return tag
 
             def _reconstruct_end_tag(node: Node) -> str | None:
-                if getattr(node, "_self_closing", False):
-                    return None
+                if isinstance(node, Element):
+                    if node._self_closing:
+                        return None
 
-                # If explicit metadata says no end tag, respect it.
-                if getattr(node, "_end_tag_present", None) is False:
-                    return None
+                    # If explicit metadata says no end tag, respect it.
+                    if node._end_tag_present is False:
+                        return None
 
                 # For nodes without metadata (or explicitly present), check void list.
                 name = str(node.name)
@@ -1795,10 +1801,10 @@ def apply_compiled_transforms(
                 mark_new_start_index: int,
             ) -> None:
                 """Escape a node by emitting its tags as text and hoisting its children."""
-                raw_start = _raw_tag_text(node, "_start_tag_start", "_start_tag_end")
+                raw_start = _raw_tag_text(node, start_tag=True)
                 if raw_start is None:
                     raw_start = _reconstruct_start_tag(node)
-                raw_end = _raw_tag_text(node, "_end_tag_start", "_end_tag_end")
+                raw_end = _raw_tag_text(node, start_tag=False)
                 if raw_end is None:
                     raw_end = _reconstruct_end_tag(node)
 
@@ -2049,7 +2055,7 @@ def apply_compiled_transforms(
                         # CollapseWhitespace
                         if k == "collapse_whitespace":
                             if is_text and not skip_whitespace:
-                                text_data: str = str(getattr(node, "data", "") or "")
+                                text_data = str(node.data or "")
                                 if text_data:
                                     collapsed = _collapse_html_space_characters(text_data)
                                     if collapsed != text_data:
@@ -2063,7 +2069,7 @@ def apply_compiled_transforms(
                         # Strip invisible Unicode variation selectors
                         if k == "strip_invisible_unicode":
                             if is_text:
-                                text_data = str(getattr(node, "data", "") or "")
+                                text_data = str(node.data or "")
                                 if text_data:
                                     stripped_text = _strip_invisible_unicode(text_data)
                                     if stripped_text != text_data:
@@ -2105,7 +2111,7 @@ def apply_compiled_transforms(
                         # Linkify
                         if k == "linkify":
                             if is_text and not skip_linkify:
-                                linkify_text: str = str(getattr(node, "data", "") or "")
+                                linkify_text = str(node.data or "")
                                 if linkify_text:
                                     matches = find_links_with_config(linkify_text, t.config)
                                     if matches:
@@ -2381,7 +2387,7 @@ def apply_compiled_transforms(
                     for ch in children:
                         nm = ch.name
                         if nm == "#text":
-                            data = getattr(ch, "data", "") or ""
+                            data = ch.data or ""
                             if strip_whitespace:
                                 if str(data).strip():
                                     return True
