@@ -438,14 +438,13 @@ class Node:
         if node is self:
             raise ValueError("Cannot insert a node into itself")
 
-        old_parent = getattr(node, "parent", None)
+        old_parent = node.parent
         if old_parent is None:
             # Fast path for the common builder case: a freshly created detached
             # leaf node cannot participate in a cycle.
-            children = getattr(node, "children", None)
+            children = node.children
             if not children:
-                template_content = getattr(node, "template_content", None)
-                if template_content is None:
+                if not isinstance(node, Template) or node.template_content is None:
                     return None, None
 
         current: Node | None = self
@@ -454,7 +453,7 @@ class Node:
                 raise ValueError("Cannot insert an ancestor into its descendant")
             current = current.parent
 
-        old_children = getattr(old_parent, "children", None)
+        old_children = old_parent.children if old_parent is not None else None
         old_index: int | None = None
         if old_children is not None:
             try:
