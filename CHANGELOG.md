@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-05-24
+
 ### Security
 - (Severity: Low) Treat SVG `set`/`animate` values as URL-function-bearing when they target SVG presentation attributes such as `fill`, `stroke`, and `filter`. Previously, custom SVG policies could allow an animation element whose `attributeName="fill"` and `to`/`values` payload introduced an unchecked `url(...)` resource after sanitization.
 - (Severity: Low) Treat SVG `set`/`animate` value attributes as URL-bearing when they target URL attributes such as `href`. Previously, custom SVG policies could allow an animation element whose `attributeName="href"` and `to`/`values` payload changed a sanitized URL into an unsafe target without `UrlPolicy` validation.
