@@ -29,6 +29,7 @@ from justhtml.sanitize import (
     _sanitize_inline_style,
     _sanitize_rawtext_element_contents,
     _sanitize_space_separated_url_list,
+    _sanitize_svg_animation_url_value,
     _sanitize_url_function_value,
     _sanitize_url_value_with_rule,
     _seal_url_policy,
@@ -1579,6 +1580,50 @@ class TestSanitizeDom(unittest.TestCase):
 
         out = JustHTML('<a href="https://example.com/a&#10;b">x</a>', fragment=True).to_html(pretty=False)
         assert out == "<a>x</a>"
+
+    def test_sanitize_svg_animation_url_value_filter_and_empty_branches(self) -> None:
+        rule = UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"})
+
+        assert (
+            _sanitize_svg_animation_url_value(
+                url_policy=UrlPolicy(url_filter=lambda _tag, _attr, _value: "https://trusted.example/safe"),
+                rule=rule,
+                tag="set",
+                attr="to",
+                value="https://evil.example/pwn",
+            )
+            == "https://trusted.example/safe"
+        )
+        assert (
+            _sanitize_svg_animation_url_value(
+                url_policy=UrlPolicy(url_filter=lambda _tag, _attr, _value: None),
+                rule=rule,
+                tag="set",
+                attr="to",
+                value="https://trusted.example/safe",
+            )
+            is None
+        )
+        assert (
+            _sanitize_svg_animation_url_value(
+                url_policy=UrlPolicy(),
+                rule=rule,
+                tag="set",
+                attr="to",
+                value=" ",
+            )
+            is None
+        )
+        assert (
+            _sanitize_svg_animation_url_value(
+                url_policy=UrlPolicy(),
+                rule=rule,
+                tag="animate",
+                attr="values",
+                value="https://trusted.example/a;",
+            )
+            is None
+        )
 
     def test_sanitize_url_value_strips_invisible_unicode_from_url_filter_rewrites(self) -> None:
         def url_filter(tag: str, attr: str, value: str) -> str | None:
@@ -3773,7 +3818,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert (
             out == '<svg><image id="img" href="#ok" width="10" height="10"></image>'
-            '<set href="#img" attributename="href" to="https://evil.example/pwn" begin="0s"></set></svg>'
+            '<set href="#img" attributename="href" begin="0s"></set></svg>'
         )
 
     def test_sanitize_preserves_allowlisted_foreign_svg_animate_elements(self) -> None:
@@ -3805,8 +3850,69 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert (
             out == '<svg><image id="img" href="#ok" width="10" height="10"></image>'
-            '<animate href="#img" attributename="href" values="https://evil.example/pwn;#ok" dur="1s"></animate></svg>'
+            '<animate href="#img" attributename="href" dur="1s"></animate></svg>'
         )
+
+    def test_sanitize_svg_animation_url_values_use_url_policy(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "image", "set", "animate"},
+            allowed_attributes={
+                "svg": set(),
+                "image": {"id", "href"},
+                "set": {"href", "attributeName", "to"},
+                "animate": {"href", "attributeName", "values"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("set", "to"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("animate", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("animate", "values"): UrlRule(
+                        allowed_schemes={"https"}, allowed_hosts={"trusted.example"}, allow_fragment=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML(
+            (
+                '<svg><image id="img" href="#ok"></image>'
+                '<set href="#img" attributeName="href" to="#next"></set>'
+                '<animate href="#img" attributeName="href" '
+                'values="https://trusted.example/p;#ok"></animate></svg>'
+            ),
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert (
+            out == '<svg><image id="img" href="#ok"></image>'
+            '<set href="#img" attributename="href" to="#next"></set>'
+            '<animate href="#img" attributename="href" values="https://trusted.example/p;#ok"></animate></svg>'
+        )
+
+    def test_sanitize_svg_animation_url_values_raise(self) -> None:
+        html = '<svg><set href="#img" attributeName="href" to="javascript:alert(1)"></set></svg>'
+        node = JustHTML(html, fragment=True, sanitize=False).root
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "set"},
+            allowed_attributes={"svg": set(), "set": {"href", "attributeName", "to"}},
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("set", "to"): UrlRule(allowed_schemes={"https"}, allow_fragment=True),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+            unsafe_handling="raise",
+        )
+
+        with self.assertRaisesRegex(ValueError, "Unsafe URL in attribute 'to'"):
+            sanitize(node, policy=policy)
 
     def test_sanitize_preserves_additional_allowlisted_foreign_svg_elements(self) -> None:
         policy = SanitizationPolicy(
@@ -4047,6 +4153,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
                 allow_rules={
                     ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
                     ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("set", "to"): UrlRule(allowed_schemes={"https"}),
                 }
             ),
             drop_foreign_namespaces=False,
@@ -4397,6 +4504,7 @@ class TestSanitizeUnsafe(unittest.TestCase):
                 allow_rules={
                     ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
                     ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("set", "to"): UrlRule(allowed_schemes={"https"}),
                 }
             ),
             drop_foreign_namespaces=False,

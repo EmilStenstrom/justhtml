@@ -951,9 +951,53 @@ class TestTransforms(unittest.TestCase):
 
         assert (
             root.to_html(pretty=False) == '<svg><image id="img" href="#ok" width="10" height="10"></image>'
-            '<set href="#img" attributename="href" to="https://evil.example/pwn" begin="0s"></set></svg>'
+            '<set href="#img" attributename="href" begin="0s"></set></svg>'
         )
-        assert calls == ["set"]
+        assert calls == ["set", "set"]
+
+    def test_sanitize_svg_animation_url_values_use_url_policy(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"svg", "image", "animate"},
+            allowed_attributes={
+                "svg": set(),
+                "image": {"id", "href"},
+                "animate": {"href", "attributeName", "values"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("animate", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
+                    ("animate", "values"): UrlRule(
+                        allowed_schemes={"https"}, allowed_hosts={"trusted.example"}, allow_fragment=True
+                    ),
+                }
+            ),
+            drop_foreign_namespaces=False,
+            drop_content_tags=set(),
+        )
+
+        root = DocumentFragment()
+        svg = Element("svg", {}, "svg")
+        image = Element("image", {"id": "img", "href": "#ok"}, "svg")
+        animate = Element(
+            "animate",
+            {
+                "href": "#img",
+                "attributeName": "href",
+                "values": "https://trusted.example/p;https://evil.example/p",
+            },
+            "svg",
+        )
+        svg.append_child(image)
+        svg.append_child(animate)
+        root.append_child(svg)
+
+        apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy)]))
+
+        assert (
+            root.to_html(pretty=False) == '<svg><image id="img" href="#ok"></image>'
+            '<animate href="#img" attributename="href"></animate></svg>'
+        )
 
     def test_sanitize_preserves_allowlisted_active_foreign_foreignobject(self) -> None:
         calls: list[str] = []

@@ -21,6 +21,8 @@ from .constants import VOID_ELEMENTS
 from .linkify import LinkifyConfig, find_links_with_config
 from .node import Element, Node, Template, Text
 from .sanitize import (
+    _SVG_ANIMATION_VALUE_ATTRS,
+    _SVG_URL_ANIMATION_TAGS,
     _URL_BEARING_PARAM_NAMES,
     _URL_FUNCTION_LIKE_ATTRS,
     _URL_LIKE_ATTRS,
@@ -40,6 +42,7 @@ from .sanitize import (
     _sanitize_rawtext_element_contents,
     _sanitize_space_separated_url_list,
     _sanitize_srcset_value,
+    _sanitize_svg_animation_url_value,
     _sanitize_url_function_value,
     _sanitize_url_value_with_rule,
     _stabilize_sanitized_dom_once,
@@ -1311,12 +1314,21 @@ def compile_transforms(
 
                 param_name_value: str | None = None
                 meta_http_equiv_value: str | None = None
+                svg_animation_target_attr: str | None = None
+                is_effectively_foreign_node = _is_effectively_foreign_node(node)
                 for key, raw_value in attrs.items():
                     lower_key = key if key.islower() else key.lower()
                     if tag == "param" and lower_key == "name" and raw_value is not None:
                         param_name_value = str(raw_value).strip().lower()
                     elif tag == "meta" and lower_key == "http-equiv" and raw_value is not None:
                         meta_http_equiv_value = str(raw_value).strip().lower()
+                    elif (
+                        is_effectively_foreign_node
+                        and tag in _SVG_URL_ANIMATION_TAGS
+                        and lower_key == "attributename"
+                        and raw_value is not None
+                    ):
+                        svg_animation_target_attr = str(raw_value).strip().lower()
 
                 # Most nodes have no URL-like attrs; avoid allocations in that case.
                 for key in attrs:
@@ -1324,11 +1336,7 @@ def compile_transforms(
                     raw_value = attrs[key]
 
                     is_url_function_attr = False
-                    if (
-                        raw_value is not None
-                        and _is_effectively_foreign_node(node)
-                        and lower_key in _URL_FUNCTION_LIKE_ATTRS
-                    ):
+                    if raw_value is not None and is_effectively_foreign_node and lower_key in _URL_FUNCTION_LIKE_ATTRS:
                         is_url_function_attr = _css_value_may_load_external_resource(str(raw_value))
 
                     is_param_url_value = (
@@ -1337,12 +1345,19 @@ def compile_transforms(
                     is_meta_refresh_content = (
                         tag == "meta" and lower_key == "content" and meta_http_equiv_value == "refresh"
                     )
+                    is_svg_animation_url_value = (
+                        is_effectively_foreign_node
+                        and tag in _SVG_URL_ANIMATION_TAGS
+                        and lower_key in _SVG_ANIMATION_VALUE_ATTRS
+                        and svg_animation_target_attr in _URL_LIKE_ATTRS
+                    )
 
                     if (
                         lower_key not in _URL_LIKE_ATTRS
                         and not is_url_function_attr
                         and not is_param_url_value
                         and not is_meta_refresh_content
+                        and not is_svg_animation_url_value
                     ):
                         continue
 
@@ -1422,6 +1437,14 @@ def compile_transforms(
                                 apply_filter=True,
                             )
                             sanitized = None if sanitized_url is None else f"{prefix.strip()};url={sanitized_url}"
+                    elif is_svg_animation_url_value:
+                        sanitized = _sanitize_svg_animation_url_value(
+                            url_policy=url_policy,
+                            rule=rule,
+                            tag=tag,
+                            attr=lower_key,
+                            value=str(raw_value),
+                        )
                     else:
                         sanitized = _sanitize_url_value_with_rule(
                             rule=rule,

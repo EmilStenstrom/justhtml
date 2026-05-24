@@ -1493,6 +1493,40 @@ def _sanitize_srcset_value(
     return None if not out_candidates else ", ".join(out_candidates)
 
 
+_SVG_URL_ANIMATION_TAGS: frozenset[str] = frozenset({"animate", "set"})
+_SVG_ANIMATION_VALUE_ATTRS: frozenset[str] = frozenset({"by", "from", "to", "values"})
+
+
+def _sanitize_svg_animation_url_value(
+    *,
+    url_policy: UrlPolicy,
+    rule: UrlRule,
+    tag: str,
+    attr: str,
+    value: str,
+) -> str | None:
+    v = value
+    if url_policy.url_filter is not None:
+        rewritten = url_policy.url_filter(tag, attr, v)
+        if rewritten is None:
+            return None
+        v = _strip_invisible_unicode(rewritten)
+
+    stripped = str(v).strip()
+    if not stripped:
+        return None
+
+    tokens = [token.strip() for token in stripped.split(";")] if attr == "values" else [stripped]
+    if not tokens or any(not token for token in tokens):
+        return None
+
+    out_tokens = _sanitize_url_tokens(tokens, url_policy=url_policy, rule=rule, tag=tag, attr=attr)
+    if out_tokens is None:
+        return None
+
+    return ";".join(out_tokens) if attr == "values" else out_tokens[0]
+
+
 def _sanitize_space_separated_url_list(
     *,
     url_policy: UrlPolicy,
