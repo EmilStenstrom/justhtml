@@ -384,7 +384,7 @@ def to_html(
         # We strip surrounding whitespace and percent-encode.
 
         # First get text content (URLs shouldn't have markup)
-        text = node.to_text() if hasattr(node, "to_text") else html
+        text = node.to_text()
         return url_quote(text.strip(), safe="/:@?&=#+-._~")
 
     raise TypeError(f"Unknown serialization context: {context}")  # pragma: no cover
