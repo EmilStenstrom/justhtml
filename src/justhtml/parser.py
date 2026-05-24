@@ -87,11 +87,13 @@ class JustHTML:
 
         track_tag_spans = False
         has_sanitize_transform = False
+        has_harden_rawtext_transform = False
         explicit_sanitize_policy: SanitizationPolicy | None = None
+        explicit_rawtext_policy: SanitizationPolicy | None = None
         needs_escape_incomplete_tags = False
         if transforms:
             from .sanitize import DEFAULT_POLICY  # noqa: PLC0415
-            from .transforms import Sanitize, _iter_flattened_transforms  # noqa: PLC0415
+            from .transforms import HardenRawtext, Sanitize, _iter_flattened_transforms  # noqa: PLC0415
 
             for t in _iter_flattened_transforms(transforms):
                 if isinstance(t, Sanitize):
@@ -103,6 +105,10 @@ class JustHTML:
                         track_tag_spans = True
                         needs_escape_incomplete_tags = True
                         break
+                if isinstance(t, HardenRawtext):
+                    has_harden_rawtext_transform = True
+                    if explicit_rawtext_policy is None:
+                        explicit_rawtext_policy = t.policy
 
         # If we will auto-sanitize (sanitize=True and no Sanitize in transforms),
         # escape-mode tag reconstruction may require tracking tag spans.
@@ -118,7 +124,7 @@ class JustHTML:
         html_str: str
         if isinstance(html, (Node, Text)):
             html_for_serialization = html
-            if sanitize_enabled or has_sanitize_transform:
+            if sanitize_enabled or has_sanitize_transform or has_harden_rawtext_transform:
                 from .sanitize import (  # noqa: PLC0415
                     DEFAULT_DOCUMENT_POLICY,
                     DEFAULT_POLICY,
@@ -126,7 +132,7 @@ class JustHTML:
                 )
 
                 html_for_serialization = html.clone_node(deep=True)
-                effective_policy = explicit_sanitize_policy or policy
+                effective_policy = explicit_sanitize_policy or explicit_rawtext_policy or policy
                 if effective_policy is None:
                     effective_policy = (
                         DEFAULT_DOCUMENT_POLICY if html_for_serialization.name == "#document" else DEFAULT_POLICY
@@ -189,9 +195,9 @@ class JustHTML:
         # position becomes the sanitize point (no extra final pass is appended).
         if transforms or sanitize_enabled:
             from .sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
-            from .transforms import Sanitize, Stage, _iter_flattened_transforms  # noqa: PLC0415
+            from .transforms import HardenRawtext, Sanitize, Stage, _iter_flattened_transforms  # noqa: PLC0415
 
-            def _normalize_sanitize_policies(
+            def _normalize_transform_policies(
                 items: list[TransformSpec] | tuple[TransformSpec, ...],
                 *,
                 default_policy: SanitizationPolicy,
@@ -209,10 +215,19 @@ class JustHTML:
                         )
                         continue
 
+                    if isinstance(item, HardenRawtext) and item.policy is None:
+                        normalized.append(
+                            HardenRawtext(
+                                policy=default_policy,
+                                enabled=item.enabled,
+                            )
+                        )
+                        continue
+
                     if isinstance(item, Stage):
                         normalized.append(
                             Stage(
-                                _normalize_sanitize_policies(item.transforms, default_policy=default_policy),
+                                _normalize_transform_policies(item.transforms, default_policy=default_policy),
                                 enabled=item.enabled,
                                 callback=item.callback,
                                 report=item.report,
@@ -233,7 +248,7 @@ class JustHTML:
                 default_mode_policy = policy or (
                     DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY
                 )
-                final_transforms = _normalize_sanitize_policies(
+                final_transforms = _normalize_transform_policies(
                     final_transforms,
                     default_policy=default_mode_policy,
                 )
@@ -254,7 +269,7 @@ class JustHTML:
                 # provide explicit Sanitize(...) transforms.
                 reset_collect_policy_ids: set[int] = set()
                 for transform_item in _iter_flattened_transforms(final_transforms):
-                    if not isinstance(transform_item, Sanitize) or not transform_item.enabled:
+                    if not isinstance(transform_item, (Sanitize, HardenRawtext)) or not transform_item.enabled:
                         continue
                     t_policy = transform_item.policy
                     if t_policy is None or t_policy.unsafe_handling != "collect":
@@ -280,7 +295,7 @@ class JustHTML:
                 # This mirrors the old behavior where safe output could feed
                 # security findings into doc.errors.
                 for transform_item in _iter_flattened_transforms(final_transforms):
-                    if isinstance(transform_item, Sanitize) and transform_item.enabled:
+                    if isinstance(transform_item, (Sanitize, HardenRawtext)) and transform_item.enabled:
                         t_policy = transform_item.policy
                         if t_policy is not None and t_policy.unsafe_handling == "collect":
                             if t_policy.collects_security_errors_into(transform_errors):

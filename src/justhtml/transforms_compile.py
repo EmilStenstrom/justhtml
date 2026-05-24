@@ -26,9 +26,9 @@ from .transforms import (
     _CompiledEditAttrsChain,
     _CompiledEditAttrsTransform,
     _CompiledEditDocumentTransform,
+    _CompiledHardenRawtextTransform,
     _CompiledMergeAttrTokensTransform,
     _CompiledPruneEmptyTransform,
-    _CompiledSanitizeRawtextPolicy,
     _CompiledSelectorTransform,
     _CompiledStageBoundary,
     _CompiledStageHookTransform,
@@ -53,6 +53,7 @@ from .transforms_spec import (
     EditDocument,
     Empty,
     Escape,
+    HardenRawtext,
     Linkify,
     MergeAttrs,
     PruneEmpty,
@@ -92,6 +93,7 @@ _TRANSFORM_CLASSES: tuple[type[object], ...] = (
     CollapseWhitespace,
     PruneEmpty,
     Sanitize,
+    HardenRawtext,
     DropComments,
     DropDoctype,
     DropForeignNamespaces,
@@ -358,12 +360,19 @@ def _compile_sanitize_transform(t: Sanitize) -> list[CompiledTransform]:
         )
 
     compiled.append(
-        _CompiledSanitizeRawtextPolicy(
-            kind="sanitize_rawtext_policy",
+        _CompiledHardenRawtextTransform(
+            kind="harden_rawtext",
             policy=policy,
         )
     )
     return compiled
+
+
+def _compile_harden_rawtext_transform(t: HardenRawtext) -> CompiledTransform:
+    return _CompiledHardenRawtextTransform(
+        kind="harden_rawtext",
+        policy=t.policy or DEFAULT_POLICY,
+    )
 
 
 def _compile_drop_transform(t: Drop, parse: Callable[[str], ParsedSelector]) -> CompiledTransform:
@@ -1214,6 +1223,12 @@ def _lower_sanitize_transform(
         _append_compiled_transform(compiled, sub_t)
 
 
+def _lower_harden_rawtext_transform(
+    t: Transform, _parse: Callable[[str], ParsedSelector], compiled: list[CompiledTransform]
+) -> None:
+    compiled.append(_compile_harden_rawtext_transform(cast("HardenRawtext", t)))
+
+
 _TRANSFORM_LOWERERS = {
     SetAttrs: _lower_setattrs_transform,
     Drop: _lower_drop_transform,
@@ -1236,6 +1251,7 @@ _TRANSFORM_LOWERERS = {
     AllowStyleAttrs: _lower_allow_style_attrs_transform,
     MergeAttrs: _lower_merge_attrs_transform,
     Sanitize: _lower_sanitize_transform,
+    HardenRawtext: _lower_harden_rawtext_transform,
 }
 
 

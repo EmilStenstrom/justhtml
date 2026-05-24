@@ -403,6 +403,27 @@ class Sanitize:
 
 
 @dataclass(frozen=True, slots=True)
+class HardenRawtext:
+    """Harden rawtext element contents in-place.
+
+    This neutralizes closing tag sequences in ``<script>``/``<style>`` text and
+    drops non-text children so rawtext serialization remains inert.
+    """
+
+    policy: SanitizationPolicy | None
+    enabled: bool
+
+    def __init__(
+        self,
+        policy: SanitizationPolicy | None = None,
+        *,
+        enabled: bool = True,
+    ) -> None:
+        object.__setattr__(self, "policy", policy)
+        object.__setattr__(self, "enabled", bool(enabled))
+
+
+@dataclass(frozen=True, slots=True)
 class DropComments:
     """Drop comment nodes (#comment)."""
 

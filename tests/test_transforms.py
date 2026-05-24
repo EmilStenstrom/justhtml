@@ -25,6 +25,7 @@ from justhtml.transforms import (
     EditDocument,
     Empty,
     Escape,
+    HardenRawtext,
     Linkify,
     MergeAttrs,
     PruneEmpty,
@@ -59,6 +60,24 @@ class TestTransforms(unittest.TestCase):
     def test_compile_transforms_rejects_unknown_transform_type(self) -> None:
         with self.assertRaises(TypeError):
             compile_transforms([object()])
+
+    def test_hardenrawtext_can_run_standalone(self) -> None:
+        root = DocumentFragment()
+        script = Element("script", {}, "html")
+        script.append_child(Text("</script><b>x</b>"))
+        root.append_child(script)
+
+        apply_compiled_transforms(root, compile_transforms([HardenRawtext()]))
+
+        assert root.to_html(pretty=False) == "<script>&lt;/script><b>x</b></script>"
+
+    def test_hardenrawtext_on_node_input_runs_before_reparse(self) -> None:
+        script = Node("script")
+        script.append_child(Node("span"))
+
+        doc = JustHTML(script, fragment=True, transforms=[HardenRawtext()])
+
+        assert doc.to_html(pretty=False) == "<script></script>"
 
     def test_editattrs_selector_star_uses_all_nodes_fast_path(self) -> None:
         root = DocumentFragment()

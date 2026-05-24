@@ -48,6 +48,7 @@ from .transforms_spec import (
     EditDocument,
     Empty,
     Escape,
+    HardenRawtext,
     Linkify,
     MergeAttrs,
     PruneEmpty,
@@ -215,6 +216,7 @@ Transform = (
     | CollapseWhitespace
     | PruneEmpty
     | Sanitize
+    | HardenRawtext
     | DropComments
     | DropDoctype
     | DropForeignNamespaces
@@ -401,8 +403,8 @@ class _CompiledStageHookTransform:
 
 
 @dataclass(frozen=True, slots=True)
-class _CompiledSanitizeRawtextPolicy:
-    kind: Literal["sanitize_rawtext_policy"]
+class _CompiledHardenRawtextTransform:
+    kind: Literal["harden_rawtext"]
     policy: SanitizationPolicy
 
 
@@ -423,7 +425,7 @@ CompiledTransform = (
     | _CompiledMergeAttrTokensTransform
     | _CompiledStageHookTransform
     | _CompiledStageBoundary
-    | _CompiledSanitizeRawtextPolicy
+    | _CompiledHardenRawtextTransform
 )
 
 
@@ -431,7 +433,7 @@ def _selector_limits_from_compiled(
     compiled: list[CompiledTransform] | tuple[CompiledTransform, ...],
 ) -> SelectorLimits:
     for t in reversed(compiled):
-        if isinstance(t, _CompiledSanitizeRawtextPolicy):
+        if isinstance(t, _CompiledHardenRawtextTransform):
             return t.policy.selector_limits
 
     return DEFAULT_SELECTOR_LIMITS
@@ -1238,7 +1240,7 @@ def apply_compiled_transforms(
                 apply_prune_transforms(root, prune_batch)
                 continue
 
-            if isinstance(t, _CompiledSanitizeRawtextPolicy):
+            if isinstance(t, _CompiledHardenRawtextTransform):
                 _sanitize_rawtext_element_contents(root, policy=t.policy, errors=errors)
                 i += 1
                 continue
