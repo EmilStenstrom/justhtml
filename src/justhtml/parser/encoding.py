@@ -384,7 +384,7 @@ def decode_html(data: bytes, transport_encoding: str | None = None) -> tuple[str
     payload = data[bom_len:] if bom_len else data
 
     if enc == "windows-1252":
-        return payload.decode("cp1252"), "windows-1252"
+        return payload.decode("cp1252", "replace"), "windows-1252"
 
     if enc == "iso-8859-2":
         return payload.decode("iso-8859-2", "replace"), "iso-8859-2"

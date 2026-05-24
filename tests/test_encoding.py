@@ -69,6 +69,14 @@ class TestEncoding(unittest.TestCase):
         self.assertEqual(text, "\u20ac")
         self.assertEqual(name, "windows-1252")
 
+        text, name = decode_html(b"\x81")
+        self.assertEqual(text, "\ufffd")
+        self.assertEqual(name, "windows-1252")
+
+        text, name = decode_html(b"<meta charset=windows-1252><p>\x81</p>")
+        self.assertEqual(text, "<meta charset=windows-1252><p>\ufffd</p>")
+        self.assertEqual(name, "windows-1252")
+
         text, name = decode_html(b"abc", transport_encoding="iso-8859-2")
         self.assertEqual(text, "abc")
         self.assertEqual(name, "iso-8859-2")
@@ -110,9 +118,17 @@ class TestEncoding(unittest.TestCase):
         doc = JustHTML(b"<p>hi</p>")
         self.assertEqual(doc.root.children[0].name, "html")
 
+    def test_parser_replaces_undefined_windows_1252_bytes(self):
+        doc = JustHTML(b"<p>ok\x81</p>", fragment=True)
+        self.assertEqual(doc.to_text(), "ok\ufffd")
+
     def test_stream_accepts_bytes(self):
         events = list(stream(b"<p>hi</p>"))
         self.assertTrue(any(e[0] == "start" and e[1][0] == "p" for e in events))
+
+    def test_stream_replaces_undefined_windows_1252_bytes(self):
+        events = list(stream(b"<p>ok\x81</p>"))
+        self.assertIn(("text", "ok\ufffd"), events)
 
 
 if __name__ == "__main__":
