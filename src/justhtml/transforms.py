@@ -977,6 +977,106 @@ def _compile_drop_foreign_namespaces_transform(t: DropForeignNamespaces) -> _Com
     )
 
 
+def _compile_drop_attrs_transform(t: DropAttrs, parse: Callable[[str], ParsedSelector]) -> _CompiledEditAttrsTransform:
+    patterns = t.patterns
+    on_hook = t.callback
+    on_report = t.report
+    compiled_regex = _compile_patterns_to_regex(patterns)
+
+    def _drop_attrs(
+        node: Node,
+        patterns: tuple[str, ...] = patterns,
+        compiled_regex: re.Pattern[str] | None = compiled_regex,
+        on_hook: NodeCallback | None = on_hook,
+        on_report: ReportCallback | None = on_report,
+    ) -> dict[str, str | None] | None:
+        attrs = node.attrs
+        if not attrs:
+            return None
+
+        if not patterns:
+            return None
+
+        if patterns == ("*:*", "on*", "srcdoc"):
+            for key in attrs:
+                lower_key = key if key.islower() else key.lower()
+                if lower_key.startswith("on") or lower_key == "srcdoc" or ":" in lower_key:
+                    break
+            else:
+                return None
+
+            out = dict(attrs)
+            for key in attrs:
+                lower_key = key if key.islower() else key.lower()
+                if not (lower_key.startswith("on") or lower_key == "srcdoc" or ":" in lower_key):
+                    continue
+                if on_report is not None:  # pragma: no cover
+                    if lower_key == "srcdoc":
+                        found_pat = "srcdoc"
+                    elif ":" in lower_key:
+                        found_pat = "*:*"
+                    else:
+                        found_pat = "on*"
+                    on_report(
+                        f"Unsafe attribute '{lower_key}' (matched forbidden pattern '{found_pat}')",
+                        node=node,
+                    )
+                out.pop(key, None)
+            if on_hook is not None:
+                on_hook(node)  # pragma: no cover
+            return out
+
+        if compiled_regex is None:  # pragma: no cover
+            return None
+        for raw_key in attrs:
+            if not raw_key or not str(raw_key).strip():
+                continue
+            key = raw_key
+            if not key.islower():
+                key = key.lower()
+            if compiled_regex.match(key):
+                break
+        else:
+            return None
+
+        out2: dict[str, str | None] = {}
+        for raw_key, value in attrs.items():
+            if not raw_key or not str(raw_key).strip():
+                continue
+            key = raw_key
+            if not key.islower():
+                key = key.lower()
+
+            if compiled_regex.match(key):
+                if on_report is not None:
+                    found_pat = "?"
+                    for pat in patterns:
+                        if _glob_match(pat, key):  # pragma: no cover
+                            found_pat = pat
+                            break
+                    on_report(
+                        f"Unsafe attribute '{key}' (matched forbidden pattern '{found_pat}')",
+                        node=node,
+                    )
+                continue
+
+            out2[key] = value
+
+        if on_hook is not None:
+            on_hook(node)  # pragma: no cover
+        return out2
+
+    selector_str = t.selector
+    all_nodes = selector_str.strip() == "*"
+    return _CompiledEditAttrsTransform(
+        kind="edit_attrs",
+        selector_str=selector_str,
+        selector=None if all_nodes else parse(selector_str),
+        all_nodes=all_nodes,
+        func=_drop_attrs,
+    )
+
+
 def compile_transforms(
     transforms: list[TransformSpec] | tuple[TransformSpec, ...],
     *,
@@ -1195,113 +1295,7 @@ def compile_transforms(
             continue
 
         if isinstance(t, DropAttrs):
-            patterns = t.patterns
-            on_hook = t.callback
-            on_report = t.report
-
-            # Optimize pattern matching: Compile all patterns into one regex
-            compiled_regex = _compile_patterns_to_regex(patterns)
-
-            def _drop_attrs(
-                node: Node,
-                patterns: tuple[str, ...] = patterns,
-                compiled_regex: re.Pattern[str] | None = compiled_regex,
-                on_hook: NodeCallback | None = on_hook,
-                on_report: ReportCallback | None = on_report,
-            ) -> dict[str, str | None] | None:
-                attrs = node.attrs
-                if not attrs:
-                    return None
-
-                if not patterns:
-                    return None
-
-                # Hot-path used by common security-focused custom pipelines.
-                # Avoid regex and avoid building a new dict when nothing matches.
-                if patterns == ("*:*", "on*", "srcdoc"):
-                    for key in attrs:
-                        lower_key = key if key.islower() else key.lower()
-                        if lower_key.startswith("on") or lower_key == "srcdoc" or ":" in lower_key:
-                            break
-                    else:
-                        return None
-
-                    out = dict(attrs)
-                    for key in attrs:
-                        lower_key = key if key.islower() else key.lower()
-                        if not (lower_key.startswith("on") or lower_key == "srcdoc" or ":" in lower_key):
-                            continue
-                        if on_report is not None:  # pragma: no cover
-                            if lower_key == "srcdoc":
-                                found_pat = "srcdoc"
-                            elif ":" in lower_key:
-                                found_pat = "*:*"
-                            else:
-                                found_pat = "on*"
-                            on_report(
-                                f"Unsafe attribute '{lower_key}' (matched forbidden pattern '{found_pat}')",
-                                node=node,
-                            )
-                        out.pop(key, None)
-                    if on_hook is not None:
-                        on_hook(node)  # pragma: no cover
-                    return out
-
-                # Generic path: avoid allocating unless something changes.
-                # Note: `compiled_regex` is always set here (we return early when
-                # `patterns` is empty, and the sanitizer hot-path is handled above).
-                if compiled_regex is None:  # pragma: no cover
-                    return None
-                for raw_key in attrs:
-                    if not raw_key or not str(raw_key).strip():
-                        continue
-                    key = raw_key
-                    if not key.islower():
-                        key = key.lower()
-                    if compiled_regex.match(key):
-                        break
-                else:
-                    return None
-
-                out2: dict[str, str | None] = {}
-                for raw_key, value in attrs.items():
-                    if not raw_key or not str(raw_key).strip():
-                        continue
-                    key = raw_key
-                    if not key.islower():
-                        key = key.lower()
-
-                    if compiled_regex.match(key):
-                        if on_report is not None:
-                            # Re-check to report which pattern matched (rare path)
-                            found_pat = "?"
-                            for pat in patterns:
-                                if _glob_match(pat, key):  # pragma: no cover
-                                    found_pat = pat
-                                    break
-                            on_report(
-                                f"Unsafe attribute '{key}' (matched forbidden pattern '{found_pat}')",
-                                node=node,
-                            )
-                        continue
-
-                    out2[key] = value
-
-                if on_hook is not None:
-                    on_hook(node)  # pragma: no cover
-                return out2
-
-            selector_str = t.selector
-            all_nodes = selector_str.strip() == "*"
-            _append_compiled(
-                _CompiledEditAttrsTransform(
-                    kind="edit_attrs",
-                    selector_str=selector_str,
-                    selector=None if all_nodes else _parse_selector(selector_str),
-                    all_nodes=all_nodes,
-                    func=_drop_attrs,
-                )
-            )
+            _append_compiled(_compile_drop_attrs_transform(t, _parse_selector))
             continue
 
         if isinstance(t, AllowlistAttrs):
