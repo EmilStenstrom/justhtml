@@ -673,7 +673,7 @@ class TreeBuilder(TreeBuilderModesMixin):
     def _maybe_mark_end_tag(self, node: Any) -> None:
         if self._pending_end_tag_name is None:
             return
-        if getattr(node, "name", None) != self._pending_end_tag_name:
+        if not isinstance(node, Element) or node.name != self._pending_end_tag_name:
             return
         node._end_tag_present = True
         if self.track_tag_spans:
