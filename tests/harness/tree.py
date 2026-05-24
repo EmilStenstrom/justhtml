@@ -6,8 +6,9 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from justhtml import JustHTML, to_test_format
+from justhtml import JustHTML
 from justhtml.context import FragmentContext
+from justhtml.serialize import to_test_format
 from justhtml.tokenizer import TokenizerOpts
 
 from .reporter import TestReporter

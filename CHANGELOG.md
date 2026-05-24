@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - BREAKING: Sanitization is now HTML-only. SVG and MathML are still parsed and tree-built when sanitization is disabled, but sanitizer output always drops foreign-namespace content. `SanitizationPolicy.drop_foreign_namespaces` has been removed.
   This removes a high-risk configuration surface where custom policies could preserve SVG/MathML while relying on JustHTML to understand every browser-active foreign-content feature. Recent hardening had to special-case SVG animation values, presentation attributes with `url(...)`, MathML URL attributes, foreign integration points, and mutation-XSS stabilization. Making sanitized output HTML-only gives the sanitizer one reviewable security model: foreign content can still be parsed for correctness, but it is not emitted from untrusted sanitization pipelines.
 - BREAKING: Remove the public `tokenizer_opts` and `tree_builder` constructor hooks from `JustHTML(...)`. These were internal parser injection points rather than supported application configuration.
+- BREAKING: Remove `to_test_format` from the top-level `justhtml` export. The html5lib fixture formatter remains available from `justhtml.serialize` for tests and conformance tooling.
 - BREAKING: Remove the deprecated `safe=` alias from `JustHTML(...)`; use `sanitize=` instead.
 - BREAKING: Remove the public `RewriteAttrs` alias; use `EditAttrs` instead.
 

@@ -17,8 +17,9 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from justhtml import JustHTML, to_test_format
+from justhtml import JustHTML
 from justhtml.context import FragmentContext
+from justhtml.serialize import to_test_format
 
 # Available parsers
 PARSERS = ["justhtml", "html5lib", "html5_parser", "lxml", "bs4", "html.parser", "selectolax", "markupever"]

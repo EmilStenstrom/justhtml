@@ -12,7 +12,7 @@ from .sanitize import (
     sanitize_dom,
 )
 from .selector import SelectorError, matches, query
-from .serialize import HTMLContext, to_html, to_test_format
+from .serialize import HTMLContext, to_html
 from .stream import stream
 from .tokens import ParseError
 from .transforms import (
@@ -90,5 +90,4 @@ __all__ = [
     "sanitize_dom",
     "stream",
     "to_html",
-    "to_test_format",
 ]
