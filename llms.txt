@@ -61,7 +61,7 @@ Full docs: https://emilstenstrom.github.io/justhtml/transforms.html
     - `Edit(selector, func)` — run custom logic for matching elements.
 
 - Attribute-only transforms
-    - `EditAttrs(selector, func)` — rewrite attributes based on a callback (`RewriteAttrs` is an alias).
+    - `EditAttrs(selector, func)` — edit attributes based on a callback.
     - `DropAttrs(selector, patterns=())` — drop attributes matching glob-like patterns (ex: `("data-*", "on*")`).
     - `AllowlistAttrs(selector, allowed_attributes=...)` — keep only allowlisted attributes.
 

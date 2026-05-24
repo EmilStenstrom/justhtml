@@ -60,7 +60,7 @@ class TestTransforms(unittest.TestCase):
         with self.assertRaises(TypeError):
             compile_transforms([object()])
 
-    def test_rewriteattrs_selector_star_uses_all_nodes_fast_path(self) -> None:
+    def test_editattrs_selector_star_uses_all_nodes_fast_path(self) -> None:
         root = DocumentFragment()
         root.append_child(Element("div", {"a": "1"}, "html"))
 
@@ -73,7 +73,7 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compiled)
         assert root.children[0].attrs.get("b") == "2"
 
-    def test_compile_transforms_fuses_adjacent_rewriteattrs_with_same_selector(self) -> None:
+    def test_compile_transforms_fuses_adjacent_editattrs_with_same_selector(self) -> None:
         root = DocumentFragment()
         root.append_child(Element("div", {"a": "1"}, "html"))
 
@@ -88,8 +88,8 @@ class TestTransforms(unittest.TestCase):
             return out
 
         compiled = compile_transforms([EditAttrs("*", cb1), EditAttrs("*", cb2)])
-        # Fused into a single rewrite_attrs_chain transform.
-        assert sum(1 for t in compiled if getattr(t, "kind", None) == "rewrite_attrs_chain") == 1
+        # Fused into a single edit_attrs_chain transform.
+        assert sum(1 for t in compiled if getattr(t, "kind", None) == "edit_attrs_chain") == 1
 
         apply_compiled_transforms(root, compiled)
         assert root.children[0].attrs == {"a": "1", "b": "2", "c": "3"}
@@ -1656,7 +1656,7 @@ class TestTransforms(unittest.TestCase):
         )
         assert doc.to_html(pretty=False) == "<div>ok</div><div>y</div>"
 
-    def test_rewriteattrs_can_replace_attribute_dict(self) -> None:
+    def test_editattrs_can_replace_attribute_dict(self) -> None:
         def rewrite(node: Node) -> dict[str, str | None] | None:
             assert node.name == "a"
             return {"href": node.attrs.get("href"), "data-ok": "1"}
@@ -1664,11 +1664,11 @@ class TestTransforms(unittest.TestCase):
         doc = JustHTML('<a href="x" onclick="y">t</a>', fragment=True, transforms=[EditAttrs("a", rewrite)])
         assert doc.to_html(pretty=False) == '<a href="x" data-ok="1">t</a>'
 
-    def test_rewriteattrs_returning_none_noops(self) -> None:
+    def test_editattrs_returning_none_noops(self) -> None:
         doc = JustHTML('<a href="x">t</a>', fragment=True, transforms=[EditAttrs("a", lambda n: None)])
         assert doc.to_html(pretty=False) == '<a href="x">t</a>'
 
-    def test_rewriteattrs_skips_non_matching_elements(self) -> None:
+    def test_editattrs_skips_non_matching_elements(self) -> None:
         doc = JustHTML("<p>t</p>", fragment=True, transforms=[EditAttrs("a", lambda n: {"x": "1"})])
         assert doc.to_html(pretty=False) == "<p>t</p>"
 

@@ -341,7 +341,7 @@ class _CompiledDecideTransform:
 
 @dataclass(frozen=True, slots=True)
 class _CompiledEditAttrsTransform:
-    kind: Literal["rewrite_attrs"]
+    kind: Literal["edit_attrs"]
     selector_str: str
     selector: ParsedSelector | None
     all_nodes: bool
@@ -364,7 +364,7 @@ class _CompiledEditAttrsChain:
 
     __slots__ = ("all_nodes", "funcs", "kind", "selector", "selector_str")
 
-    kind: Literal["rewrite_attrs_chain"]
+    kind: Literal["edit_attrs_chain"]
     selector_str: str
     selector: ParsedSelector | None
     all_nodes: bool
@@ -377,7 +377,7 @@ class _CompiledEditAttrsChain:
         all_nodes: bool,
         funcs: list[EditAttrsCallback],
     ) -> None:
-        self.kind = "rewrite_attrs_chain"
+        self.kind = "edit_attrs_chain"
         self.selector_str = selector_str
         self.selector = selector
         self.all_nodes = all_nodes
@@ -930,7 +930,7 @@ def compile_transforms(
 
             _append_compiled(
                 _CompiledEditAttrsTransform(
-                    kind="rewrite_attrs",
+                    kind="edit_attrs",
                     selector_str=selector_str,
                     selector=None if all_nodes else _parse_selector(selector_str),
                     all_nodes=all_nodes,
@@ -1129,7 +1129,7 @@ def compile_transforms(
             all_nodes = selector_str.strip() == "*"
             _append_compiled(
                 _CompiledEditAttrsTransform(
-                    kind="rewrite_attrs",
+                    kind="edit_attrs",
                     selector_str=selector_str,
                     selector=None if all_nodes else _parse_selector(selector_str),
                     all_nodes=all_nodes,
@@ -1218,7 +1218,7 @@ def compile_transforms(
             all_nodes = selector_str.strip() == "*"
             _append_compiled(
                 _CompiledEditAttrsTransform(
-                    kind="rewrite_attrs",
+                    kind="edit_attrs",
                     selector_str=selector_str,
                     selector=None if all_nodes else _parse_selector(selector_str),
                     all_nodes=all_nodes,
@@ -1385,7 +1385,7 @@ def compile_transforms(
             all_nodes = selector_str.strip() == "*"
             _append_compiled(
                 _CompiledEditAttrsTransform(
-                    kind="rewrite_attrs",
+                    kind="edit_attrs",
                     selector_str=selector_str,
                     selector=None if all_nodes else _parse_selector(selector_str),
                     all_nodes=all_nodes,
@@ -1461,7 +1461,7 @@ def compile_transforms(
             all_nodes = selector_str.strip() == "*"
             _append_compiled(
                 _CompiledEditAttrsTransform(
-                    kind="rewrite_attrs",
+                    kind="edit_attrs",
                     selector_str=selector_str,
                     selector=None if all_nodes else _parse_selector(selector_str),
                     all_nodes=all_nodes,
@@ -1911,7 +1911,7 @@ def apply_compiled_transforms(
                             break
 
                         # EditAttrs chain - flat list iteration (optimized)
-                        if k == "rewrite_attrs_chain":
+                        if k == "edit_attrs_chain":
                             if is_special or is_doctype:
                                 continue
                             if not t.all_nodes:
@@ -2229,8 +2229,8 @@ def apply_compiled_transforms(
                             changed = True
                             break
 
-                        # EditAttrs (rewrite_attrs) - single function
-                        if k == "rewrite_attrs":
+                        # EditAttrs - single function
+                        if k == "edit_attrs":
                             if is_special or is_doctype:
                                 continue
                             if not t.all_nodes:

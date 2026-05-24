@@ -18,7 +18,7 @@ from justhtml.transforms import (
 
 
 class TestTransformsCompiler(unittest.TestCase):
-    def test_compile_transforms_fuses_rewrite_attrs_chain(self) -> None:
+    def test_compile_transforms_fuses_edit_attrs_chain(self) -> None:
         compiled = compile_transforms(
             [
                 DropAttrs(selector="*", patterns=("id",)),
@@ -106,7 +106,7 @@ class TestTransformsCompiler(unittest.TestCase):
         _ = t3.callback(Element("drop", {}, "html"))  # type: ignore[attr-defined]
         assert seen == ["hook"]
 
-    def test_rewrite_attrs_drop_allowlist_and_drop_url(self) -> None:
+    def test_edit_attrs_drop_allowlist_and_drop_url(self) -> None:
         root = Document()
         node = Element(
             "a",
