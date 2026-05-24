@@ -335,7 +335,7 @@ class TestRunner:
                     test.data,
                     debug=True,
                     fragment_context=test.fragment_context,
-                    tokenizer_opts=opts,
+                    _tokenizer_opts=opts,
                     iframe_srcdoc=test.iframe_srcdoc,
                     scripting_enabled=opts.scripting_enabled,
                     collect_errors=True,
@@ -347,7 +347,7 @@ class TestRunner:
             parser = JustHTML(
                 test.data,
                 fragment_context=test.fragment_context,
-                tokenizer_opts=opts,
+                _tokenizer_opts=opts,
                 iframe_srcdoc=test.iframe_srcdoc,
                 scripting_enabled=opts.scripting_enabled,
                 collect_errors=True,

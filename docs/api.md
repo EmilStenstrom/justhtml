@@ -27,8 +27,6 @@ JustHTML(
     fragment_context=None,
     iframe_srcdoc=False,
     strict=False,
-    tokenizer_opts=None,
-    tree_builder=None,
     transforms=None,
 )
 ```
@@ -47,8 +45,6 @@ JustHTML(
 | `strict` | `bool` | `False` | Raise `StrictModeError` on the earliest parse error by source position |
 | `transforms` | `list[Transform] \| None` | `None` | Optional DOM transforms applied after parsing. See [Transforms](transforms.md). |
 | `iframe_srcdoc` | `bool` | `False` | Parse whole document as if it's inside an iframe `srcdoc` (HTML parsing quirk) |
-| `tokenizer_opts` | `TokenizerOpts \| None` | `None` | Advanced tokenizer configuration |
-| `tree_builder` | `TreeBuilder \| None` | `None` | Supply a custom tree builder |
 
 ### Properties
 

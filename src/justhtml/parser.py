@@ -74,8 +74,7 @@ class JustHTML:
         iframe_srcdoc: bool = False,
         scripting_enabled: bool = True,
         strict: bool = False,
-        tokenizer_opts: TokenizerOpts | None = None,
-        tree_builder: TreeBuilder | None = None,
+        _tokenizer_opts: TokenizerOpts | None = None,
         transforms: list[TransformSpec] | None = None,
     ) -> None:
         sanitize_enabled = True if sanitize is None else bool(sanitize)
@@ -146,14 +145,14 @@ class JustHTML:
         # Node location tracking is opt-in to avoid slowing down the common case.
         should_collect = collect_errors or strict
 
-        self.tree_builder = tree_builder or TreeBuilder(
+        self.tree_builder = TreeBuilder(
             fragment_context=fragment_context,
             iframe_srcdoc=iframe_srcdoc,
             collect_errors=should_collect,
             scripting_enabled=scripting_enabled,
             track_tag_spans=track_tag_spans,
         )
-        opts = tokenizer_opts.copy() if tokenizer_opts is not None else TokenizerOpts()
+        opts = _tokenizer_opts.copy() if _tokenizer_opts is not None else TokenizerOpts()
         opts.scripting_enabled = bool(scripting_enabled)
         if needs_escape_incomplete_tags:
             opts.emit_bogus_markup_as_text = True

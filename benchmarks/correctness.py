@@ -239,12 +239,12 @@ def run_test_justhtml(html, fragment_context, expected, xml_coercion=False, ifra
             parser = JustHTML(
                 html,
                 fragment_context=ctx,
-                tokenizer_opts=opts,
+                _tokenizer_opts=opts,
                 iframe_srcdoc=iframe_srcdoc,
-                safe=False,
+                sanitize=False,
             )
         else:
-            parser = JustHTML(html, tokenizer_opts=opts, iframe_srcdoc=iframe_srcdoc, safe=False)
+            parser = JustHTML(html, _tokenizer_opts=opts, iframe_srcdoc=iframe_srcdoc, sanitize=False)
         actual = to_test_format(parser.root)
         return _compare_result(expected, actual)
     except Exception as e:
