@@ -1,7 +1,7 @@
 import unittest
 
 from justhtml import JustHTML, SanitizationPolicy, UrlRule, to_html
-from justhtml.node import Element, Text
+from justhtml.dom import Element, Text
 from justhtml.transforms import (
     AllowlistAttrs,
     AllowStyleAttrs,

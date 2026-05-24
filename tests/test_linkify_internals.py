@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from time import perf_counter
 
-from justhtml import linkify as linkify_mod
-from justhtml.linkify import LinkifyConfig, find_links, find_links_with_config
+from justhtml.transforms import linkify_core as linkify_mod
+from justhtml.transforms.linkify_core import LinkifyConfig, find_links, find_links_with_config
 
 
 class TestLinkifyInternals(unittest.TestCase):

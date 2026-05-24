@@ -1,9 +1,9 @@
 import unittest
 
 from justhtml import JustHTML
-from justhtml import encoding as enc
-from justhtml.encoding import decode_html, normalize_encoding_label, sniff_html_encoding
-from justhtml.stream import stream
+from justhtml.parser import encoding as enc
+from justhtml.parser.encoding import decode_html, normalize_encoding_label, sniff_html_encoding
+from justhtml.parser.stream import stream
 
 
 class TestEncoding(unittest.TestCase):

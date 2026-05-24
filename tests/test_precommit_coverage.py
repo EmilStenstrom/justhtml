@@ -1,9 +1,9 @@
 import unittest
 
-from justhtml.constants import FORMAT_MARKER
-from justhtml.tokens import Tag
+from justhtml.core.constants import FORMAT_MARKER
+from justhtml.tokenizer.tokens import Tag
 from justhtml.treebuilder import TreeBuilder
-from justhtml.treebuilder_utils import InsertionMode
+from justhtml.treebuilder.utils import InsertionMode
 
 
 class TestPrecommitCoverageHotspots(unittest.TestCase):

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from . import sanitize_url_policy as _url_policy
-from . import sanitize_url_runtime as _url_runtime
-from . import sanitize_url_spec as _url_spec
+from . import policy as _url_policy
+from . import runtime as _url_runtime
+from . import spec as _url_spec
 
 DisallowedTagHandling = _url_policy.DisallowedTagHandling
 UnsafeHandling = _url_policy.UnsafeHandling

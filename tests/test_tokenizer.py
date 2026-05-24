@@ -2,7 +2,7 @@ import unittest
 
 from justhtml import JustHTML
 from justhtml.tokenizer import Tokenizer, TokenizerOpts
-from justhtml.tokens import Tag
+from justhtml.tokenizer.tokens import Tag
 
 
 class _TokenizerSink:

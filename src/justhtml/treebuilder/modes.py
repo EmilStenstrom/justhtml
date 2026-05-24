@@ -5,15 +5,24 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
 
-from .constants import (
+from justhtml.core.constants import (
     FORMAT_MARKER,
     FORMATTING_ELEMENTS,
     HEADING_ELEMENTS,
     HTML_SPACE_CHARACTERS,
 )
-from .node import Comment, Node, Template
-from .tokens import AnyToken, CharacterTokens, CommentToken, DoctypeToken, EOFToken, Tag, TokenSinkResult
-from .treebuilder_utils import (
+from justhtml.dom import Comment, Node, Template
+from justhtml.tokenizer.tokens import (
+    AnyToken,
+    CharacterTokens,
+    CommentToken,
+    DoctypeToken,
+    EOFToken,
+    Tag,
+    TokenSinkResult,
+)
+
+from .utils import (
     InsertionMode,
     doctype_error_and_quirks,
     is_all_whitespace,

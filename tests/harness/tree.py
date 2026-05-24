@@ -7,8 +7,8 @@ from io import StringIO
 from pathlib import Path
 
 from justhtml import JustHTML
-from justhtml.context import FragmentContext
-from justhtml.serialize import to_test_format
+from justhtml.parser.context import FragmentContext
+from justhtml.serializer import to_test_format
 from justhtml.tokenizer import TokenizerOpts
 
 from .reporter import TestReporter

@@ -7,10 +7,10 @@ from collections.abc import Callable, Collection, Mapping
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl, quote, urlsplit
 
-from . import sanitize_url_policy as _url_policy
+from . import policy as _url_policy
 
 if TYPE_CHECKING:
-    from .sanitize_url_spec import UrlSinkKind
+    from .spec import UrlSinkKind
 
 UrlFilter = _url_policy.UrlFilter
 UrlHandling = _url_policy.UrlHandling
@@ -56,7 +56,7 @@ def _strip_invisible_unicode(value: str) -> str:
 
 def _prepare_standalone_url_value_for_checking(value: str) -> str:
     if "&" in value:
-        from .entities import decode_entities_in_text  # noqa: PLC0415
+        from justhtml.core.entities import decode_entities_in_text  # noqa: PLC0415
 
         value = decode_entities_in_text(value, in_attribute=True)
     return _strip_invisible_unicode(value)

@@ -4,8 +4,8 @@ import unittest
 from dataclasses import replace
 
 from justhtml import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, JustHTML, SetAttrs
-from justhtml.context import FragmentContext
-from justhtml.sanitize import SanitizationPolicy, UnsafeHtmlError, UrlPolicy, UrlRule
+from justhtml.parser.context import FragmentContext
+from justhtml.sanitizer import SanitizationPolicy, UnsafeHtmlError, UrlPolicy, UrlRule
 from justhtml.transforms import Linkify, Sanitize, Stage
 
 

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from .sanitize_policy import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy
+from .policy import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy
 
 if TYPE_CHECKING:
-    from .node import NodeType
-    from .tokens import ParseError
+    from justhtml.dom import NodeType
+    from justhtml.tokenizer.tokens import ParseError
 
 
 def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
@@ -28,7 +28,7 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     # Historically we allow a child element to inherit _source_html from an
     # ancestor container; keep that behavior even though we sanitize a clone.
     if policy.disallowed_tag_handling == "escape":
-        from .node import Node, Template  # noqa: PLC0415
+        from justhtml.dom import Node, Template  # noqa: PLC0415
 
         root_source_html = node._source_html if isinstance(node, Node) else None
         if root_source_html:
@@ -65,7 +65,7 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
         compiled_policy.apply_to(cloned, errors=None)
         result: Any = cloned
     else:
-        from .node import DocumentFragment  # noqa: PLC0415
+        from justhtml.dom import DocumentFragment  # noqa: PLC0415
 
         wrapper = DocumentFragment()
         wrapper.append_child(node.clone_node(deep=True))
@@ -95,7 +95,7 @@ def _sanitize_dom_once(
         compiled_policy.apply_to(node, errors=errors)
         return node
 
-    from .node import DocumentFragment  # noqa: PLC0415
+    from justhtml.dom import DocumentFragment  # noqa: PLC0415
 
     wrapper = DocumentFragment()
     wrapper.append_child(node)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from justhtml.encoding import normalize_encoding_label, sniff_html_encoding
+from justhtml.parser.encoding import normalize_encoding_label, sniff_html_encoding
 
 
 def _parse_encoding_dat_file(path):

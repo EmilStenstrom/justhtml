@@ -5,14 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from .linkify import LinkifyConfig, find_links_with_config
-from .node import Element, Text
+from justhtml.dom import Element, Text
+
+from .linkify_core import LinkifyConfig, find_links_with_config
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from .node import Node
-    from .transforms_spec import Linkify
+    from justhtml.dom import Node
+
+    from .spec import Linkify
 
 
 @dataclass(frozen=True, slots=True)

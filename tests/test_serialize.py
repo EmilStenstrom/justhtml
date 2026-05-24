@@ -3,9 +3,9 @@ import unittest
 
 from justhtml import HTMLContext, UrlRule
 from justhtml import JustHTML as _JustHTML
-from justhtml.context import FragmentContext
-from justhtml.node import Comment, DocumentFragment, Node, Template, Text
-from justhtml.serialize import (
+from justhtml.dom import Comment, DocumentFragment, Node, Template, Text
+from justhtml.parser.context import FragmentContext
+from justhtml.serializer import (
     _can_unquote_attr_value,
     _choose_attr_quote,
     _collapse_html_whitespace,
@@ -23,7 +23,7 @@ from justhtml.serialize import (
     to_html,
     to_test_format,
 )
-from justhtml.tokens import Doctype
+from justhtml.tokenizer.tokens import Doctype
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802

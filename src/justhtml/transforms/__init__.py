@@ -17,17 +17,18 @@ from dataclasses import dataclass
 from importlib import import_module
 from typing import TYPE_CHECKING, Literal, cast
 
-from .constants import HTML_FORMATTING_SPACE_CHARACTERS, HTML_SPACE_CHARACTERS
-from .sanitize import (
+from justhtml.core.constants import HTML_FORMATTING_SPACE_CHARACTERS, HTML_SPACE_CHARACTERS
+from justhtml.sanitizer import (
     SanitizationPolicy,
 )
-from .sanitize import (
+from justhtml.sanitizer import (
     UrlPolicy as _UrlPolicy,
 )
-from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits
-from .tokens import ParseError
-from .transforms_linkify import CompiledLinkifyTransform
-from .transforms_spec import (
+from justhtml.selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits
+from justhtml.tokenizer.tokens import ParseError
+
+from .linkify import CompiledLinkifyTransform
+from .spec import (
     AllowlistAttrs,
     AllowStyleAttrs,
     CollapseWhitespace,
@@ -57,8 +58,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any, Protocol
 
-    from .node import Node
-    from .selector import ParsedSelector
+    from justhtml.dom import Node
+    from justhtml.selector import ParsedSelector
 
     class NodeCallback(Protocol):
         def __call__(self, node: Node) -> None: ...
@@ -437,13 +438,13 @@ def _selector_limits_from_compiled(
 
 
 def _iter_flattened_transforms(specs: list[TransformSpec] | tuple[TransformSpec, ...]) -> list[Transform]:
-    module = import_module(".transforms_compile", __package__)
+    module = import_module(".compile", __package__)
 
     return cast("list[Transform]", module._iter_flattened_transforms(specs))
 
 
 def _glob_match(pattern: str, text: str) -> bool:
-    module = import_module(".transforms_compile", __package__)
+    module = import_module(".compile", __package__)
 
     return cast("bool", module._glob_match(pattern, text))
 
@@ -453,7 +454,7 @@ def compile_transforms(
     *,
     _selector_limits: SelectorLimits | None = None,
 ) -> list[CompiledTransform]:
-    module = import_module(".transforms_compile", __package__)
+    module = import_module(".compile", __package__)
 
     return cast("list[CompiledTransform]", module.compile_transforms(transforms, _selector_limits=_selector_limits))
 
@@ -464,6 +465,6 @@ def apply_compiled_transforms(
     *,
     errors: list[ParseError] | None = None,
 ) -> None:
-    module = import_module(".transforms_runtime", __package__)
+    module = import_module(".runtime", __package__)
 
     module.apply_compiled_transforms(root, compiled, errors=errors)

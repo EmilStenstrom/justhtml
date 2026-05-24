@@ -29,7 +29,7 @@ But if we tell the parser this HTML will be inserted into a `<tbody>`:
 
 ```python
 from justhtml import JustHTML
-from justhtml.context import FragmentContext
+from justhtml.parser.context import FragmentContext
 
 html = "<tr><td>cell</td></tr>"
 ctx = FragmentContext("tbody")
@@ -135,7 +135,7 @@ Some elements treat their content as raw text:
 
 ```python
 from justhtml import JustHTML
-from justhtml.context import FragmentContext
+from justhtml.parser.context import FragmentContext
 
 # Content in <textarea> is not parsed as HTML
 ctx = FragmentContext("textarea")
@@ -168,7 +168,7 @@ doc = JustHTML(math_content, fragment_context=ctx)
 ## FragmentContext API
 
 ```python
-from justhtml.context import FragmentContext
+from justhtml.parser.context import FragmentContext
 
 # HTML namespace (default)
 ctx = FragmentContext("div")
@@ -201,7 +201,7 @@ ctx = FragmentContext("math", namespace="math")
 
 ```python
 from justhtml import JustHTML
-from justhtml.context import FragmentContext
+from justhtml.parser.context import FragmentContext
 
 from justhtml import Sanitize, SanitizationPolicy, UrlPolicy, UrlRule
 

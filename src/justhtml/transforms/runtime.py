@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from .constants import VOID_ELEMENTS
-from .node import Element, Node, Template, Text
-from .sanitize import _sanitize_rawtext_element_contents, _strip_invisible_unicode
-from .selector import SelectorMatcher
-from .serialize import serialize_end_tag, serialize_start_tag
-from .transforms import (
+from justhtml.core.constants import VOID_ELEMENTS
+from justhtml.dom import Element, Node, Template, Text
+from justhtml.sanitizer import _sanitize_rawtext_element_contents, _strip_invisible_unicode
+from justhtml.selector import SelectorMatcher
+from justhtml.serializer import serialize_end_tag, serialize_start_tag
+
+from . import (
     _ERROR_SINK,
     CompiledTransform,
     _collapse_html_space_characters,
@@ -35,11 +36,11 @@ from .transforms import (
     _CompiledStripInvisibleUnicodeTransform,
     _selector_limits_from_compiled,
 )
-from .transforms_linkify import CompiledLinkifyTransform, apply_linkify_transform
-from .transforms_spec import DecideAction
+from .linkify import CompiledLinkifyTransform, apply_linkify_transform
+from .spec import DecideAction
 
 if TYPE_CHECKING:
-    from .tokens import ParseError
+    from justhtml.tokenizer.tokens import ParseError
 
 
 def apply_compiled_transforms(

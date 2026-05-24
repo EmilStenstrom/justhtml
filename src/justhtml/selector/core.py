@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
-from .constants import HTML_SPACE_CHARACTERS
+from justhtml.core.constants import HTML_SPACE_CHARACTERS
 
 if TYPE_CHECKING:
-    from .node import NodeType, QueryMatch
+    from justhtml.dom import NodeType, QueryMatch
 
 
 class SelectorError(ValueError):

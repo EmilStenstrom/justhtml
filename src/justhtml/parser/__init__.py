@@ -4,24 +4,25 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from .context import FragmentContext
-from .encoding import decode_html
-from .node import Document, DocumentFragment, Node, QueryMatch, Text
-from .sanitize import (
+from justhtml.dom import Document, DocumentFragment, Node, QueryMatch, Text
+from justhtml.sanitizer import (
     UrlRule,
     _prepare_standalone_url_value_for_checking,
     _sanitize_url_value_with_rule,
 )
-from .serialize import to_html as serialize_html
-from .tokenizer import Tokenizer, TokenizerOpts
-from .transforms import apply_compiled_transforms, compile_transforms
-from .treebuilder import TreeBuilder
+from justhtml.serializer import to_html as serialize_html
+from justhtml.tokenizer import Tokenizer, TokenizerOpts
+from justhtml.transforms import apply_compiled_transforms, compile_transforms
+from justhtml.treebuilder import TreeBuilder
+
+from .context import FragmentContext
+from .encoding import decode_html
 
 if TYPE_CHECKING:
-    from .sanitize import SanitizationPolicy
-    from .serialize import HTMLContext
-    from .tokens import ParseError
-    from .transforms import TransformSpec
+    from justhtml.sanitizer import SanitizationPolicy
+    from justhtml.serializer import HTMLContext
+    from justhtml.tokenizer.tokens import ParseError
+    from justhtml.transforms import TransformSpec
 
 
 class StrictModeError(SyntaxError):
@@ -91,8 +92,8 @@ class JustHTML:
         explicit_rawtext_policy: SanitizationPolicy | None = None
         needs_escape_incomplete_tags = False
         if transforms:
-            from .sanitize import DEFAULT_POLICY  # noqa: PLC0415
-            from .transforms import HardenRawtext, Sanitize, _iter_flattened_transforms  # noqa: PLC0415
+            from justhtml.sanitizer import DEFAULT_POLICY  # noqa: PLC0415
+            from justhtml.transforms import HardenRawtext, Sanitize, _iter_flattened_transforms  # noqa: PLC0415
 
             for t in _iter_flattened_transforms(transforms):
                 if isinstance(t, Sanitize):
@@ -124,7 +125,7 @@ class JustHTML:
         if isinstance(html, (Node, Text)):
             html_for_serialization = html
             if sanitize_enabled or has_sanitize_transform or has_harden_rawtext_transform:
-                from .sanitize import (  # noqa: PLC0415
+                from justhtml.sanitizer import (  # noqa: PLC0415
                     DEFAULT_DOCUMENT_POLICY,
                     DEFAULT_POLICY,
                     _sanitize_rawtext_element_contents,
@@ -193,8 +194,8 @@ class JustHTML:
         # places an explicit Sanitize() in the transform list, that explicit
         # position becomes the sanitize point (no extra final pass is appended).
         if transforms or sanitize_enabled:
-            from .sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
-            from .transforms import HardenRawtext, Sanitize, Stage, _iter_flattened_transforms  # noqa: PLC0415
+            from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
+            from justhtml.transforms import HardenRawtext, Sanitize, Stage, _iter_flattened_transforms  # noqa: PLC0415
 
             def _normalize_transform_policies(
                 items: list[TransformSpec] | tuple[TransformSpec, ...],
@@ -316,7 +317,7 @@ class JustHTML:
     @staticmethod
     def escape_js_string(value: str, *, quote: str = '"') -> str:
         """Escape a value for safe inclusion in a JavaScript string literal."""
-        from .serialize import _escape_js_string  # noqa: PLC0415
+        from justhtml.serializer import _escape_js_string  # noqa: PLC0415
 
         return _escape_js_string(value, quote=quote)
 
@@ -326,14 +327,14 @@ class JustHTML:
         if quote not in {'"', "'"}:
             raise ValueError("quote must be ' or \"")
 
-        from .serialize import _escape_attr_value  # noqa: PLC0415
+        from justhtml.serializer import _escape_attr_value  # noqa: PLC0415
 
         return _escape_attr_value(value, quote)
 
     @staticmethod
     def escape_url_value(value: str) -> str:
         """Percent-encode a URL value (useful before embedding into non-URL contexts)."""
-        from .serialize import _escape_url_value  # noqa: PLC0415
+        from justhtml.serializer import _escape_url_value  # noqa: PLC0415
 
         return _escape_url_value(value)
 
@@ -397,7 +398,7 @@ class JustHTML:
         This produces a JS-string-safe value that, when assigned to innerHTML,
         will be interpreted as text (not markup).
         """
-        from .serialize import _escape_text  # noqa: PLC0415
+        from justhtml.serializer import _escape_text  # noqa: PLC0415
 
         return JustHTML.escape_js_string(_escape_text(value), quote=quote)
 

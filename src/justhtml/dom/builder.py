@@ -3,9 +3,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal, overload
 
-from .node import Comment, Element, Node, Template, Text
-from .serialize import _validate_serializable_attr_name, _validate_serializable_tag_name
-from .tokens import Doctype
+from justhtml.serializer import _validate_serializable_attr_name, _validate_serializable_tag_name
+from justhtml.tokenizer.tokens import Doctype
+
+from . import Comment, Element, Node, Template, Text
 
 _SPECIAL_NODE_NAMES = {"#text", "#comment", "#document", "#document-fragment", "!doctype"}
 _ALLOWED_NAMESPACES = {"html", "svg", "math"}

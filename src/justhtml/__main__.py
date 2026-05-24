@@ -11,13 +11,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TextIO, cast
 
 from . import JustHTML, StrictModeError
-from .context import FragmentContext
+from .parser.context import FragmentContext
 from .selector import SelectorError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from .node import Node
+    from .dom import Node
     from .transforms import TransformSpec
 
 
@@ -159,7 +159,7 @@ def main() -> None:
 
     policy = None
     if safe and args.allow_tags:
-        from .sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy  # noqa: PLC0415
+        from .sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy  # noqa: PLC0415
 
         extra_tags: set[str] = set()
         for part in str(args.allow_tags).replace(" ", ",").split(","):
@@ -185,7 +185,7 @@ def main() -> None:
 
     transforms: list[TransformSpec] | None = None
     if args.cleanup:
-        from .sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
+        from .sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
         from .transforms import Drop, PruneEmpty, Sanitize, Unwrap  # noqa: PLC0415
 
         default_policy = DEFAULT_POLICY if fragment_context is not None else DEFAULT_DOCUMENT_POLICY

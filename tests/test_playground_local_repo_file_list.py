@@ -20,7 +20,8 @@ class TestPlaygroundLocalRepoFileList(unittest.TestCase):
         listed = re.findall(r'"(?P<name>[^"]+\.py)"', body)
         self.assertTrue(listed, "No .py entries found in the playground file list")
 
-        src_files = sorted(p.name for p in Path("src/justhtml").glob("*.py"))
+        src_root = Path("src/justhtml")
+        src_files = sorted(p.relative_to(src_root).as_posix() for p in src_root.rglob("*.py"))
 
         self.assertEqual(len(listed), len(set(listed)), "Playground file list contains duplicates")
         self.assertEqual(set(listed), set(src_files), "Playground file list is out of sync with src/justhtml")

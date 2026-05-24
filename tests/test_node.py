@@ -1,7 +1,16 @@
 import unittest
 
 from justhtml import JustHTML
-from justhtml.markdown import (
+from justhtml.dom import (
+    Comment,
+    Document,
+    Element,
+    Node,
+    Template,
+    Text,
+)
+from justhtml.sanitizer import DEFAULT_POLICY, SanitizationPolicy
+from justhtml.serializer.markdown import (
     _markdown_backtick_fence,
     _markdown_code_span,
     _markdown_escape_line_start,
@@ -10,15 +19,6 @@ from justhtml.markdown import (
     _MarkdownBuilder,
     _to_markdown_walk,
 )
-from justhtml.node import (
-    Comment,
-    Document,
-    Element,
-    Node,
-    Template,
-    Text,
-)
-from justhtml.sanitize import DEFAULT_POLICY, SanitizationPolicy
 
 
 class TestNode(unittest.TestCase):

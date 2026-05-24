@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 from typing import TYPE_CHECKING
 
-from .constants import (
+from justhtml.core.constants import (
     HTML4_PUBLIC_PREFIXES,
     HTML_SPACE_CHARACTERS,
     LIMITED_QUIRKY_PUBLIC_PREFIXES,
@@ -13,7 +13,7 @@ from .constants import (
 )
 
 if TYPE_CHECKING:
-    from .tokens import Doctype
+    from justhtml.tokenizer.tokens import Doctype
 
 
 class InsertionMode(enum.IntEnum):

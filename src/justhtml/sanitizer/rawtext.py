@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .rawtext import neutralize_rawtext_end_tag_sequences
-from .sanitize_css import _css_value_may_load_external_resource
-from .tokens import ParseError
+from justhtml.core.rawtext import neutralize_rawtext_end_tag_sequences
+from justhtml.tokenizer.tokens import ParseError
+
+from .css import _css_value_may_load_external_resource
 
 _RAWTEXT_SERIALIZATION_ELEMENTS: frozenset[str] = frozenset({"script", "style"})
 
@@ -43,7 +44,7 @@ def _sanitize_rawtext_element_contents(
     policy: Any,
     errors: list[ParseError] | None,
 ) -> None:
-    from .node import Template  # noqa: PLC0415
+    from justhtml.dom import Template  # noqa: PLC0415
 
     stack: list[Any] = [node]
 

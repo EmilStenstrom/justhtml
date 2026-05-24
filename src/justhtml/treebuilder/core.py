@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from .constants import (
+from justhtml.core.constants import (
     BUTTON_SCOPE_TERMINATORS,
     DEFAULT_SCOPE_TERMINATORS,
     DEFINITION_SCOPE_TERMINATORS,
@@ -25,11 +25,21 @@ from .constants import (
     TABLE_FOSTER_TARGETS,
     TABLE_SCOPE_TERMINATORS,
 )
-from .errors import generate_error_message
-from .node import Comment, Document, DocumentFragment, Element, Node, Template, Text
-from .tokens import AnyToken, CharacterTokens, CommentToken, DoctypeToken, EOFToken, ParseError, Tag, TokenSinkResult
-from .treebuilder_modes import TreeBuilderModesMixin
-from .treebuilder_utils import (
+from justhtml.core.errors import generate_error_message
+from justhtml.dom import Comment, Document, DocumentFragment, Element, Node, Template, Text
+from justhtml.tokenizer.tokens import (
+    AnyToken,
+    CharacterTokens,
+    CommentToken,
+    DoctypeToken,
+    EOFToken,
+    ParseError,
+    Tag,
+    TokenSinkResult,
+)
+
+from .modes import TreeBuilderModesMixin
+from .utils import (
     InsertionMode,
     is_all_whitespace,
 )

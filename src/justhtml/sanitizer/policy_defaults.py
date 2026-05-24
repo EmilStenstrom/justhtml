@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-from .sanitize_url import UrlPolicy, UrlRule
+from justhtml.sanitizer.url import UrlPolicy, UrlRule
 
 
 def _seal_url_policy(url_policy: UrlPolicy) -> None:
@@ -22,7 +22,7 @@ def _seal_url_policy(url_policy: UrlPolicy) -> None:
 
 
 def _seal_default_policy(policy: object) -> None:
-    from .sanitize_policy import SanitizationPolicy  # noqa: PLC0415
+    from justhtml.sanitizer.policy import SanitizationPolicy  # noqa: PLC0415
 
     if not isinstance(policy, SanitizationPolicy):
         raise TypeError("policy must be a SanitizationPolicy")
@@ -39,7 +39,7 @@ def _seal_default_policy(policy: object) -> None:
 
 
 def _build_default_policies() -> tuple[object, frozenset[str], object]:
-    from .sanitize_policy import SanitizationPolicy  # noqa: PLC0415
+    from justhtml.sanitizer.policy import SanitizationPolicy  # noqa: PLC0415
 
     default_policy = SanitizationPolicy(
         allowed_tags=[

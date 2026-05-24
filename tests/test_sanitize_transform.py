@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 
 from justhtml import JustHTML
-from justhtml.node import Comment, DocumentFragment, Element, Node, Template, Text
-from justhtml.sanitize import SanitizationPolicy
+from justhtml.dom import Comment, DocumentFragment, Element, Node, Template, Text
+from justhtml.sanitizer import SanitizationPolicy
 from justhtml.transforms import (
     CollapseWhitespace,
     Drop,

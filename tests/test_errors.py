@@ -4,7 +4,7 @@ import unittest
 
 from justhtml import JustHTML, ParseError, StrictModeError
 from justhtml.tokenizer import Tokenizer
-from justhtml.tokens import CharacterTokens, Tag
+from justhtml.tokenizer.tokens import CharacterTokens, Tag
 from justhtml.treebuilder import TreeBuilder
 
 

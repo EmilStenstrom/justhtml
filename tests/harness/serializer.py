@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from justhtml.constants import VOID_ELEMENTS
-from justhtml.serialize import serialize_end_tag, serialize_start_tag
+from justhtml.core.constants import VOID_ELEMENTS
+from justhtml.serializer import serialize_end_tag, serialize_start_tag
 
 
 def _serializer_attr_list_to_dict(attrs):

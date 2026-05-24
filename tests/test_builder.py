@@ -1,7 +1,8 @@
 import unittest
 
 from justhtml import JustHTML as _JustHTML
-from justhtml.builder import (
+from justhtml.dom import Comment, Document, DocumentFragment, Element, Template, Text
+from justhtml.dom.builder import (
     _normalize_attrs,
     _parse_element_name,
     comment,
@@ -9,7 +10,6 @@ from justhtml.builder import (
     element,
     text,
 )
-from justhtml.node import Comment, Document, DocumentFragment, Element, Template, Text
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802

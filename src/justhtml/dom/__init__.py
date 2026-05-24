@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
-from .serialize import to_html
+from justhtml.serializer import to_html
 
 if TYPE_CHECKING:
-    from .serialize import HTMLContext
-    from .tokens import Doctype
+    from justhtml.serializer import HTMLContext
+    from justhtml.tokenizer.tokens import Doctype
 
 
 def _to_text_collect(node: NodeType, parts: list[str], strip: bool) -> None:
@@ -269,7 +269,7 @@ class Node:
         Raises:
             ValueError: If the selector is invalid
         """
-        from .selector import query  # noqa: PLC0415
+        from justhtml.selector import query  # noqa: PLC0415
 
         return query(self, selector)
 
@@ -338,7 +338,7 @@ class Node:
         - Tables and images are preserved as raw HTML.
         - Unknown elements fall back to rendering their children.
         """
-        from .markdown import to_markdown  # noqa: PLC0415
+        from justhtml.serializer.markdown import to_markdown  # noqa: PLC0415
 
         return to_markdown(self, html_passthrough=html_passthrough)
 
@@ -677,7 +677,7 @@ class Text:
         return self.data
 
     def to_markdown(self, html_passthrough: bool = False) -> str:
-        from .markdown import to_markdown  # noqa: PLC0415
+        from justhtml.serializer.markdown import to_markdown  # noqa: PLC0415
 
         return to_markdown(self, html_passthrough=html_passthrough)
 

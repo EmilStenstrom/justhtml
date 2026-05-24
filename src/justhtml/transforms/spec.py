@@ -14,14 +14,14 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, ClassVar
 
-from .constants import WHITESPACE_PRESERVING_ELEMENTS
+from justhtml.core.constants import WHITESPACE_PRESERVING_ELEMENTS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection
     from typing import Any, Protocol
 
-    from .node import Node
-    from .sanitize import SanitizationPolicy, UrlPolicy
+    from justhtml.dom import Node
+    from justhtml.sanitizer import SanitizationPolicy, UrlPolicy
 
     class NodeCallback(Protocol):
         def __call__(self, node: Node) -> None: ...

@@ -27,7 +27,7 @@ HTML text.
 The builder module creates nodes directly:
 
 ```python
-from justhtml.builder import comment, doctype, element, text
+from justhtml.dom.builder import comment, doctype, element, text
 ```
 
 `JustHTML(...)` is still the parser and normalizer.
@@ -40,7 +40,7 @@ That means the usual flow is:
 
 ```python
 from justhtml import JustHTML
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 doc = JustHTML(element("p", "Hello"), fragment=True)
 doc.to_html(pretty=False)  # => <p>Hello</p>
@@ -51,7 +51,7 @@ doc.to_html(pretty=False)  # => <p>Hello</p>
 The core factory is `element()`:
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 node = element("p", "Hello")
 node.to_html(pretty=False)  # => <p>Hello</p>
@@ -62,7 +62,7 @@ That creates an element node with one text child.
 You can pass attributes as a dict:
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 link = element("a", {"href": "/docs"}, "Read docs")
 link.to_html(pretty=False)  # => <a href="/docs">Read docs</a>
@@ -71,7 +71,7 @@ link.to_html(pretty=False)  # => <a href="/docs">Read docs</a>
 And you can nest elements directly:
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 card = element(
     "article",
@@ -89,7 +89,7 @@ card.to_html(pretty=False)  # => <article class="post"><h2>JustHTML</h2><p>Build
 Use the dedicated factories when you want those exact node types:
 
 ```python
-from justhtml.builder import comment, doctype, element, text
+from justhtml.dom.builder import comment, doctype, element, text
 
 html = element(
     "html",
@@ -105,7 +105,7 @@ html.to_html(pretty=False)  # => <html><body><!--page content starts here--><p>H
 For a document doctype:
 
 ```python
-from justhtml.builder import doctype
+from justhtml.dom.builder import doctype
 
 dt = doctype()
 dt.to_html(pretty=False)  # => <!DOCTYPE html>
@@ -114,7 +114,7 @@ dt.to_html(pretty=False)  # => <!DOCTYPE html>
 You can also provide explicit identifiers:
 
 ```python
-from justhtml.builder import doctype
+from justhtml.dom.builder import doctype
 
 dt = doctype(
     "html",
@@ -133,7 +133,7 @@ Once you have a built node, hand it to `JustHTML(...)`.
 
 ```python
 from justhtml import JustHTML
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 doc = JustHTML(
     element("li", "One"),
@@ -148,7 +148,7 @@ doc.to_html(pretty=False)  # => <li>One</li>
 
 ```python
 from justhtml import JustHTML
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 doc = JustHTML(
     element(
@@ -169,8 +169,8 @@ If you want a doctype, provide one explicitly:
 
 ```python
 from justhtml import JustHTML
-from justhtml.builder import doctype, element
-from justhtml.node import Document
+from justhtml.dom.builder import doctype, element
+from justhtml.dom import Document
 
 document = Document()
 document.append_child(doctype())
@@ -201,7 +201,7 @@ The builder becomes useful when Python is deciding what HTML to emit.
 `None` and `False` are ignored in child positions.
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 is_admin = True
 
@@ -227,7 +227,7 @@ in child positions.
 Iterables of child values are flattened.
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 items = ["One", "Two", "Three"]
 
@@ -245,7 +245,7 @@ print(listing.to_html(pretty=False))
 You can return nodes from helper functions and compose them normally.
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 def user_card(user: dict[str, str]):
     return element(
@@ -271,7 +271,7 @@ print(page.to_html(pretty=False))
 The explicit attrs dict is the canonical form:
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 element("a", {"href": "/docs", "target": "_blank"}, "Docs").to_html(pretty=False)
 # => <a href="/docs" target="_blank">Docs</a>
@@ -283,7 +283,7 @@ special characters.
 The builder also allows a restricted shorthand in the tag name:
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 element("input[type=email][required]").to_html(pretty=False)
 # => <input type="email" required>
@@ -313,7 +313,7 @@ Children are intentionally strict.
 Example:
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 element("p", "Hello ", element("strong", "world")).to_html(pretty=False)
 # => <p>Hello <strong>world</strong></p>
@@ -322,7 +322,7 @@ element("p", "Hello ", element("strong", "world")).to_html(pretty=False)
 And numeric child values are rejected:
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 element("p", 1)
 ```
@@ -335,7 +335,7 @@ Attributes are slightly more forgiving.
 - other values are converted to strings
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 element("input", {"maxlength": 10, "required": None}).to_html(pretty=False)
 # => <input maxlength="10" required>
@@ -349,7 +349,7 @@ Its children are written into `template_content`, which matches how users think
 about `<template>...</template>` content.
 
 ```python
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 node = element(
     "template",
@@ -365,8 +365,8 @@ The builder does not decide fragment parsing context. `JustHTML(...)` still does
 
 ```python
 from justhtml import JustHTML
-from justhtml.context import FragmentContext
-from justhtml.builder import element
+from justhtml.dom.builder import element
+from justhtml.parser.context import FragmentContext
 
 row = element("tr", element("td", "cell"))
 
@@ -393,7 +393,7 @@ rejected by `element()` instead of being silently lost during normalization.
 
 ```python
 from justhtml import JustHTML
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 doc = JustHTML(element("p", "Hello"), fragment=True)
 doc.to_html(pretty=False)  # => <p>Hello</p>
@@ -403,7 +403,7 @@ doc.to_html(pretty=False)  # => <p>Hello</p>
 
 ```python
 from justhtml import JustHTML
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 doc = JustHTML(
     element(
@@ -420,7 +420,7 @@ doc.to_html(pretty=False)  # => <html><head><title>Page</title></head><body><p>H
 
 ```python
 from justhtml import JustHTML
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 doc = JustHTML(
     element(

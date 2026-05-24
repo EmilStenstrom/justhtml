@@ -5,8 +5,8 @@ from typing import Any
 
 from justhtml import JustHTML as _JustHTML
 from justhtml import SelectorError
-from justhtml.node import Comment, Document, DocumentFragment, Element, Node, Template, Text
-from justhtml.sanitize import SanitizationPolicy, UrlPolicy, UrlRule
+from justhtml.dom import Comment, Document, DocumentFragment, Element, Node, Template, Text
+from justhtml.sanitizer import SanitizationPolicy, UrlPolicy, UrlRule
 from justhtml.selector import SelectorLimits
 from justhtml.transforms import (
     AllowlistAttrs,

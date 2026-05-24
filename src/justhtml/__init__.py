@@ -1,6 +1,7 @@
-from .node import Comment, Document, DocumentFragment, Element, Node, NodeType, QueryMatch, Template, Text
+from .dom import Comment, Document, DocumentFragment, Element, Node, NodeType, QueryMatch, Template, Text
 from .parser import JustHTML, StrictModeError
-from .sanitize import (
+from .parser.stream import stream
+from .sanitizer import (
     CSS_PRESET_TEXT,
     DEFAULT_DOCUMENT_POLICY,
     DEFAULT_POLICY,
@@ -12,9 +13,8 @@ from .sanitize import (
     sanitize_dom,
 )
 from .selector import SelectorError, matches, query
-from .serialize import HTMLContext, to_html
-from .stream import stream
-from .tokens import ParseError
+from .serializer import HTMLContext, to_html
+from .tokenizer.tokens import ParseError
 from .transforms import (
     AllowlistAttrs,
     AllowStyleAttrs,

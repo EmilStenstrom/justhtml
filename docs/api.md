@@ -241,7 +241,7 @@ construction is explicit at the import site.
 For a tutorial-style guide, see [Building HTML](building.md).
 
 ```python
-from justhtml.builder import comment, doctype, element, text
+from justhtml.dom.builder import comment, doctype, element, text
 ```
 
 The builder constructs nodes directly. To normalize built nodes using HTML5
@@ -249,7 +249,7 @@ parsing rules, pass them to `JustHTML(...)`.
 
 ```python
 from justhtml import JustHTML
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 doc = JustHTML(element("p", "Hello"), fragment=True)
 ```
@@ -602,7 +602,7 @@ To override the encoding for byte input, pass `encoding=...`.
 Specifies the context element for fragment parsing. See [Fragment Parsing](fragments.md) for detailed usage.
 
 ```python
-from justhtml.context import FragmentContext
+from justhtml.parser.context import FragmentContext
 ```
 
 ### Constructor
@@ -620,7 +620,7 @@ FragmentContext(tag_name, namespace=None)
 
 ```python
 from justhtml import JustHTML
-from justhtml.context import FragmentContext
+from justhtml.parser.context import FragmentContext
 
 # Parse table rows in correct context
 ctx = FragmentContext("tbody")

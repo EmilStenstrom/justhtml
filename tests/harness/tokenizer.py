@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from justhtml.tokenizer import Tokenizer, TokenizerOpts
-from justhtml.tokens import CharacterTokens, CommentToken, Doctype, DoctypeToken, EOFToken, Tag
+from justhtml.tokenizer.tokens import CharacterTokens, CommentToken, Doctype, DoctypeToken, EOFToken, Tag
 from justhtml.treebuilder import InsertionMode, TreeBuilder
 
 

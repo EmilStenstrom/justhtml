@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+from justhtml.tokenizer import Tokenizer
+from justhtml.tokenizer.tokens import CommentToken, DoctypeToken, Tag
+
 from .encoding import decode_html
-from .tokenizer import Tokenizer
-from .tokens import CommentToken, DoctypeToken, Tag
 
 StartEvent: TypeAlias = tuple[Literal["start"], tuple[str, dict[str, str | None]]]
 EndEvent: TypeAlias = tuple[Literal["end"], str]

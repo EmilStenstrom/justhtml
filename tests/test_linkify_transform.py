@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from justhtml import JustHTML as _JustHTML
-from justhtml.node import Element, Text
+from justhtml.dom import Element, Text
 from justhtml.transforms import Linkify, apply_compiled_transforms, compile_transforms
 
 

@@ -1,7 +1,7 @@
 import unittest
 
 from justhtml import JustHTML
-from justhtml.node import Element
+from justhtml.dom import Element
 from justhtml.tokenizer import Tokenizer, TokenizerOpts
 from justhtml.treebuilder import InsertionMode, TreeBuilder
 

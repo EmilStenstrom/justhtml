@@ -7,15 +7,16 @@ from dataclasses import dataclass, field
 from importlib import import_module
 from typing import TYPE_CHECKING, Any, cast
 
-from .sanitize_url import (
+from justhtml.selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits
+from justhtml.tokenizer.tokens import ParseError
+
+from .url import (
     DisallowedTagHandling,
     UnsafeHandling,
     UnsafeHtmlError,
     UrlPolicy,
     _url_policy_signature,
 )
-from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits
-from .tokens import ParseError
 
 
 @dataclass(slots=True)
@@ -116,7 +117,7 @@ class CompiledSanitizationPolicy:
     transforms: tuple[Any, ...]
 
     def apply_to(self, node: Any, *, errors: list[ParseError] | None = None) -> None:
-        from .transforms import apply_compiled_transforms  # noqa: PLC0415
+        from justhtml.transforms import apply_compiled_transforms  # noqa: PLC0415
 
         apply_compiled_transforms(node, self.transforms, errors=errors)
 
@@ -368,7 +369,7 @@ class SanitizationPolicy:
 
 
 def _compiled_sanitization_policy_for_policy(policy: SanitizationPolicy) -> CompiledSanitizationPolicy:
-    from .transforms import Sanitize, compile_transforms  # noqa: PLC0415
+    from justhtml.transforms import Sanitize, compile_transforms  # noqa: PLC0415
 
     signature = _sanitization_policy_signature(policy)
     compiled_policy = policy._compiled_sanitize_policy
@@ -411,7 +412,7 @@ def _sanitization_policy_signature(policy: SanitizationPolicy) -> tuple[Any, ...
     )
 
 
-_policy_defaults = import_module(".sanitize_policy_defaults", __package__)
+_policy_defaults = import_module(".policy_defaults", __package__)
 
 CSS_PRESET_TEXT: frozenset[str] = _policy_defaults.CSS_PRESET_TEXT
 DEFAULT_DOCUMENT_POLICY: SanitizationPolicy = _policy_defaults.DEFAULT_DOCUMENT_POLICY

@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from justhtml import DEFAULT_POLICY, JustHTML
-from justhtml.context import FragmentContext
-from justhtml.sanitize import SanitizationPolicy, UrlPolicy, UrlProxy, UrlRule
+from justhtml.parser.context import FragmentContext
+from justhtml.sanitizer import SanitizationPolicy, UrlPolicy, UrlProxy, UrlRule
 
 _CASES_DIR = Path(__file__).with_name("justhtml-sanitize-tests")
 

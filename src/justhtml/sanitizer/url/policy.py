@@ -32,7 +32,7 @@ class UrlProxy:
         proxy_param = str(self.param)
         if not proxy_param:
             raise ValueError("UrlProxy.param must be a non-empty string")
-        from .sanitize_url import _validate_proxy_url  # noqa: PLC0415
+        from justhtml.sanitizer.url import _validate_proxy_url  # noqa: PLC0415
 
         _validate_proxy_url(proxy_url, proxy_param)
         object.__setattr__(self, "url", proxy_url)

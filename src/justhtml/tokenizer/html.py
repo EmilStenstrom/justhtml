@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from .entities import decode_entities_in_text
-from .errors import generate_error_message
+from justhtml.core.entities import decode_entities_in_text
+from justhtml.core.errors import generate_error_message
+
 from .tokens import AnyToken, CharacterTokens, CommentToken, Doctype, DoctypeToken, EOFToken, ParseError, Tag
 
 _ATTR_VALUE_UNQUOTED_TERMINATORS = "\t\n\f >&\"'<=`\0"

@@ -72,7 +72,7 @@ Build node trees directly when Python is driving the HTML, then normalize them t
 
 ```python
 from justhtml import JustHTML
-from justhtml.builder import element
+from justhtml.dom.builder import element
 
 doc = JustHTML(
     element(

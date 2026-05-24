@@ -116,7 +116,7 @@ Example: Let's a Edit() transform create new nodes and then set attributes
 
 ```python
 from justhtml import Edit, JustHTML, SetAttrs, Stage
-from justhtml.node import Node, Text
+from justhtml.dom import Node, Text
 
 
 def insert_marker(p):

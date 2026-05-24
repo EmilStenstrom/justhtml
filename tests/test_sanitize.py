@@ -3,10 +3,9 @@ from __future__ import annotations
 import unittest
 
 import justhtml
-import justhtml.sanitize_policy_defaults as sanitize_policy_defaults
 from justhtml import JustHTML, Sanitize, SetAttrs
-from justhtml.node import Comment, DocumentFragment, Element, Node, Template, Text
-from justhtml.sanitize import (
+from justhtml.dom import Comment, DocumentFragment, Element, Node, Template, Text
+from justhtml.sanitizer import (
     CSS_PRESET_TEXT,
     DEFAULT_POLICY,
     CompiledSanitizationPolicy,
@@ -36,10 +35,11 @@ from justhtml.sanitize import (
     _seal_url_policy,
     sanitize_dom,
 )
-from justhtml.sanitize import _sanitize as sanitize
-from justhtml.sanitize_url import _url_sink_kind_for_attr
-from justhtml.serialize import to_html
-from justhtml.tokens import ParseError
+from justhtml.sanitizer import _sanitize as sanitize
+from justhtml.sanitizer import policy_defaults as sanitize_policy_defaults
+from justhtml.sanitizer.url import _url_sink_kind_for_attr
+from justhtml.serializer import to_html
+from justhtml.tokenizer.tokens import ParseError
 
 
 class _CoverageSentinel:

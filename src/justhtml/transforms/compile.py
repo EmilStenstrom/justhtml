@@ -9,10 +9,11 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from .sanitize import DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, _sanitize_inline_style
-from .sanitize_url import _sanitize_url_sink_value, _url_sink_kind_for_attr
-from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits, parse_selector
-from .transforms import (
+from justhtml.sanitizer import DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, _sanitize_inline_style
+from justhtml.sanitizer.url import _sanitize_url_sink_value, _url_sink_kind_for_attr
+from justhtml.selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits, parse_selector
+
+from . import (
     CompiledTransform,
     Stage,
     Transform,
@@ -35,8 +36,8 @@ from .transforms import (
     _CompiledStripInvisibleUnicodeTransform,
     _is_effectively_foreign_node,
 )
-from .transforms_linkify import compile_linkify_transform
-from .transforms_spec import (
+from .linkify import compile_linkify_transform
+from .spec import (
     AllowlistAttrs,
     AllowStyleAttrs,
     CollapseWhitespace,
@@ -66,8 +67,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Protocol
 
-    from .node import Node
-    from .selector import ParsedSelector
+    from justhtml.dom import Node
+    from justhtml.selector import ParsedSelector
 
     class NodeCallback(Protocol):
         def __call__(self, node: Node) -> None: ...

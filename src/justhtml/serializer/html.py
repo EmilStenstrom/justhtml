@@ -9,7 +9,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote as url_quote
 
-from .constants import (
+from justhtml.core.constants import (
     FOREIGN_ATTRIBUTE_ADJUSTMENTS,
     HTML_FORMATTING_SPACE_CHARACTERS,
     HTML_SPACE_CHARACTERS,
@@ -17,10 +17,10 @@ from .constants import (
     VOID_ELEMENTS,
     WHITESPACE_PRESERVING_ELEMENTS,
 )
-from .rawtext import neutralize_rawtext_end_tag_sequences
+from justhtml.core.rawtext import neutralize_rawtext_end_tag_sequences
 
 if TYPE_CHECKING:
-    from .node import NodeType
+    from justhtml.dom import NodeType
 
 # Matches characters that prevent an attribute value from being unquoted.
 # Note: This matches the logic of the previous loop-based implementation.

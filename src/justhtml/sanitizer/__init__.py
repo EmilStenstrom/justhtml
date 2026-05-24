@@ -8,7 +8,7 @@ policy-driven.
 
 from __future__ import annotations
 
-from .sanitize_css import (
+from .css import (
     _css_value_contains_disallowed_functions,
     _css_value_has_disallowed_resource_functions,
     _css_value_may_load_external_resource,
@@ -18,8 +18,8 @@ from .sanitize_css import (
     _sanitize_inline_style,
     _sanitize_url_function_value,
 )
-from .sanitize_dom import _sanitize, sanitize_dom
-from .sanitize_policy import (
+from .dom import _sanitize, sanitize_dom
+from .policy import (
     CSS_PRESET_TEXT,
     DEFAULT_DOCUMENT_POLICY,
     DEFAULT_POLICY,
@@ -28,11 +28,11 @@ from .sanitize_policy import (
     UnsafeHandler,
     _seal_url_policy,
 )
-from .sanitize_rawtext import (
+from .rawtext import (
     _neutralize_rawtext_end_tag_sequences,
     _sanitize_rawtext_element_contents,
 )
-from .sanitize_url import (
+from .url import (
     _URL_BEARING_PARAM_NAMES,
     _URL_LIKE_ATTRS,
     DisallowedTagHandling,

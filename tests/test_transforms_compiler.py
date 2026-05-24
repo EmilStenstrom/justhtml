@@ -1,7 +1,7 @@
 import unittest
 
-from justhtml.node import Document, DocumentFragment, Element, Template, Text
-from justhtml.sanitize import DEFAULT_POLICY
+from justhtml.dom import Document, DocumentFragment, Element, Template, Text
+from justhtml.sanitizer import DEFAULT_POLICY
 from justhtml.selector import parse_selector
 from justhtml.transforms import (
     AllowlistAttrs,

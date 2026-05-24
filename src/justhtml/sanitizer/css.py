@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .sanitize_url import (
+from .url import (
     UrlFilter,
     UrlHandling,
     UrlPolicy,

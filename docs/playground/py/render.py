@@ -1,8 +1,8 @@
 from dataclasses import replace
 
 from justhtml import JustHTML
-from justhtml.context import FragmentContext
-from justhtml.sanitize import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY
+from justhtml.parser.context import FragmentContext
+from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY
 from justhtml.transforms import Drop, PruneEmpty, Sanitize, Unwrap
 
 

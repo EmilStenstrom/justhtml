@@ -58,40 +58,45 @@ async function installJusthtmlFromLocalRepo(pyodideInstance) {
 	const files = [
 		"__init__.py",
 		"__main__.py",
-		"builder.py",
-		"constants.py",
-		"context.py",
-		"encoding.py",
-		"entities.py",
-		"errors.py",
-		"linkify.py",
-		"markdown.py",
-		"node.py",
-		"parser.py",
-		"rawtext.py",
-		"sanitize.py",
-		"sanitize_css.py",
-		"sanitize_dom.py",
-		"sanitize_policy.py",
-		"sanitize_policy_defaults.py",
-		"sanitize_rawtext.py",
-		"sanitize_url.py",
-		"sanitize_url_policy.py",
-		"sanitize_url_runtime.py",
-		"sanitize_url_spec.py",
-		"selector.py",
-		"serialize.py",
-		"stream.py",
-		"transforms.py",
-		"transforms_compile.py",
-		"transforms_runtime.py",
-		"transforms_linkify.py",
-		"transforms_spec.py",
-		"tokenizer.py",
-		"tokens.py",
-		"treebuilder.py",
-		"treebuilder_modes.py",
-		"treebuilder_utils.py",
+		"dom/builder.py",
+		"core/__init__.py",
+		"core/constants.py",
+		"parser/context.py",
+		"parser/encoding.py",
+		"core/entities.py",
+		"core/errors.py",
+		"serializer/markdown.py",
+		"dom/__init__.py",
+		"parser/__init__.py",
+		"core/rawtext.py",
+		"sanitizer/__init__.py",
+		"sanitizer/css.py",
+		"sanitizer/dom.py",
+		"sanitizer/policy.py",
+		"sanitizer/policy_defaults.py",
+		"sanitizer/rawtext.py",
+		"sanitizer/url/__init__.py",
+		"sanitizer/url/policy.py",
+		"sanitizer/url/runtime.py",
+		"sanitizer/url/spec.py",
+		"selector/__init__.py",
+		"selector/core.py",
+		"serializer/__init__.py",
+		"serializer/html.py",
+		"parser/stream.py",
+		"transforms/__init__.py",
+		"transforms/compile.py",
+		"transforms/linkify_core.py",
+		"transforms/runtime.py",
+		"transforms/linkify.py",
+		"transforms/spec.py",
+		"tokenizer/__init__.py",
+		"tokenizer/html.py",
+		"tokenizer/tokens.py",
+		"treebuilder/__init__.py",
+		"treebuilder/core.py",
+		"treebuilder/modes.py",
+		"treebuilder/utils.py",
 	];
 
 	const rootDir = "/justhtml_local/justhtml";
@@ -105,7 +110,12 @@ async function installJusthtmlFromLocalRepo(pyodideInstance) {
 			);
 		}
 		const content = await res.text();
-		pyodideInstance.FS.writeFile(`${rootDir}/${file}`, content);
+		const targetPath = `${rootDir}/${file}`;
+		const lastSlash = targetPath.lastIndexOf("/");
+		if (lastSlash !== -1) {
+			pyodideInstance.FS.mkdirTree(targetPath.slice(0, lastSlash));
+		}
+		pyodideInstance.FS.writeFile(targetPath, content);
 	}
 
 	await runPythonFile(pyodideInstance, "./py/use_local_repo.py");
@@ -372,7 +382,7 @@ function formatInitError(err) {
 			message.toLowerCase().includes("failed to fetch")
 		) {
 			out +=
-				"\n\nHint: local mode fetches `/src/justhtml/*.py` from the same origin. Make sure you are serving the repository root over HTTP and not only the `docs/` folder.";
+				"\n\nHint: local mode fetches `/src/justhtml/**/*.py` from the same origin. Make sure you are serving the repository root over HTTP and not only the `docs/` folder.";
 		}
 
 		return out;

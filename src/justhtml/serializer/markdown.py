@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
-from .constants import HTML_SPACE_CHARACTERS
-from .node import Element
+from justhtml.core.constants import HTML_SPACE_CHARACTERS
+from justhtml.dom import Element
 
 if TYPE_CHECKING:
-    from .node import NodeType
+    from justhtml.dom import NodeType
 
 
 def _markdown_escape_text(s: str) -> str:

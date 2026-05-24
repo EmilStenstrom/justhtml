@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from justhtml.linkify import LinkifyConfig, find_links_with_config
+from justhtml.transforms.linkify_core import LinkifyConfig, find_links_with_config
 
 
 def _iter_fixture_cases(path: str | Path) -> list[tuple[int, str, str]]:
