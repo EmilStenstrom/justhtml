@@ -26,6 +26,22 @@
 
 	const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+	const docsUrlFromHref = (href) => {
+		if (!href) return "";
+		let url;
+		try {
+			url = new URL(href, location.href);
+		} catch {
+			return "";
+		}
+		if (url.origin !== location.origin) return "";
+		if (!url.pathname.endsWith(".html")) return "";
+		if (url.pathname.endsWith("/index.html")) return "";
+		if (url.pathname.endsWith("/search.html")) return "";
+		if (BASE_PATH && !url.pathname.startsWith(`${BASE_PATH}/`)) return "";
+		return `${url.pathname}${url.search}${url.hash}`;
+	};
+
 	const normalize = (s) =>
 		String(s)
 			.toLowerCase()
@@ -62,7 +78,7 @@
 				return `
 			  <li>
 			    <a class="jh-search__result" href="${escapeHtml(r.url)}">
-			      <div class="jh-search__title">${r.title}</div>
+			      <div class="jh-search__title">${escapeHtml(r.title)}</div>
 			      ${snippet}
 			    </a>
 			  </li>
@@ -115,11 +131,8 @@
 
 		const links = Array.from(doc.querySelectorAll('a[href$=".html"]'))
 			.map((a) => a.getAttribute("href"))
-			.filter(Boolean)
-			.filter((href) => href.endsWith(".html"))
-			.filter((href) => !href.endsWith("/index.html"))
-			.filter((href) => !href.endsWith("/search.html"))
-			.filter((href) => (BASE_PATH ? href.startsWith(`${BASE_PATH}/`) : true));
+			.map(docsUrlFromHref)
+			.filter(Boolean);
 
 		const uniq = Array.from(new Set(links));
 		return { urls: uniq, version };

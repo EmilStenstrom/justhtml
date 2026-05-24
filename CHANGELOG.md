@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- (Severity: Low) Harden documentation search result rendering by escaping result titles and restricting indexed result links to same-origin documentation HTML pages. Previously, titles derived from same-origin documentation pages were inserted through `innerHTML` without escaping, and generated result links trusted any `.html` href discovered in the docs index.
+
 ### Changed
 - BREAKING: Sanitization is now HTML-only. SVG and MathML are still parsed and tree-built when sanitization is disabled, but sanitizer output always drops foreign-namespace content. `SanitizationPolicy.drop_foreign_namespaces` has been removed.
   This removes a high-risk configuration surface where custom policies could preserve SVG/MathML while relying on JustHTML to understand every browser-active foreign-content feature. Recent hardening had to special-case SVG animation values, presentation attributes with `url(...)`, MathML URL attributes, foreign integration points, and mutation-XSS stabilization. Making sanitized output HTML-only gives the sanitizer one reviewable security model: foreign content can still be parsed for correctness, but it is not emitted from untrusted sanitization pipelines.
