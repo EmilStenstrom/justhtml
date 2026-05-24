@@ -22,6 +22,8 @@ DisallowedTagHandling = Literal["unwrap", "escape", "drop"]
 UrlHandling = Literal["allow", "strip", "proxy"]
 UrlSinkKind = Literal["url", "srcset", "comma_or_space_list", "space_list", "meta_refresh"]
 
+UrlSinkHandler = Callable[..., str | None]
+
 
 @dataclass(frozen=True, slots=True)
 class UrlSink:
@@ -697,44 +699,14 @@ def _url_sink_kind_for_attr(*, tag: str, attr: str, attrs: Mapping[str, str | No
     return None
 
 
-def _sanitize_url_sink_value(
+def _sanitize_simple_url_sink_value(
     *,
     url_policy: UrlPolicy,
     rule: UrlRule,
     tag: str,
     attr: str,
-    kind: UrlSinkKind,
     value: str,
 ) -> str | None:
-    if kind == "srcset":
-        return _sanitize_srcset_value(url_policy=url_policy, rule=rule, tag=tag, attr=attr, value=value)
-    if kind == "comma_or_space_list":
-        return _sanitize_comma_or_space_separated_url_list(
-            url_policy=url_policy,
-            rule=rule,
-            tag=tag,
-            attr=attr,
-            value=value,
-        )
-    if kind == "space_list":
-        return _sanitize_space_separated_url_list(url_policy=url_policy, rule=rule, tag=tag, attr=attr, value=value)
-    if kind == "meta_refresh":
-        refresh_parts = _extract_meta_refresh_url(value)
-        if refresh_parts is None:
-            return None
-        prefix, candidate = refresh_parts
-        sanitized_url = _sanitize_url_value_with_rule(
-            rule=rule,
-            value=candidate,
-            tag=tag,
-            attr=attr,
-            handling=_effective_url_handling(url_policy=url_policy, rule=rule),
-            allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
-            proxy=_effective_proxy(url_policy=url_policy, rule=rule),
-            url_filter=url_policy.url_filter,
-            apply_filter=True,
-        )
-        return None if sanitized_url is None else f"{prefix.strip()};url={sanitized_url}"
     return _sanitize_url_value_with_rule(
         rule=rule,
         value=value,
@@ -745,6 +717,56 @@ def _sanitize_url_sink_value(
         proxy=_effective_proxy(url_policy=url_policy, rule=rule),
         url_filter=url_policy.url_filter,
         apply_filter=True,
+    )
+
+
+def _sanitize_meta_refresh_sink_value(
+    *,
+    url_policy: UrlPolicy,
+    rule: UrlRule,
+    tag: str,
+    attr: str,
+    value: str,
+) -> str | None:
+    refresh_parts = _extract_meta_refresh_url(value)
+    if refresh_parts is None:
+        return None
+
+    prefix, candidate = refresh_parts
+    sanitized_url = _sanitize_simple_url_sink_value(
+        url_policy=url_policy,
+        rule=rule,
+        tag=tag,
+        attr=attr,
+        value=candidate,
+    )
+    return None if sanitized_url is None else f"{prefix.strip()};url={sanitized_url}"
+
+
+_URL_SINK_HANDLERS: Mapping[UrlSinkKind, UrlSinkHandler] = {
+    "url": _sanitize_simple_url_sink_value,
+    "srcset": _sanitize_srcset_value,
+    "comma_or_space_list": _sanitize_comma_or_space_separated_url_list,
+    "space_list": _sanitize_space_separated_url_list,
+    "meta_refresh": _sanitize_meta_refresh_sink_value,
+}
+
+
+def _sanitize_url_sink_value(
+    *,
+    url_policy: UrlPolicy,
+    rule: UrlRule,
+    tag: str,
+    attr: str,
+    kind: UrlSinkKind,
+    value: str,
+) -> str | None:
+    return _URL_SINK_HANDLERS[kind](
+        url_policy=url_policy,
+        rule=rule,
+        tag=tag,
+        attr=attr,
+        value=value,
     )
 
 
