@@ -385,7 +385,6 @@ class TestSanitizeTransform(unittest.TestCase):
         policy = SanitizationPolicy(
             allowed_tags=set(),
             allowed_attributes={"*": set()},
-            drop_foreign_namespaces=False,
             drop_content_tags=set(),
         )
         root = Node("p")
@@ -402,7 +401,6 @@ class TestSanitizeTransform(unittest.TestCase):
         policy = SanitizationPolicy(
             allowed_tags=set(),
             allowed_attributes={"*": set()},
-            drop_foreign_namespaces=False,
             drop_content_tags=set(),
         )
         root = Node("p")
@@ -418,7 +416,6 @@ class TestSanitizeTransform(unittest.TestCase):
         policy = SanitizationPolicy(
             allowed_tags={"b"},
             allowed_attributes={"*": set()},
-            drop_foreign_namespaces=False,
             drop_content_tags=set(),
         )
         root = Template("template", attrs={}, namespace="html")
@@ -438,7 +435,6 @@ class TestSanitizeTransform(unittest.TestCase):
         policy = SanitizationPolicy(
             allowed_tags={"b"},
             allowed_attributes={"*": set()},
-            drop_foreign_namespaces=False,
             drop_content_tags=set(),
         )
         root = Template("template", attrs={}, namespace="html")

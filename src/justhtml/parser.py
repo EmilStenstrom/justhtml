@@ -59,64 +59,6 @@ class JustHTML:
     tokenizer: Tokenizer
     tree_builder: TreeBuilder
 
-    @staticmethod
-    def _terminal_sanitize_policy(
-        transforms: list[TransformSpec],
-        *,
-        default_policy: SanitizationPolicy,
-    ) -> SanitizationPolicy | None:
-        from .transforms import Sanitize, _iter_flattened_transforms  # noqa: PLC0415
-
-        flattened = _iter_flattened_transforms(transforms)
-        if not flattened:
-            return None
-
-        last = flattened[-1]
-        if not isinstance(last, Sanitize) or not last.enabled:
-            return None
-
-        return last.policy or default_policy
-
-    @staticmethod
-    def _has_foreign_nodes(root: Node) -> bool:
-        stack: list[Node] = [root]
-        while stack:
-            current = stack.pop()
-            if current.namespace not in {None, "html"}:
-                return True
-
-            template_content = getattr(current, "template_content", None)
-            if template_content is not None:
-                stack.append(template_content)
-
-            children = current.children
-            if children:
-                stack.extend(reversed(children))
-
-        return False
-
-    @staticmethod
-    def _stabilize_terminal_sanitize_once(
-        *,
-        html: str,
-        policy: SanitizationPolicy,
-        fragment_context: FragmentContext | None,
-        iframe_srcdoc: bool,
-        scripting_enabled: bool,
-        errors: list[ParseError],
-    ) -> Document | DocumentFragment:
-        from .sanitize import sanitize_dom  # noqa: PLC0415
-
-        reparsed = JustHTML(
-            html,
-            sanitize=False,
-            fragment_context=fragment_context,
-            iframe_srcdoc=iframe_srcdoc,
-            scripting_enabled=scripting_enabled,
-        )
-        sanitize_dom(reparsed.root, policy=policy, errors=errors)
-        return reparsed.root
-
     def __init__(
         self,
         html: str | bytes | bytearray | memoryview | Node | Text | None,
@@ -283,7 +225,6 @@ class JustHTML:
                 return normalized
 
             final_transforms: list[TransformSpec] = list(transforms or [])
-            terminal_sanitize_policy: SanitizationPolicy | None = None
 
             # Normalize explicit Sanitize() transforms without their own policy
             # to the constructor policy when supplied, otherwise to the same
@@ -297,10 +238,6 @@ class JustHTML:
                     final_transforms,
                     default_policy=default_mode_policy,
                 )
-                terminal_sanitize_policy = self._terminal_sanitize_policy(
-                    final_transforms,
-                    default_policy=default_mode_policy,
-                )
 
             # Auto-append a final Sanitize step only if the user didn't include
             # Sanitize anywhere in their transform list.
@@ -311,7 +248,6 @@ class JustHTML:
                     else (DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY)
                 )
                 final_transforms.append(Sanitize(policy=effective_policy))
-                terminal_sanitize_policy = effective_policy
 
             if final_transforms:
                 # Avoid stale collected errors on reused policy objects. Constructor
@@ -340,21 +276,6 @@ class JustHTML:
                 if compiled_transforms is None:
                     compiled_transforms = compile_transforms(tuple(final_transforms))
                 apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
-
-                if (
-                    terminal_sanitize_policy is not None
-                    and not terminal_sanitize_policy.drop_foreign_namespaces
-                    and self._has_foreign_nodes(self.root)
-                ):
-                    stabilized_html = serialize_html(self.root, pretty=False)
-                    self.root = self._stabilize_terminal_sanitize_once(
-                        html=stabilized_html,
-                        policy=terminal_sanitize_policy,
-                        fragment_context=fragment_context,
-                        iframe_srcdoc=iframe_srcdoc,
-                        scripting_enabled=scripting_enabled,
-                        errors=transform_errors,
-                    )
 
                 # Merge collected security errors into the document error list.
                 # This mirrors the old behavior where safe output could feed

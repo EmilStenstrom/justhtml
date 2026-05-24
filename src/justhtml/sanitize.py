@@ -286,7 +286,6 @@ class SanitizationPolicy:
             url_policy: UrlPolicy = ...,
             drop_comments: bool = True,
             drop_doctype: bool = True,
-            drop_foreign_namespaces: bool = True,
             drop_content_tags: Collection[str] = ...,
             allowed_css_properties: Collection[str] = ...,
             force_link_rel: Collection[str] = ...,
@@ -301,7 +300,6 @@ class SanitizationPolicy:
 
     drop_comments: bool = True
     drop_doctype: bool = True
-    drop_foreign_namespaces: bool = True
 
     # Dangerous containers whose text payload should not be preserved.
     drop_content_tags: Collection[str] = field(default_factory=lambda: {"script", "style"})
@@ -517,7 +515,6 @@ def _compiled_sanitize_transforms_for_policy(policy: SanitizationPolicy) -> tupl
         compiled = tuple(
             compile_transforms(
                 (Sanitize(policy=policy),),
-                _include_terminal_sanitize_policy=False,
             )
         )
         object.__setattr__(policy, "_compiled_sanitize_transforms", compiled)
@@ -652,7 +649,6 @@ DEFAULT_DOCUMENT_POLICY: SanitizationPolicy = SanitizationPolicy(
     url_policy=DEFAULT_POLICY.url_policy,
     drop_comments=DEFAULT_POLICY.drop_comments,
     drop_doctype=False,
-    drop_foreign_namespaces=DEFAULT_POLICY.drop_foreign_namespaces,
     drop_content_tags=DEFAULT_POLICY.drop_content_tags,
     allowed_css_properties=DEFAULT_POLICY.allowed_css_properties,
     force_link_rel=DEFAULT_POLICY.force_link_rel,
@@ -713,27 +709,6 @@ def _record_rawtext_security_issue(
     errors.append(
         ParseError(
             code,
-            line=node.origin_line,
-            column=node.origin_col,
-            category="security",
-            message=message,
-        )
-    )
-
-
-def _record_foreign_integration_point_issue(
-    *,
-    policy: SanitizationPolicy,
-    errors: list[ParseError] | None,
-    message: str,
-    node: Any,
-) -> None:
-    policy.handle_unsafe(message, node=node)
-    if errors is None:
-        return
-    errors.append(
-        ParseError(
-            "unsafe-foreign-integration-point-child",
             line=node.origin_line,
             column=node.origin_col,
             category="security",
@@ -816,70 +791,6 @@ def _sanitize_rawtext_element_contents(
                 for child in current.children:
                     child.parent = None
                 current.children = []
-            continue
-
-        children = current.children
-        if children:
-            stack.extend(reversed(children))
-
-        if type(current) is Template and current.template_content is not None:
-            stack.append(current.template_content)
-
-
-def _sanitize_foreign_html_integration_point_contents(
-    node: Any,
-    *,
-    policy: SanitizationPolicy,
-    errors: list[ParseError] | None,
-) -> None:
-    from .node import Template  # noqa: PLC0415
-
-    stack: list[Any] = [node]
-
-    while stack:
-        current = stack.pop()
-        raw_name = current.name
-        if type(raw_name) is str:
-            name = raw_name if raw_name.islower() else raw_name.lower()
-        else:  # pragma: no cover
-            name = str(raw_name).lower()
-
-        namespace = getattr(current, "namespace", None)
-        is_text_only_integration_point = (namespace == "svg" and name in {"desc", "title"}) or (
-            namespace == "math" and name in {"mi", "mn", "mo", "ms", "mtext"}
-        )
-
-        if is_text_only_integration_point:
-            children = current.children
-            if not children:
-                continue
-
-            text_children: list[Any] = []
-            changed = False
-            for child in children:
-                if child.name == "#text":
-                    text_children.append(child)
-                    continue
-
-                child_name = str(child.name).lower()
-                child_namespace = getattr(child, "namespace", None)
-                if namespace == "math" and child_namespace == "math" and child_name in {"mglyph", "malignmark"}:
-                    text_children.append(child)
-                    continue
-
-                _record_foreign_integration_point_issue(
-                    policy=policy,
-                    errors=errors,
-                    message=f"Unsafe HTML child inside foreign integration point <{name}> was dropped",
-                    node=child,
-                )
-                child.parent = None
-                changed = True
-
-            if changed:
-                current.children = text_children
-                for child in text_children:
-                    child.parent = current
             continue
 
         children = current.children
@@ -1493,92 +1404,6 @@ def _sanitize_srcset_value(
     return None if not out_candidates else ", ".join(out_candidates)
 
 
-_SVG_URL_ANIMATION_TAGS: frozenset[str] = frozenset({"animate", "set"})
-_SVG_ANIMATION_VALUE_ATTRS: frozenset[str] = frozenset({"by", "from", "to", "values"})
-
-
-def _sanitize_svg_animation_url_value(
-    *,
-    url_policy: UrlPolicy,
-    rule: UrlRule,
-    tag: str,
-    attr: str,
-    value: str,
-) -> str | None:
-    v = value
-    if url_policy.url_filter is not None:
-        rewritten = url_policy.url_filter(tag, attr, v)
-        if rewritten is None:
-            return None
-        v = _strip_invisible_unicode(rewritten)
-
-    stripped = str(v).strip()
-    if not stripped:
-        return None
-
-    tokens = [token.strip() for token in stripped.split(";")] if attr == "values" else [stripped]
-    if not tokens or any(not token for token in tokens):
-        return None
-
-    out_tokens = _sanitize_url_tokens(tokens, url_policy=url_policy, rule=rule, tag=tag, attr=attr)
-    if out_tokens is None:
-        return None
-
-    return ";".join(out_tokens) if attr == "values" else out_tokens[0]
-
-
-def _sanitize_svg_animation_url_function_value(
-    *,
-    url_policy: UrlPolicy,
-    rule: UrlRule,
-    tag: str,
-    attr: str,
-    value: str,
-) -> str | None:
-    v = value
-    if url_policy.url_filter is not None:
-        rewritten = url_policy.url_filter(tag, attr, v)
-        if rewritten is None:
-            return None
-        v = _strip_invisible_unicode(rewritten)
-
-    stripped = str(v).strip()
-    if not stripped:
-        return None
-
-    tokens = [token.strip() for token in stripped.split(";")] if attr == "values" else [stripped]
-    if not tokens or any(not token for token in tokens):
-        return None
-
-    handling = _effective_url_handling(url_policy=url_policy, rule=rule)
-    allow_relative = _effective_allow_relative(url_policy=url_policy, rule=rule)
-    proxy = _effective_proxy(url_policy=url_policy, rule=rule)
-
-    out_tokens: list[str] = []
-    for token in tokens:
-        if _css_value_has_disallowed_resource_functions(token):
-            return None
-        if not _css_value_may_load_external_resource(token):
-            out_tokens.append(token)
-            continue
-        sanitized = _sanitize_url_function_value(
-            rule=rule,
-            value=token,
-            tag=tag,
-            attr=attr,
-            handling=handling,
-            allow_relative=allow_relative,
-            proxy=proxy,
-            url_filter=None,
-            apply_filter=False,
-        )
-        if sanitized is None:
-            return None
-        out_tokens.append(sanitized)
-
-    return ";".join(out_tokens)
-
-
 def _sanitize_space_separated_url_list(
     *,
     url_policy: UrlPolicy,
@@ -1667,11 +1492,6 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
     {
         # Common URL-valued attributes.
         "href",
-        "xlink:href",
-        "xml:base",
-        "altimg",
-        "cdgroup",
-        "definitionurl",
         "icon",
         "dynsrc",
         "lowsrc",
@@ -1687,7 +1507,6 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
         "classid",
         "code",
         "codebase",
-        "color-profile",
         "longdesc",
         "manifest",
         "object",
@@ -1697,23 +1516,6 @@ _URL_LIKE_ATTRS: frozenset[str] = frozenset(
         "archive",
         "ping",
         "attributionsrc",
-    }
-)
-
-_URL_FUNCTION_LIKE_ATTRS: frozenset[str] = frozenset(
-    {
-        "clip-path",
-        "cursor",
-        "filter",
-        "fill",
-        "marker",
-        "marker-end",
-        "marker-mid",
-        "marker-start",
-        "mask",
-        "shape-inside",
-        "shape-outside",
-        "stroke",
     }
 )
 
@@ -1729,32 +1531,6 @@ _URL_BEARING_PARAM_NAMES: frozenset[str] = frozenset(
         "url",
     }
 )
-
-
-def _has_potential_foreign_content(node: Any) -> bool:
-    stack: list[Any] = [node]
-
-    while stack:
-        current = stack.pop()
-        namespace = getattr(current, "namespace", None)
-        if namespace not in {None, "html"}:
-            return True
-
-        raw_name = getattr(current, "name", "")
-        if isinstance(raw_name, str) and not raw_name.startswith("#") and raw_name != "!doctype":
-            name = raw_name if raw_name.islower() else raw_name.lower()
-            if name in {"math", "svg"}:
-                return True
-
-        template_content = getattr(current, "template_content", None)
-        if template_content is not None:
-            stack.append(template_content)
-
-        children = getattr(current, "children", None)
-        if children:
-            stack.extend(reversed(children))
-
-    return False
 
 
 def _url_rule_signature(rule: UrlRule) -> tuple[Any, ...]:
@@ -1821,7 +1597,6 @@ def _sanitization_policy_signature(policy: SanitizationPolicy) -> tuple[Any, ...
         tuple(sorted(str(token).lower() for token in policy.force_link_rel)),
         policy.disallowed_tag_handling,
         policy.strip_invisible_unicode,
-        policy.drop_foreign_namespaces,
         policy.selector_limits,
         _url_policy_signature(policy.url_policy),
     )
@@ -1898,21 +1673,7 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
         else:
             result = wrapper
 
-    if policy.drop_foreign_namespaces or not _has_potential_foreign_content(result):
-        return result
-
-    stabilized = _stabilize_sanitized_dom_once(result, policy=policy, errors=None)
-    if node.name in {"#document", "#document-fragment"}:
-        return stabilized
-
-    children = cast("list[Any]", stabilized.children)
-    if len(children) == 1:
-        only = children[0]
-        only.parent = None
-        stabilized.children = []
-        return only
-
-    return stabilized
+    return result
 
 
 def _sanitize_dom_once(
@@ -1945,36 +1706,6 @@ def _sanitize_dom_once(
     return wrapper
 
 
-def _stabilize_sanitized_dom_once(
-    node: Any,
-    *,
-    policy: SanitizationPolicy,
-    errors: list[ParseError] | None,
-) -> Any:
-    from .parser import JustHTML  # noqa: PLC0415
-    from .serialize import to_html  # noqa: PLC0415
-
-    html = to_html(node, pretty=False)
-    if node.name == "#document":
-        reparsed = JustHTML(html, sanitize=False)
-    else:
-        reparsed = JustHTML(html, sanitize=False, fragment=True)
-
-    return _sanitize_dom_once(reparsed.root, policy=policy, errors=errors)
-
-
-def _replace_container_children(target: Any, source: Any) -> None:
-    for child in target.children:
-        child.parent = None
-
-    new_children = list(source.children)
-    target.children = new_children
-    for child in new_children:
-        child.parent = target
-
-    source.children = []
-
-
 def sanitize_dom(
     node: NodeType,
     *,
@@ -1997,19 +1728,4 @@ def sanitize_dom(
 
     result = _sanitize_dom_once(node, policy=policy, errors=errors)
 
-    if policy.drop_foreign_namespaces or not _has_potential_foreign_content(result):
-        return cast("NodeType", result)
-
-    stabilized = _stabilize_sanitized_dom_once(result, policy=policy, errors=errors)
-    if node.name in {"#document", "#document-fragment"}:
-        _replace_container_children(node, stabilized)
-        return node
-
-    children = cast("list[Any]", stabilized.children)
-    if len(children) == 1:
-        only = children[0]
-        only.parent = None
-        stabilized.children = []
-        return cast("NodeType", only)
-
-    return cast("NodeType", stabilized)
+    return cast("NodeType", result)

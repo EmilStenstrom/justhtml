@@ -176,7 +176,6 @@ def main() -> None:
             url_policy=base.url_policy,
             drop_comments=base.drop_comments,
             drop_doctype=base.drop_doctype,
-            drop_foreign_namespaces=base.drop_foreign_namespaces,
             drop_content_tags=base.drop_content_tags,
             allowed_css_properties=base.allowed_css_properties,
             force_link_rel=base.force_link_rel,

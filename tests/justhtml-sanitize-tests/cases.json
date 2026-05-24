@@ -805,8 +805,7 @@
     "policy": {
       "allowed_tags": ["svg"],
       "allowed_attributes": {"*": [], "svg": []},
-      "url_rules": [],
-      "drop_foreign_namespaces": true
+      "url_rules": []
     },
     "parse": "fragment",
     "fragment_context": "div",
@@ -814,17 +813,16 @@
     "expected_html": ""
   },
   {
-    "name": "foreign_namespace_element_kept_when_disabled",
+    "name": "foreign_namespace_element_dropped_even_when_allowlisted",
     "policy": {
       "allowed_tags": ["svg"],
       "allowed_attributes": {"*": [], "svg": []},
-      "url_rules": [],
-      "drop_foreign_namespaces": false
+      "url_rules": []
     },
     "parse": "fragment",
     "fragment_context": "div",
     "input_html": "<svg></svg>",
-    "expected_html": "<svg></svg>"
+    "expected_html": ""
   },
   {
     "name": "template_allowed_sanitizes_template_content",

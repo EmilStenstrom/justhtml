@@ -306,7 +306,7 @@ The `Sanitize(...)` pipeline compiles to this ordered list of transforms (some m
 - `Drop("tag1, tag2, ...", callback=..., report=...)` — Drops dangerous content containers like `script`/`style` (drops the *entire* subtree).
 - `DropComments(callback=..., report=...)` — Drops comments.
 - `DropDoctype(callback=..., report=...)` — Drops doctypes.
-- `DropForeignNamespaces(callback=..., report=...)` — Drops elements in foreign namespaces (SVG/MathML) when enabled by policy.
+- `DropForeignNamespaces(callback=..., report=...)` — Drops elements in foreign namespaces (SVG/MathML).
 - `Unwrap(":not(allowed_tags)", callback=..., report=...)` — Unwraps disallowed elements (keeps their children) for non-container tags.
 - `DropAttrs("*", patterns=("on*", "srcdoc", "*:*"), callback=..., report=...)` — Drops dangerous attributes (`on*`, `srcdoc`, and namespaced attributes like `xlink:href`).
 - `AllowlistAttrs("*", allowed_attributes=..., callback=..., report=...)` — Applies tag/attribute allowlists.
@@ -533,7 +533,7 @@ Drops doctype nodes (`!doctype`).
 
 ### `DropForeignNamespaces(enabled=True, callback=None, report=None)`
 
-Drops elements in non-HTML namespaces (for example SVG/MathML) when enabled.
+Drops elements in non-HTML namespaces (for example SVG/MathML).
 
 If provided, `callback(node)` / `report(msg, node=...)` is called when a foreign element is dropped.
 

@@ -92,7 +92,7 @@ High-level behavior:
 
 - Disallowed tags are stripped (their children may be kept) but dangerous containers like `script`/`style` have their content dropped.
 - Comments and doctypes are dropped.
-- Foreign namespaces (SVG/MathML) are dropped.
+- Foreign namespaces (SVG/MathML) are always dropped by the sanitizer, even if the tags are included in a custom allowlist. Parsing and treebuilding still support foreign content when `sanitize=False`.
 - Invisible Unicode commonly used for obfuscation, including variation selectors, zero-width/bidi controls, and private-use characters, is stripped from text and attributes before other sanitizer checks run.
 - Event handlers (`on*`), `srcdoc`, and namespace-style attributes (anything with `:`) are removed.
 - Inline styles are disabled by default.

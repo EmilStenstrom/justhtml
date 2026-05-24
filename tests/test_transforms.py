@@ -509,7 +509,7 @@ class TestTransforms(unittest.TestCase):
             allowed_css_properties={"color"},  # Enabling style check
             drop_comments=True,
             drop_doctype=True,
-            # drop_foreign_namespaces=True (default is usually True, but verify)
+            # Sanitize always drops foreign namespaces.
             # drop_content_tags defaults include script
         )
         # Use simple transform compilation to trigger fused path
@@ -912,236 +912,23 @@ class TestTransforms(unittest.TestCase):
         assert _is_effectively_foreign_node(Element("div", {}, "html")) is False
         assert _is_effectively_foreign_node(Element("svg", {}, "svg")) is True
 
-    def test_sanitize_preserves_allowlisted_active_foreign_content(self) -> None:
-        calls: list[str] = []
-
-        def on_node(node: Node) -> None:
-            calls.append(str(node.name))
-
+    def test_sanitize_drops_allowlisted_foreign_content(self) -> None:
         policy = SanitizationPolicy(
-            allowed_tags={"svg", "image", "set"},
-            allowed_attributes={
-                "svg": set(),
-                "image": {"id", "href", "width", "height"},
-                "set": {"href", "attributeName", "to", "begin"},
-            },
-            url_policy=UrlPolicy(
-                allow_rules={
-                    ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
-                    ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
-                }
-            ),
-            drop_foreign_namespaces=False,
-            drop_content_tags=set(),
-        )
-
-        root = DocumentFragment()
-        svg = Element("svg", {}, "svg")
-        image = Element("image", {"id": "img", "href": "#ok", "width": "10", "height": "10"}, "svg")
-        set_node = Element(
-            "set",
-            {"href": "#img", "attributeName": "href", "to": "https://evil.example/pwn", "begin": "0s"},
-            "svg",
-        )
-        svg.append_child(image)
-        svg.append_child(set_node)
-        root.append_child(svg)
-
-        apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy, callback=on_node)]))
-
-        assert (
-            root.to_html(pretty=False) == '<svg><image id="img" href="#ok" width="10" height="10"></image>'
-            '<set href="#img" attributename="href" begin="0s"></set></svg>'
-        )
-        assert calls == ["set", "set"]
-
-    def test_sanitize_svg_animation_url_values_use_url_policy(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags={"svg", "image", "animate"},
-            allowed_attributes={
-                "svg": set(),
-                "image": {"id", "href"},
-                "animate": {"href", "attributeName", "values"},
-            },
-            url_policy=UrlPolicy(
-                allow_rules={
-                    ("image", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
-                    ("animate", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
-                    ("animate", "values"): UrlRule(
-                        allowed_schemes={"https"}, allowed_hosts={"trusted.example"}, allow_fragment=True
-                    ),
-                }
-            ),
-            drop_foreign_namespaces=False,
-            drop_content_tags=set(),
-        )
-
-        root = DocumentFragment()
-        svg = Element("svg", {}, "svg")
-        image = Element("image", {"id": "img", "href": "#ok"}, "svg")
-        animate = Element(
-            "animate",
-            {
-                "href": "#img",
-                "attributeName": "href",
-                "values": "https://trusted.example/p;https://evil.example/p",
-            },
-            "svg",
-        )
-        svg.append_child(image)
-        svg.append_child(animate)
-        root.append_child(svg)
-
-        apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy)]))
-
-        assert (
-            root.to_html(pretty=False) == '<svg><image id="img" href="#ok"></image>'
-            '<animate href="#img" attributename="href"></animate></svg>'
-        )
-
-    def test_sanitize_svg_animation_url_function_values_use_url_policy(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags={"svg", "rect", "set"},
-            allowed_attributes={
-                "svg": set(),
-                "rect": {"id", "fill"},
-                "set": {"href", "attributeName", "to"},
-            },
-            url_policy=UrlPolicy(
-                allow_rules={
-                    ("set", "href"): UrlRule(allowed_schemes=set(), allow_relative=False, allow_fragment=True),
-                    ("set", "to"): UrlRule(
-                        allowed_schemes={"https"}, allowed_hosts={"trusted.example"}, allow_fragment=True
-                    ),
-                }
-            ),
-            drop_foreign_namespaces=False,
-            drop_content_tags=set(),
-        )
-
-        root = DocumentFragment()
-        svg = Element("svg", {}, "svg")
-        rect = Element("rect", {"id": "r", "fill": "red"}, "svg")
-        set_node = Element(
-            "set",
-            {
-                "href": "#r",
-                "attributeName": "fill",
-                "to": "url(https://evil.example/fill.svg#x) red",
-            },
-            "svg",
-        )
-        svg.append_child(rect)
-        svg.append_child(set_node)
-        root.append_child(svg)
-
-        apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy)]))
-
-        assert (
-            root.to_html(pretty=False)
-            == '<svg><rect id="r" fill="red"></rect><set href="#r" attributename="fill"></set></svg>'
-        )
-
-    def test_sanitize_preserves_allowlisted_active_foreign_foreignobject(self) -> None:
-        calls: list[str] = []
-
-        def on_node(node: Node) -> None:
-            calls.append(str(node.name))
-
-        policy = SanitizationPolicy(
-            allowed_tags={"svg", "foreignobject", "script"},
-            allowed_attributes={
-                "svg": set(),
-                "foreignobject": set(),
-                "script": set(),
-            },
+            allowed_tags={"svg", "title"},
+            allowed_attributes={"svg": set(), "title": set()},
             url_policy=UrlPolicy(allow_rules={}),
-            drop_foreign_namespaces=False,
             drop_content_tags=set(),
         )
-
-        root = DocumentFragment()
-        svg = Element("svg", {}, "svg")
-        foreign_object = Element("foreignObject", {}, "svg")
-        script = Element("script", {}, "html")
-        script.append_child(Text("document.body.dataset.pwn=1"))
-        foreign_object.append_child(script)
-        svg.append_child(foreign_object)
-        root.append_child(svg)
-
-        apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy, callback=on_node)]))
-
-        assert (
-            root.to_html(pretty=False)
-            == "<svg><foreignObject><script>document.body.dataset.pwn=1</script></foreignObject></svg>"
-        )
-        assert calls == []
-
-    def test_sanitize_strips_html_descendants_inside_svg_title(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags={"svg", "title", "script", "img"},
-            allowed_attributes={
-                "svg": set(),
-                "title": set(),
-                "script": set(),
-                "img": {"src"},
-            },
-            url_policy=UrlPolicy(
-                allow_rules={
-                    ("img", "src"): UrlRule(allowed_schemes=set(), allow_relative=True),
-                }
-            ),
-            drop_foreign_namespaces=False,
-            drop_content_tags=set(),
-        )
-
         root = DocumentFragment()
         svg = Element("svg", {}, "svg")
         title = Element("title", {}, "svg")
-        title.append_child(Text("Hello"))
-        script = Element("script", {}, "html")
-        script.append_child(Text("document.body.dataset.pwn=1"))
-        img = Element("img", {"src": "/x"}, "html")
-        title.append_child(script)
-        title.append_child(img)
+        title.append_child(Text("x"))
         svg.append_child(title)
         root.append_child(svg)
 
         apply_compiled_transforms(root, compile_transforms([Sanitize(policy=policy)]))
 
-        assert root.to_html(pretty=False) == "<svg><title>Hello</title></svg>"
-
-    def test_apply_compiled_transforms_stabilizes_terminal_sanitize_foreign_namespace_mxss(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags={"form", "math", "mtext", "mglyph", "style", "img"},
-            allowed_attributes={
-                "form": set(),
-                "math": set(),
-                "mtext": set(),
-                "mglyph": set(),
-                "style": set(),
-                "img": {"src"},
-            },
-            url_policy=UrlPolicy(
-                allow_rules={
-                    ("img", "src"): UrlRule(allowed_schemes=set(), allow_relative=True),
-                }
-            ),
-            drop_foreign_namespaces=False,
-            drop_content_tags=set(),
-        )
-
-        doc = JustHTML(
-            "<form><math><mtext></form><form><mglyph><style></math><img src onerror=alert(1)>",
-            fragment=True,
-            sanitize=False,
-        )
-
-        apply_compiled_transforms(doc.root, compile_transforms([Sanitize(policy=policy)]))
-
-        assert doc.to_html(pretty=False) == "<form><math><mtext></mtext></math></form>"
-        reparsed = JustHTML(doc.to_html(pretty=False), fragment=True, sanitize=False)
-        assert reparsed.query("img") == []
+        assert root.to_html(pretty=False) == ""
 
     def test_dropattrs_patterns_cover_event_namespaced_and_exact(self) -> None:
         policy = SanitizationPolicy(
@@ -1496,121 +1283,6 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert base.attrs == {"href": "https://trusted.example/assets/"}
 
-    def test_dropurlattrs_sanitizes_svg_xlink_href(self) -> None:
-        url_policy = UrlPolicy(
-            default_handling="allow",
-            allow_rules={
-                ("image", "xlink:href"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
-            },
-        )
-
-        root = DocumentFragment()
-        trusted = Element("image", {"xlink:href": "https://trusted.example/x.png"}, "svg")
-        untrusted = Element("image", {"xlink:href": "https://evil.example/x.png"}, "svg")
-        script = Element("image", {"xlink:href": "javascript:alert(1)"}, "svg")
-        root.append_child(trusted)
-        root.append_child(untrusted)
-        root.append_child(script)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
-        assert trusted.attrs == {"xlink:href": "https://trusted.example/x.png"}
-        assert untrusted.attrs == {}
-        assert script.attrs == {}
-
-    def test_dropurlattrs_sanitizes_svg_xml_base(self) -> None:
-        url_policy = UrlPolicy(
-            default_handling="allow",
-            allow_rules={
-                ("svg", "xml:base"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
-            },
-        )
-
-        root = DocumentFragment()
-        trusted = Element("svg", {"xml:base": "https://trusted.example/assets/"}, "svg")
-        untrusted = Element("svg", {"xml:base": "https://evil.example/assets/"}, "svg")
-        root.append_child(trusted)
-        root.append_child(untrusted)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
-        assert trusted.attrs == {"xml:base": "https://trusted.example/assets/"}
-        assert untrusted.attrs == {}
-
-    def test_dropurlattrs_sanitizes_mathml_definitionurl(self) -> None:
-        url_policy = UrlPolicy(
-            default_handling="allow",
-            allow_rules={
-                ("csymbol", "definitionurl"): UrlRule(
-                    allowed_schemes={"https"},
-                    allowed_hosts={"trusted.example"},
-                ),
-            },
-        )
-
-        root = DocumentFragment()
-        trusted = Element("csymbol", {"definitionURL": "https://trusted.example/def"}, "math")
-        untrusted = Element("csymbol", {"definitionURL": "https://evil.example/def"}, "math")
-        script = Element("csymbol", {"definitionURL": "javascript:alert(1)"}, "math")
-        root.append_child(trusted)
-        root.append_child(untrusted)
-        root.append_child(script)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
-        assert trusted.attrs == {"definitionurl": "https://trusted.example/def"}
-        assert untrusted.attrs == {}
-        assert script.attrs == {}
-
-    def test_dropurlattrs_sanitizes_mathml_fallback_uri_attrs(self) -> None:
-        url_policy = UrlPolicy(
-            default_handling="allow",
-            allow_rules={
-                ("math", "altimg"): UrlRule(
-                    allowed_schemes={"https"},
-                    allowed_hosts={"trusted.example"},
-                ),
-                ("math", "cdgroup"): UrlRule(
-                    allowed_schemes={"https"},
-                    allowed_hosts={"trusted.example"},
-                ),
-            },
-        )
-
-        root = DocumentFragment()
-        trusted = Element(
-            "math",
-            {
-                "altimg": "https://trusted.example/fallback.png",
-                "cdgroup": "https://trusted.example/cdgroup.xml",
-            },
-            "math",
-        )
-        untrusted = Element(
-            "math",
-            {
-                "altimg": "https://evil.example/fallback.png",
-                "cdgroup": "https://evil.example/cdgroup.xml",
-            },
-            "math",
-        )
-        script = Element(
-            "math",
-            {
-                "altimg": "javascript:alert(1)",
-                "cdgroup": "javascript:alert(1)",
-            },
-            "math",
-        )
-        root.append_child(trusted)
-        root.append_child(untrusted)
-        root.append_child(script)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
-        assert trusted.attrs == {
-            "altimg": "https://trusted.example/fallback.png",
-            "cdgroup": "https://trusted.example/cdgroup.xml",
-        }
-        assert untrusted.attrs == {}
-        assert script.attrs == {}
-
     def test_dropurlattrs_sanitizes_meta_refresh_content_when_rule_present(self) -> None:
         url_policy = UrlPolicy(
             default_handling="allow",
@@ -1664,78 +1336,6 @@ class TestTransforms(unittest.TestCase):
         assert empty_quoted.attrs == {"http-equiv": "refresh"}
         assert script.attrs == {"http-equiv": "refresh"}
         assert malformed.attrs == {"http-equiv": "refresh"}
-
-    def test_dropurlattrs_sanitizes_svg_url_function_attrs(self) -> None:
-        url_policy = UrlPolicy(
-            default_handling="allow",
-            allow_rules={
-                ("rect", "fill"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
-            },
-        )
-
-        root = DocumentFragment()
-        rect = Element(
-            "rect",
-            {"fill": "url(https://trusted.example/fill.svg#x) red", "width": "10", "height": "10"},
-            "svg",
-        )
-        root.append_child(rect)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
-        assert rect.attrs == {"fill": "url('https://trusted.example/fill.svg#x') red", "width": "10", "height": "10"}
-
-    def test_dropurlattrs_preserves_non_url_svg_presentation_values_without_rule(self) -> None:
-        root = DocumentFragment()
-        rect = Element("rect", {"fill": "red", "width": "10", "height": "10"}, "svg")
-        root.append_child(rect)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
-        assert rect.attrs == {"fill": "red", "width": "10", "height": "10"}
-
-    def test_dropurlattrs_drops_svg_presentation_ambient_value_keywords_without_rule(self) -> None:
-        root = DocumentFragment()
-        inherit_rect = Element("rect", {"fill": "inherit", "width": "10", "height": "10"}, "svg")
-        revert_rect = Element("rect", {"fill": "revert-layer", "width": "10", "height": "10"}, "svg")
-        important_rect = Element("rect", {"fill": "inherit!important", "width": "10", "height": "10"}, "svg")
-        root.append_child(inherit_rect)
-        root.append_child(revert_rect)
-        root.append_child(important_rect)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
-        assert inherit_rect.attrs == {"width": "10", "height": "10"}
-        assert revert_rect.attrs == {"width": "10", "height": "10"}
-        assert important_rect.attrs == {"width": "10", "height": "10"}
-
-    def test_dropurlattrs_drops_svg_url_function_attrs_without_rule(self) -> None:
-        root = DocumentFragment()
-        rect = Element(
-            "rect",
-            {"fill": "url(https://evil.example/fill.svg#x) red", "width": "10", "height": "10"},
-            "svg",
-        )
-        root.append_child(rect)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy())]))
-        assert rect.attrs == {"width": "10", "height": "10"}
-
-    def test_dropurlattrs_drops_svg_presentation_values_with_disallowed_resource_functions(self) -> None:
-        url_policy = UrlPolicy(
-            default_handling="allow",
-            allow_rules={
-                ("rect", "fill"): UrlRule(allowed_schemes={"https"}, allowed_hosts={"trusted.example"}),
-            },
-        )
-
-        root = DocumentFragment()
-        rect = Element(
-            "rect",
-            {"fill": "image-set(url(https://trusted.example/fill.svg#x) 1x)", "width": "10", "height": "10"},
-            "svg",
-        )
-        root.append_child(rect)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
-        assert rect.attrs == {"width": "10", "height": "10"}
 
     def test_dropurlattrs_works_without_on_unsafe_callback(self) -> None:
         url_policy = UrlPolicy(
@@ -1795,33 +1395,6 @@ class TestTransforms(unittest.TestCase):
 
         apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=url_policy)]))
         assert link.attrs == {"rel": "preload", "as": "image"}
-
-    def test_dropurlattrs_treats_svg_filter_as_url_function_attr(self) -> None:
-        root = DocumentFragment()
-        svg = Element("svg", {}, "svg")
-        rect = Element("rect", {"filter": "url(https://evil.example/filter.svg#f)", "width": "10"}, "svg")
-        svg.append_child(rect)
-        root.append_child(svg)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy(allow_rules={}))]))
-        assert rect.attrs == {"width": "10"}
-
-    def test_dropurlattrs_treats_svg_shape_attrs_as_url_function_attrs(self) -> None:
-        root = DocumentFragment()
-        svg = Element("svg", {}, "svg")
-        text = Element(
-            "text",
-            {
-                "shape-inside": "url(https://evil.example/wrap.svg#shape)",
-                "shape-outside": "url(https://evil.example/float.png)",
-            },
-            "svg",
-        )
-        svg.append_child(text)
-        root.append_child(svg)
-
-        apply_compiled_transforms(root, compile_transforms([DropUrlAttrs("*", url_policy=UrlPolicy(allow_rules={}))]))
-        assert text.attrs == {}
 
     def test_dropurlattrs_can_be_disabled(self) -> None:
         policy = SanitizationPolicy(

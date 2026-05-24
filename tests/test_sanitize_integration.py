@@ -81,7 +81,6 @@ def _build_policy(spec: Any) -> SanitizationPolicy:
         url_policy=url_policy,
         drop_comments=spec.get("drop_comments", True),
         drop_doctype=spec.get("drop_doctype", True),
-        drop_foreign_namespaces=spec.get("drop_foreign_namespaces", True),
         drop_content_tags=spec.get("drop_content_tags", ["script", "style"]),
         force_link_rel=spec.get("force_link_rel", []),
         allowed_css_properties=spec.get("allowed_css_properties", []),

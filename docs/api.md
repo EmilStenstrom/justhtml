@@ -490,6 +490,8 @@ Conservative built-in policy used when sanitizing full documents (preserves `<ht
 
 Defines allowlists for tags and attributes, URL validation rules, and optional inline-style allowlisting.
 
+The sanitizer is HTML-only for output safety: SVG and MathML are parsed and represented in the DOM when sanitization is disabled, but sanitizer output always drops foreign-namespace content.
+
 Notable options:
 
 - `unsafe_handling`: "strip" (default), "raise", or "collect"

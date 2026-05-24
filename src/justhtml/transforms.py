@@ -21,32 +21,20 @@ from .constants import VOID_ELEMENTS
 from .linkify import LinkifyConfig, find_links_with_config
 from .node import Element, Node, Template, Text
 from .sanitize import (
-    _SVG_ANIMATION_VALUE_ATTRS,
-    _SVG_URL_ANIMATION_TAGS,
     _URL_BEARING_PARAM_NAMES,
-    _URL_FUNCTION_LIKE_ATTRS,
     _URL_LIKE_ATTRS,
     DEFAULT_POLICY,
     SanitizationPolicy,
     UrlPolicy,
-    _css_value_has_disallowed_resource_functions,
-    _css_value_may_load_external_resource,
     _effective_allow_relative,
     _effective_proxy,
     _effective_url_handling,
-    _has_potential_foreign_content,
-    _replace_container_children,
     _sanitize_comma_or_space_separated_url_list,
-    _sanitize_foreign_html_integration_point_contents,
     _sanitize_inline_style,
     _sanitize_rawtext_element_contents,
     _sanitize_space_separated_url_list,
     _sanitize_srcset_value,
-    _sanitize_svg_animation_url_function_value,
-    _sanitize_svg_animation_url_value,
-    _sanitize_url_function_value,
     _sanitize_url_value_with_rule,
-    _stabilize_sanitized_dom_once,
     _strip_invisible_unicode,
 )
 from .selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits, SelectorMatcher, parse_selector
@@ -480,18 +468,6 @@ class _CompiledSanitizeRawtextPolicy:
     policy: SanitizationPolicy
 
 
-@dataclass(frozen=True, slots=True)
-class _CompiledSanitizeForeignIntegrationPointPolicy:
-    kind: Literal["sanitize_foreign_integration_point_policy"]
-    policy: SanitizationPolicy
-
-
-@dataclass(frozen=True, slots=True)
-class _CompiledTerminalSanitizePolicy:
-    kind: Literal["terminal_sanitize_policy"]
-    policy: SanitizationPolicy
-
-
 CompiledTransform = (
     _CompiledSelectorTransform
     | _CompiledDecideTransform
@@ -510,8 +486,6 @@ CompiledTransform = (
     | _CompiledStageHookTransform
     | _CompiledStageBoundary
     | _CompiledSanitizeRawtextPolicy
-    | _CompiledSanitizeForeignIntegrationPointPolicy
-    | _CompiledTerminalSanitizePolicy
 )
 
 
@@ -614,16 +588,6 @@ def _split_into_top_level_stages(specs: list[TransformSpec] | tuple[TransformSpe
     return stages
 
 
-def _terminal_sanitize_policy_from_flattened(flattened: list[Transform]) -> SanitizationPolicy | None:
-    for t in reversed(flattened):
-        if not t.enabled:
-            continue
-        if isinstance(t, Sanitize):
-            return t.policy or DEFAULT_POLICY
-        return None
-    return None
-
-
 def _selector_limits_from_flattened(flattened: list[Transform]) -> SelectorLimits:
     for t in reversed(flattened):
         if not getattr(t, "enabled", False):
@@ -631,27 +595,6 @@ def _selector_limits_from_flattened(flattened: list[Transform]) -> SelectorLimit
         if isinstance(t, Sanitize):
             return (t.policy or DEFAULT_POLICY).selector_limits
     return DEFAULT_SELECTOR_LIMITS
-
-
-def _append_terminal_sanitize_policy_marker(
-    compiled: list[CompiledTransform],
-    *,
-    flattened: list[Transform],
-    enabled: bool,
-) -> None:
-    if not enabled:
-        return
-
-    terminal_policy = _terminal_sanitize_policy_from_flattened(flattened)
-    if terminal_policy is None:
-        return
-
-    compiled.append(
-        _CompiledTerminalSanitizePolicy(
-            kind="terminal_sanitize_policy",
-            policy=terminal_policy,
-        )
-    )
 
 
 def _selector_limits_from_compiled(
@@ -667,7 +610,6 @@ def _selector_limits_from_compiled(
 def compile_transforms(
     transforms: list[TransformSpec] | tuple[TransformSpec, ...],
     *,
-    _include_terminal_sanitize_policy: bool = True,
     _selector_limits: SelectorLimits | None = None,
 ) -> list[CompiledTransform]:
     if not transforms:
@@ -699,15 +641,9 @@ def compile_transforms(
                 compiled_stage.extend(
                     compile_transforms(
                         (inner,),
-                        _include_terminal_sanitize_policy=False,
                         _selector_limits=selector_limits,
                     )
                 )
-        _append_terminal_sanitize_policy_marker(
-            compiled_stage,
-            flattened=flattened,
-            enabled=_include_terminal_sanitize_policy,
-        )
         return compiled_stage
 
     compiled: list[CompiledTransform] = []
@@ -1314,30 +1250,17 @@ def compile_transforms(
 
                 param_name_value: str | None = None
                 meta_http_equiv_value: str | None = None
-                svg_animation_target_attr: str | None = None
-                is_effectively_foreign_node = _is_effectively_foreign_node(node)
                 for key, raw_value in attrs.items():
                     lower_key = key if key.islower() else key.lower()
                     if tag == "param" and lower_key == "name" and raw_value is not None:
                         param_name_value = str(raw_value).strip().lower()
                     elif tag == "meta" and lower_key == "http-equiv" and raw_value is not None:
                         meta_http_equiv_value = str(raw_value).strip().lower()
-                    elif (
-                        is_effectively_foreign_node
-                        and tag in _SVG_URL_ANIMATION_TAGS
-                        and lower_key == "attributename"
-                        and raw_value is not None
-                    ):
-                        svg_animation_target_attr = str(raw_value).strip().lower()
 
                 # Most nodes have no URL-like attrs; avoid allocations in that case.
                 for key in attrs:
                     lower_key = key if key.islower() else key.lower()
                     raw_value = attrs[key]
-
-                    is_url_function_attr = False
-                    if raw_value is not None and is_effectively_foreign_node and lower_key in _URL_FUNCTION_LIKE_ATTRS:
-                        is_url_function_attr = _css_value_may_load_external_resource(str(raw_value))
 
                     is_param_url_value = (
                         tag == "param" and lower_key == "value" and param_name_value in _URL_BEARING_PARAM_NAMES
@@ -1345,29 +1268,8 @@ def compile_transforms(
                     is_meta_refresh_content = (
                         tag == "meta" and lower_key == "content" and meta_http_equiv_value == "refresh"
                     )
-                    is_svg_animation_url_value = (
-                        is_effectively_foreign_node
-                        and tag in _SVG_URL_ANIMATION_TAGS
-                        and lower_key in _SVG_ANIMATION_VALUE_ATTRS
-                        and svg_animation_target_attr in _URL_LIKE_ATTRS
-                    )
-                    is_svg_animation_url_function_value = (
-                        raw_value is not None
-                        and is_effectively_foreign_node
-                        and tag in _SVG_URL_ANIMATION_TAGS
-                        and lower_key in _SVG_ANIMATION_VALUE_ATTRS
-                        and svg_animation_target_attr in _URL_FUNCTION_LIKE_ATTRS
-                        and _css_value_may_load_external_resource(str(raw_value))
-                    )
 
-                    if (
-                        lower_key not in _URL_LIKE_ATTRS
-                        and not is_url_function_attr
-                        and not is_param_url_value
-                        and not is_meta_refresh_content
-                        and not is_svg_animation_url_value
-                        and not is_svg_animation_url_function_value
-                    ):
+                    if lower_key not in _URL_LIKE_ATTRS and not is_param_url_value and not is_meta_refresh_content:
                         continue
 
                     if raw_value is None:
@@ -1411,22 +1313,6 @@ def compile_transforms(
                             attr=lower_key,
                             value=str(raw_value),
                         )
-                    elif is_url_function_attr:
-                        raw_value_str = str(raw_value)
-                        if _css_value_has_disallowed_resource_functions(raw_value_str):
-                            sanitized = None
-                        else:
-                            sanitized = _sanitize_url_function_value(
-                                rule=rule,
-                                value=raw_value_str,
-                                tag=tag,
-                                attr=lower_key,
-                                handling=_effective_url_handling(url_policy=url_policy, rule=rule),
-                                allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
-                                proxy=_effective_proxy(url_policy=url_policy, rule=rule),
-                                url_filter=url_policy.url_filter,
-                                apply_filter=True,
-                            )
                     elif is_meta_refresh_content:
                         raw_value_str = str(raw_value)
                         refresh_parts = _extract_meta_refresh_url(raw_value_str)
@@ -1446,22 +1332,6 @@ def compile_transforms(
                                 apply_filter=True,
                             )
                             sanitized = None if sanitized_url is None else f"{prefix.strip()};url={sanitized_url}"
-                    elif is_svg_animation_url_value:
-                        sanitized = _sanitize_svg_animation_url_value(
-                            url_policy=url_policy,
-                            rule=rule,
-                            tag=tag,
-                            attr=lower_key,
-                            value=str(raw_value),
-                        )
-                    elif is_svg_animation_url_function_value:
-                        sanitized = _sanitize_svg_animation_url_function_value(
-                            url_policy=url_policy,
-                            rule=rule,
-                            tag=tag,
-                            attr=lower_key,
-                            value=str(raw_value),
-                        )
                     else:
                         sanitized = _sanitize_url_value_with_rule(
                             rule=rule,
@@ -1699,23 +1569,22 @@ def compile_transforms(
             # Decide (elements-only) chain to avoid spending time on text/container nodes.
             decide_callbacks: list[Callable[[Node], DecideAction]] = []
 
-            if policy.drop_foreign_namespaces:
-                cb_foreign = t.callback
-                rep_foreign = _report_unsafe
+            cb_foreign = t.callback
+            rep_foreign = _report_unsafe
 
-                def _drop_foreign_namespace(
-                    node: Node,
-                    cb: NodeCallback | None = cb_foreign,
-                    rep: ReportCallback = rep_foreign,
-                ) -> DecideAction:
-                    if _is_effectively_foreign_node(node):
-                        if cb is not None:
-                            cb(node)
-                        rep(f"Unsafe tag '{node.name}' (foreign namespace)", node=node)
-                        return DecideAction.DROP
-                    return DecideAction.KEEP
+            def _drop_foreign_namespace(
+                node: Node,
+                cb: NodeCallback | None = cb_foreign,
+                rep: ReportCallback = rep_foreign,
+            ) -> DecideAction:
+                if _is_effectively_foreign_node(node):
+                    if cb is not None:
+                        cb(node)
+                    rep(f"Unsafe tag '{node.name}' (foreign namespace)", node=node)
+                    return DecideAction.DROP
+                return DecideAction.KEEP
 
-                decide_callbacks.append(_drop_foreign_namespace)
+            decide_callbacks.append(_drop_foreign_namespace)
 
             decide_callbacks.append(_sanitize_node_decision)
             _append_compiled(_CompiledDecideElementsChain(callbacks=decide_callbacks))
@@ -1790,22 +1659,9 @@ def compile_transforms(
                     policy=policy,
                 )
             )
-            _append_compiled(
-                _CompiledSanitizeForeignIntegrationPointPolicy(
-                    kind="sanitize_foreign_integration_point_policy",
-                    policy=policy,
-                )
-            )
-
             continue
 
         raise TypeError(f"Unsupported transform: {type(t).__name__}")  # pragma: no cover
-
-    _append_terminal_sanitize_policy_marker(
-        compiled,
-        flattened=flattened,
-        enabled=_include_terminal_sanitize_policy,
-    )
 
     return compiled
 
@@ -1822,7 +1678,6 @@ def apply_compiled_transforms(
     selector_limits = _selector_limits_from_compiled(compiled)
     token = _ERROR_SINK.set(errors)
     try:
-        terminal_sanitize_policy: SanitizationPolicy | None = None
 
         def apply_walk_transforms(
             root_node: Node,
@@ -2659,26 +2514,8 @@ def apply_compiled_transforms(
                 i += 1
                 continue
 
-            if isinstance(t, _CompiledSanitizeForeignIntegrationPointPolicy):
-                _sanitize_foreign_html_integration_point_contents(root, policy=t.policy, errors=errors)
-                i += 1
-                continue
-
-            if isinstance(t, _CompiledTerminalSanitizePolicy):
-                terminal_sanitize_policy = t.policy
-                i += 1
-                continue
-
             raise TypeError(f"Unsupported compiled transform: {type(t).__name__}")
 
         apply_walk_transforms(root, pending_walk)
-        if (
-            terminal_sanitize_policy is not None
-            and root.name in {"#document", "#document-fragment"}
-            and not terminal_sanitize_policy.drop_foreign_namespaces
-            and _has_potential_foreign_content(root)
-        ):
-            stabilized = _stabilize_sanitized_dom_once(root, policy=terminal_sanitize_policy, errors=errors)
-            _replace_container_children(root, stabilized)
     finally:
         _ERROR_SINK.reset(token)
