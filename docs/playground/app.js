@@ -73,6 +73,7 @@ async function installJusthtmlFromLocalRepo(pyodideInstance) {
 		"sanitize_css.py",
 		"sanitize_dom.py",
 		"sanitize_policy.py",
+		"sanitize_policy_defaults.py",
 		"sanitize_rawtext.py",
 		"sanitize_url.py",
 		"sanitize_url_policy.py",

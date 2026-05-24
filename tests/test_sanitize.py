@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 import justhtml
+import justhtml.sanitize_policy_defaults as sanitize_policy_defaults
 from justhtml import JustHTML, Sanitize, SetAttrs
 from justhtml.node import Comment, DocumentFragment, Element, Node, Template, Text
 from justhtml.sanitize import (
@@ -118,6 +119,14 @@ class TestSanitizePlumbing(unittest.TestCase):
         assert rule.allowed_hosts == frozenset({"example.com"})
         with self.assertRaises(AttributeError):
             rule.allowed_hosts.add("evil.example")  # type: ignore[union-attr]
+
+    def test_seal_url_policy_rejects_non_policy(self) -> None:
+        with self.assertRaises(TypeError):
+            sanitize_policy_defaults._seal_url_policy(object())  # type: ignore[arg-type]
+
+    def test_seal_default_policy_rejects_non_policy(self) -> None:
+        with self.assertRaises(TypeError):
+            sanitize_policy_defaults._seal_default_policy(object())
 
     def test_urlproxy_rejects_empty_url(self) -> None:
         with self.assertRaises(ValueError):
