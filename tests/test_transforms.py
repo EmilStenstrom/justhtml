@@ -899,6 +899,17 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compile_transforms([DropForeignNamespaces(report=None)]))
         assert root.children == []
 
+    def test_drop_foreign_namespaces_uses_effective_foreign_detection(self) -> None:
+        root = DocumentFragment()
+        svg = Element("svg", {}, "html")
+        rect = Element("rect", {}, "html")
+        svg.append_child(rect)
+        root.append_child(svg)
+        root.append_child(Element("p", {}, "html"))
+
+        apply_compiled_transforms(root, compile_transforms([DropForeignNamespaces(report=None)]))
+        assert [child.name for child in root.children] == ["p"]
+
     def test_is_effectively_foreign_node_handles_html_namespace_svg_ancestors_and_special_nodes(self) -> None:
         svg = Element("svg", {}, "html")
         rect = Element("rect", {}, "html")

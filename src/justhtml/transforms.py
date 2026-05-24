@@ -1007,8 +1007,7 @@ def compile_transforms(
                 name = node.name
                 if name.startswith("#") or name == "!doctype":
                     return Decide.KEEP
-                ns = node.namespace
-                if ns not in (None, "html"):
+                if _is_effectively_foreign_node(node):
                     if on_hook is not None:
                         on_hook(node)
                     if on_report is not None:
