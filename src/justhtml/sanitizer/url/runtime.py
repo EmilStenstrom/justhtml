@@ -36,6 +36,7 @@ _URL_WHITESPACE_OR_CONTROL_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x20\x7f]
 _URL_CONTROL_CHAR_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x1f\x7f]")
 _URL_AUTHORITY_WHITESPACE_REGEX: re.Pattern[str] = re.compile(r"[\x00-\x20\x7f]")
 _SRCSET_DENSITY_DESCRIPTOR_REGEX: re.Pattern[str] = re.compile(r"(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)x\Z")
+_META_REFRESH_AMBIGUOUS_URL_REGEX: re.Pattern[str] = re.compile(r"[,;]")
 
 _INVISIBLE_UNICODE_STRIP_REGEX: re.Pattern[str] = re.compile(
     r"[\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFE00-\uFE0F\uFEFF\uE000-\uF8FF"
@@ -473,6 +474,8 @@ def _extract_meta_refresh_url(value: str) -> tuple[str, str] | None:
             candidate = candidate[:end_quote]
 
     if not candidate:
+        return None
+    if _META_REFRESH_AMBIGUOUS_URL_REGEX.search(candidate):
         return None
     return prefix.strip(), candidate
 
