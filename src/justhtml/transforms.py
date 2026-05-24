@@ -1160,6 +1160,259 @@ def _compile_allowlist_attrs_transform(
     )
 
 
+def _compile_drop_url_attrs_transform(
+    t: DropUrlAttrs, parse: Callable[[str], ParsedSelector]
+) -> _CompiledEditAttrsTransform:
+    url_policy = t.url_policy
+    on_hook = t.callback
+    on_report = t.report
+
+    def _drop_url_attrs(
+        node: Node,
+        url_policy: UrlPolicy = url_policy,
+        on_hook: NodeCallback | None = on_hook,
+        on_report: ReportCallback | None = on_report,
+    ) -> dict[str, str | None] | None:
+        attrs = node.attrs
+        if not attrs:
+            return None
+
+        tag = str(node.name)
+        if not tag.islower():
+            tag = tag.lower()
+        to_drop: list[str] | None = None
+        to_set: dict[str, str] | None = None
+
+        param_name_value: str | None = None
+        meta_http_equiv_value: str | None = None
+        for key, raw_value in attrs.items():
+            lower_key = key if key.islower() else key.lower()
+            if tag == "param" and lower_key == "name" and raw_value is not None:
+                param_name_value = str(raw_value).strip().lower()
+            elif tag == "meta" and lower_key == "http-equiv" and raw_value is not None:
+                meta_http_equiv_value = str(raw_value).strip().lower()
+
+        for key in attrs:
+            lower_key = key if key.islower() else key.lower()
+            raw_value = attrs[key]
+
+            is_param_url_value = (
+                tag == "param" and lower_key == "value" and param_name_value in _URL_BEARING_PARAM_NAMES
+            )
+            is_meta_refresh_content = tag == "meta" and lower_key == "content" and meta_http_equiv_value == "refresh"
+
+            if lower_key not in _URL_LIKE_ATTRS and not is_param_url_value and not is_meta_refresh_content:
+                continue
+
+            if raw_value is None:
+                if on_report is not None:  # pragma: no cover
+                    on_report(f"Unsafe URL in attribute '{lower_key}'", node=node)
+                if to_drop is None:
+                    to_drop = []
+                to_drop.append(key)
+                continue
+
+            rule = url_policy.allow_rules.get((tag, lower_key))
+            if rule is None:
+                if on_report is not None:  # pragma: no cover
+                    on_report(f"Unsafe URL in attribute '{lower_key}' (no rule)", node=node)
+                if to_drop is None:
+                    to_drop = []
+                to_drop.append(key)
+                continue
+
+            if lower_key in {"srcset", "imagesrcset"}:
+                sanitized = _sanitize_srcset_value(
+                    url_policy=url_policy,
+                    rule=rule,
+                    tag=tag,
+                    attr=lower_key,
+                    value=str(raw_value),
+                )
+            elif lower_key in {"archive", "profile"}:
+                sanitized = _sanitize_comma_or_space_separated_url_list(
+                    url_policy=url_policy,
+                    rule=rule,
+                    tag=tag,
+                    attr=lower_key,
+                    value=str(raw_value),
+                )
+            elif lower_key in {"ping", "attributionsrc"}:
+                sanitized = _sanitize_space_separated_url_list(
+                    url_policy=url_policy,
+                    rule=rule,
+                    tag=tag,
+                    attr=lower_key,
+                    value=str(raw_value),
+                )
+            elif is_meta_refresh_content:
+                raw_value_str = str(raw_value)
+                refresh_parts = _extract_meta_refresh_url(raw_value_str)
+                if refresh_parts is None:
+                    sanitized = None
+                else:
+                    prefix, candidate = refresh_parts
+                    sanitized_url = _sanitize_url_value_with_rule(
+                        rule=rule,
+                        value=candidate,
+                        tag=tag,
+                        attr=lower_key,
+                        handling=_effective_url_handling(url_policy=url_policy, rule=rule),
+                        allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
+                        proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+                        url_filter=url_policy.url_filter,
+                        apply_filter=True,
+                    )
+                    sanitized = None if sanitized_url is None else f"{prefix.strip()};url={sanitized_url}"
+            else:
+                sanitized = _sanitize_url_value_with_rule(
+                    rule=rule,
+                    value=str(raw_value),
+                    tag=tag,
+                    attr=lower_key,
+                    handling=_effective_url_handling(url_policy=url_policy, rule=rule),
+                    allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
+                    proxy=_effective_proxy(url_policy=url_policy, rule=rule),
+                    url_filter=url_policy.url_filter,
+                    apply_filter=True,
+                )
+
+            if sanitized is None:
+                if on_report is not None:
+                    on_report(f"Unsafe URL in attribute '{lower_key}'", node=node)
+                if to_drop is None:
+                    to_drop = []
+                to_drop.append(key)
+                continue
+
+            if key != lower_key:
+                if to_drop is None:
+                    to_drop = []
+                to_drop.append(key)
+                if to_set is None:
+                    to_set = {}
+                to_set[lower_key] = sanitized
+                continue
+
+            if raw_value != sanitized:
+                if to_set is None:
+                    to_set = {}
+                to_set[key] = sanitized
+
+        if to_drop is None and to_set is None:
+            return None
+
+        out = dict(attrs)
+        if to_drop is not None:
+            for key in to_drop:
+                out.pop(key, None)
+        if to_set is not None:
+            out.update(to_set)
+
+        if on_hook is not None:
+            on_hook(node)
+        return out
+
+    selector_str = t.selector
+    all_nodes = selector_str.strip() == "*"
+    return _CompiledEditAttrsTransform(
+        kind="edit_attrs",
+        selector_str=selector_str,
+        selector=None if all_nodes else parse(selector_str),
+        all_nodes=all_nodes,
+        func=_drop_url_attrs,
+    )
+
+
+def _compile_allow_style_attrs_transform(
+    t: AllowStyleAttrs, parse: Callable[[str], ParsedSelector]
+) -> _CompiledEditAttrsTransform:
+    allowed_css_properties = t.allowed_css_properties
+    style_url_policy = t.url_policy
+    on_hook = t.callback
+    on_report = t.report
+
+    def _allow_style_attrs(
+        node: Node,
+        allowed_css_properties: tuple[str, ...] = allowed_css_properties,
+        url_policy: UrlPolicy | None = style_url_policy,
+        on_hook: NodeCallback | None = on_hook,
+        on_report: ReportCallback | None = on_report,
+    ) -> dict[str, str | None] | None:
+        attrs = node.attrs
+        if not attrs:
+            return None
+
+        style_key: str | None = None
+        for key in attrs:
+            lower_key = key if key.islower() else key.lower()
+            if lower_key == "style":
+                style_key = key
+                break
+
+        if style_key is None:
+            return None
+
+        raw_value = attrs.get(style_key)
+        if raw_value is None:
+            if on_report is not None:
+                on_report("Unsafe inline style in attribute 'style'", node=node)
+            out = dict(attrs)
+            out.pop(style_key, None)
+            if on_hook is not None:
+                on_hook(node)
+            return out
+
+        sanitized_style = _sanitize_inline_style(
+            allowed_css_properties=allowed_css_properties,
+            value=str(raw_value),
+            tag=str(node.name).lower(),
+            url_policy=url_policy,
+        )
+        if sanitized_style is None:
+            if on_report is not None:
+                on_report("Unsafe inline style in attribute 'style'", node=node)
+            out = dict(attrs)
+            out.pop(style_key, None)
+            if on_hook is not None:
+                on_hook(node)
+            return out
+
+        if style_key == "style" and raw_value == sanitized_style:
+            return None
+
+        out = dict(attrs)
+        if style_key != "style":
+            out.pop(style_key, None)
+        out["style"] = sanitized_style
+        if on_hook is not None:
+            on_hook(node)
+        return out
+
+    selector_str = t.selector
+    all_nodes = selector_str.strip() == "*"
+    return _CompiledEditAttrsTransform(
+        kind="edit_attrs",
+        selector_str=selector_str,
+        selector=None if all_nodes else parse(selector_str),
+        all_nodes=all_nodes,
+        func=_allow_style_attrs,
+    )
+
+
+def _compile_merge_attrs_transform(t: MergeAttrs) -> _CompiledMergeAttrTokensTransform | None:
+    if not t.tokens:
+        return None
+    return _CompiledMergeAttrTokensTransform(
+        kind="merge_attr_tokens",
+        tag=t.tag,
+        attr=t.attr,
+        tokens=t.tokens,
+        callback=t.callback,
+        report=t.report,
+    )
+
+
 def compile_transforms(
     transforms: list[TransformSpec] | tuple[TransformSpec, ...],
     *,
@@ -1386,261 +1639,17 @@ def compile_transforms(
             continue
 
         if isinstance(t, DropUrlAttrs):
-            url_policy = t.url_policy
-            on_hook = t.callback
-            on_report = t.report
-
-            def _drop_url_attrs(
-                node: Node,
-                url_policy: UrlPolicy = url_policy,
-                on_hook: NodeCallback | None = on_hook,
-                on_report: ReportCallback | None = on_report,
-            ) -> dict[str, str | None] | None:
-                attrs = node.attrs
-                if not attrs:
-                    return None
-
-                tag = str(node.name)
-                if not tag.islower():
-                    tag = tag.lower()
-                to_drop: list[str] | None = None
-                to_set: dict[str, str] | None = None
-
-                param_name_value: str | None = None
-                meta_http_equiv_value: str | None = None
-                for key, raw_value in attrs.items():
-                    lower_key = key if key.islower() else key.lower()
-                    if tag == "param" and lower_key == "name" and raw_value is not None:
-                        param_name_value = str(raw_value).strip().lower()
-                    elif tag == "meta" and lower_key == "http-equiv" and raw_value is not None:
-                        meta_http_equiv_value = str(raw_value).strip().lower()
-
-                # Most nodes have no URL-like attrs; avoid allocations in that case.
-                for key in attrs:
-                    lower_key = key if key.islower() else key.lower()
-                    raw_value = attrs[key]
-
-                    is_param_url_value = (
-                        tag == "param" and lower_key == "value" and param_name_value in _URL_BEARING_PARAM_NAMES
-                    )
-                    is_meta_refresh_content = (
-                        tag == "meta" and lower_key == "content" and meta_http_equiv_value == "refresh"
-                    )
-
-                    if lower_key not in _URL_LIKE_ATTRS and not is_param_url_value and not is_meta_refresh_content:
-                        continue
-
-                    if raw_value is None:
-                        if on_report is not None:  # pragma: no cover
-                            on_report(f"Unsafe URL in attribute '{lower_key}'", node=node)
-                        if to_drop is None:
-                            to_drop = []
-                        to_drop.append(key)
-                        continue
-
-                    rule = url_policy.allow_rules.get((tag, lower_key))
-                    if rule is None:
-                        if on_report is not None:  # pragma: no cover
-                            on_report(f"Unsafe URL in attribute '{lower_key}' (no rule)", node=node)
-                        if to_drop is None:
-                            to_drop = []
-                        to_drop.append(key)
-                        continue
-
-                    if lower_key in {"srcset", "imagesrcset"}:
-                        sanitized = _sanitize_srcset_value(
-                            url_policy=url_policy,
-                            rule=rule,
-                            tag=tag,
-                            attr=lower_key,
-                            value=str(raw_value),
-                        )
-                    elif lower_key in {"archive", "profile"}:
-                        sanitized = _sanitize_comma_or_space_separated_url_list(
-                            url_policy=url_policy,
-                            rule=rule,
-                            tag=tag,
-                            attr=lower_key,
-                            value=str(raw_value),
-                        )
-                    elif lower_key in {"ping", "attributionsrc"}:
-                        sanitized = _sanitize_space_separated_url_list(
-                            url_policy=url_policy,
-                            rule=rule,
-                            tag=tag,
-                            attr=lower_key,
-                            value=str(raw_value),
-                        )
-                    elif is_meta_refresh_content:
-                        raw_value_str = str(raw_value)
-                        refresh_parts = _extract_meta_refresh_url(raw_value_str)
-                        if refresh_parts is None:
-                            sanitized = None
-                        else:
-                            prefix, candidate = refresh_parts
-                            sanitized_url = _sanitize_url_value_with_rule(
-                                rule=rule,
-                                value=candidate,
-                                tag=tag,
-                                attr=lower_key,
-                                handling=_effective_url_handling(url_policy=url_policy, rule=rule),
-                                allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
-                                proxy=_effective_proxy(url_policy=url_policy, rule=rule),
-                                url_filter=url_policy.url_filter,
-                                apply_filter=True,
-                            )
-                            sanitized = None if sanitized_url is None else f"{prefix.strip()};url={sanitized_url}"
-                    else:
-                        sanitized = _sanitize_url_value_with_rule(
-                            rule=rule,
-                            value=str(raw_value),
-                            tag=tag,
-                            attr=lower_key,
-                            handling=_effective_url_handling(url_policy=url_policy, rule=rule),
-                            allow_relative=_effective_allow_relative(url_policy=url_policy, rule=rule),
-                            proxy=_effective_proxy(url_policy=url_policy, rule=rule),
-                            url_filter=url_policy.url_filter,
-                            apply_filter=True,
-                        )
-
-                    if sanitized is None:
-                        if on_report is not None:
-                            on_report(f"Unsafe URL in attribute '{lower_key}'", node=node)
-                        if to_drop is None:
-                            to_drop = []
-                        to_drop.append(key)
-                        continue
-
-                    if key != lower_key:
-                        if to_drop is None:
-                            to_drop = []
-                        to_drop.append(key)
-                        if to_set is None:
-                            to_set = {}
-                        to_set[lower_key] = sanitized
-                        continue
-
-                    if raw_value != sanitized:
-                        if to_set is None:
-                            to_set = {}
-                        to_set[key] = sanitized
-
-                if to_drop is None and to_set is None:
-                    return None
-
-                out = dict(attrs)
-                if to_drop is not None:
-                    for key in to_drop:
-                        out.pop(key, None)
-                if to_set is not None:
-                    out.update(to_set)
-
-                if on_hook is not None:
-                    on_hook(node)
-                return out
-
-            selector_str = t.selector
-            all_nodes = selector_str.strip() == "*"
-            _append_compiled(
-                _CompiledEditAttrsTransform(
-                    kind="edit_attrs",
-                    selector_str=selector_str,
-                    selector=None if all_nodes else _parse_selector(selector_str),
-                    all_nodes=all_nodes,
-                    func=_drop_url_attrs,
-                )
-            )
+            _append_compiled(_compile_drop_url_attrs_transform(t, _parse_selector))
             continue
 
         if isinstance(t, AllowStyleAttrs):
-            allowed_css_properties = t.allowed_css_properties
-            style_url_policy = t.url_policy
-            on_hook = t.callback
-            on_report = t.report
-
-            def _allow_style_attrs(
-                node: Node,
-                allowed_css_properties: tuple[str, ...] = allowed_css_properties,
-                url_policy: UrlPolicy | None = style_url_policy,
-                on_hook: NodeCallback | None = on_hook,
-                on_report: ReportCallback | None = on_report,
-            ) -> dict[str, str | None] | None:
-                attrs = node.attrs
-                if not attrs:
-                    return None
-
-                style_key: str | None = None
-                for key in attrs:
-                    lower_key = key if key.islower() else key.lower()
-                    if lower_key == "style":
-                        style_key = key
-                        break
-
-                if style_key is None:
-                    return None
-
-                raw_value = attrs.get(style_key)
-                if raw_value is None:
-                    if on_report is not None:
-                        on_report("Unsafe inline style in attribute 'style'", node=node)
-                    out = dict(attrs)
-                    out.pop(style_key, None)
-                    if on_hook is not None:
-                        on_hook(node)
-                    return out
-
-                sanitized_style = _sanitize_inline_style(
-                    allowed_css_properties=allowed_css_properties,
-                    value=str(raw_value),
-                    tag=str(node.name).lower(),
-                    url_policy=url_policy,
-                )
-                if sanitized_style is None:
-                    if on_report is not None:
-                        on_report("Unsafe inline style in attribute 'style'", node=node)
-                    out = dict(attrs)
-                    out.pop(style_key, None)
-                    if on_hook is not None:
-                        on_hook(node)
-                    return out
-
-                if style_key == "style" and raw_value == sanitized_style:
-                    return None
-
-                out = dict(attrs)
-                if style_key != "style":
-                    out.pop(style_key, None)
-                out["style"] = sanitized_style
-                if on_hook is not None:
-                    on_hook(node)
-                return out
-
-            selector_str = t.selector
-            all_nodes = selector_str.strip() == "*"
-            _append_compiled(
-                _CompiledEditAttrsTransform(
-                    kind="edit_attrs",
-                    selector_str=selector_str,
-                    selector=None if all_nodes else _parse_selector(selector_str),
-                    all_nodes=all_nodes,
-                    func=_allow_style_attrs,
-                )
-            )
+            _append_compiled(_compile_allow_style_attrs_transform(t, _parse_selector))
             continue
 
         if isinstance(t, MergeAttrs):
-            if not t.tokens:
-                continue
-            compiled.append(
-                _CompiledMergeAttrTokensTransform(
-                    kind="merge_attr_tokens",
-                    tag=t.tag,
-                    attr=t.attr,
-                    tokens=t.tokens,
-                    callback=t.callback,
-                    report=t.report,
-                )
-            )
+            compiled_merge = _compile_merge_attrs_transform(t)
+            if compiled_merge is not None:
+                compiled.append(compiled_merge)
             continue
 
         if isinstance(t, Sanitize):
