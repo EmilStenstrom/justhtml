@@ -1808,6 +1808,66 @@ def apply_compiled_transforms(
                     children.pop(child_index)
                 node.parent = None
 
+            def _empty_node(node: Node, name: str) -> None:
+                if name != "#text" and node.children:
+                    for child in node.children:
+                        child.parent = None
+                    node.children = []
+                if type(node) is Template and node.template_content is not None:
+                    tc = node.template_content
+                    for child in tc.children or ():
+                        child.parent = None
+                    tc.children = []
+
+            def _detach_children_for_hoist(node: Node, name: str) -> list[Any]:
+                moved: list[Any] = []
+                if name != "#text" and node.children:
+                    moved = node.children
+                    node.children = []
+                if type(node) is Template and node.template_content is not None:
+                    tc = node.template_content
+                    if tc.children:
+                        if moved:
+                            moved.extend(tc.children)
+                        else:
+                            moved = tc.children
+                        tc.children = []
+                return moved
+
+            def _apply_decide_action(
+                action: DecideAction,
+                node: Node,
+                *,
+                name: str,
+                parent: Node,
+                children: list[Node],
+                child_index: int,
+                transform_index: int,
+            ) -> bool:
+                if action is DecideAction.EMPTY:
+                    _empty_node(node, name)
+                    return False
+
+                if action is DecideAction.UNWRAP:
+                    moved_nodes = _detach_children_for_hoist(node, name)
+                    if moved_nodes:
+                        for child in moved_nodes:
+                            _mark_start(child, transform_index)
+                            child.parent = parent
+                        children[child_index : child_index + 1] = moved_nodes
+                    else:
+                        children.pop(child_index)
+                    node.parent = None
+                    return True
+
+                if action is DecideAction.ESCAPE:
+                    _escape_node(node, parent=parent, child_index=child_index, mark_new_start_index=transform_index)
+                    return True
+
+                children.pop(child_index)
+                node.parent = None
+                return True
+
             def apply_to_children(parent: Node, *, skip_linkify: bool, skip_whitespace: bool) -> None:
                 # Iterative traversal avoids recursion overhead on large trees.
                 # Semantics match the recursive implementation: depth-first, left-to-right.
@@ -1854,49 +1914,18 @@ def apply_compiled_transforms(
                             if action is DecideAction.KEEP:
                                 continue
 
-                            if action is DecideAction.EMPTY:
-                                if name != "#text" and node.children:
-                                    for child in node.children:
-                                        child.parent = None
-                                    node.children = []
-                                if type(node) is Template and node.template_content is not None:
-                                    tc = node.template_content
-                                    for child in tc.children or ():
-                                        child.parent = None
-                                    tc.children = []
-                                continue
-
-                            if action is DecideAction.UNWRAP:
-                                moved_nodes_chain2: list[Node] = []
-                                if name != "#text" and node.children:
-                                    moved_nodes_chain2.extend(list(node.children))
-                                    node.children = []
-                                if type(node) is Template and node.template_content is not None:
-                                    tc = node.template_content
-                                    if tc.children:
-                                        moved_nodes_chain2.extend(list(tc.children))
-                                        tc.children = []
-                                if moved_nodes_chain2:
-                                    for child in moved_nodes_chain2:
-                                        _mark_start(child, idx)
-                                        child.parent = parent
-                                    children[i : i + 1] = moved_nodes_chain2
-                                else:
-                                    children.pop(i)
-                                node.parent = None
-                                changed = True
+                            changed = _apply_decide_action(
+                                action,
+                                node,
+                                name=name,
+                                parent=parent,
+                                children=children,
+                                child_index=i,
+                                transform_index=idx,
+                            )
+                            if changed:
                                 break
-
-                            if action is DecideAction.ESCAPE:
-                                _escape_node(node, parent=parent, child_index=i, mark_new_start_index=idx)
-                                changed = True
-                                break
-
-                            # action == DROP (and any invalid value)
-                            children.pop(i)
-                            node.parent = None
-                            changed = True
-                            break
+                            continue
 
                         # EditAttrs chain - flat list iteration (optimized)
                         if k == "edit_attrs_chain":
@@ -2096,54 +2125,18 @@ def apply_compiled_transforms(
                             if action is DecideAction.KEEP:
                                 continue
 
-                            if action is DecideAction.EMPTY:
-                                if name != "#text" and node.children:
-                                    for child in node.children:
-                                        child.parent = None
-                                    node.children = []
-                                if type(node) is Template and node.template_content is not None:
-                                    tc = node.template_content
-                                    for child in tc.children or ():
-                                        child.parent = None
-                                    tc.children = []
-                                continue
-
-                            if action is DecideAction.UNWRAP:
-                                moved_nodes: list[Any] = []
-                                if name != "#text" and node.children:
-                                    moved_nodes = node.children
-                                    node.children = []
-                                if type(node) is Template and node.template_content is not None:
-                                    tc = node.template_content
-                                    if tc.children:
-                                        if moved_nodes:
-                                            moved_nodes.extend(tc.children)
-                                        else:
-                                            moved_nodes = tc.children
-                                        tc.children = []
-
-                                if moved_nodes:
-                                    for child in moved_nodes:
-                                        _mark_start(child, idx)
-                                        child.parent = parent
-                                    children[i : i + 1] = moved_nodes
-                                else:
-                                    children.pop(i)
-                                node.parent = None
-                                changed = True
+                            changed = _apply_decide_action(
+                                action,
+                                node,
+                                name=name,
+                                parent=parent,
+                                children=children,
+                                child_index=i,
+                                transform_index=idx,
+                            )
+                            if changed:
                                 break
-
-                            if action is DecideAction.ESCAPE:
-                                # Mark created/hoisted nodes to start at the current transform to support recursive rules.
-                                _escape_node(node, parent=parent, child_index=i, mark_new_start_index=idx)
-                                changed = True
-                                break
-
-                            # action == DROP (and any invalid value)
-                            children.pop(i)
-                            node.parent = None
-                            changed = True
-                            break
+                            continue
 
                         # Decide chain - flat list iteration (optimized)
                         if k == "decide_chain":
@@ -2169,53 +2162,18 @@ def apply_compiled_transforms(
                             if action is DecideAction.KEEP:
                                 continue
 
-                            if action is DecideAction.EMPTY:
-                                if name != "#text" and node.children:
-                                    for child in node.children:
-                                        child.parent = None
-                                    node.children = []
-                                if type(node) is Template and node.template_content is not None:
-                                    tc = node.template_content
-                                    for child in tc.children or ():
-                                        child.parent = None
-                                    tc.children = []
-                                continue
-
-                            if action is DecideAction.UNWRAP:
-                                moved_nodes_chain: list[Any] = []
-                                if name != "#text" and node.children:
-                                    moved_nodes_chain = node.children
-                                    node.children = []
-                                if type(node) is Template and node.template_content is not None:
-                                    tc = node.template_content
-                                    if tc.children:
-                                        if moved_nodes_chain:
-                                            moved_nodes_chain.extend(tc.children)
-                                        else:
-                                            moved_nodes_chain = tc.children
-                                        tc.children = []
-
-                                if moved_nodes_chain:
-                                    for child in moved_nodes_chain:
-                                        _mark_start(child, idx)
-                                        child.parent = parent
-                                    children[i : i + 1] = moved_nodes_chain
-                                else:
-                                    children.pop(i)
-                                node.parent = None
-                                changed = True
+                            changed = _apply_decide_action(
+                                action,
+                                node,
+                                name=name,
+                                parent=parent,
+                                children=children,
+                                child_index=i,
+                                transform_index=idx,
+                            )
+                            if changed:
                                 break
-
-                            if action is DecideAction.ESCAPE:
-                                _escape_node(node, parent=parent, child_index=i, mark_new_start_index=idx)
-                                changed = True
-                                break
-
-                            # action == DROP (and any invalid value)
-                            children.pop(i)
-                            node.parent = None
-                            changed = True
-                            break
+                            continue
 
                         # EditAttrs - single function
                         if k == "edit_attrs":
