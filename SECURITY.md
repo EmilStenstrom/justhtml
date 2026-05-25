@@ -15,7 +15,8 @@
 
 | Version | Supported                                |
 | ------- | ---------------------------------------- |
-| 1.x     | :white_check_mark: (until 2.0 is released) |
+| 2.x     | :white_check_mark: (until 3.0 is released) |
+| 1.x     | :x:                                      |
 | < 1.0   | :x:                                      |
 
 ## Security Domains
