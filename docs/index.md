@@ -21,6 +21,7 @@ A pure Python HTML5 parser that just works.
 ## Contents
 
 - **[Quickstart](quickstart.md)** - Get up and running in 2 minutes
+- **[Comparison](comparison.md)** - How JustHTML compares with other Python HTML tools
 - **[Learn by examples](migration-examples.md)** - Real-world StackOverflow tasks rewritten with JustHTML
 - **[API Reference](api.md)** - Complete public API documentation
 - **[Command Line](cli.md)** - Use `justhtml` to extract HTML, text, or Markdown
