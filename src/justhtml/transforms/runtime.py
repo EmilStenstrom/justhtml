@@ -249,15 +249,6 @@ def apply_compiled_transforms(
                 node.parent = None
                 return True
 
-            def _starts_foreign_context(node: Node, name: str, *, is_special: bool, is_doctype: bool) -> bool:
-                ns = node.namespace
-                if ns not in (None, "html"):
-                    return True
-                if is_special or is_doctype:
-                    return False
-                lowered = name if name.islower() else name.lower()
-                return lowered in _FOREIGN_ROOT_TAGS
-
             def apply_to_children(
                 parent: Node,
                 *,
@@ -283,12 +274,17 @@ def apply_compiled_transforms(
                     is_doctype = name == "!doctype"
                     is_text = name == "#text"
                     is_comment = name == "#comment"
-                    node_foreign_context = foreign_context or _starts_foreign_context(
-                        node,
-                        name,
-                        is_special=is_special,
-                        is_doctype=is_doctype,
-                    )
+                    if foreign_context:
+                        node_foreign_context = True
+                    else:
+                        ns = node.namespace
+                        if ns not in (None, "html"):
+                            node_foreign_context = True
+                        elif is_special or is_doctype:
+                            node_foreign_context = False
+                        else:
+                            lowered = name if name.islower() else name.lower()
+                            node_foreign_context = lowered in _FOREIGN_ROOT_TAGS
 
                     changed = False
                     matcher: SelectorMatcher | None = None
@@ -437,7 +433,7 @@ def apply_compiled_transforms(
                         if k == "strip_invisible_unicode":
                             if is_text:
                                 text_data = str(node.data or "")
-                                if text_data:
+                                if text_data and not text_data.isascii():
                                     stripped_text = _strip_invisible_unicode(text_data)
                                     if stripped_text != text_data:
                                         if t.callback is not None:
@@ -457,8 +453,11 @@ def apply_compiled_transforms(
                             for attr_name, raw_value in attrs.items():
                                 if raw_value is None:
                                     continue
-                                stripped_value = _strip_invisible_unicode(str(raw_value))
-                                if stripped_value == raw_value:
+                                value = raw_value if type(raw_value) is str else str(raw_value)
+                                if value.isascii():
+                                    continue
+                                stripped_value = _strip_invisible_unicode(value)
+                                if stripped_value == value:
                                     continue
                                 attrs[attr_name] = stripped_value
                                 if changed_keys is None:

@@ -58,6 +58,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         "_pending_end_tag_end",
         "_pending_end_tag_name",
         "_pending_end_tag_start",
+        "_saw_select_element",
         "active_formatting",
         "collect_errors",
         "document",
@@ -108,6 +109,7 @@ class TreeBuilder(TreeBuilderModesMixin):
     open_elements: list[Any]
     original_mode: InsertionMode | None  # type: ignore[assignment]
     _open_p_elements: int
+    _saw_select_element: bool
     pending_table_text: list[str]
     pending_table_text_should_error: bool
     quirks_mode: str
@@ -142,6 +144,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         self.table_text_original_mode = None
         self.open_elements = []
         self._open_p_elements = 0
+        self._saw_select_element = False
         self._pending_end_tag_name = None
         self._pending_end_tag_start = None
         self._pending_end_tag_end = None
@@ -523,8 +526,9 @@ class TreeBuilder(TreeBuilderModesMixin):
                 self.document.append_child(child)
             self.document.remove_child(root)
 
-        # Populate selectedcontent elements per HTML5 spec
-        self._populate_selectedcontent(self.document)
+        # Populate selectedcontent elements per HTML5 spec.
+        if self._saw_select_element:
+            self._populate_selectedcontent(self.document)
 
         if self.tokenizer is not None and self.track_tag_spans:  # pragma: no branch
             self.document._source_html = self.tokenizer.buffer
@@ -645,6 +649,8 @@ class TreeBuilder(TreeBuilderModesMixin):
             node = Template(name, attrs=attrs, namespace=namespace)
         else:
             node = Element(name, attrs=attrs, namespace=namespace)
+        if name == "select" and namespace == "html":
+            self._saw_select_element = True
         if self.track_tag_spans:
             node._start_tag_start = tag.start_pos
             node._start_tag_end = tag.end_pos
