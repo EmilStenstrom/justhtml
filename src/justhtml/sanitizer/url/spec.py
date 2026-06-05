@@ -84,6 +84,7 @@ _URL_SINKS: tuple[UrlSink, ...] = (
 _URL_SINKS_BY_ATTR: Mapping[str, tuple[UrlSink, ...]] = {
     attr: tuple(sink for sink in _URL_SINKS if sink.attr == attr) for attr in {sink.attr for sink in _URL_SINKS}
 }
+_URL_SINK_ATTRS: frozenset[str] = frozenset(_URL_SINKS_BY_ATTR)
 
 
 def _url_sink_kind_for_attr(*, tag: str, attr: str, attrs: Mapping[str, str | None]) -> UrlSinkKind | None:

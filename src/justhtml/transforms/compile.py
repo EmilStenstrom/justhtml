@@ -10,7 +10,7 @@ import re
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from justhtml.sanitizer import DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, _sanitize_inline_style
-from justhtml.sanitizer.url import _sanitize_url_sink_value, _url_sink_kind_for_attr
+from justhtml.sanitizer.url import _URL_SINK_ATTRS, _sanitize_url_sink_value, _url_sink_kind_for_attr
 from justhtml.selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits, parse_selector
 
 from . import (
@@ -749,6 +749,7 @@ def _compile_drop_url_attrs_transform(
     def _drop_url_attrs(
         node: Node,
         url_policy: UrlPolicy = url_policy,
+        url_sink_attrs: frozenset[str] = _URL_SINK_ATTRS,
         on_hook: NodeCallback | None = on_hook,
         on_report: ReportCallback | None = on_report,
     ) -> dict[str, str | None] | None:
@@ -764,6 +765,8 @@ def _compile_drop_url_attrs_transform(
 
         for key in attrs:
             lower_key = key if key.islower() else key.lower()
+            if lower_key not in url_sink_attrs:
+                continue
             raw_value = attrs[key]
 
             sink_kind = _url_sink_kind_for_attr(tag=tag, attr=lower_key, attrs=attrs)

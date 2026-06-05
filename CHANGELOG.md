@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Performance
 - Avoid quadratic work for deeply nested HTML during default sanitization by carrying foreign-content context through the transform traversal instead of rescanning each node's ancestors, and by short-circuiting repeated `<p>` scope checks when no `<p>` is open.
 - Speed up default sanitization by constructing selector matchers only for transforms that actually need selector matching.
+- Speed up sanitizer attribute and text cleanup by skipping URL-sink resolution for non-URL attributes and bypassing invisible-Unicode regex scans for ASCII values.
 
 ## [2.0.0] - 2026-05-24
 

@@ -51,6 +51,8 @@ def _normalize_url_for_checking(value: str) -> str:
 
 
 def _strip_invisible_unicode(value: str) -> str:
+    if value.isascii():
+        return value
     if not _INVISIBLE_UNICODE_STRIP_REGEX.search(value):
         return value
     return _INVISIBLE_UNICODE_STRIP_REGEX.sub("", value)

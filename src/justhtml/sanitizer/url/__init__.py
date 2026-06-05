@@ -18,6 +18,7 @@ _url_policy_signature = _url_policy._url_policy_signature
 _url_rule_signature = _url_policy._url_rule_signature
 _URL_BEARING_PARAM_NAMES = _url_spec._URL_BEARING_PARAM_NAMES
 _URL_LIKE_ATTRS = _url_spec._URL_LIKE_ATTRS
+_URL_SINK_ATTRS = _url_spec._URL_SINK_ATTRS
 _url_sink_kind_for_attr = _url_spec._url_sink_kind_for_attr
 _effective_allow_relative = _url_runtime._effective_allow_relative
 _effective_proxy = _url_runtime._effective_proxy
