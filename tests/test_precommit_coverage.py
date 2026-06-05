@@ -6,6 +6,13 @@ from justhtml.treebuilder import TreeBuilder
 from justhtml.treebuilder.utils import InsertionMode
 
 
+def _set_open_elements(builder, elements):
+    builder.open_elements = elements
+    builder._open_p_elements = 0
+    for element in elements:
+        builder._note_open_element_pushed(element)
+
+
 class TestPrecommitCoverageHotspots(unittest.TestCase):
     def test_flush_pending_table_text_whitespace_branch(self):
         builder = TreeBuilder(collect_errors=False)
@@ -22,7 +29,7 @@ class TestPrecommitCoverageHotspots(unittest.TestCase):
         builder = TreeBuilder(collect_errors=True)
         html = builder._create_element("html", None, {})
         head = builder._create_element("head", None, {})
-        builder.open_elements = [html, head]
+        _set_open_elements(builder, [html, head])
         builder.head_element = head
 
         token = Tag(Tag.END, "template", {}, False)
@@ -33,7 +40,7 @@ class TestPrecommitCoverageHotspots(unittest.TestCase):
         html = builder._create_element("html", None, {})
         head = builder._create_element("head", None, {})
         template = builder._create_element("template", None, {})
-        builder.open_elements = [html, head, template]
+        _set_open_elements(builder, [html, head, template])
         builder.head_element = head
         builder.template_modes = [InsertionMode.IN_TEMPLATE]
         builder.mode = InsertionMode.AFTER_HEAD
@@ -57,7 +64,7 @@ class TestPrecommitCoverageHotspots(unittest.TestCase):
         html = builder._create_element("html", None, {})
         body = builder._create_element("body", None, {})
         select = builder._create_element("select", None, {})
-        builder.open_elements = [html, body, select]
+        _set_open_elements(builder, [html, body, select])
         builder.mode = InsertionMode.IN_SELECT
 
         a_node = builder._create_element("a", None, {})
@@ -69,7 +76,7 @@ class TestPrecommitCoverageHotspots(unittest.TestCase):
     def test_in_frameset_end_frameset_when_only_html_on_stack(self):
         builder = TreeBuilder(collect_errors=True)
         html = builder._create_element("html", None, {})
-        builder.open_elements = [html]
+        _set_open_elements(builder, [html])
         builder.mode = InsertionMode.IN_FRAMESET
 
         token = Tag(Tag.END, "frameset", {}, False)

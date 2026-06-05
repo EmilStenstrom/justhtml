@@ -6,6 +6,13 @@ from justhtml.tokenizer import Tokenizer, TokenizerOpts
 from justhtml.treebuilder import InsertionMode, TreeBuilder
 
 
+def _set_open_elements(tree_builder, elements):
+    tree_builder.open_elements = elements
+    tree_builder._open_p_elements = 0
+    for element in elements:
+        tree_builder._note_open_element_pushed(element)
+
+
 class TestTreeBuilder(unittest.TestCase):
     def test_finish_handles_deeply_nested_html_without_recursion(self) -> None:
         html = "<div>" * 1200 + "x" + "</div>" * 1200
@@ -63,8 +70,7 @@ class TestTreeBuilder(unittest.TestCase):
         html = tree_builder._create_element("html", None, {})
         body = tree_builder._create_element("body", None, {})
         p = tree_builder._create_element("p", None, {})
-        tree_builder.open_elements = [html, None, body, None, p]
-        tree_builder._open_p_elements = 1
+        _set_open_elements(tree_builder, [html, None, body, None, p])
 
         self.assertTrue(tree_builder._has_element_in_scope("body"))
         self.assertTrue(tree_builder._has_element_in_scope("p"))
@@ -74,7 +80,7 @@ class TestTreeBuilder(unittest.TestCase):
         html = tree_builder._create_element("html", None, {})
         body = tree_builder._create_element("body", None, {})
         span = tree_builder._create_element("span", None, {})
-        tree_builder.open_elements = [html, None, body, span, None]
+        _set_open_elements(tree_builder, [html, None, body, span, None])
 
         tree_builder._any_other_end_tag("span")
 
@@ -84,7 +90,7 @@ class TestTreeBuilder(unittest.TestCase):
         tree_builder = TreeBuilder()
         html = tree_builder._create_element("html", None, {})
         p = tree_builder._create_element("p", None, {})
-        tree_builder.open_elements = [html, None, p, None]
+        _set_open_elements(tree_builder, [html, None, p, None])
 
         tree_builder._generate_implied_end_tags()
 
@@ -155,7 +161,7 @@ class TestTreeBuilder(unittest.TestCase):
         body = tree_builder._create_element("body", None, {})
         tree_builder.document.append_child(html)
         html.append_child(body)
-        tree_builder.open_elements = [html, body]
+        _set_open_elements(tree_builder, [html, body])
 
         tokenizer = Tokenizer(
             tree_builder,
@@ -183,7 +189,7 @@ class TestTreeBuilder(unittest.TestCase):
         tree_builder.document.append_child(html)
         html.append_child(body)
         body.append_child(table)
-        tree_builder.open_elements = [html, body, table]
+        _set_open_elements(tree_builder, [html, body, table])
 
         tokenizer = Tokenizer(
             tree_builder,
@@ -222,7 +228,7 @@ class TestTreeBuilder(unittest.TestCase):
         tree_builder.document.append_child(html)
         html.append_child(body)
         body.append_child(div)
-        tree_builder.open_elements = [html, body, div]
+        _set_open_elements(tree_builder, [html, body, div])
 
         tokenizer = Tokenizer(
             tree_builder,
