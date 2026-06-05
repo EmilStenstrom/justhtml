@@ -54,6 +54,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         "_body_start_handlers",
         "_body_token_handlers",
         "_mode_handlers",
+        "_open_p_elements",
         "_pending_end_tag_end",
         "_pending_end_tag_name",
         "_pending_end_tag_start",
@@ -106,6 +107,7 @@ class TreeBuilder(TreeBuilderModesMixin):
     mode: InsertionMode
     open_elements: list[Any]
     original_mode: InsertionMode | None  # type: ignore[assignment]
+    _open_p_elements: int
     pending_table_text: list[str]
     pending_table_text_should_error: bool
     quirks_mode: str
@@ -139,6 +141,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         self.original_mode = None
         self.table_text_original_mode = None
         self.open_elements = []
+        self._open_p_elements = 0
         self._pending_end_tag_name = None
         self._pending_end_tag_start = None
         self._pending_end_tag_end = None
@@ -158,6 +161,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             root = self._create_element("html", None, {})
             self.document.append_child(root)
             self.open_elements.append(root)
+            self._note_open_element_pushed(root)
             # Set mode based on context element name
             namespace = fragment_context.namespace
             context_name = fragment_context.tag_name or ""
@@ -172,6 +176,7 @@ class TreeBuilder(TreeBuilderModesMixin):
                 context_element = self._create_element(adjusted_name, namespace, {})
                 root.append_child(context_element)
                 self.open_elements.append(context_element)
+                self._note_open_element_pushed(context_element)
                 self.fragment_context_element = context_element
 
             # For html context, don't pre-create head/body - start in BEFORE_HEAD mode
@@ -247,6 +252,8 @@ class TreeBuilder(TreeBuilderModesMixin):
     def _has_element_in_scope(
         self, target: str, terminators: set[str] | None = None, check_integration_points: bool = True
     ) -> bool:
+        if target == "p" and self._open_p_elements == 0:
+            return False
         if terminators is None:
             terminators = DEFAULT_SCOPE_TERMINATORS
         open_elements = self.open_elements
@@ -276,6 +283,18 @@ class TreeBuilder(TreeBuilderModesMixin):
             node = self._pop_current()
             if node is not None and node.name == name:
                 break
+
+    def _note_open_element_pushed(self, node: Any) -> None:
+        if node is not None and node.name == "p":
+            self._open_p_elements += 1
+
+    def _note_open_element_removed(self, node: Any) -> None:
+        if node is not None and node.name == "p":
+            self._open_p_elements -= 1
+
+    def _note_open_elements_removed(self, nodes: list[Any]) -> None:
+        for node in nodes:
+            self._note_open_element_removed(node)
 
     def _close_p_element(self) -> bool:
         if self._has_element_in_button_scope("p"):
@@ -615,6 +634,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         node = Node("html", attrs=attrs, namespace="html")
         self.document.append_child(node)
         self.open_elements.append(node)
+        self._note_open_element_pushed(node)
         return node
 
     def _insert_element(self, tag: Any, *, push: bool, namespace: str = "html") -> Any:
@@ -654,6 +674,7 @@ class TreeBuilder(TreeBuilderModesMixin):
 
             if push:
                 self.open_elements.append(node)
+                self._note_open_element_pushed(node)
             return node
 
         target = self._current_node_or_html()
@@ -662,6 +683,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         self._insert_node_at(parent, position, node)
         if push:
             self.open_elements.append(node)
+            self._note_open_element_pushed(node)
         return node
 
     def _insert_phantom(self, name: str) -> Any:
@@ -676,6 +698,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             html_node.append_child(node)
             node.parent = html_node
         self.open_elements.append(node)
+        self._note_open_element_pushed(node)
 
     def _create_element(self, name: str, namespace: str | None, attrs: dict[str, str | None]) -> Any:
         ns = namespace or "html"
@@ -696,6 +719,7 @@ class TreeBuilder(TreeBuilderModesMixin):
 
     def _pop_current(self) -> Any:
         node = self.open_elements.pop()
+        self._note_open_element_removed(node)
         self._maybe_mark_end_tag(node)
         return node
 
@@ -711,6 +735,8 @@ class TreeBuilder(TreeBuilderModesMixin):
             node = self.open_elements[index]
             if node is not None and node.name == name:
                 self._maybe_mark_end_tag(node)
+                removed = self.open_elements[index:]
+                self._note_open_elements_removed(removed)
                 del self.open_elements[index:]
                 return
             index -= 1
@@ -734,6 +760,8 @@ class TreeBuilder(TreeBuilderModesMixin):
                     self._parse_error("end-tag-too-early")
                 self._maybe_mark_end_tag(node)
                 # Pop all elements from this node onwards
+                removed = self.open_elements[index:]
+                self._note_open_elements_removed(removed)
                 del self.open_elements[index:]
                 return
 
@@ -757,6 +785,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         for index, current in enumerate(self.open_elements):
             if current is node:
                 self._maybe_mark_end_tag(current)
+                self._note_open_element_removed(current)
                 del self.open_elements[index]
                 return True
         return False
@@ -829,7 +858,9 @@ class TreeBuilder(TreeBuilderModesMixin):
     def _remove_last_open_element_by_name(self, name: str) -> None:
         for index in range(len(self.open_elements) - 1, -1, -1):
             if self.open_elements[index].name == name:
-                self._maybe_mark_end_tag(self.open_elements[index])
+                node = self.open_elements[index]
+                self._maybe_mark_end_tag(node)
+                self._note_open_element_removed(node)
                 del self.open_elements[index]
                 return
 
@@ -1214,6 +1245,8 @@ class TreeBuilder(TreeBuilderModesMixin):
                     return ("reprocess", self.mode, token, True)
                 # Otherwise it's a foreign element - pop everything from this point up
                 self._maybe_mark_end_tag(node)
+                removed = self.open_elements[idx:]
+                self._note_open_elements_removed(removed)
                 del self.open_elements[idx:]
                 return None
 

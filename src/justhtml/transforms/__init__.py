@@ -369,6 +369,13 @@ class _CompiledDecideElementsChain:
 
 
 @dataclass(frozen=True, slots=True)
+class _CompiledDropForeignNamespacesTransform:
+    kind: Literal["drop_foreign_namespaces"]
+    callback: NodeCallback | None
+    report: ReportCallback | None
+
+
+@dataclass(frozen=True, slots=True)
 class _CompiledDropCommentsTransform:
     kind: Literal["drop_comments"]
     callback: NodeCallback | None
@@ -411,6 +418,7 @@ CompiledTransform = (
     | _CompiledDecideTransform
     | _CompiledDecideChain
     | _CompiledDecideElementsChain
+    | _CompiledDropForeignNamespacesTransform
     | _CompiledEditAttrsTransform
     | _CompiledEditAttrsChain
     | _CompiledStripInvisibleUnicodeTransform

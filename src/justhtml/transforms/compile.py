@@ -24,6 +24,7 @@ from . import (
     _CompiledDecideTransform,
     _CompiledDropCommentsTransform,
     _CompiledDropDoctypeTransform,
+    _CompiledDropForeignNamespacesTransform,
     _CompiledEditAttrsChain,
     _CompiledEditAttrsTransform,
     _CompiledEditDocumentTransform,
@@ -34,7 +35,6 @@ from . import (
     _CompiledStageBoundary,
     _CompiledStageHookTransform,
     _CompiledStripInvisibleUnicodeTransform,
-    _is_effectively_foreign_node,
 )
 from .linkify import compile_linkify_transform
 from .spec import (
@@ -285,22 +285,14 @@ def _compile_sanitize_transform(t: Sanitize) -> list[CompiledTransform]:
             new_allowed["a"] = a_attrs
             effective_allowed_attrs = new_allowed
 
-    cb_foreign = t.callback
-    rep_foreign = _report_unsafe
-
-    def _drop_foreign_namespace(
-        node: Node,
-        cb: NodeCallback | None = cb_foreign,
-        rep: ReportCallback = rep_foreign,
-    ) -> DecideAction:
-        if _is_effectively_foreign_node(node):
-            if cb is not None:
-                cb(node)
-            rep(f"Unsafe tag '{node.name}' (foreign namespace)", node=node)
-            return DecideAction.DROP
-        return DecideAction.KEEP
-
-    compiled.append(_CompiledDecideElementsChain(callbacks=[_drop_foreign_namespace, _sanitize_node_decision]))
+    compiled.append(
+        _CompiledDropForeignNamespacesTransform(
+            kind="drop_foreign_namespaces",
+            callback=t.callback,
+            report=_report_unsafe,
+        )
+    )
+    compiled.append(_CompiledDecideElementsChain(callbacks=[_sanitize_node_decision]))
 
     if policy.strip_invisible_unicode:
         compiled.append(
@@ -556,33 +548,11 @@ def _compile_edit_attrs_transform(t: EditAttrs, parse: Callable[[str], ParsedSel
     )
 
 
-def _compile_drop_foreign_namespaces_transform(t: DropForeignNamespaces) -> _CompiledDecideTransform:
-    on_hook = t.callback
-    on_report = t.report
-
-    def _drop_foreign(
-        node: Node,
-        on_hook: NodeCallback | None = on_hook,
-        on_report: ReportCallback | None = on_report,
-    ) -> DecideAction:
-        name = node.name
-        if name.startswith("#") or name == "!doctype":
-            return Decide.KEEP
-        if _is_effectively_foreign_node(node):
-            if on_hook is not None:
-                on_hook(node)
-            if on_report is not None:
-                tag = str(name).lower()
-                on_report(f"Unsafe tag '{tag}' (foreign namespace)", node=node)
-            return Decide.DROP
-        return Decide.KEEP
-
-    return _CompiledDecideTransform(
-        kind="decide",
-        selector_str="*",
-        selector=None,
-        all_nodes=True,
-        callback=_drop_foreign,
+def _compile_drop_foreign_namespaces_transform(t: DropForeignNamespaces) -> _CompiledDropForeignNamespacesTransform:
+    return _CompiledDropForeignNamespacesTransform(
+        kind="drop_foreign_namespaces",
+        callback=t.callback,
+        report=t.report,
     )
 
 

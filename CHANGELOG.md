@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Performance
+- Avoid quadratic work for deeply nested HTML during default sanitization by carrying foreign-content context through the transform traversal instead of rescanning each node's ancestors, and by short-circuiting repeated `<p>` scope checks when no `<p>` is open.
+
 ## [2.0.0] - 2026-05-24
 
 ### Changed

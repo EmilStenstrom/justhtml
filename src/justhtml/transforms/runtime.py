@@ -16,6 +16,7 @@ from justhtml.serializer import serialize_end_tag, serialize_start_tag
 
 from . import (
     _ERROR_SINK,
+    _FOREIGN_ROOT_TAGS,
     CompiledTransform,
     _collapse_html_space_characters,
     _CompiledCollapseWhitespaceTransform,
@@ -24,6 +25,7 @@ from . import (
     _CompiledDecideTransform,
     _CompiledDropCommentsTransform,
     _CompiledDropDoctypeTransform,
+    _CompiledDropForeignNamespacesTransform,
     _CompiledEditAttrsChain,
     _CompiledEditAttrsTransform,
     _CompiledEditDocumentTransform,
@@ -247,12 +249,29 @@ def apply_compiled_transforms(
                 node.parent = None
                 return True
 
-            def apply_to_children(parent: Node, *, skip_linkify: bool, skip_whitespace: bool) -> None:
+            def _starts_foreign_context(node: Node, name: str, *, is_special: bool, is_doctype: bool) -> bool:
+                ns = node.namespace
+                if ns not in (None, "html"):
+                    return True
+                if is_special or is_doctype:
+                    return False
+                lowered = name if name.islower() else name.lower()
+                return lowered in _FOREIGN_ROOT_TAGS
+
+            def apply_to_children(
+                parent: Node,
+                *,
+                skip_linkify: bool,
+                skip_whitespace: bool,
+                foreign_context: bool,
+            ) -> None:
                 wt_len = len(walk_transforms)
-                stack: list[tuple[Node, int, bool, bool]] = [(parent, 0, skip_linkify, skip_whitespace)]
+                stack: list[tuple[Node, int, bool, bool, bool]] = [
+                    (parent, 0, skip_linkify, skip_whitespace, foreign_context)
+                ]
 
                 while stack:
-                    parent, i, skip_linkify, skip_whitespace = stack[-1]
+                    parent, i, skip_linkify, skip_whitespace, foreign_context = stack[-1]
                     children = parent.children
                     if not children or i >= len(children):
                         stack.pop()
@@ -264,6 +283,12 @@ def apply_compiled_transforms(
                     is_doctype = name == "!doctype"
                     is_text = name == "#text"
                     is_comment = name == "#comment"
+                    node_foreign_context = foreign_context or _starts_foreign_context(
+                        node,
+                        name,
+                        is_special=is_special,
+                        is_doctype=is_doctype,
+                    )
 
                     changed = False
                     matcher = SelectorMatcher(limits=selector_limits)
@@ -274,6 +299,21 @@ def apply_compiled_transforms(
                     for idx in range(start_at, wt_len):
                         t: Any = walk_transforms[idx]
                         k: str = t.kind
+
+                        if k == "drop_foreign_namespaces":
+                            if is_special or is_doctype:
+                                continue
+                            if not node_foreign_context:
+                                continue
+                            if t.callback is not None:
+                                t.callback(node)
+                            if t.report is not None:
+                                tag = str(name).lower()
+                                t.report(f"Unsafe tag '{tag}' (foreign namespace)", node=node)
+                            children.pop(i)
+                            node.parent = None
+                            changed = True
+                            break
 
                         if k == "decide_elements_chain":
                             if is_special or is_doctype:
@@ -629,11 +669,11 @@ def apply_compiled_transforms(
                     if changed:
                         continue
 
-                    stack[-1] = (parent, i + 1, skip_linkify, skip_whitespace)
+                    stack[-1] = (parent, i + 1, skip_linkify, skip_whitespace, foreign_context)
 
                     if is_special:
                         if not is_text and not is_comment and node.children:
-                            stack.append((node, 0, skip_linkify, skip_whitespace))
+                            stack.append((node, 0, skip_linkify, skip_whitespace, node_foreign_context))
                         continue
 
                     if linkify_skip_tags or whitespace_skip_tags:
@@ -645,15 +685,20 @@ def apply_compiled_transforms(
                         child_skip_ws = skip_whitespace
 
                     if type(node) is Template and node.template_content is not None and node.template_content.children:
-                        stack.append((node.template_content, 0, child_skip, child_skip_ws))
+                        stack.append((node.template_content, 0, child_skip, child_skip_ws, node_foreign_context))
                     if node.children:
-                        stack.append((node, 0, child_skip, child_skip_ws))
+                        stack.append((node, 0, child_skip, child_skip_ws, node_foreign_context))
 
             if type(root_node) is not Text:
-                apply_to_children(root_node, skip_linkify=False, skip_whitespace=False)
+                apply_to_children(root_node, skip_linkify=False, skip_whitespace=False, foreign_context=False)
 
                 if type(root_node) is Template and root_node.template_content is not None:
-                    apply_to_children(root_node.template_content, skip_linkify=False, skip_whitespace=False)
+                    apply_to_children(
+                        root_node.template_content,
+                        skip_linkify=False,
+                        skip_whitespace=False,
+                        foreign_context=False,
+                    )
 
         def apply_prune_transforms(root_node: Node, prune_transforms: list[_CompiledPruneEmptyTransform]) -> None:
             def _is_effectively_empty_element(n: Node, *, strip_whitespace: bool) -> bool:
@@ -733,6 +778,7 @@ def apply_compiled_transforms(
                     _CompiledDecideTransform,
                     _CompiledDecideChain,
                     _CompiledDecideElementsChain,
+                    _CompiledDropForeignNamespacesTransform,
                     _CompiledEditAttrsTransform,
                     _CompiledEditAttrsChain,
                     _CompiledStripInvisibleUnicodeTransform,

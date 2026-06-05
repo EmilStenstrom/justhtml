@@ -62,10 +62,12 @@ class TestTreeBuilder(unittest.TestCase):
         tree_builder = TreeBuilder()
         html = tree_builder._create_element("html", None, {})
         body = tree_builder._create_element("body", None, {})
-        tree_builder.open_elements = [html, None, body]
+        p = tree_builder._create_element("p", None, {})
+        tree_builder.open_elements = [html, None, body, None, p]
+        tree_builder._open_p_elements = 1
 
         self.assertTrue(tree_builder._has_element_in_scope("body"))
-        self.assertFalse(tree_builder._has_element_in_scope("p"))
+        self.assertTrue(tree_builder._has_element_in_scope("p"))
 
     def test_any_other_end_tag_skips_placeholder_stack_entries(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)
