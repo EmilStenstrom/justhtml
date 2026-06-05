@@ -32,6 +32,7 @@ from . import (
     _CompiledHardenRawtextTransform,
     _CompiledMergeAttrTokensTransform,
     _CompiledPruneEmptyTransform,
+    _CompiledSelectorLimitsTransform,
     _CompiledSelectorTransform,
     _CompiledStageBoundary,
     _CompiledStageHookTransform,
@@ -806,6 +807,10 @@ def apply_compiled_transforms(
             pending_walk = []
 
             if isinstance(t, _CompiledStageBoundary):
+                i += 1
+                continue
+
+            if isinstance(t, _CompiledSelectorLimitsTransform):
                 i += 1
                 continue
 

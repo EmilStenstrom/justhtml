@@ -106,6 +106,17 @@ class TestSanitizePlumbing(unittest.TestCase):
         assert policy._compiled_sanitize_transforms is compiled_policy.transforms
         assert policy._compiled_sanitize_signature == compiled_policy.signature
 
+    def test_policy_compile_only_hardens_rawtext_when_rawtext_tags_can_survive(self) -> None:
+        assert all(getattr(t, "kind", None) != "harden_rawtext" for t in DEFAULT_POLICY.compile().transforms)
+
+        policy = SanitizationPolicy(
+            allowed_tags=["style"],
+            allowed_attributes={"style": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+        )
+
+        assert any(getattr(t, "kind", None) == "harden_rawtext" for t in policy.compile().transforms)
+
     def test_seal_url_policy_normalizes_and_freezes_allowed_hosts(self) -> None:
         url_policy = UrlPolicy(
             allow_rules={

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Speed up default sanitization by constructing selector matchers only for transforms that actually need selector matching.
 - Speed up sanitizer attribute and text cleanup by skipping URL-sink resolution for non-URL attributes and bypassing invisible-Unicode regex scans for ASCII values.
 - Avoid unnecessary default work by skipping selectedcontent finalization when no `<select>` was parsed and by bypassing invisible-Unicode transform helper calls for ASCII node values.
+- Skip the sanitizer rawtext hardening pass when the active policy cannot preserve `<script>` or `<style>` elements.
 
 ## [2.0.0] - 2026-05-24
 

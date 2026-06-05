@@ -10,6 +10,7 @@ import re
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from justhtml.sanitizer import DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, _sanitize_inline_style
+from justhtml.sanitizer.rawtext import _RAWTEXT_SERIALIZATION_ELEMENTS
 from justhtml.sanitizer.url import _URL_SINK_ATTRS, _sanitize_url_sink_value, _url_sink_kind_for_attr
 from justhtml.selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits, parse_selector
 
@@ -31,6 +32,7 @@ from . import (
     _CompiledHardenRawtextTransform,
     _CompiledMergeAttrTokensTransform,
     _CompiledPruneEmptyTransform,
+    _CompiledSelectorLimitsTransform,
     _CompiledSelectorTransform,
     _CompiledStageBoundary,
     _CompiledStageHookTransform,
@@ -352,12 +354,20 @@ def _compile_sanitize_transform(t: Sanitize) -> list[CompiledTransform]:
             )
         )
 
-    compiled.append(
-        _CompiledHardenRawtextTransform(
-            kind="harden_rawtext",
-            policy=policy,
+    if policy.allowed_tags & _RAWTEXT_SERIALIZATION_ELEMENTS:
+        compiled.append(
+            _CompiledHardenRawtextTransform(
+                kind="harden_rawtext",
+                policy=policy,
+            )
         )
-    )
+    else:
+        compiled.append(
+            _CompiledSelectorLimitsTransform(
+                kind="selector_limits",
+                selector_limits=policy.selector_limits,
+            )
+        )
     return compiled
 
 

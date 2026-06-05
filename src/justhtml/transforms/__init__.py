@@ -413,6 +413,14 @@ class _CompiledHardenRawtextTransform:
     policy: SanitizationPolicy
 
 
+@dataclass(frozen=True, slots=True)
+class _CompiledSelectorLimitsTransform:
+    """No-op boundary that carries sanitizer selector limits when no terminal sanitizer pass is needed."""
+
+    kind: Literal["selector_limits"]
+    selector_limits: SelectorLimits
+
+
 CompiledTransform = (
     _CompiledSelectorTransform
     | _CompiledDecideTransform
@@ -432,6 +440,7 @@ CompiledTransform = (
     | _CompiledStageHookTransform
     | _CompiledStageBoundary
     | _CompiledHardenRawtextTransform
+    | _CompiledSelectorLimitsTransform
 )
 
 
@@ -439,6 +448,8 @@ def _selector_limits_from_compiled(
     compiled: list[CompiledTransform] | tuple[CompiledTransform, ...],
 ) -> SelectorLimits:
     for t in reversed(compiled):
+        if isinstance(t, _CompiledSelectorLimitsTransform):
+            return t.selector_limits
         if isinstance(t, _CompiledHardenRawtextTransform):
             return t.policy.selector_limits
 
