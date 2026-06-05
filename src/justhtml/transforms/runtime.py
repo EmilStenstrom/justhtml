@@ -291,7 +291,7 @@ def apply_compiled_transforms(
                     )
 
                     changed = False
-                    matcher = SelectorMatcher(limits=selector_limits)
+                    matcher: SelectorMatcher | None = None
                     if created_start_index:
                         start_at = created_start_index.get(id(node), 0)
                     else:
@@ -346,6 +346,8 @@ def apply_compiled_transforms(
                                 continue
                             if not t.all_nodes:
                                 sel = t.selector
+                                if matcher is None:
+                                    matcher = SelectorMatcher(limits=selector_limits)
                                 if not matcher.matches(node, sel):
                                     continue
                             for chain_func in t.funcs:
@@ -495,6 +497,8 @@ def apply_compiled_transforms(
                                 if is_special or is_doctype:
                                     continue
                                 sel = t.selector
+                                if matcher is None:
+                                    matcher = SelectorMatcher(limits=selector_limits)
                                 if not matcher.matches(node, sel):
                                     continue
                                 action = t.callback(node)
@@ -526,6 +530,8 @@ def apply_compiled_transforms(
                                 if is_special or is_doctype:
                                     continue
                                 sel = t.selector
+                                if matcher is None:
+                                    matcher = SelectorMatcher(limits=selector_limits)
                                 if not matcher.matches(node, sel):
                                     continue
                                 action = DecideAction.KEEP
@@ -555,6 +561,8 @@ def apply_compiled_transforms(
                                 continue
                             if not t.all_nodes:
                                 sel = t.selector
+                                if matcher is None:
+                                    matcher = SelectorMatcher(limits=selector_limits)
                                 if not matcher.matches(node, sel):
                                     continue
                             new_attrs = t.func(node)
@@ -565,6 +573,8 @@ def apply_compiled_transforms(
                         if is_special or is_doctype:
                             continue
 
+                        if matcher is None:
+                            matcher = SelectorMatcher(limits=selector_limits)
                         if not matcher.matches(node, t.selector):
                             continue
 

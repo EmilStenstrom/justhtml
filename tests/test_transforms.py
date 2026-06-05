@@ -113,6 +113,46 @@ class TestTransforms(unittest.TestCase):
         apply_compiled_transforms(root, compiled)
         assert root.children[0].attrs == {"a": "1", "b": "2", "c": "3"}
 
+    def test_selector_matcher_is_reused_for_editattrs_chain(self) -> None:
+        root = DocumentFragment()
+        root.append_child(Element("div", {"a": "1"}, "html"))
+
+        def cb1(node: Node) -> dict[str, str | None]:
+            out = dict(node.attrs)
+            out["b"] = "2"
+            return out
+
+        def cb2(node: Node) -> dict[str, str | None]:
+            out = dict(node.attrs)
+            out["c"] = "3"
+            return out
+
+        compiled = compile_transforms([SetAttrs("div", id="x"), EditAttrs("div", cb1), EditAttrs("div", cb2)])
+
+        apply_compiled_transforms(root, compiled)
+
+        assert root.children[0].attrs == {"a": "1", "id": "x", "b": "2", "c": "3"}
+
+    def test_selector_matcher_is_reused_for_decide_chain(self) -> None:
+        root = DocumentFragment()
+        root.append_child(Element("div", {}, "html"))
+        seen: list[str] = []
+
+        def cb1(node: Node) -> DecideAction:
+            seen.append(f"first:{node.name}")
+            return DecideAction.KEEP
+
+        def cb2(node: Node) -> DecideAction:
+            seen.append(f"second:{node.name}")
+            return DecideAction.KEEP
+
+        compiled = compile_transforms([SetAttrs("div", id="x"), Decide("div", cb1), Decide("div", cb2)])
+
+        apply_compiled_transforms(root, compiled)
+
+        assert root.children[0].attrs == {"id": "x"}
+        assert seen == ["first:div", "second:div"]
+
     def test_constructor_accepts_transforms_and_applies_setattrs(self) -> None:
         doc = JustHTML("<p>Hello</p>", transforms=[SetAttrs("p", id="x")])
         assert doc.to_html(pretty=False) == '<html><head></head><body><p id="x">Hello</p></body></html>'
