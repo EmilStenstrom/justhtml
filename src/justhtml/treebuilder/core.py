@@ -1330,7 +1330,8 @@ class TreeBuilder(TreeBuilderModesMixin):
             if current is not select:
                 if current.name == "selectedcontent":
                     selectedcontents.append(current)
-                elif current.name == "option":
+                    continue
+                if current.name == "option":
                     if first_option is None:
                         first_option = current
                     if selected_option is None and current.attrs and "selected" in current.attrs:
@@ -1347,6 +1348,11 @@ class TreeBuilder(TreeBuilderModesMixin):
             return
 
         for selectedcontent in selectedcontents:
+            children = selectedcontent.children
+            if children:
+                for child in children:
+                    child.parent = None
+                children.clear()
             self._clone_children(source_option, selectedcontent)
 
     def _clone_children(self, source: Any, target: Any) -> None:

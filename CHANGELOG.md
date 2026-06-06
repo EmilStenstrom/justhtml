@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- Handle `<select><selectedcontent></selectedcontent></select>` without crashing when no `<option>` is present, and avoid repeated selectedcontent subtree scans during parser finalization.
+- Handle `<select><selectedcontent></selectedcontent></select>` without crashing when no `<option>` is present, replace selectedcontent fallback content during parser finalization, and avoid repeated selectedcontent subtree scans.
+- Preserve source order and tag text when escape-mode sanitization handles disallowed rawtext/RCDATA elements with attributed or self-closing end tags.
+- Make `stream()` use namespace-aware tokenizer context for SVG/MathML CDATA and rawtext decisions.
 - Use the correct initial tokenizer states for HTML fragment contexts such as `<title>`, `<textarea>`, `<script>`, and `<style>`.
 
 ### Security

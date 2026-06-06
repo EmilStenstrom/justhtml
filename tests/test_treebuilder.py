@@ -1,8 +1,9 @@
 import unittest
 
-from justhtml import JustHTML
+from justhtml import JustHTML, SanitizationPolicy
 from justhtml.dom import Element
 from justhtml.parser.context import FragmentContext
+from justhtml.sanitizer import UrlPolicy
 from justhtml.tokenizer import Tokenizer, TokenizerOpts
 from justhtml.treebuilder import InsertionMode, TreeBuilder
 
@@ -71,6 +72,56 @@ class TestTreeBuilder(unittest.TestCase):
             "<select><option selected>x</option><selectedcontent>x</selectedcontent>"
             "<selectedcontent>x</selectedcontent></select>",
         )
+
+    def test_selectedcontent_population_replaces_fallback_content(self) -> None:
+        doc = JustHTML(
+            "<select><selectedcontent>fallback</selectedcontent><option>real</option></select>",
+            fragment=True,
+            sanitize=False,
+        )
+
+        self.assertEqual(
+            doc.to_html(pretty=False),
+            "<select><selectedcontent>real</selectedcontent><option>real</option></select>",
+        )
+
+    def test_selectedcontent_population_ignores_fallback_options(self) -> None:
+        doc = JustHTML(
+            "<select><selectedcontent><option selected>fallback</option></selectedcontent>"
+            "<option>real</option></select>",
+            fragment=True,
+            sanitize=False,
+        )
+
+        self.assertEqual(
+            doc.to_html(pretty=False),
+            "<select><selectedcontent>real</selectedcontent><option>real</option></select>",
+        )
+
+    def test_escape_disallowed_rawtext_end_tags_preserve_source_order(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"p"},
+            allowed_attributes={"*": set(), "p": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+            disallowed_tag_handling="escape",
+        )
+
+        cases = {
+            "<script>x</script>": "&lt;script&gt;x&lt;/script&gt;",
+            "<script>x</script/>": "&lt;script&gt;x&lt;/script/&gt;",
+            "<script DATA-X=1>hi</SCRIPT foo=bar>": "&lt;script DATA-X=1&gt;hi&lt;/SCRIPT foo=bar&gt;",
+            "<script><!--x</script>": "&lt;script&gt;&lt;!--x&lt;/script&gt;",
+            "<script><!--x</script foo=bar>": "&lt;script&gt;&lt;!--x&lt;/script foo=bar&gt;",
+            "<title>x</title>": "&lt;title&gt;x&lt;/title&gt;",
+            "<title>x</title/>": "&lt;title&gt;x&lt;/title/&gt;",
+            "<title DATA-X=1>hi</TITLE foo=bar>": "&lt;title DATA-X=1&gt;hi&lt;/TITLE foo=bar&gt;",
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, policy=policy)
+                self.assertEqual(doc.to_html(pretty=False), expected)
 
     def test_title_fragment_context_uses_rcdata(self) -> None:
         doc = JustHTML(

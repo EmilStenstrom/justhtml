@@ -2528,6 +2528,7 @@ class Tokenizer:
             else:
                 # lt_index == pos - the only remaining possibility
                 # Less-than sign - might be start of end tag
+                self.current_token_start_pos = pos
                 pos += 1
                 self.pos = pos
                 self.state = self.RCDATA_LESS_THAN_SIGN
@@ -2570,6 +2571,9 @@ class Tokenizer:
                 if c == ">":
                     attrs: dict[str, str | None] = {}
                     tag = Tag(Tag.END, tag_name, attrs, False)
+                    if self.track_tag_positions:
+                        tag.start_pos = self.current_token_start_pos
+                        tag.end_pos = self.pos
                     self._flush_text()
                     self._emit_token(tag)
                     self.state = self.DATA
@@ -2578,6 +2582,7 @@ class Tokenizer:
                     return False
                 if c in (" ", "\t", "\n", "\r", "\f"):
                     # Whitespace after tag name - switch to BEFORE_ATTRIBUTE_NAME
+                    self._flush_text()
                     self.current_tag_kind = Tag.END
                     self.current_tag_attrs = {}
                     self.state = self.BEFORE_ATTRIBUTE_NAME
@@ -2647,6 +2652,7 @@ class Tokenizer:
             if lt_index > pos:
                 chunk = buffer[pos:lt_index]
                 self._append_text(chunk)
+            self.current_token_start_pos = lt_index
             pos = lt_index + 1
             self.pos = pos
             # Handle script escaped transition before treating '<' as markup boundary
@@ -2701,6 +2707,9 @@ class Tokenizer:
                 if c == ">":
                     attrs: dict[str, str | None] = {}
                     tag = Tag(Tag.END, tag_name, attrs, False)
+                    if self.track_tag_positions:
+                        tag.start_pos = self.current_token_start_pos
+                        tag.end_pos = self.pos
                     self._flush_text()
                     self._emit_token(tag)
                     self.state = self.DATA
@@ -2709,6 +2718,7 @@ class Tokenizer:
                     return False
                 if c in (" ", "\t", "\n", "\r", "\f"):
                     # Whitespace after tag name - switch to BEFORE_ATTRIBUTE_NAME
+                    self._flush_text()
                     self.current_tag_kind = Tag.END
                     self.current_tag_attrs = {}
                     self.state = self.BEFORE_ATTRIBUTE_NAME
@@ -2866,6 +2876,7 @@ class Tokenizer:
 
         if is_appropriate:
             if c in (" ", "\t", "\n", "\r", "\f"):
+                self._flush_text()
                 self.current_tag_kind = Tag.END
                 self.current_tag_attrs = {}
                 self.state = self.BEFORE_ATTRIBUTE_NAME
@@ -2880,6 +2891,9 @@ class Tokenizer:
                 self._flush_text()
                 attrs: dict[str, str | None] = {}
                 tag = Tag(Tag.END, tag_name, attrs, False)
+                if self.track_tag_positions:
+                    tag.start_pos = self.current_token_start_pos
+                    tag.end_pos = self.pos
                 self._emit_token(tag)
                 self.state = self.DATA
                 self.rawtext_tag_name = None

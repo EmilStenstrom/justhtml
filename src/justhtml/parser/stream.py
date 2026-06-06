@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+from justhtml.core.constants import FOREIGN_BREAKOUT_ELEMENTS
 from justhtml.tokenizer import Tokenizer
 from justhtml.tokenizer.tokens import CommentToken, DoctypeToken, Tag
 
@@ -19,7 +20,14 @@ StreamEvent: TypeAlias = StartEvent | EndEvent | TextEvent | CommentEvent | Doct
 
 
 class _DummyNode:
-    namespace: str = "html"
+    __slots__ = ("name", "namespace")
+
+    name: str
+    namespace: str
+
+    def __init__(self, name: str, namespace: str) -> None:
+        self.name = name
+        self.namespace = namespace
 
 
 class StreamSink:
@@ -32,6 +40,34 @@ class StreamSink:
         self.tokens = []
         self.open_elements = []  # Required by tokenizer for rawtext checks
 
+    def _font_breaks_out_of_foreign_content(self, attrs: dict[str, str | None]) -> bool:
+        for name in attrs:
+            if name.lower() in {"color", "face", "size"}:
+                return True
+        return False
+
+    def _namespace_for_start_tag(self, token: Tag) -> str:
+        name = token.name
+        parent = self.open_elements[-1] if self.open_elements else None
+        parent_namespace = parent.namespace if parent is not None else "html"
+
+        if parent_namespace not in {None, "html"}:
+            breaks_out = name in FOREIGN_BREAKOUT_ELEMENTS or (
+                name == "font" and self._font_breaks_out_of_foreign_content(token.attrs)
+            )
+            if breaks_out:
+                while self.open_elements and self.open_elements[-1].namespace not in {None, "html"}:
+                    self.open_elements.pop()
+                parent_namespace = self.open_elements[-1].namespace if self.open_elements else "html"
+            else:
+                return parent_namespace
+
+        if name == "svg":
+            return "svg"
+        if name == "math":
+            return "math"
+        return "html"
+
     def process_token(self, token: Tag | CommentToken | DoctypeToken | Any) -> int:
         # Tokenizer reuses token objects, so we must copy data
         if isinstance(token, Tag):
@@ -40,12 +76,10 @@ class StreamSink:
                 self.tokens.append(("start", (token.name, token.attrs.copy())))
             else:
                 self.tokens.append(("end", token.name))
-            # Maintain open_elements stack for tokenizer's rawtext checks
+            # Maintain open_elements stack for tokenizer rawtext/CDATA checks.
             if token.kind == Tag.START:
-                # We need a dummy object with namespace for tokenizer checks
-                # Tokenizer checks: stack[-1].namespace
-                # We can just use a simple object
-                self.open_elements.append(_DummyNode())
+                namespace = self._namespace_for_start_tag(token)
+                self.open_elements.append(_DummyNode(token.name, namespace))
             else:  # Tag.END
                 if self.open_elements:
                     self.open_elements.pop()
