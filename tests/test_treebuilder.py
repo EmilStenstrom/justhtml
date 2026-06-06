@@ -141,6 +141,59 @@ class TestTreeBuilder(unittest.TestCase):
 
         self.assertEqual(doc.to_html(pretty=False), "a&lt;/script&gt;&lt;p&gt;x")
 
+    def test_noscript_fragment_context_respects_scripting_flag(self) -> None:
+        disabled = JustHTML(
+            "<b>x</b>",
+            fragment_context=FragmentContext("noscript"),
+            scripting_enabled=False,
+            sanitize=False,
+        )
+        enabled = JustHTML(
+            "<b>x</b>",
+            fragment_context=FragmentContext("noscript"),
+            scripting_enabled=True,
+            sanitize=False,
+        )
+
+        self.assertEqual(disabled.to_html(pretty=False), "<b>x</b>")
+        self.assertEqual(enabled.to_html(pretty=False), "&lt;b&gt;x&lt;/b&gt;")
+
+    def test_integration_point_text_like_elements_use_html_text_parsing(self) -> None:
+        cases = {
+            "<svg><foreignObject><script><b></script></foreignObject></svg>": (
+                "<svg><foreignObject><script><b></script></foreignObject></svg>"
+            ),
+            "<svg><desc><style><b></style></desc></svg>": "<svg><desc><style><b></style></desc></svg>",
+            "<svg><title><textarea><b></textarea></title></svg>": (
+                "<svg><title><textarea>&lt;b&gt;</textarea></title></svg>"
+            ),
+            "<math><mi><textarea><b></textarea></mi></math>": ("<math><mi><textarea>&lt;b&gt;</textarea></mi></math>"),
+            "<math><mtext><style><b></style></mtext></math>": ("<math><mtext><style><b></style></mtext></math>"),
+            '<math><annotation-xml encoding="text/html"><script><b></script></annotation-xml></math>': (
+                '<math><annotation-xml encoding="text/html"><script><b></script></annotation-xml></math>'
+            ),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_annotation_xml_without_html_encoding_does_not_use_rawtext(self) -> None:
+        cases = {
+            "<math><annotation-xml><script><b></script></annotation-xml></math>": (
+                "<math><annotation-xml><script></script></annotation-xml></math><b></b>"
+            ),
+            "<math><annotation-xml data-x=1><script><b></script></annotation-xml></math>": (
+                '<math><annotation-xml data-x="1"><script></script></annotation-xml></math><b></b>'
+            ),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
     def test_fragment_eof_inside_nested_template_does_not_crash(self) -> None:
         doc = JustHTML("<template></script><template>", fragment=True)
 

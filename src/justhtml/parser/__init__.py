@@ -169,7 +169,9 @@ class JustHTML:
             tag_name = fragment_context.tag_name.lower()
             if tag_name in {"textarea", "title"}:
                 opts.initial_state = Tokenizer.RCDATA
-            elif tag_name in {"iframe", "noembed", "noframes", "noscript", "script", "style", "xmp"}:
+            elif tag_name in {"iframe", "noembed", "noframes", "script", "style", "xmp"} or (
+                tag_name == "noscript" and opts.scripting_enabled
+            ):
                 opts.initial_state = Tokenizer.RAWTEXT
             elif tag_name == "plaintext":
                 opts.initial_state = Tokenizer.PLAINTEXT

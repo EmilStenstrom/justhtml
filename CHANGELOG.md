@@ -10,8 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Handle `<select><selectedcontent></selectedcontent></select>` without crashing when no `<option>` is present, replace selectedcontent fallback content during parser finalization, and avoid repeated selectedcontent subtree scans.
 - Preserve source order and tag text when escape-mode sanitization handles disallowed rawtext/RCDATA elements with attributed or self-closing end tags.
-- Make `stream()` use namespace-aware tokenizer context for SVG/MathML CDATA and rawtext decisions.
-- Use the correct initial tokenizer states for HTML fragment contexts such as `<title>`, `<textarea>`, `<script>`, and `<style>`.
+- Make `stream()` use namespace-aware tokenizer context for SVG/MathML CDATA, rawtext decisions, self-closing foreign tags, and foreign end-tag stack updates.
+- Use the correct initial tokenizer states for HTML fragment contexts such as `<title>`, `<textarea>`, `<script>`, `<style>`, and scripting-disabled `<noscript>`.
+- Use HTML rawtext/RCDATA tokenizer states for text-like elements inside SVG/MathML HTML integration points and MathML text integration points.
 
 ### Security
 - (Severity: Low) Strip invisible Unicode during URL sink validation even when general invisible-Unicode stripping is disabled. Previously, custom policies using `strip_invisible_unicode=False` could preserve scheme-obfuscated values such as `javascript\u200b:` in otherwise URL-validated attributes.

@@ -124,6 +124,148 @@ class TestStream(unittest.TestCase):
             ("end", "script"),
         ]
 
+    def test_self_closing_foreign_tags_do_not_leave_stream_in_foreign_context(self):
+        events_svg = list(stream("<svg/><script><b></script>"))
+        assert events_svg == [
+            ("start", ("svg", {})),
+            ("start", ("script", {})),
+            ("text", "<b>"),
+            ("end", "script"),
+        ]
+
+        events_math = list(stream("<math/><script><b></script>"))
+        assert events_math == [
+            ("start", ("math", {})),
+            ("start", ("script", {})),
+            ("text", "<b>"),
+            ("end", "script"),
+        ]
+
+    def test_foreign_end_tags_pop_matching_stream_context(self):
+        html = "<svg><g></svg><script><b></script>"
+        events = list(stream(html))
+        assert events == [
+            ("start", ("svg", {})),
+            ("start", ("g", {})),
+            ("end", "svg"),
+            ("start", ("script", {})),
+            ("text", "<b>"),
+            ("end", "script"),
+        ]
+
+    def test_stream_integration_points_use_html_text_parsing(self):
+        html = "<svg><foreignObject><textarea><b></textarea></foreignObject></svg>"
+        events = list(stream(html))
+        assert events == [
+            ("start", ("svg", {})),
+            ("start", ("foreignobject", {})),
+            ("start", ("textarea", {})),
+            ("text", "<b>"),
+            ("end", "textarea"),
+            ("end", "foreignobject"),
+            ("end", "svg"),
+        ]
+
+        html_math = "<math><mi><style><b></style></mi></math>"
+        events_math = list(stream(html_math))
+        assert events_math == [
+            ("start", ("math", {})),
+            ("start", ("mi", {})),
+            ("start", ("style", {})),
+            ("text", "<b>"),
+            ("end", "style"),
+            ("end", "mi"),
+            ("end", "math"),
+        ]
+
+        html_annotation = '<math><annotation-xml encoding="text/html"><script><b></script></annotation-xml></math>'
+        events_annotation = list(stream(html_annotation))
+        assert events_annotation == [
+            ("start", ("math", {})),
+            ("start", ("annotation-xml", {"encoding": "text/html"})),
+            ("start", ("script", {})),
+            ("text", "<b>"),
+            ("end", "script"),
+            ("end", "annotation-xml"),
+            ("end", "math"),
+        ]
+
+        html_annotation_late_encoding = (
+            '<math><annotation-xml data-x=1 encoding="application/xhtml+xml">'
+            "<script><b></script></annotation-xml></math>"
+        )
+        events_annotation_late_encoding = list(stream(html_annotation_late_encoding))
+        assert events_annotation_late_encoding == [
+            ("start", ("math", {})),
+            ("start", ("annotation-xml", {"data-x": "1", "encoding": "application/xhtml+xml"})),
+            ("start", ("script", {})),
+            ("text", "<b>"),
+            ("end", "script"),
+            ("end", "annotation-xml"),
+            ("end", "math"),
+        ]
+
+    def test_stream_annotation_xml_without_html_encoding_keeps_foreign_context(self):
+        html = "<math><annotation-xml><script><b></script></annotation-xml></math>"
+        events = list(stream(html))
+        assert events == [
+            ("start", ("math", {})),
+            ("start", ("annotation-xml", {})),
+            ("start", ("script", {})),
+            ("start", ("b", {})),
+            ("end", "script"),
+            ("end", "annotation-xml"),
+            ("end", "math"),
+        ]
+
+    def test_stream_annotation_xml_allows_svg_without_html_encoding(self):
+        html = "<math><annotation-xml><svg><![CDATA[x<y]]></svg></annotation-xml></math>"
+        events = list(stream(html))
+        assert events == [
+            ("start", ("math", {})),
+            ("start", ("annotation-xml", {})),
+            ("start", ("svg", {})),
+            ("text", "x<y"),
+            ("end", "svg"),
+            ("end", "annotation-xml"),
+            ("end", "math"),
+        ]
+
+    def test_stream_foreign_p_end_tag_breaks_out_of_foreign_context(self):
+        html = "<svg><g></p><script><b></script>"
+        events = list(stream(html))
+        assert events == [
+            ("start", ("svg", {})),
+            ("start", ("g", {})),
+            ("end", "p"),
+            ("start", ("script", {})),
+            ("text", "<b>"),
+            ("end", "script"),
+        ]
+
+    def test_stream_unmatched_foreign_end_tag_pops_one_context(self):
+        html = "<svg><g></foo><script><b></script>"
+        events = list(stream(html))
+        assert events == [
+            ("start", ("svg", {})),
+            ("start", ("g", {})),
+            ("end", "foo"),
+            ("start", ("script", {})),
+            ("start", ("b", {})),
+            ("end", "script"),
+        ]
+
+    def test_stream_unmatched_html_end_tag_with_stack_pops_one_context(self):
+        html = "<div></span><script><b></script>"
+        events = list(stream(html))
+        assert events == [
+            ("start", ("div", {})),
+            ("end", "span"),
+            ("start", ("script", {})),
+            ("text", "<b>"),
+            ("end", "script"),
+        ]
+
     def test_unmatched_end_tag(self):
         html = "</div>"
         events = list(stream(html))

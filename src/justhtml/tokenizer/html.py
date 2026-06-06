@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from justhtml.core.constants import HTML_INTEGRATION_POINT_SET, MATHML_TEXT_INTEGRATION_POINT_SET
 from justhtml.core.entities import decode_entities_in_text
 from justhtml.core.errors import generate_error_message
 
@@ -35,6 +36,7 @@ _ATTR_VALUE_UNQUOTED_FAST_BAD_PATTERN = re.compile(r"""[\x00"'<=`]""")
 _TAG_NAME_RUN_PATTERN = re.compile(r"[^\t\n\f />\0]+")
 _ATTR_NAME_RUN_PATTERN = re.compile(r"[^\t\n\f />=\0\"'<]+")
 _COMMENT_RUN_PATTERN = re.compile(r"[^-\0]+")
+_HTML_INTEGRATION_POINT_ENCODINGS = {"application/xhtml+xml", "text/html"}
 
 # XML Coercion Regex
 _xml_invalid_single_chars = []
@@ -2230,10 +2232,7 @@ class Tokenizer:
                 or (name == "noscript" and self.opts.scripting_enabled)
             )
             if needs_rawtext_check:
-                stack = self.sink.open_elements
-                current_node = stack[-1] if stack else None
-                namespace = current_node.namespace if current_node else None
-                if namespace is None or namespace == "html":
+                if self._current_node_uses_html_text_parsing():
                     if name in _RCDATA_ELEMENTS:
                         self.state = self.RCDATA
                         self.rawtext_tag_name = name
@@ -2259,6 +2258,37 @@ class Tokenizer:
         self.current_tag_self_closing = False
         self.current_tag_kind = Tag.START
         return switched_to_rawtext
+
+    def _current_node_uses_html_text_parsing(self) -> bool:
+        stack = self.sink.open_elements
+        current_node = stack[-1] if stack else None
+        if current_node is None:
+            return True
+
+        namespace = current_node.namespace
+        if namespace is None or namespace == "html":
+            return True
+
+        node_name = current_node.name
+        if (namespace, node_name) in MATHML_TEXT_INTEGRATION_POINT_SET:
+            return True
+
+        if namespace == "math" and node_name == "annotation-xml":
+            encoding = self._node_attribute_value(current_node, "encoding")
+            return encoding is not None and encoding.lower() in _HTML_INTEGRATION_POINT_ENCODINGS
+
+        return (namespace, node_name) in HTML_INTEGRATION_POINT_SET
+
+    def _node_attribute_value(self, node: Any, name: str) -> str | None:
+        attrs = node.attrs
+        if not attrs:
+            return None
+
+        target = name.lower()
+        for attr_name, attr_value in attrs.items():
+            if attr_name.lower() == target:
+                return attr_value or ""
+        return None
 
     def _emit_incomplete_tag_as_text(self) -> None:
         if not self.opts.emit_bogus_markup_as_text:
