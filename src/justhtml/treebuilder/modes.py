@@ -10,6 +10,7 @@ from justhtml.core.constants import (
     FORMATTING_ELEMENTS,
     HEADING_ELEMENTS,
     HTML_SPACE_CHARACTERS,
+    VOID_ELEMENTS,
 )
 from justhtml.dom import Comment, Node, Template
 from justhtml.tokenizer.tokens import (
@@ -37,6 +38,10 @@ if TYPE_CHECKING:
 _CLEAR_STACK_UNTIL_TABLE_TEMPLATE_HTML = frozenset(("table", "template", "html"))
 _CLEAR_STACK_UNTIL_TBODY_TFOOT_THEAD_TEMPLATE_HTML = frozenset(("tbody", "tfoot", "thead", "template", "html"))
 _CLEAR_STACK_UNTIL_TR_TEMPLATE_HTML = frozenset(("tr", "template", "html"))
+_SELECT_TABLE_EXIT_TAGS = frozenset(
+    ("caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr", "table")
+)
+_SELECT_STACK_CLOSING_END_TAGS = frozenset(("p", "div", "span", "button", "datalist", "selectedcontent"))
 
 
 class TreeBuilderModesMixin:
@@ -1556,6 +1561,28 @@ class TreeBuilderModesMixin:
             return ("reprocess", self.mode, token)
         return self._mode_in_table(token)
 
+    def _find_open_element_after_select(self, name: str) -> int | None:
+        for index in range(len(self.open_elements) - 1, -1, -1):
+            node = self.open_elements[index]
+            if node.name == "select":
+                return None
+            if node.name == name:
+                return index
+        return None  # pragma: no cover - IN_SELECT mode always has a select boundary
+
+    def _close_open_element_after_select(self, name: str) -> bool:
+        index = self._find_open_element_after_select(name)
+        if index is None:
+            return False
+        while len(self.open_elements) > index:
+            self._pop_current()
+        return True
+
+    def _insert_phantom_p_in_select(self) -> None:
+        token = Tag(Tag.START, "p", {}, False)
+        self._insert_element(token, push=True)
+        self._pop_current()
+
     def _mode_in_select(self, token: AnyToken) -> ModeResultTuple | None:
         if isinstance(token, CharacterTokens):
             data = token.data or ""
@@ -1597,7 +1624,7 @@ class TreeBuilderModesMixin:
                     self._pop_until_inclusive("select")
                     self._reset_insertion_mode()
                     return None
-                if name in {"input", "textarea"}:
+                if name == "input":
                     self._parse_error("unexpected-start-tag-in-select", tag_name=name)
                     # select is always in scope in IN_SELECT mode
                     self._pop_until_inclusive("select")
@@ -1607,7 +1634,7 @@ class TreeBuilderModesMixin:
                     self._reconstruct_active_formatting_elements()
                     self._insert_element(token, push=False)
                     return None
-                if name in {"caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr", "table"}:
+                if name in _SELECT_TABLE_EXIT_TAGS:
                     self._parse_error("unexpected-start-tag-in-select", tag_name=name)
                     # select is always in scope in IN_SELECT mode
                     self._pop_until_inclusive("select")
@@ -1659,8 +1686,18 @@ class TreeBuilderModesMixin:
                     self._reconstruct_active_formatting_elements()
                     self._insert_element(token, push=True)
                     return None
-                # Any other start tag: parse error, ignore.
+                if name == "textarea":
+                    self._parse_error("unexpected-start-tag-in-select", tag_name=name)
+                    self._reconstruct_active_formatting_elements()
+                    self._insert_element(token, push=True)
+                    self.ignore_lf = True
+                    self.frameset_ok = False
+                    return None
+                # Any other start tag is part of customizable select content.
                 self._parse_error("unexpected-start-tag-in-select", tag_name=name)
+                self._reconstruct_active_formatting_elements()
+                self._insert_element(token, push=name not in VOID_ELEMENTS and not token.self_closing)
+                self.frameset_ok = False
                 return None
             if name == "optgroup":
                 if self.open_elements and self.open_elements[-1].name == "option":
@@ -1700,33 +1737,29 @@ class TreeBuilderModesMixin:
                         return None
                 self._adoption_agency(name)
                 return None
-            if name in {"p", "div", "span", "button", "datalist", "selectedcontent"}:
+            if name == "br":
                 self._parse_error("unexpected-end-tag-in-select", tag_name=name)
-                # Per HTML5 spec: these end tags in select mode close the element if it's on the stack.
-                # But we must not pop across the select boundary (i.e., don't pop elements BEFORE select).
-                select_idx = None
-                target_idx = None
-                for i, node in enumerate(self.open_elements):
-                    if node.name == "select" and select_idx is None:
-                        select_idx = i
-                    if node.name == name:
-                        target_idx = i  # Track the LAST occurrence
-                # Only pop if target exists and is AFTER (or at same level as) select
-                # i.e., the target is inside the select or there's no select
-                if target_idx is not None and (select_idx is None or target_idx > select_idx):
-                    while True:
-                        popped = self._pop_current()
-                        if popped.name == name:
-                            break
+                self._reconstruct_active_formatting_elements()
+                self._insert_element(Tag(Tag.START, "br", {}, False), push=False)
                 return None
-            if name in {"caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr", "table"}:
+            if name == "p":
+                self._parse_error("unexpected-end-tag-in-select", tag_name=name)
+                if not self._close_open_element_after_select(name):
+                    self._insert_phantom_p_in_select()
+                return None
+            if name in _SELECT_STACK_CLOSING_END_TAGS:
+                self._parse_error("unexpected-end-tag-in-select", tag_name=name)
+                self._close_open_element_after_select(name)
+                return None
+            if name in _SELECT_TABLE_EXIT_TAGS:
                 self._parse_error("unexpected-end-tag-in-select", tag_name=name)
                 # select is always in scope in IN_SELECT mode
                 self._pop_until_inclusive("select")
                 self._reset_insertion_mode()
                 return ("reprocess", self.mode, token)
-            # Any other end tag: parse error, ignore
-            self._parse_error("unexpected-end-tag", tag_name=name)
+            self._parse_error("unexpected-end-tag-in-select", tag_name=name)
+            if self.open_elements and self.open_elements[-1].name == name:
+                self._pop_current()
             return None
         assert isinstance(token, EOFToken), f"Unexpected token type: {type(token)}"
         return self._mode_in_body(token)

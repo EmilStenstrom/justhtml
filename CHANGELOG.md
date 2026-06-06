@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep `<form>` elements inside `<template>` from claiming the global form pointer, including table-template form insertion.
 - Close open `<p>` elements correctly around `<option>`, `<optgroup>`, `<hr>`, `<p>`, and `<div>` starts in `<select>` parsing.
 - Close `<template>` correctly when `</template>` is seen while parsing inside `<select>`.
+- Keep `</p>` and `</br>` foreign-content breakouts inside MathML text integration points such as `<mi>` and `<mtext>`.
+- Align customizable `<select>` parsing with Chromium for phantom `</p>` handling and generic custom child elements.
 
 ### Security
 - (Severity: Low) Strip invisible Unicode during URL sink validation even when general invisible-Unicode stripping is disabled. Previously, custom policies using `strip_invisible_unicode=False` could preserve scheme-obfuscated values such as `javascript\u200b:` in otherwise URL-validated attributes.

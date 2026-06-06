@@ -399,14 +399,15 @@
 #errors
 (1,1): expected-doctype-but-got-start-tag
 (1,15): unexpected-start-tag-in-select
-(1,27): unexpected-end-tag
+(1,27): unexpected-end-tag-in-select
 
 #document
 | <html>
 |   <head>
 |   <body>
 |     <select>
-|       "text"
+|       <aside>
+|         "text"
 
 
 #data

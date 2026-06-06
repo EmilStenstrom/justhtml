@@ -118,6 +118,36 @@ class TestTreeBuilder(unittest.TestCase):
                 doc = JustHTML(html, fragment=True, sanitize=False)
                 self.assertEqual(doc.to_html(pretty=False), expected)
 
+    def test_select_end_tags_create_p_and_close_custom_children_like_chromium(self) -> None:
+        cases = {
+            "<select>x</p>": "<select>x<p></p></select>",
+            "<select><option></p>": "<select><option><p></p></option></select>",
+            "<select><b></br>x": "<select><b><br>x</b></select>",
+            "<select><p>x</p>y": "<select><p>x</p>y</select>",
+            "<select><form></form>x": "<select><form></form>x</select>",
+            "<select><unknown></unknown>x": "<select><unknown></unknown>x</select>",
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_select_custom_start_tags_stay_inside_select_like_chromium(self) -> None:
+        cases = {
+            "<select><form>x": "<select><form>x</form></select>",
+            "<select><fieldset>x": "<select><fieldset>x</fieldset></select>",
+            "<select><unknown>x": "<select><unknown>x</unknown></select>",
+            "<select><foreignObject>x": "<select><foreignobject>x</foreignobject></select>",
+            "<select><mi>x": "<select><mi>x</mi></select>",
+            "<select><textarea>hi</textarea>x": "<select><textarea>hi</textarea>x</select>",
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
     def test_template_end_tag_closes_template_from_select_mode(self) -> None:
         cases = {
             "<template><select></template>y": "<template><select></select></template>y",
@@ -206,6 +236,18 @@ class TestTreeBuilder(unittest.TestCase):
             '<math><annotation-xml encoding="text/html"><script><b></script></annotation-xml></math>': (
                 '<math><annotation-xml encoding="text/html"><script><b></script></annotation-xml></math>'
             ),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_mathml_text_integration_end_tag_breakouts_stay_inside_integration_point(self) -> None:
+        cases = {
+            "<math><mi></p>": "<math><mi><p></p></mi></math>",
+            "<math><mtext></p>": "<math><mtext><p></p></mtext></math>",
+            "<math><mi></br>x": "<math><mi><br>x</mi></math>",
         }
 
         for html, expected in cases.items():

@@ -1166,7 +1166,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             node = self.open_elements[-1]
             if node.namespace in {None, "html"}:
                 return
-            if self._is_html_integration_point(node):
+            if self._is_html_integration_point(node) or self._is_mathml_text_integration_point(node):
                 return
             if self.fragment_context_element is not None and node is self.fragment_context_element:
                 return
