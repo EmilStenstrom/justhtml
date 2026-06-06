@@ -18,6 +18,8 @@ Requires Python 3.10 or later.
 
 [Documentation](https://emilstenstrom.github.io/justhtml/) | [Comparison](docs/comparison.md) | [Playground](https://emilstenstrom.github.io/justhtml/playground/) | [Security policy](SECURITY.md)
 
+![JustHTML turns messy unsafe HTML into a sanitized, queryable DOM, then serializes it to text, Markdown, or HTML.](assets/justhtml-readme-explainer.png)
+
 ## Why Use It?
 
 Most Python HTML libraries optimize for one part of the problem.
