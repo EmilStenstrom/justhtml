@@ -787,14 +787,11 @@ class TreeBuilder(TreeBuilderModesMixin):
             if name not in existing:
                 existing[name] = value
 
-    def _remove_from_open_elements(self, node: Any) -> bool:
-        for index, current in enumerate(self.open_elements):
-            if current is node:
-                self._maybe_mark_end_tag(current)
-                self._note_open_element_removed(current)
-                del self.open_elements[index]
-                return True
-        return False
+    def _remove_from_open_elements(self, node: Any) -> None:
+        index = self.open_elements.index(node)
+        self._maybe_mark_end_tag(node)
+        self._note_open_element_removed(node)
+        del self.open_elements[index]
 
     def _is_special_element(self, node: Any) -> bool:
         if node.namespace not in {None, "html"}:

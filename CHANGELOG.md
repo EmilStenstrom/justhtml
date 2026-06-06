@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make `stream()` use namespace-aware tokenizer context for SVG/MathML CDATA, rawtext decisions, self-closing foreign tags, and foreign end-tag stack updates.
 - Use the correct initial tokenizer states for HTML fragment contexts such as `<title>`, `<textarea>`, `<script>`, `<style>`, and scripting-disabled `<noscript>`.
 - Use HTML rawtext/RCDATA tokenizer states for text-like elements inside SVG/MathML HTML integration points and MathML text integration points.
+- Generate implied end tags before removing `<form>` on `</form>` so following controls do not remain inside still-open descendants.
+- Keep `<form>` elements inside `<template>` from claiming the global form pointer, including table-template form insertion.
+- Close open `<p>` elements correctly around `<option>`, `<optgroup>`, `<hr>`, `<p>`, and `<div>` starts in `<select>` parsing.
+- Close `<template>` correctly when `</template>` is seen while parsing inside `<select>`.
 
 ### Security
 - (Severity: Low) Strip invisible Unicode during URL sink validation even when general invisible-Unicode stripping is disabled. Previously, custom policies using `strip_invisible_unicode=False` could preserve scheme-obfuscated values such as `javascript\u200b:` in otherwise URL-validated attributes.

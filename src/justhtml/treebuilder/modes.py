@@ -528,10 +528,14 @@ class TreeBuilderModesMixin:
         return
 
     def _handle_body_start_form(self, token: Tag) -> None:
+        self._close_p_element()
+        if self.template_modes:
+            self._insert_element(token, push=True)
+            self.frameset_ok = False
+            return
         if self.form_element is not None:
             self._parse_error("unexpected-start-tag", tag_name=token.name)
             return
-        self._close_p_element()
         node = self._insert_element(token, push=True)
         self.form_element = node
         self.frameset_ok = False
@@ -854,13 +858,24 @@ class TreeBuilderModesMixin:
                 break
 
     def _handle_body_end_form(self, token: Tag) -> None:
-        if self.form_element is None:
+        if self.template_modes:
+            if not self._has_element_in_scope("form"):
+                self._parse_error("unexpected-end-tag", tag_name=token.name)
+                return
+            self._generate_implied_end_tags()
+            if self.open_elements and self.open_elements[-1].name != "form":
+                self._parse_error("end-tag-too-early", tag_name=token.name)
+            self._pop_until_inclusive("form")
+            return
+        node = self.form_element
+        self.form_element = None
+        if node is None or node not in self.open_elements:
             self._parse_error("unexpected-end-tag", tag_name=token.name)
             return
-        removed = self._remove_from_open_elements(self.form_element)
-        self.form_element = None
-        if not removed:
-            self._parse_error("unexpected-end-tag", tag_name=token.name)
+        self._generate_implied_end_tags()
+        if self.open_elements and self.open_elements[-1] is not node:
+            self._parse_error("end-tag-too-early", tag_name=token.name)
+        self._remove_from_open_elements(node)
         return
 
     def _handle_body_end_applet_like(self, token: Tag) -> None:
@@ -1137,9 +1152,10 @@ class TreeBuilderModesMixin:
                         return None
                 if name == "form":
                     self._parse_error("unexpected-form-in-table")
-                    if self.form_element is None:
+                    if self.form_element is None or self.template_modes:
                         node = self._insert_element(token, push=True)
-                        self.form_element = node
+                        if not self.template_modes:
+                            self.form_element = node
                         self._pop_current()  # push=True always adds to stack
                     return None
                 self._parse_error("foster-parenting-start-tag", tag_name=name)
@@ -1560,6 +1576,8 @@ class TreeBuilderModesMixin:
                 if name == "option":
                     if self.open_elements and self.open_elements[-1].name == "option":
                         self._pop_current()
+                    if self.open_elements and self.open_elements[-1].name == "p":
+                        self._pop_current()
                     self._reconstruct_active_formatting_elements()
                     self._insert_element(token, push=True)
                     return None
@@ -1567,6 +1585,8 @@ class TreeBuilderModesMixin:
                     if self.open_elements and self.open_elements[-1].name == "option":
                         self._pop_current()
                     if self.open_elements and self.open_elements[-1].name == "optgroup":
+                        self._pop_current()
+                    if self.open_elements and self.open_elements[-1].name == "p":
                         self._pop_current()
                     self._reconstruct_active_formatting_elements()
                     self._insert_element(token, push=True)
@@ -1612,7 +1632,7 @@ class TreeBuilderModesMixin:
                         self._pop_current()
                     if self.open_elements and self.open_elements[-1].name == "optgroup":
                         self._pop_current()
-                    self._reconstruct_active_formatting_elements()
+                    self._close_p_element()
                     self._insert_element(token, push=False)
                     return None
                 if name == "menuitem":
@@ -1623,7 +1643,9 @@ class TreeBuilderModesMixin:
                 # Allow common HTML elements in select (newer spec)
                 if name in {"p", "div", "span", "button", "datalist", "selectedcontent"}:
                     self._parse_error("unexpected-start-tag-in-select", tag_name=name)
-                    self._reconstruct_active_formatting_elements()
+                    closed_p = name in {"p", "div"} and self._close_p_element()
+                    if not closed_p:
+                        self._reconstruct_active_formatting_elements()
                     self._insert_element(token, push=not token.self_closing)
                     return None
                 if name in {"br", "img"}:
@@ -1659,6 +1681,8 @@ class TreeBuilderModesMixin:
                 self._pop_until_inclusive("select")
                 self._reset_insertion_mode()
                 return None
+            if name == "template":
+                return self._mode_in_head(token)
             # Handle end tags for allowed HTML elements in select
             if name == "a" or name in FORMATTING_ELEMENTS:
                 # select is always on stack in IN_SELECT mode

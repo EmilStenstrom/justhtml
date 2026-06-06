@@ -98,6 +98,40 @@ class TestTreeBuilder(unittest.TestCase):
             "<select><selectedcontent>real</selectedcontent><option>real</option></select>",
         )
 
+    def test_select_start_tags_close_p_like_chromium(self) -> None:
+        cases = {
+            "<select><p>x<option>y</select>": "<select><p>x</p><option>y</option></select>",
+            "<select><p>x<optgroup><option>y</select>": (
+                "<select><p>x</p><optgroup><option>y</option></optgroup></select>"
+            ),
+            "<select><p>x<hr><option>y</select>": "<select><p>x</p><hr><option>y</option></select>",
+            "<select><p><i>x<hr>y</select>": "<select><p><i>x</i></p><hr><i>y</i></select>",
+            "<select><p><i>x<div>y<option>z</select>": (
+                "<select><p><i>x</i></p><div><i>y<option>z</option></i></div></select>"
+            ),
+            "<select><p><i>x<option>y</select>": ("<select><p><i>x<option>y</option></i></p></select>"),
+            "<select><p>x<span>y<option>z</select>": ("<select><p>x<span>y<option>z</option></span></p></select>"),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_template_end_tag_closes_template_from_select_mode(self) -> None:
+        cases = {
+            "<template><select></template>y": "<template><select></select></template>y",
+            "<template><select><option>x</template>y": ("<template><select><option>x</option></select></template>y"),
+            "<template><select><optgroup><option>x</template>y": (
+                "<template><select><optgroup><option>x</option></optgroup></select></template>y"
+            ),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
     def test_escape_disallowed_rawtext_end_tags_preserve_source_order(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"p"},
@@ -186,6 +220,38 @@ class TestTreeBuilder(unittest.TestCase):
             ),
             "<math><annotation-xml data-x=1><script><b></script></annotation-xml></math>": (
                 '<math><annotation-xml data-x="1"><script></script></annotation-xml></math><b></b>'
+            ),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_form_end_tag_generates_implied_end_tags(self) -> None:
+        cases = {
+            "<form><p></form><input>": "<form><p></p></form><input>",
+            "<form><li></form><input>": "<form><li></li></form><input>",
+            "<form><dd></form><input>": "<form><dd></dd></form><input>",
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_forms_in_template_do_not_set_form_pointer(self) -> None:
+        cases = {
+            "<template><form></template><form><input>": ("<template><form></form></template><form><input></form>"),
+            "<template></form></template>": "<template></template>",
+            "<template><div></form></template>": "<template><div></div></template>",
+            "<template><form><div></form></template>": "<template><form><div></div></form></template>",
+            "<form><template><form><input></template><input name=outer>": (
+                '<form><template><form><input></form></template><input name="outer"></form>'
+            ),
+            "<template><table><form><tr><td>x</template><form><input>": (
+                "<template><table><form></form><tbody><tr><td>x</td></tr></tbody></table></template>"
+                "<form><input></form>"
             ),
         }
 
