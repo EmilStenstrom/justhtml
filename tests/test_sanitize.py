@@ -1682,6 +1682,36 @@ class TestSanitizeDom(unittest.TestCase):
 
         assert out == f'<a title="a{zero_width}b">x{zero_width}y</a>'
 
+    def test_formaction_is_treated_as_url_sink(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"form", "button", "input"},
+            allowed_attributes={
+                "button": {"formaction"},
+                "input": {"formaction", "type", "value"},
+            },
+            url_policy=UrlPolicy(
+                allow_rules={
+                    ("button", "formaction"): UrlRule(allowed_schemes={"https"}),
+                    ("input", "formaction"): UrlRule(allowed_schemes={"https"}),
+                },
+            ),
+        )
+
+        out = JustHTML(
+            (
+                '<form><button formaction="javascript:alert(1)">go</button>'
+                '<input type="submit" formaction="javascript:alert(1)" value="go">'
+                '<button formaction="https://example.com/submit">safe</button></form>'
+            ),
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == (
+            '<form><button>go</button><input type="submit" value="go">'
+            '<button formaction="https://example.com/submit">safe</button></form>'
+        )
+
     def test_sanitize_url_value_proxy_rejects_invalid_scheme_like_prefix_without_backslash(self) -> None:
         policy = UrlPolicy(proxy=UrlProxy(url="/proxy"), allow_rules={("img", "src"): UrlRule(handling="proxy")})
         rule = policy.allow_rules[("img", "src")]
@@ -3002,6 +3032,45 @@ class TestSanitizeDom(unittest.TestCase):
         assert out == "<style>&lt;/style><img src=x onerror=1></style>"
         reparsed = JustHTML(out, fragment=True, sanitize=False)
         assert reparsed.query("img") == []
+
+    def test_parser_differential_payloads_do_not_preserve_unsafe_img_attributes(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=[
+                "br",
+                "div",
+                "iframe",
+                "img",
+                "math",
+                "noembed",
+                "noframes",
+                "noscript",
+                "p",
+                "script",
+                "style",
+                "svg",
+                "textarea",
+                "title",
+                "xmp",
+            ],
+            allowed_attributes={"img": {"src"}, "script": set(), "style": set()},
+            url_policy=UrlPolicy(allow_rules={("img", "src"): UrlRule(allowed_schemes=set())}),
+            drop_comments=False,
+            drop_content_tags=set(),
+        )
+
+        for html in (
+            "<noscript><style></noscript><img src=x onerror=alert(1)></style></noscript>",
+            "<svg><p><style><!--</style><img src=x onerror=alert(1)>--></p></svg>",
+            "<math><mtext><table><mglyph><style><!--</style><img src=x onerror=alert(1)>--></mglyph></table></mtext></math>",
+            "<svg><foreignObject><style></style><img src=x onerror=alert(1)></foreignObject></svg>",
+            "<xmp></xmp><img src=x onerror=alert(1)>",
+            "<iframe></iframe><img src=x onerror=alert(1)>",
+        ):
+            with self.subTest(html=html):
+                out = JustHTML(html, fragment=True, policy=policy).to_html(pretty=False)
+                reparsed = JustHTML(out, fragment=True, sanitize=False)
+                for img in reparsed.query("img"):
+                    assert "onerror" not in img.attrs
 
     def test_sanitize_dom_drops_style_content_with_resource_loading_css(self) -> None:
         policy = SanitizationPolicy(
