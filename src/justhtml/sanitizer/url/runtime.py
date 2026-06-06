@@ -220,6 +220,8 @@ def _sanitize_url_value_with_rule(
         if rewritten is None:
             return None
         v = _strip_invisible_unicode(rewritten)
+    else:
+        v = _strip_invisible_unicode(v)
 
     stripped = v.strip()
     if _URL_CONTROL_CHAR_REGEX.search(stripped):

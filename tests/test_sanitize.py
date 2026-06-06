@@ -1665,6 +1665,23 @@ class TestSanitizeDom(unittest.TestCase):
             is None
         )
 
+    def test_url_sinks_strip_invisible_unicode_even_when_general_stripping_is_disabled(self) -> None:
+        zero_width = "\u200b"
+        policy = SanitizationPolicy(
+            allowed_tags={"a"},
+            allowed_attributes={"a": {"href", "title"}},
+            url_policy=UrlPolicy(allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})}),
+            strip_invisible_unicode=False,
+        )
+
+        out = JustHTML(
+            f'<a title="a{zero_width}b" href="java{zero_width}script:alert(1)">x{zero_width}y</a>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == f'<a title="a{zero_width}b">x{zero_width}y</a>'
+
     def test_sanitize_url_value_proxy_rejects_invalid_scheme_like_prefix_without_backslash(self) -> None:
         policy = UrlPolicy(proxy=UrlProxy(url="/proxy"), allow_rules={("img", "src"): UrlRule(handling="proxy")})
         rule = policy.allow_rules[("img", "src")]

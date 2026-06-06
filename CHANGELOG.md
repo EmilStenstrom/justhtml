@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- (Severity: Low) Strip invisible Unicode during URL sink validation even when general invisible-Unicode stripping is disabled. Previously, custom policies using `strip_invisible_unicode=False` could preserve scheme-obfuscated values such as `javascript\u200b:` in otherwise URL-validated attributes.
+
 ## [2.1.0] - 2026-06-06
 
 ### Performance
