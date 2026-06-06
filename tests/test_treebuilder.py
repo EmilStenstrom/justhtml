@@ -2,6 +2,7 @@ import unittest
 
 from justhtml import JustHTML
 from justhtml.dom import Element
+from justhtml.parser.context import FragmentContext
 from justhtml.tokenizer import Tokenizer, TokenizerOpts
 from justhtml.treebuilder import InsertionMode, TreeBuilder
 
@@ -48,6 +49,46 @@ class TestTreeBuilder(unittest.TestCase):
         assert selectedcontent is not None
         self.assertTrue(selectedcontent.children)
         self.assertEqual(selectedcontent.children[0].name, "div")
+
+    def test_selectedcontent_without_options_does_not_crash(self) -> None:
+        doc = JustHTML("<select><selectedcontent></selectedcontent></select>", sanitize=False)
+
+        self.assertEqual(
+            doc.to_html(pretty=False),
+            "<html><head></head><body><select><selectedcontent></selectedcontent></select></body></html>",
+        )
+
+    def test_selectedcontent_population_handles_multiple_selectedcontent_nodes(self) -> None:
+        doc = JustHTML(
+            "<select><option selected>x</option><selectedcontent></selectedcontent>"
+            "<selectedcontent></selectedcontent></select>",
+            fragment=True,
+            sanitize=False,
+        )
+
+        self.assertEqual(
+            doc.to_html(pretty=False),
+            "<select><option selected>x</option><selectedcontent>x</selectedcontent>"
+            "<selectedcontent>x</selectedcontent></select>",
+        )
+
+    def test_title_fragment_context_uses_rcdata(self) -> None:
+        doc = JustHTML(
+            "a&amp;b</title><p>x",
+            fragment_context=FragmentContext("title"),
+            sanitize=False,
+        )
+
+        self.assertEqual(doc.to_html(pretty=False), "a&amp;b&lt;/title&gt;&lt;p&gt;x")
+
+    def test_script_fragment_context_uses_rawtext_without_context_end_tag(self) -> None:
+        doc = JustHTML(
+            "a</script><p>x",
+            fragment_context=FragmentContext("script"),
+            sanitize=False,
+        )
+
+        self.assertEqual(doc.to_html(pretty=False), "a&lt;/script&gt;&lt;p&gt;x")
 
     def test_fragment_eof_inside_nested_template_does_not_crash(self) -> None:
         doc = JustHTML("<template></script><template>", fragment=True)

@@ -163,14 +163,15 @@ class JustHTML:
         if needs_escape_incomplete_tags:
             opts.emit_bogus_markup_as_text = True
 
-        # For RAWTEXT fragment contexts, set initial tokenizer state and rawtext tag
-        if fragment_context and not fragment_context.namespace:
-            rawtext_elements = {"textarea", "title", "style"}
+        # For text-like HTML fragment contexts, set the initial tokenizer state
+        # to match the context element.
+        if fragment_context and fragment_context.namespace in {None, "html"}:
             tag_name = fragment_context.tag_name.lower()
-            if tag_name in rawtext_elements:
+            if tag_name in {"textarea", "title"}:
+                opts.initial_state = Tokenizer.RCDATA
+            elif tag_name in {"iframe", "noembed", "noframes", "noscript", "script", "style", "xmp"}:
                 opts.initial_state = Tokenizer.RAWTEXT
-                opts.initial_rawtext_tag = tag_name
-            elif tag_name in ("plaintext", "script"):
+            elif tag_name == "plaintext":
                 opts.initial_state = Tokenizer.PLAINTEXT
 
         self.tokenizer = Tokenizer(

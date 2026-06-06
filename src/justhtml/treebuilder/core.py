@@ -1310,59 +1310,44 @@ class TreeBuilder(TreeBuilderModesMixin):
         Per HTML5 spec: selectedcontent mirrors the content of the selected option,
         or the first option if none is selected.
         """
-        # Find all select elements
-        selects: list[Any] = []
-        self._find_elements(root, "select", selects)
-
-        for select in selects:
-            # Find selectedcontent element in this select
-            selectedcontent = self._find_element(select, "selectedcontent")
-            if not selectedcontent:
-                continue
-
-            # Find all option elements
-            options: list[Any] = []
-            self._find_elements(select, "option", options)
-
-            # Find selected option or use first one
-            selected_option = None
-            for opt in options:
-                if opt.attrs:
-                    for attr_name in opt.attrs.keys():
-                        if attr_name == "selected":
-                            selected_option = opt
-                            break
-                if selected_option:
-                    break
-
-            if not selected_option:
-                selected_option = options[0]
-
-            # Clone content from selected option to selectedcontent
-            self._clone_children(selected_option, selectedcontent)
-
-    def _find_elements(self, node: Any, name: str, result: list[Any]) -> None:
-        """Find all elements with given name using iterative preorder traversal."""
-        stack: list[Any] = [node]
+        stack: list[Any] = [root]
         while stack:
             current = stack.pop()
-            if current.name == name:
-                result.append(current)
+            if current.name == "select":
+                self._populate_selectedcontent_for_select(current)
 
             if current.has_child_nodes():
                 stack.extend(reversed(current.children))
 
-    def _find_element(self, node: Any, name: str) -> Any | None:
-        """Find first element with given name using iterative preorder traversal."""
-        stack: list[Any] = [node]
+    def _populate_selectedcontent_for_select(self, select: Any) -> None:
+        selectedcontents: list[Any] = []
+        first_option = None
+        selected_option = None
+
+        stack: list[Any] = [select]
         while stack:
             current = stack.pop()
-            if current.name == name:
-                return current
+            if current is not select:
+                if current.name == "selectedcontent":
+                    selectedcontents.append(current)
+                elif current.name == "option":
+                    if first_option is None:
+                        first_option = current
+                    if selected_option is None and current.attrs and "selected" in current.attrs:
+                        selected_option = current
 
             if current.has_child_nodes():
                 stack.extend(reversed(current.children))
-        return None
+
+        if not selectedcontents:
+            return
+
+        source_option = selected_option or first_option
+        if source_option is None:
+            return
+
+        for selectedcontent in selectedcontents:
+            self._clone_children(source_option, selectedcontent)
 
     def _clone_children(self, source: Any, target: Any) -> None:
         """Deep clone all children from source to target."""
