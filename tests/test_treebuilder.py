@@ -1,16 +1,19 @@
 import unittest
 
 from justhtml import JustHTML, SanitizationPolicy
+from justhtml.core.constants import FORMAT_MARKER
 from justhtml.dom import Element
 from justhtml.parser.context import FragmentContext
 from justhtml.sanitizer import UrlPolicy
 from justhtml.tokenizer import Tokenizer, TokenizerOpts
+from justhtml.tokenizer.tokens import Tag
 from justhtml.treebuilder import InsertionMode, TreeBuilder
 
 
 def _set_open_elements(tree_builder, elements):
     tree_builder.open_elements = elements
     tree_builder._open_p_elements = 0
+    tree_builder._open_scope_name_counts = {}
     for element in elements:
         tree_builder._note_open_element_pushed(element)
 
@@ -456,6 +459,8 @@ class TestTreeBuilder(unittest.TestCase):
 
     def test_scope_checks_skip_placeholder_stack_entries(self) -> None:
         tree_builder = TreeBuilder()
+        self.assertFalse(tree_builder._has_element_in_scope("untracked"))
+
         html = tree_builder._create_element("html", None, {})
         body = tree_builder._create_element("body", None, {})
         p = tree_builder._create_element("p", None, {})
@@ -463,6 +468,22 @@ class TestTreeBuilder(unittest.TestCase):
 
         self.assertTrue(tree_builder._has_element_in_scope("body"))
         self.assertTrue(tree_builder._has_element_in_scope("p"))
+
+    def test_scope_name_cache_tracks_open_element_mutations(self) -> None:
+        tree_builder = TreeBuilder()
+        html = tree_builder._create_element("html", None, {})
+        body = tree_builder._create_element("body", None, {})
+        dd = tree_builder._create_element("dd", None, {})
+        _set_open_elements(tree_builder, [html, body])
+
+        self.assertFalse(tree_builder._has_in_definition_scope("dd"))
+
+        tree_builder.open_elements.append(dd)
+        tree_builder._note_open_element_pushed(dd)
+        self.assertTrue(tree_builder._has_in_definition_scope("dd"))
+
+        self.assertIs(tree_builder._pop_current(), dd)
+        self.assertFalse(tree_builder._has_in_definition_scope("dd"))
 
     def test_any_other_end_tag_skips_placeholder_stack_entries(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)
@@ -516,6 +537,74 @@ class TestTreeBuilder(unittest.TestCase):
         body = tree_builder.open_elements[-1]
         self.assertEqual(body.children, [])
         self.assertEqual([error.code for error in tree_builder.errors], ["invalid-codepoint"])
+
+    def test_flush_pending_table_text_whitespace_branch(self):
+        tree_builder = TreeBuilder(collect_errors=False)
+        tree_builder.open_elements.append(tree_builder._create_element("div", None, {}))
+        tree_builder.pending_table_text.append("   ")
+
+        tree_builder._flush_pending_table_text()
+
+        div = tree_builder.open_elements[-1]
+        assert div.children
+        assert getattr(div.children[-1], "data", None) == "   "
+
+    def test_in_head_end_template_without_template_on_stack(self):
+        tree_builder = TreeBuilder(collect_errors=True)
+        html = tree_builder._create_element("html", None, {})
+        head = tree_builder._create_element("head", None, {})
+        _set_open_elements(tree_builder, [html, head])
+        tree_builder.head_element = head
+
+        token = Tag(Tag.END, "template", {}, False)
+        tree_builder._mode_in_head(token)
+
+    def test_after_head_end_template_with_template_on_stack(self):
+        tree_builder = TreeBuilder(collect_errors=True)
+        html = tree_builder._create_element("html", None, {})
+        head = tree_builder._create_element("head", None, {})
+        template = tree_builder._create_element("template", None, {})
+        _set_open_elements(tree_builder, [html, head, template])
+        tree_builder.head_element = head
+        tree_builder.template_modes = [InsertionMode.IN_TEMPLATE]
+        tree_builder.mode = InsertionMode.AFTER_HEAD
+
+        token = Tag(Tag.END, "template", {}, False)
+        tree_builder._mode_after_head(token)
+
+    def test_in_table_text_breaks_on_format_marker(self):
+        tree_builder = TreeBuilder(collect_errors=True)
+        tree_builder.open_elements.append(tree_builder._create_element("div", None, {}))
+        tree_builder.mode = InsertionMode.IN_TABLE_TEXT
+        tree_builder.table_text_original_mode = InsertionMode.IN_TABLE
+        tree_builder.active_formatting = [FORMAT_MARKER]
+        tree_builder.pending_table_text.append("x")
+
+        token = Tag(Tag.END, "table", {}, False)
+        tree_builder._mode_in_table_text(token)
+
+    def test_in_select_end_a_with_formatting_entry_not_on_stack(self):
+        tree_builder = TreeBuilder(collect_errors=True)
+        html = tree_builder._create_element("html", None, {})
+        body = tree_builder._create_element("body", None, {})
+        select = tree_builder._create_element("select", None, {})
+        _set_open_elements(tree_builder, [html, body, select])
+        tree_builder.mode = InsertionMode.IN_SELECT
+
+        a_node = tree_builder._create_element("a", None, {})
+        tree_builder.active_formatting = [FORMAT_MARKER, {"name": "a", "node": a_node}]
+
+        token = Tag(Tag.END, "a", {}, False)
+        tree_builder._mode_in_select(token)
+
+    def test_in_frameset_end_frameset_when_only_html_on_stack(self):
+        tree_builder = TreeBuilder(collect_errors=True)
+        html = tree_builder._create_element("html", None, {})
+        _set_open_elements(tree_builder, [html])
+        tree_builder.mode = InsertionMode.IN_FRAMESET
+
+        token = Tag(Tag.END, "frameset", {}, False)
+        tree_builder._mode_in_frameset(token)
 
     def test_process_characters_empty_returns_continue(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)

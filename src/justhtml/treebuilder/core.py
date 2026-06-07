@@ -54,6 +54,25 @@ class _SelectedContentWalkItem(NamedTuple):
     in_datalist: bool
 
 
+_OPEN_ELEMENT_SCOPE_COUNT_NAMES = frozenset(
+    (
+        "button",
+        "caption",
+        "dd",
+        "dt",
+        "form",
+        "li",
+        "table",
+        "tbody",
+        "td",
+        "tfoot",
+        "th",
+        "thead",
+        "tr",
+    )
+)
+
+
 class TreeBuilder(TreeBuilderModesMixin):
     __slots__ = (
         "_body_end_handlers",
@@ -61,6 +80,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         "_body_token_handlers",
         "_mode_handlers",
         "_open_p_elements",
+        "_open_scope_name_counts",
         "_pending_end_tag_end",
         "_pending_end_tag_name",
         "_pending_end_tag_start",
@@ -115,6 +135,7 @@ class TreeBuilder(TreeBuilderModesMixin):
     open_elements: list[Any]
     original_mode: InsertionMode | None  # type: ignore[assignment]
     _open_p_elements: int
+    _open_scope_name_counts: dict[str, int]
     _saw_select_element: bool
     pending_table_text: list[str]
     pending_table_text_should_error: bool
@@ -150,6 +171,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         self.table_text_original_mode = None
         self.open_elements = []
         self._open_p_elements = 0
+        self._open_scope_name_counts = {}
         self._saw_select_element = False
         self._pending_end_tag_name = None
         self._pending_end_tag_start = None
@@ -263,6 +285,8 @@ class TreeBuilder(TreeBuilderModesMixin):
     ) -> bool:
         if target == "p" and self._open_p_elements == 0:
             return False
+        if target in _OPEN_ELEMENT_SCOPE_COUNT_NAMES and self._open_scope_name_counts.get(target, 0) == 0:
+            return False
         if terminators is None:
             terminators = DEFAULT_SCOPE_TERMINATORS
         open_elements = self.open_elements
@@ -294,12 +318,26 @@ class TreeBuilder(TreeBuilderModesMixin):
                 break
 
     def _note_open_element_pushed(self, node: Any) -> None:
-        if node is not None and node.name == "p":
+        if node is None:
+            return
+        name = node.name
+        if name == "p":
             self._open_p_elements += 1
+        elif name in _OPEN_ELEMENT_SCOPE_COUNT_NAMES:
+            self._open_scope_name_counts[name] = self._open_scope_name_counts.get(name, 0) + 1
 
     def _note_open_element_removed(self, node: Any) -> None:
-        if node is not None and node.name == "p":
+        if node is None:
+            return
+        name = node.name
+        if name == "p":
             self._open_p_elements -= 1
+        elif name in _OPEN_ELEMENT_SCOPE_COUNT_NAMES:
+            count = self._open_scope_name_counts.get(name, 0)
+            if count <= 1:
+                self._open_scope_name_counts.pop(name, None)
+            else:
+                self._open_scope_name_counts[name] = count - 1
 
     def _note_open_elements_removed(self, nodes: list[Any]) -> None:
         for node in nodes:
