@@ -164,6 +164,38 @@ class TestTreeBuilder(unittest.TestCase):
                 doc = JustHTML(html, fragment=True, sanitize=False)
                 self.assertEqual(doc.to_html(pretty=False), expected)
 
+    def test_selectedcontent_population_does_not_self_clone_like_chromium(self) -> None:
+        cases = {
+            "<select><option selected><selectedcontent></selectedcontent></option></select>": (
+                "<select><option selected><selectedcontent></selectedcontent></option></select>"
+            ),
+            "<select><option selected>before<selectedcontent></selectedcontent>after</option></select>": (
+                "<select><option selected>before<selectedcontent></selectedcontent>after</option></select>"
+            ),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_selectedcontent_population_ignores_datalist_options_like_chromium(self) -> None:
+        cases = {
+            "<select><datalist><option>one</option></datalist><selectedcontent></selectedcontent></select>": (
+                "<select><datalist><option>one</option></datalist><selectedcontent></selectedcontent></select>"
+            ),
+            "<select><datalist><option selected>one</option></datalist><option>two</option>"
+            "<selectedcontent></selectedcontent></select>": (
+                "<select><datalist><option selected>one</option></datalist><option>two</option>"
+                "<selectedcontent>two</selectedcontent></select>"
+            ),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
     def test_select_start_tags_close_p_like_chromium(self) -> None:
         cases = {
             "<select><p>x<option>y</select>": "<select><p>x</p><option>y</option></select>",

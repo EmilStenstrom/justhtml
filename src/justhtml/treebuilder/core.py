@@ -1322,15 +1322,15 @@ class TreeBuilder(TreeBuilderModesMixin):
         selected_option = None
         is_multiple = select.attrs is not None and "multiple" in select.attrs
 
-        stack: list[tuple[Any, bool]] = [(select, False)]
+        stack: list[tuple[Any, bool, bool]] = [(select, False, False)]
         while stack:
-            current, in_disabled_optgroup = stack.pop()
+            current, in_disabled_optgroup, in_datalist = stack.pop()
             attrs = getattr(current, "attrs", None)
             name = current.name
             if current is not select:
                 if name == "selectedcontent":
                     selectedcontents.append(current)
-                if name == "option":
+                if name == "option" and not in_datalist:
                     is_disabled = attrs is not None and "disabled" in attrs
                     if first_option is None and not is_disabled and not in_disabled_optgroup:
                         first_option = current
@@ -1345,7 +1345,10 @@ class TreeBuilder(TreeBuilderModesMixin):
                 child_disabled_optgroup = in_disabled_optgroup or (
                     name == "optgroup" and attrs is not None and "disabled" in attrs
                 )
-                stack.extend((child, child_disabled_optgroup) for child in reversed(current.children))
+                child_in_datalist = in_datalist or name == "datalist"
+                stack.extend(
+                    (child, child_disabled_optgroup, child_in_datalist) for child in reversed(current.children)
+                )
 
         if not selectedcontents:
             return
@@ -1353,6 +1356,8 @@ class TreeBuilder(TreeBuilderModesMixin):
         source_option = selected_option or first_option
 
         for selectedcontent in selectedcontents:
+            if source_option is not None and self._is_descendant_of(selectedcontent, source_option):
+                continue
             children = selectedcontent.children
             if children:
                 for child in children:
@@ -1360,6 +1365,14 @@ class TreeBuilder(TreeBuilderModesMixin):
                 children.clear()
             if source_option is not None:
                 self._clone_children(source_option, selectedcontent)
+
+    def _is_descendant_of(self, node: Any, ancestor: Any) -> bool:
+        parent = node.parent
+        while parent is not None:
+            if parent is ancestor:
+                return True
+            parent = parent.parent
+        return False
 
     def _clone_children(self, source: Any, target: Any) -> None:
         """Deep clone all children from source to target."""
