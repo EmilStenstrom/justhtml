@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Literal
 
 from justhtml.core.constants import (
-    FORMAT_MARKER,
     FORMATTING_ELEMENTS,
     HEADING_ELEMENTS,
     HTML_SPACE_CHARACTERS,
@@ -1075,21 +1074,7 @@ class TreeBuilderModesMixin:
             # html5lib-tests expect that some table foster-parenting text triggered by a
             # misnested formatting element (<a>) only produces an implied-end-tag error
             # when the table closes, not an additional character-in-table error.
-            suppress_table_char_error = False
-            if self.active_formatting:
-                for idx in range(len(self.active_formatting) - 1, -1, -1):
-                    entry = self.active_formatting[idx]
-                    if entry is FORMAT_MARKER:
-                        break
-                    if entry["name"] == "a":
-                        if entry["node"] not in self.open_elements:
-                            suppress_table_char_error = True
-                        break
-
-            if not suppress_table_char_error:
-                self.pending_table_text_should_error = True
-            else:
-                self.pending_table_text_should_error = False
+            self.pending_table_text_should_error = not self._has_detached_active_formatting_a()
             self.pending_table_text = []
             self.table_text_original_mode = self.mode
             self.mode = InsertionMode.IN_TABLE_TEXT
@@ -1202,6 +1187,7 @@ class TreeBuilderModesMixin:
 
         if (
             self.pending_table_text
+            and self.active_formatting
             and isinstance(token, Tag)
             and token.kind == Tag.END
             and token.name == "table"
@@ -1209,14 +1195,8 @@ class TreeBuilderModesMixin:
         ):
             # If a misnested <a> exists only in the active formatting list, html5lib
             # reports the implied close when the table ends.
-            if self.active_formatting:
-                for idx in range(len(self.active_formatting) - 1, -1, -1):
-                    entry = self.active_formatting[idx]
-                    if entry is FORMAT_MARKER:
-                        break
-                    if entry["name"] == "a" and entry["node"] not in self.open_elements:
-                        self._parse_error("unexpected-implied-end-tag-in-table-view")
-                        break
+            if self._has_detached_active_formatting_a():
+                self._parse_error("unexpected-implied-end-tag-in-table-view")
         self._flush_pending_table_text()
         original = self.table_text_original_mode or InsertionMode.IN_TABLE
         self.table_text_original_mode = None

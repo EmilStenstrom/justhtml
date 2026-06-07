@@ -855,6 +855,15 @@ class TreeBuilder(TreeBuilderModesMixin):
                 return True
         return False
 
+    def _has_detached_active_formatting_a(self) -> bool:
+        for index in range(len(self.active_formatting) - 1, -1, -1):
+            entry = self.active_formatting[index]
+            if entry is FORMAT_MARKER:
+                break
+            if entry["name"] == "a":
+                return entry["node"] not in self.open_elements
+        return False
+
     def _remove_last_active_formatting_by_name(self, name: str) -> None:
         for index in range(len(self.active_formatting) - 1, -1, -1):
             entry = self.active_formatting[index]
@@ -991,7 +1000,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             self._append_text(data)
             return
 
-        if self.pending_table_text_should_error:
+        if self.pending_table_text_should_error and self.collect_errors:
             # html5lib reports one foster-parenting error per non-whitespace character.
             for ch in data:
                 if ch not in HTML_SPACE_CHARACTERS:
