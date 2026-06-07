@@ -1287,6 +1287,8 @@ class TreeBuilderModesMixin:
                 # Has leading whitespace - insert it
                 ws = data[: len(data) - len(stripped)]
                 self._append_text(ws)
+                if not stripped:
+                    return None
 
             # Continue processing non-whitespace with a new token
             non_ws_token = CharacterTokens(stripped)
@@ -1484,7 +1486,7 @@ class TreeBuilderModesMixin:
                         return ("reprocess", self.mode, token)
                     self._parse_error("unexpected-end-tag", tag_name=name)
                     return None
-                if name in {"caption", "col", "group", "td", "th"}:
+                if name in {"caption", "col", "colgroup", "td", "th"}:
                     self._parse_error("unexpected-end-tag", tag_name=name)
                     return None
                 previous = self.insert_from_table
@@ -1645,7 +1647,12 @@ class TreeBuilderModesMixin:
                 if name in {"svg", "math"}:
                     # For foreign elements, honor the self-closing flag
                     self._reconstruct_active_formatting_elements()
-                    self._insert_element(token, push=not token.self_closing, namespace=name)
+                    adjusted_name = token.name
+                    if name == "svg":
+                        adjusted_name = self._adjust_svg_tag_name(token.name)
+                    attrs = self._prepare_foreign_attributes(name, token.attrs)
+                    new_tag = Tag(Tag.START, adjusted_name, attrs, token.self_closing)
+                    self._insert_element(new_tag, push=not token.self_closing, namespace=name)
                     return None
                 if name in FORMATTING_ELEMENTS:
                     self._reconstruct_active_formatting_elements()
@@ -1685,6 +1692,7 @@ class TreeBuilderModesMixin:
                     self._parse_error("unexpected-start-tag-in-select", tag_name=name)
                     self._reconstruct_active_formatting_elements()
                     self._insert_element(token, push=True)
+                    self.tokenizer_state_override = TokenSinkResult.Plaintext
                     return None
                 if name == "textarea":
                     self._parse_error("unexpected-start-tag-in-select", tag_name=name)

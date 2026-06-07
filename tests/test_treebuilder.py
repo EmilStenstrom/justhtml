@@ -148,6 +148,25 @@ class TestTreeBuilder(unittest.TestCase):
                 doc = JustHTML(html, fragment=True, sanitize=False)
                 self.assertEqual(doc.to_html(pretty=False), expected)
 
+    def test_select_foreign_start_tags_adjust_names_like_chromium(self) -> None:
+        cases = {
+            '<select><svg viewbox="0 0"></svg></select>': '<select><svg viewBox="0 0"></svg></select>',
+            '<select><math definitionurl="x"></math></select>': '<select><math definitionURL="x"></math></select>',
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_select_plaintext_switches_tokenizer_state_like_chromium(self) -> None:
+        doc = JustHTML("<select><plaintext><b>x</b></select><p>y", fragment=True, sanitize=False)
+
+        self.assertEqual(
+            doc.to_html(pretty=False),
+            "<select><plaintext><b>x</b></select><p>y</plaintext></select>",
+        )
+
     def test_template_end_tag_closes_template_from_select_mode(self) -> None:
         cases = {
             "<template><select></template>y": "<template><select></select></template>y",
@@ -161,6 +180,25 @@ class TestTreeBuilder(unittest.TestCase):
             with self.subTest(html=html):
                 doc = JustHTML(html, fragment=True, sanitize=False)
                 self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_colgroup_whitespace_preserves_current_colgroup_like_chromium(self) -> None:
+        cases = {
+            "<table><colgroup> <col></colgroup></table>": "<table><colgroup> <col></colgroup></table>",
+            "<table><colgroup> \n\t<col></colgroup></table>": "<table><colgroup> \n\t<col></colgroup></table>",
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_colgroup_end_tag_in_row_is_ignored_like_chromium(self) -> None:
+        doc = JustHTML("<table><tr></colgroup><td>x</td></tr></table>", fragment=True, sanitize=False)
+
+        self.assertEqual(
+            doc.to_html(pretty=False),
+            "<table><tbody><tr><td>x</td></tr></tbody></table>",
+        )
 
     def test_escape_disallowed_rawtext_end_tags_preserve_source_order(self) -> None:
         policy = SanitizationPolicy(

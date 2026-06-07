@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 # Note: This matches the logic of the previous loop-based implementation.
 # It checks for space characters, quotes, equals sign, and greater-than.
 _UNQUOTED_ATTR_VALUE_INVALID = re.compile(r'[ \t\n\f\r"\'=>]')
-_LITERAL_TEXT_SERIALIZATION_ELEMENTS = frozenset({"script", "style"})
+_LITERAL_TEXT_SERIALIZATION_ELEMENTS = frozenset({"plaintext", "script", "style"})
 _SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_-]*$")
 _SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[A-Za-z_:][A-Za-z0-9:._-]*$")
 
@@ -101,6 +101,8 @@ def _serialize_text_for_parent(text: str | None, parent_name: str | None) -> str
     if parent_name is not None:
         normalized_parent_name = parent_name if parent_name.islower() else parent_name.lower()
         if normalized_parent_name in _LITERAL_TEXT_SERIALIZATION_ELEMENTS:
+            if normalized_parent_name == "plaintext":
+                return text
             return _neutralize_rawtext_end_tag_sequences(text, normalized_parent_name)
     return _escape_text(text)
 
