@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-06-07
+
 ### Fixed
 - Handle `<select><selectedcontent></selectedcontent></select>` without crashing when no `<option>` is present, replace selectedcontent fallback content during parser finalization, and avoid repeated selectedcontent subtree scans.
 - Preserve source order and tag text when escape-mode sanitization handles disallowed rawtext/RCDATA elements with attributed or self-closing end tags.
