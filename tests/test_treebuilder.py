@@ -505,6 +505,7 @@ class TestTreeBuilder(unittest.TestCase):
         body = tree_builder.open_elements[-1]
         self.assertEqual(len(body.children), 1)
         self.assertEqual(body.children[0].data, "ab")
+        self.assertEqual([error.code for error in tree_builder.errors], ["invalid-codepoint"])
 
     def test_process_characters_only_null_returns_continue(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)
@@ -514,6 +515,7 @@ class TestTreeBuilder(unittest.TestCase):
         tree_builder.process_characters("\x00")
         body = tree_builder.open_elements[-1]
         self.assertEqual(body.children, [])
+        self.assertEqual([error.code for error in tree_builder.errors], ["invalid-codepoint"])
 
     def test_process_characters_empty_returns_continue(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)

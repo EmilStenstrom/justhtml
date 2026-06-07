@@ -1435,6 +1435,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             if not data:
                 return TokenSinkResult.Continue
             if "\x00" in data:
+                self._parse_error("invalid-codepoint")
                 data = data.replace("\x00", "")
                 if not data:
                     return TokenSinkResult.Continue
