@@ -156,6 +156,7 @@ class JustHTML:
             iframe_srcdoc=iframe_srcdoc,
             collect_errors=should_collect,
             scripting_enabled=scripting_enabled,
+            track_node_locations=bool(track_node_locations),
             track_tag_spans=track_tag_spans,
         )
         opts = _tokenizer_opts.copy() if _tokenizer_opts is not None else TokenizerOpts()

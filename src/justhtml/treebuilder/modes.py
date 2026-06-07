@@ -693,7 +693,7 @@ class TreeBuilderModesMixin:
                 # 10.4 Replace entry with new element
                 entry = self.active_formatting[node_formatting_index]
                 new_element = self._create_element(entry["name"], entry["node"].namespace, entry["attrs"])
-                if self.tokenizer is not None and self.tokenizer.track_node_locations:
+                if self.track_node_locations:
                     new_element._origin_pos = entry["node"].origin_offset
                     new_element._origin_line = entry["node"].origin_line
                     new_element._origin_col = entry["node"].origin_col
@@ -732,7 +732,7 @@ class TreeBuilderModesMixin:
             # 12. Create new formatting element
             entry = self.active_formatting[formatting_element_index]
             new_formatting_element = self._create_element(entry["name"], entry["node"].namespace, entry["attrs"])
-            if self.tokenizer is not None and self.tokenizer.track_node_locations:
+            if self.track_node_locations:
                 new_formatting_element._origin_pos = entry["node"].origin_offset
                 new_formatting_element._origin_line = entry["node"].origin_line
                 new_formatting_element._origin_col = entry["node"].origin_col
