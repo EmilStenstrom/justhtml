@@ -194,6 +194,7 @@ def _run_unit_tests(config):
             self._test_counter = 0
             self._test_to_index: dict[str, int] = {}
             self.test_indices: list[tuple[str, int]] = []
+            self._failed_test_ids: set[str] = set()
 
         def startTest(self, test):  # noqa: N802 - unittest API
             super().startTest(test)
@@ -211,10 +212,22 @@ def _run_unit_tests(config):
 
         def addFailure(self, test, err):  # noqa: N802 - unittest API
             super().addFailure(test, err)
+            self._failed_test_ids.add(test.id())
             self.test_indices.append(("fail", self._idx(test)))
 
         def addError(self, test, err):  # noqa: N802 - unittest API
             super().addError(test, err)
+            self._failed_test_ids.add(test.id())
+            self.test_indices.append(("fail", self._idx(test)))
+
+        def addSubTest(self, test, subtest, err):  # noqa: N802 - unittest API
+            super().addSubTest(test, subtest, err)
+            if err is None:
+                return
+            test_id = test.id()
+            if test_id in self._failed_test_ids:
+                return
+            self._failed_test_ids.add(test_id)
             self.test_indices.append(("fail", self._idx(test)))
 
         def addSkip(self, test, reason):  # noqa: N802 - unittest API
