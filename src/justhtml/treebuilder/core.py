@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from justhtml.core.constants import (
     BUTTON_SCOPE_TERMINATORS,
@@ -46,6 +46,12 @@ from .utils import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+class _SelectedContentWalkItem(NamedTuple):
+    node: Any
+    in_disabled_optgroup: bool
+    in_datalist: bool
 
 
 class TreeBuilder(TreeBuilderModesMixin):
@@ -1322,17 +1328,19 @@ class TreeBuilder(TreeBuilderModesMixin):
         selected_option = None
         is_multiple = select.attrs is not None and "multiple" in select.attrs
 
-        stack: list[tuple[Any, bool, bool]] = [(select, False, False)]
+        stack = [_SelectedContentWalkItem(select, in_disabled_optgroup=False, in_datalist=False)]
         while stack:
-            current, in_disabled_optgroup, in_datalist = stack.pop()
+            item = stack.pop()
+            current = item.node
             attrs = getattr(current, "attrs", None)
             name = current.name
             if current is not select:
                 if name == "selectedcontent":
                     selectedcontents.append(current)
-                if name == "option" and not in_datalist:
-                    is_disabled = attrs is not None and "disabled" in attrs
-                    if first_option is None and not is_disabled and not in_disabled_optgroup:
+                if name == "option" and not item.in_datalist:
+                    if first_option is None and self._is_selectedcontent_fallback_option(
+                        attrs, item.in_disabled_optgroup
+                    ):
                         first_option = current
                     if attrs is not None and "selected" in attrs:
                         if is_multiple:
@@ -1342,12 +1350,13 @@ class TreeBuilder(TreeBuilderModesMixin):
                             selected_option = current
 
             if current.has_child_nodes():
-                child_disabled_optgroup = in_disabled_optgroup or (
+                child_disabled_optgroup = item.in_disabled_optgroup or (
                     name == "optgroup" and attrs is not None and "disabled" in attrs
                 )
-                child_in_datalist = in_datalist or name == "datalist"
+                child_in_datalist = item.in_datalist or name == "datalist"
                 stack.extend(
-                    (child, child_disabled_optgroup, child_in_datalist) for child in reversed(current.children)
+                    _SelectedContentWalkItem(child, child_disabled_optgroup, child_in_datalist)
+                    for child in reversed(current.children)
                 )
 
         if not selectedcontents:
@@ -1365,6 +1374,9 @@ class TreeBuilder(TreeBuilderModesMixin):
                 children.clear()
             if source_option is not None:
                 self._clone_children(source_option, selectedcontent)
+
+    def _is_selectedcontent_fallback_option(self, attrs: Any, in_disabled_optgroup: bool) -> bool:
+        return not in_disabled_optgroup and (attrs is None or "disabled" not in attrs)
 
     def _is_descendant_of(self, node: Any, ancestor: Any) -> bool:
         parent = node.parent
