@@ -617,7 +617,7 @@ class TreeBuilderModesMixin:
                 return
 
             formatting_element_entry = self.active_formatting[formatting_element_index]
-            formatting_element = formatting_element_entry["node"]
+            formatting_element = formatting_element_entry.node
 
             # 4. If formatting element is not in open elements
             if formatting_element not in self.open_elements:
@@ -692,12 +692,12 @@ class TreeBuilderModesMixin:
 
                 # 10.4 Replace entry with new element
                 entry = self.active_formatting[node_formatting_index]
-                new_element = self._create_element(entry["name"], entry["node"].namespace, entry["attrs"])
+                new_element = self._create_element(entry.name, entry.node.namespace, entry.attrs)
                 if self.track_node_locations:
-                    new_element._origin_pos = entry["node"].origin_offset
-                    new_element._origin_line = entry["node"].origin_line
-                    new_element._origin_col = entry["node"].origin_col
-                entry["node"] = new_element
+                    new_element._origin_pos = entry.node.origin_offset
+                    new_element._origin_line = entry.node.origin_line
+                    new_element._origin_col = entry.node.origin_col
+                entry.node = new_element
                 self._note_open_element_removed(self.open_elements[node_index])
                 self.open_elements[node_index] = new_element
                 self._note_open_element_pushed(new_element)
@@ -731,12 +731,12 @@ class TreeBuilderModesMixin:
 
             # 12. Create new formatting element
             entry = self.active_formatting[formatting_element_index]
-            new_formatting_element = self._create_element(entry["name"], entry["node"].namespace, entry["attrs"])
+            new_formatting_element = self._create_element(entry.name, entry.node.namespace, entry.attrs)
             if self.track_node_locations:
-                new_formatting_element._origin_pos = entry["node"].origin_offset
-                new_formatting_element._origin_line = entry["node"].origin_line
-                new_formatting_element._origin_col = entry["node"].origin_col
-            entry["node"] = new_formatting_element
+                new_formatting_element._origin_pos = entry.node.origin_offset
+                new_formatting_element._origin_line = entry.node.origin_line
+                new_formatting_element._origin_col = entry.node.origin_col
+            entry.node = new_formatting_element
 
             # 13. Move children of furthest block
             moved_children = furthest_block.children
@@ -1716,7 +1716,7 @@ class TreeBuilderModesMixin:
                 if fmt_index is None:
                     self._parse_error("unexpected-end-tag-in-select", tag_name=name)
                     return None
-                target = self.active_formatting[fmt_index]["node"]
+                target = self.active_formatting[fmt_index].node
                 if target in self.open_elements:  # pragma: no branch
                     select_index = self.open_elements.index(select_node)
                     target_index = self.open_elements.index(target)

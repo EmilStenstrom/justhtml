@@ -54,6 +54,27 @@ class _SelectedContentWalkItem(NamedTuple):
     in_datalist: bool
 
 
+class _FormattingEntry:
+    __slots__ = ("attrs", "name", "node", "signature")
+
+    name: str
+    attrs: dict[str, str | None]
+    node: Any
+    signature: tuple[tuple[str, str], ...]
+
+    def __init__(
+        self,
+        name: str,
+        attrs: dict[str, str | None],
+        node: Any,
+        signature: tuple[tuple[str, str], ...],
+    ) -> None:
+        self.name = name
+        self.attrs = attrs
+        self.node = node
+        self.signature = signature
+
+
 _OPEN_ELEMENT_SCOPE_COUNT_NAMES = frozenset(
     (
         "button",
@@ -856,14 +877,14 @@ class TreeBuilder(TreeBuilderModesMixin):
             entry = self.active_formatting[index]
             if entry is FORMAT_MARKER:
                 break
-            if entry["name"] == name:
+            if entry.name == name:
                 return index
         return None
 
     def _find_active_formatting_index_by_node(self, node: Any) -> int | None:
         for index in range(len(self.active_formatting) - 1, -1, -1):
             entry = self.active_formatting[index]
-            if entry is not FORMAT_MARKER and entry["node"] is node:
+            if entry is not FORMAT_MARKER and entry.node is node:
                 return index
         return None
 
@@ -898,8 +919,8 @@ class TreeBuilder(TreeBuilderModesMixin):
             if entry is FORMAT_MARKER:
                 matches.clear()
                 continue
-            existing_signature = entry["signature"]
-            if entry["name"] == name and existing_signature == signature:
+            existing_signature = entry.signature
+            if entry.name == name and existing_signature == signature:
                 matches.append(index)
         if len(matches) >= 3:
             return matches[0]
@@ -910,7 +931,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             entry = self.active_formatting[index]
             if entry is FORMAT_MARKER:
                 break
-            if entry["name"] == name:
+            if entry.name == name:
                 return True
         return False
 
@@ -919,8 +940,8 @@ class TreeBuilder(TreeBuilderModesMixin):
             entry = self.active_formatting[index]
             if entry is FORMAT_MARKER:
                 break
-            if entry["name"] == "a":
-                return entry["node"] not in self.open_elements
+            if entry.name == "a":
+                return entry.node not in self.open_elements
         return False
 
     def _remove_last_active_formatting_by_name(self, name: str) -> None:
@@ -928,7 +949,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             entry = self.active_formatting[index]
             if entry is FORMAT_MARKER:
                 break
-            if entry["name"] == name:
+            if entry.name == name:
                 del self.active_formatting[index]
                 return
 
@@ -944,14 +965,7 @@ class TreeBuilder(TreeBuilderModesMixin):
     def _append_active_formatting_entry(self, name: str, attrs: dict[str, str | None], node: Any) -> None:
         entry_attrs = self._clone_attributes(attrs)
         signature = self._attrs_signature(entry_attrs)
-        self.active_formatting.append(
-            {
-                "name": name,
-                "attrs": entry_attrs,
-                "node": node,
-                "signature": signature,
-            },
-        )
+        self.active_formatting.append(_FormattingEntry(name, entry_attrs, node, signature))
 
     def _clear_active_formatting_up_to_marker(self) -> None:
         while self.active_formatting:
@@ -970,7 +984,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         if not self.active_formatting:
             return
         last_entry = self.active_formatting[-1]
-        if last_entry is FORMAT_MARKER or last_entry["node"] in self.open_elements:
+        if last_entry is FORMAT_MARKER or last_entry.node in self.open_elements:
             return
 
         index = len(self.active_formatting) - 1
@@ -979,20 +993,20 @@ class TreeBuilder(TreeBuilderModesMixin):
             if index < 0:
                 break
             entry = self.active_formatting[index]
-            if entry is FORMAT_MARKER or entry["node"] in self.open_elements:
+            if entry is FORMAT_MARKER or entry.node in self.open_elements:
                 index += 1
                 break
         if index < 0:
             index = 0
         while index < len(self.active_formatting):
             entry = self.active_formatting[index]
-            tag = Tag(Tag.START, entry["name"], self._clone_attributes(entry["attrs"]), False)
+            tag = Tag(Tag.START, entry.name, self._clone_attributes(entry.attrs), False)
             new_node = self._insert_element(tag, push=True)
             if self.track_node_locations:
-                new_node._origin_pos = entry["node"].origin_offset
-                new_node._origin_line = entry["node"].origin_line
-                new_node._origin_col = entry["node"].origin_col
-            entry["node"] = new_node
+                new_node._origin_pos = entry.node.origin_offset
+                new_node._origin_line = entry.node.origin_line
+                new_node._origin_col = entry.node.origin_col
+            entry.node = new_node
             index += 1
 
     def _insert_node_at(self, parent: Any, index: int, node: Any) -> None:

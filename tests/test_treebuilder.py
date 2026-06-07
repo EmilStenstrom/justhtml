@@ -592,7 +592,8 @@ class TestTreeBuilder(unittest.TestCase):
         tree_builder.mode = InsertionMode.IN_SELECT
 
         a_node = tree_builder._create_element("a", None, {})
-        tree_builder.active_formatting = [FORMAT_MARKER, {"name": "a", "node": a_node}]
+        tree_builder.active_formatting = [FORMAT_MARKER]
+        tree_builder._append_active_formatting_entry("a", {}, a_node)
 
         token = Tag(Tag.END, "a", {}, False)
         tree_builder._mode_in_select(token)
