@@ -423,7 +423,6 @@
 |   <body>
 |     <select>
 |       <selectedcontent>
-|         "A"
 |       <option>
 |         disabled=""
 |         "A"

@@ -85,7 +85,7 @@ class TestTreeBuilder(unittest.TestCase):
             "<select><selectedcontent>real</selectedcontent><option>real</option></select>",
         )
 
-    def test_selectedcontent_population_ignores_fallback_options(self) -> None:
+    def test_selectedcontent_population_uses_fallback_options_like_chromium(self) -> None:
         doc = JustHTML(
             "<select><selectedcontent><option selected>fallback</option></selectedcontent>"
             "<option>real</option></select>",
@@ -95,8 +95,74 @@ class TestTreeBuilder(unittest.TestCase):
 
         self.assertEqual(
             doc.to_html(pretty=False),
-            "<select><selectedcontent>real</selectedcontent><option>real</option></select>",
+            "<select><selectedcontent>fallback</selectedcontent><option>real</option></select>",
         )
+
+    def test_selectedcontent_population_uses_last_selected_option_like_chromium(self) -> None:
+        doc = JustHTML(
+            "<select><option selected>one</option><option selected>two</option>"
+            "<selectedcontent></selectedcontent></select>",
+            fragment=True,
+            sanitize=False,
+        )
+
+        self.assertEqual(
+            doc.to_html(pretty=False),
+            "<select><option selected>one</option><option selected>two</option>"
+            "<selectedcontent>two</selectedcontent></select>",
+        )
+
+    def test_selectedcontent_population_uses_first_selected_option_for_multiple_like_chromium(self) -> None:
+        doc = JustHTML(
+            "<select multiple><option selected>one</option><option selected>two</option>"
+            "<selectedcontent></selectedcontent></select>",
+            fragment=True,
+            sanitize=False,
+        )
+
+        self.assertEqual(
+            doc.to_html(pretty=False),
+            "<select multiple><option selected>one</option><option selected>two</option>"
+            "<selectedcontent>one</selectedcontent></select>",
+        )
+
+    def test_selectedcontent_population_skips_disabled_fallback_options_like_chromium(self) -> None:
+        cases = {
+            "<select><option disabled>first</option><option>second</option>"
+            "<selectedcontent></selectedcontent></select>": (
+                "<select><option disabled>first</option><option>second</option>"
+                "<selectedcontent>second</selectedcontent></select>"
+            ),
+            "<select><optgroup disabled><option>grouped</option></optgroup><option>second</option>"
+            "<selectedcontent></selectedcontent></select>": (
+                "<select><optgroup disabled><option>grouped</option></optgroup><option>second</option>"
+                "<selectedcontent>second</selectedcontent></select>"
+            ),
+            "<select><selectedcontent><option disabled>fallback</option></selectedcontent>"
+            "<option>real</option></select>": (
+                "<select><selectedcontent>real</selectedcontent><option>real</option></select>"
+            ),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_selectedcontent_population_clears_when_no_option_source_like_chromium(self) -> None:
+        cases = {
+            "<select><selectedcontent>fallback</selectedcontent></select>": (
+                "<select><selectedcontent></selectedcontent></select>"
+            ),
+            "<select><option disabled>first</option><selectedcontent>fallback</selectedcontent></select>": (
+                "<select><option disabled>first</option><selectedcontent></selectedcontent></select>"
+            ),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
 
     def test_select_start_tags_close_p_like_chromium(self) -> None:
         cases = {
