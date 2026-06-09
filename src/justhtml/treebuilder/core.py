@@ -102,6 +102,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         "_mode_handlers",
         "_open_p_elements",
         "_open_scope_name_counts",
+        "_open_template_elements",
         "_pending_end_tag_end",
         "_pending_end_tag_name",
         "_pending_end_tag_start",
@@ -159,6 +160,7 @@ class TreeBuilder(TreeBuilderModesMixin):
     original_mode: InsertionMode | None  # type: ignore[assignment]
     _open_p_elements: int
     _open_scope_name_counts: dict[str, int]
+    _open_template_elements: int
     _saw_select_element: bool
     pending_table_text: list[str]
     pending_table_text_should_error: bool
@@ -197,6 +199,7 @@ class TreeBuilder(TreeBuilderModesMixin):
         self.open_elements = []
         self._open_p_elements = 0
         self._open_scope_name_counts = {}
+        self._open_template_elements = 0
         self._saw_select_element = False
         self._pending_end_tag_name = None
         self._pending_end_tag_start = None
@@ -348,6 +351,8 @@ class TreeBuilder(TreeBuilderModesMixin):
         name = node.name
         if name == "p":
             self._open_p_elements += 1
+        elif name == "template":
+            self._open_template_elements += 1
         elif name in _OPEN_ELEMENT_SCOPE_COUNT_NAMES:
             self._open_scope_name_counts[name] = self._open_scope_name_counts.get(name, 0) + 1
 
@@ -357,6 +362,8 @@ class TreeBuilder(TreeBuilderModesMixin):
         name = node.name
         if name == "p":
             self._open_p_elements -= 1
+        elif name == "template":
+            self._open_template_elements -= 1
         elif name in _OPEN_ELEMENT_SCOPE_COUNT_NAMES:
             count = self._open_scope_name_counts.get(name, 0)
             if count <= 1:
@@ -367,6 +374,9 @@ class TreeBuilder(TreeBuilderModesMixin):
     def _note_open_elements_removed(self, nodes: list[Any]) -> None:
         for node in nodes:
             self._note_open_element_removed(node)
+
+    def _has_template_on_stack(self) -> bool:
+        return self._open_template_elements > 0
 
     def _close_p_element(self) -> bool:
         if self._has_element_in_button_scope("p"):

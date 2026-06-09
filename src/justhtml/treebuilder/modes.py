@@ -199,9 +199,7 @@ class TreeBuilderModesMixin:
                 self.template_modes.append(InsertionMode.IN_TEMPLATE)
                 return None
             if token.kind == Tag.END and token.name == "template":
-                # Check if template is on the stack (don't use scope check as table blocks it)
-                has_template = any(node is not None and node.name == "template" for node in self.open_elements)
-                if not has_template:
+                if not self._has_template_on_stack():
                     return None
                 self._generate_implied_end_tags()
                 self._pop_until_inclusive("template")
@@ -357,8 +355,7 @@ class TreeBuilderModesMixin:
                 self.mode = InsertionMode.IN_HEAD
                 return ("reprocess", InsertionMode.IN_HEAD, token)
             if token.kind == Tag.END and token.name == "template":
-                has_template = any(node is not None and node.name == "template" for node in self.open_elements)
-                if not has_template:
+                if not self._has_template_on_stack():
                     self._parse_error("unexpected-end-tag", tag_name=token.name)
                     return None
                 return self._mode_in_head(token)
@@ -922,8 +919,7 @@ class TreeBuilderModesMixin:
         return
 
     def _handle_body_end_template(self, token: Tag) -> None:
-        has_template = any(node is not None and node.name == "template" for node in self.open_elements)
-        if not has_template:
+        if not self._has_template_on_stack():
             self._parse_error("unexpected-end-tag", tag_name=token.name)
             return
         self._generate_implied_end_tags()
@@ -1816,9 +1812,7 @@ class TreeBuilderModesMixin:
             }:
                 return self._mode_in_head(token)
         if isinstance(token, EOFToken):
-            # Check if template is on the stack (don't use _in_scope as table blocks it)
-            has_template = any(node is not None and node.name == "template" for node in self.open_elements)
-            if not has_template:
+            if not self._has_template_on_stack():
                 return None
             # Parse error for EOF in template
             self._parse_error("expected-closing-tag-but-got-eof", tag_name="template")

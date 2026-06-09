@@ -14,6 +14,7 @@ def _set_open_elements(tree_builder, elements):
     tree_builder.open_elements = elements
     tree_builder._open_p_elements = 0
     tree_builder._open_scope_name_counts = {}
+    tree_builder._open_template_elements = 0
     for element in elements:
         tree_builder._note_open_element_pushed(element)
 
@@ -484,6 +485,21 @@ class TestTreeBuilder(unittest.TestCase):
 
         self.assertIs(tree_builder._pop_current(), dd)
         self.assertFalse(tree_builder._has_in_definition_scope("dd"))
+
+    def test_template_stack_cache_tracks_open_element_mutations(self) -> None:
+        tree_builder = TreeBuilder()
+        html = tree_builder._create_element("html", None, {})
+        body = tree_builder._create_element("body", None, {})
+        template = tree_builder._create_element("template", None, {})
+        _set_open_elements(tree_builder, [html, body, template])
+
+        self.assertTrue(tree_builder._has_template_on_stack())
+
+        removed = tree_builder.open_elements[1:]
+        tree_builder._note_open_elements_removed(removed)
+        del tree_builder.open_elements[1:]
+
+        self.assertFalse(tree_builder._has_template_on_stack())
 
     def test_any_other_end_tag_skips_placeholder_stack_entries(self) -> None:
         tree_builder = TreeBuilder(collect_errors=True)
