@@ -34,6 +34,8 @@ JustHTML is for applications that want a boring, inspectable, pure-Python defaul
 - **Easy deployment:** zero runtime dependencies, no compiler, works on PyPy and Pyodide.
 - **Honest tradeoff:** if you are parsing terabytes of trusted HTML, use a C/Rust parser. If you need reliable handling of untrusted or malformed HTML inside a Python app, use JustHTML.
 
+Real-world signal: [Mozilla Support migrated from Bleach to JustHTML](https://github.com/mozilla/kitsune/pull/7236) in Kitsune, the Django application behind support.mozilla.org.
+
 ## Quick Start
 
 ```python
