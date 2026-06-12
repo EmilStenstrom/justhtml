@@ -993,7 +993,7 @@ class TestSerialize(unittest.TestCase):
         output = div.to_html(pretty=True)
         assert output == "<div>\n  <a></a>\n</div>"
 
-    def test_blockish_compact_multiline_not_used_with_comment_children(self):
+    def test_pretty_block_container_puts_comments_on_their_own_lines(self):
         div = Node("div")
         div.append_child(Node("span"))
         div.append_child(Text(" "))
@@ -1001,7 +1001,36 @@ class TestSerialize(unittest.TestCase):
         div.append_child(Text(" "))
         div.append_child(Node("span"))
         output = div.to_html(pretty=True)
-        assert output == "<div><span></span> <!--x--> <span></span></div>"
+        assert output == textwrap.dedent(
+            """\
+            <div>
+              <span></span>
+              <!--x-->
+              <span></span>
+            </div>
+            """
+        ).strip("\n")
+
+    def test_pretty_document_preserves_paragraph_line_breaks_when_body_has_comment(self):
+        doc = JustHTML(
+            "<!doctype html><html><body><!-- c --><p>One</p>\n<p>Two</p></body></html>",
+            sanitize=False,
+        )
+
+        output = doc.to_html(pretty=True)
+        assert output == textwrap.dedent(
+            """\
+            <!DOCTYPE html>
+            <html>
+              <head></head>
+              <body>
+                <!-- c -->
+                <p>One</p>
+                <p>Two</p>
+              </body>
+            </html>
+            """
+        ).strip("\n")
 
     def test_blockish_compact_multiline_not_used_with_non_whitespace_text(self):
         div = Node("div")
@@ -1093,8 +1122,8 @@ class TestSerialize(unittest.TestCase):
         output = outer.to_html(pretty=True)
         assert output == "<span><span></span> <span></span></span>"
 
-    def test_compact_mode_drops_edge_whitespace_with_none_children(self):
-        # Ensure the compact-mode whitespace edge trimming is robust with None children.
+    def test_pretty_comment_multiline_drops_edge_whitespace_with_none_children(self):
+        # Ensure whitespace edge trimming is robust with None children.
         div = Node("div")
         div.children = [
             Text(" \n"),
@@ -1104,7 +1133,27 @@ class TestSerialize(unittest.TestCase):
             None,
         ]
         output = div.to_html(pretty=True)
-        assert output == "<div><a></a><!--x--></div>"
+        assert output == textwrap.dedent(
+            """\
+            <div>
+              <a></a>
+              <!--x-->
+            </div>
+            """
+        ).strip("\n")
+
+    def test_compact_comment_text_mode_drops_edge_whitespace_with_none_children(self):
+        div = Node("div")
+        div.children = [
+            None,
+            Text(" \n"),
+            Comment(data="x"),
+            Text("hi"),
+            Text(" \t\n"),
+            None,
+        ]
+        output = div.to_html(pretty=True)
+        assert output == "<div><!--x-->hi</div>"
 
     def test_pretty_indentation_skips_whitespace_text_nodes(self):
         # Hit the indentation-mode branch that skips whitespace-only text nodes.
@@ -1143,12 +1192,22 @@ class TestSerialize(unittest.TestCase):
         link.children = []
         assert _should_pretty_indent_children([link]) is False
 
-    def test_pretty_indent_children_does_not_indent_comments(self):
+    def test_should_pretty_indent_children_rejects_comments(self):
+        assert _should_pretty_indent_children([Comment(data="x")]) is False
+
+    def test_pretty_indent_children_indents_comments(self):
         div = Node("div")
         div.append_child(Comment(data="x"))
         div.append_child(Node("p"))
         output = div.to_html(pretty=True)
-        assert output == "<div><!--x--><p></p></div>"
+        assert output == textwrap.dedent(
+            """\
+            <div>
+              <!--x-->
+              <p></p>
+            </div>
+            """
+        ).strip("\n")
 
     def test_whitespace_in_fragment(self):
         frag = DocumentFragment()

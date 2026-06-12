@@ -756,7 +756,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                 for child in children:
                     if child is None:
                         continue
-                    if child.name == "#comment" or (child.name == "#text" and (child.data or "").strip()):
+                    if child.name == "#text" and (child.data or "").strip():
                         can_indent = False
                         break
 

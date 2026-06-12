@@ -683,8 +683,7 @@ class TreeBuilderModesMixin:
                     node_formatting_index = None
 
                 if node_formatting_index is None:
-                    self._note_open_element_removed(self.open_elements[node_index])
-                    del self.open_elements[node_index]
+                    self._delete_open_element_at(node_index)
                     continue
 
                 # 10.4 Replace entry with new element
@@ -695,9 +694,7 @@ class TreeBuilderModesMixin:
                     new_element._origin_line = entry.node.origin_line
                     new_element._origin_col = entry.node.origin_col
                 entry.node = new_element
-                self._note_open_element_removed(self.open_elements[node_index])
-                self.open_elements[node_index] = new_element
-                self._note_open_element_pushed(new_element)
+                self._replace_open_element_at(node_index, new_element)
                 node = new_element
 
                 # 10.5 If last node is furthest block, update bookmark
@@ -751,11 +748,9 @@ class TreeBuilderModesMixin:
             self.active_formatting.insert(bookmark, entry)
 
             # 15. Remove formatting element from open elements and insert new one
-            self._note_open_element_removed(formatting_element)
-            self.open_elements.remove(formatting_element)
+            self._remove_open_element(formatting_element)
             furthest_block_index = self.open_elements.index(furthest_block)
-            self.open_elements.insert(furthest_block_index + 1, new_formatting_element)
-            self._note_open_element_pushed(new_formatting_element)
+            self._insert_open_element_at(furthest_block_index + 1, new_formatting_element)
 
     def _handle_body_start_a(self, token: Tag) -> None:
         if self._has_active_formatting_entry("a"):
@@ -812,8 +807,7 @@ class TreeBuilderModesMixin:
             return
         body_elem = self.open_elements[body_index]
         body_elem.parent.remove_child(body_elem)
-        self._note_open_elements_removed(self.open_elements[body_index:])
-        self.open_elements = self.open_elements[:body_index]
+        self._truncate_open_elements_from(body_index)
         self._insert_element(token, push=True)
         self.mode = InsertionMode.IN_FRAMESET
         return

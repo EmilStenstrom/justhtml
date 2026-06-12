@@ -378,6 +378,27 @@ class TreeBuilder(TreeBuilderModesMixin):
     def _has_template_on_stack(self) -> bool:
         return self._open_template_elements > 0
 
+    def _delete_open_element_at(self, index: int) -> None:
+        self._note_open_element_removed(self.open_elements[index])
+        del self.open_elements[index]
+
+    def _replace_open_element_at(self, index: int, node: Any) -> None:
+        self._note_open_element_removed(self.open_elements[index])
+        self.open_elements[index] = node
+        self._note_open_element_pushed(node)
+
+    def _remove_open_element(self, node: Any) -> None:
+        self._note_open_element_removed(node)
+        self.open_elements.remove(node)
+
+    def _insert_open_element_at(self, index: int, node: Any) -> None:
+        self.open_elements.insert(index, node)
+        self._note_open_element_pushed(node)
+
+    def _truncate_open_elements_from(self, index: int) -> None:
+        self._note_open_elements_removed(self.open_elements[index:])
+        del self.open_elements[index:]
+
     def _close_p_element(self) -> bool:
         if self._has_element_in_button_scope("p"):
             self._generate_implied_end_tags("p")
@@ -825,9 +846,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             node = self.open_elements[index]
             if node is not None and node.name == name:
                 self._maybe_mark_end_tag(node)
-                removed = self.open_elements[index:]
-                self._note_open_elements_removed(removed)
-                del self.open_elements[index:]
+                self._truncate_open_elements_from(index)
                 return
             index -= 1
 
@@ -850,9 +869,7 @@ class TreeBuilder(TreeBuilderModesMixin):
                     self._parse_error("end-tag-too-early")
                 self._maybe_mark_end_tag(node)
                 # Pop all elements from this node onwards
-                removed = self.open_elements[index:]
-                self._note_open_elements_removed(removed)
-                del self.open_elements[index:]
+                self._truncate_open_elements_from(index)
                 return
 
             # If node is a special element, parse error and ignore the tag
@@ -874,8 +891,7 @@ class TreeBuilder(TreeBuilderModesMixin):
     def _remove_from_open_elements(self, node: Any) -> None:
         index = self.open_elements.index(node)
         self._maybe_mark_end_tag(node)
-        self._note_open_element_removed(node)
-        del self.open_elements[index]
+        self._delete_open_element_at(index)
 
     def _is_special_element(self, node: Any) -> bool:
         if node.namespace not in {None, "html"}:
@@ -968,8 +984,7 @@ class TreeBuilder(TreeBuilderModesMixin):
             if self.open_elements[index].name == name:
                 node = self.open_elements[index]
                 self._maybe_mark_end_tag(node)
-                self._note_open_element_removed(node)
-                del self.open_elements[index]
+                self._delete_open_element_at(index)
                 return
 
     def _append_active_formatting_entry(self, name: str, attrs: dict[str, str | None], node: Any) -> None:
@@ -1346,9 +1361,7 @@ class TreeBuilder(TreeBuilderModesMixin):
                     return ("reprocess", self.mode, token, True)
                 # Otherwise it's a foreign element - pop everything from this point up
                 self._maybe_mark_end_tag(node)
-                removed = self.open_elements[idx:]
-                self._note_open_elements_removed(removed)
-                del self.open_elements[idx:]
+                self._truncate_open_elements_from(idx)
                 return None
 
             # Per HTML5 spec: if first node doesn't match, it's a parse error
