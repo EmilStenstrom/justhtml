@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-06-12
+
+### Fixed
+- Preserve pretty-printed paragraph line breaks when sanitization is disabled and comments are present in block containers.
+
+### Performance
+- Speed up tree construction scope checks by tracking open elements for common scoped element names.
+
+### Changed
+- Refactor tree-builder open-element bookkeeping and active-formatting entries without changing the public API.
+
 ## [2.2.0] - 2026-06-07
 
 ### Fixed
