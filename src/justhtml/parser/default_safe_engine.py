@@ -12,7 +12,14 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from justhtml.core.constants import HEADING_ELEMENTS, IMPLIED_END_TAGS, TABLE_ALLOWED_CHILDREN, VOID_ELEMENTS
+from justhtml.core.constants import (
+    FORMATTING_ELEMENTS,
+    HEADING_ELEMENTS,
+    IMPLIED_END_TAGS,
+    SPECIAL_ELEMENTS,
+    TABLE_ALLOWED_CHILDREN,
+    VOID_ELEMENTS,
+)
 from justhtml.core.entities import decode_entities_in_text
 from justhtml.dom import Document, DocumentFragment, Element, Node, Template, Text
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, _strip_invisible_unicode
@@ -38,6 +45,7 @@ _DROP_SUBTREE_TAGS = {"svg", "math"}
 _RCDATA_TAGS = {"title", "textarea"}
 _RAWTEXT_AS_TEXT_TAGS = {"noscript"}
 _PLAINTEXT_TAGS = {"plaintext"}
+_ACTIVE_FORMATTING_TAGS = FORMATTING_ELEMENTS
 _HEAD_CONTENT_TAGS = {"base", "basefont", "bgsound", "link", "meta", "noscript", "script", "style", "template", "title"}
 _P_CLOSING_START_TAGS = {
     "address",
@@ -116,6 +124,7 @@ class EnginePlan:
     drop_doctype: bool
     drop_content_tags: frozenset[str]
     drop_subtree_tags: frozenset[str]
+    active_formatting_tags: frozenset[str]
     frameset_body_ok_tags: frozenset[str]
     frameset_blocking_start_tags: frozenset[str]
     head_content_tags: frozenset[str]
@@ -126,6 +135,7 @@ class EnginePlan:
     rawtext_as_text_tags: frozenset[str]
     rcdata_tags: frozenset[str]
     plaintext_tags: frozenset[str]
+    special_elements: frozenset[str]
     strip_invisible_unicode: bool
     table_allowed_children: frozenset[str]
     table_cell_tags: frozenset[str]
@@ -163,6 +173,7 @@ def compile_default_engine_plan(*, fragment: bool) -> EnginePlan:
         drop_doctype=policy.drop_doctype,
         drop_content_tags=frozenset(policy.drop_content_tags),
         drop_subtree_tags=frozenset(_DROP_SUBTREE_TAGS),
+        active_formatting_tags=frozenset(_ACTIVE_FORMATTING_TAGS).intersection(policy.allowed_tags),
         frameset_body_ok_tags=frozenset(_FRAMESET_BODY_OK_TAGS),
         frameset_blocking_start_tags=frozenset(_FRAMESET_BLOCKING_START_TAGS),
         head_content_tags=frozenset(_HEAD_CONTENT_TAGS),
@@ -173,6 +184,7 @@ def compile_default_engine_plan(*, fragment: bool) -> EnginePlan:
         rawtext_as_text_tags=frozenset(_RAWTEXT_AS_TEXT_TAGS),
         rcdata_tags=frozenset(_RCDATA_TAGS),
         plaintext_tags=frozenset(_PLAINTEXT_TAGS),
+        special_elements=frozenset(SPECIAL_ELEMENTS),
         strip_invisible_unicode=policy.strip_invisible_unicode,
         table_allowed_children=frozenset(TABLE_ALLOWED_CHILDREN),
         table_cell_tags=frozenset(_TABLE_CELL_TAGS),
@@ -184,8 +196,19 @@ def compile_default_engine_plan(*, fragment: bool) -> EnginePlan:
     return plan
 
 
+@dataclass(slots=True)
+class _FormattingEntry:
+    name: str
+    attrs: dict[str, str | None]
+    node: Element
+    signature: tuple[tuple[str, str], ...]
+
+
 class DefaultSafeEngine:
     __slots__ = (
+        "_active_formatting",
+        "_active_formatting_dirty",
+        "_active_formatting_tags",
         "_after_head",
         "_allowed_by_tag",
         "_allowed_global",
@@ -220,6 +243,7 @@ class DefaultSafeEngine:
         "_pre_linefeed_ignoring_tags",
         "_rawtext_as_text_tags",
         "_rcdata_tags",
+        "_special_elements",
         "_stack",
         "_strip_invisible_unicode",
         "_table_allowed_children",
@@ -237,6 +261,7 @@ class DefaultSafeEngine:
         self._lower_input = html.lower()
         self._fragment = bool(fragment)
         self._plan = plan if plan is not None else compile_default_engine_plan(fragment=fragment)
+        self._active_formatting_tags = self._plan.active_formatting_tags
         self._allowed_tags = self._plan.allowed_tags
         self._allowed_global = self._plan.allowed_global_attrs
         self._allowed_by_tag = self._plan.allowed_attrs_by_tag
@@ -256,6 +281,7 @@ class DefaultSafeEngine:
         self._pre_linefeed_ignoring_tags = self._plan.pre_linefeed_ignoring_tags
         self._rawtext_as_text_tags = self._plan.rawtext_as_text_tags
         self._rcdata_tags = self._plan.rcdata_tags
+        self._special_elements = self._plan.special_elements
         self._strip_invisible_unicode = self._plan.strip_invisible_unicode
         self._table_allowed_children = self._plan.table_allowed_children
         self._table_cell_tags = self._plan.table_cell_tags
@@ -274,6 +300,8 @@ class DefaultSafeEngine:
         self._html: Element | None = None
         self._head: Element | None = None
         self._body: Element | DocumentFragment
+        self._active_formatting: list[_FormattingEntry] = []
+        self._active_formatting_dirty = False
         self._stack: list[Node] = []
 
     def parse(self) -> Document | DocumentFragment:
@@ -373,6 +401,8 @@ class DefaultSafeEngine:
         if not self._fragment and self._frameset_seen and not self._body_explicit:
             self._append_frameset_text(raw)
             return
+        if self._active_formatting_dirty:
+            self._reconstruct_active_formatting()
         parent = self._current_parent()
         if not self._fragment and parent is self._html and self._after_head and raw.strip(_SPACE) != "":
             self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
@@ -480,6 +510,9 @@ class DefaultSafeEngine:
         if name == "br":
             self._insert_allowed_element("br", {}, False, self._current_parent())
             return pos
+        if name in self._active_formatting_tags:
+            self._adoption_agency(name)
+            return pos
 
         stack = self._stack
         idx = self._find_open_index(name)
@@ -490,6 +523,7 @@ class DefaultSafeEngine:
             return pos
         if name in self._implied_end_tags:
             self._generate_implied_end_tags(name)
+        self._mark_active_formatting_dirty()
         del stack[idx:]
         return pos
 
@@ -556,6 +590,9 @@ class DefaultSafeEngine:
         if name in self._plaintext_tags:
             return self._parse_plaintext_as_text(pos, end)
 
+        if name in self._active_formatting_tags:
+            return self._parse_formatting_start(name, attrs, pos)
+
         parent: Node
         if name in self._head_content_tags and not self._fragment and self._head is not None and not self._body_has_content():
             parent = self._head
@@ -593,6 +630,15 @@ class DefaultSafeEngine:
         parent: Node,
     ) -> Element:
         attrs = self._sanitize_attrs(name, attrs)
+        return self._insert_sanitized_element(name, attrs, self_closing, parent)
+
+    def _insert_sanitized_element(
+        self,
+        name: str,
+        attrs: dict[str, str | None],
+        self_closing: bool,
+        parent: Node,
+    ) -> Element:
         node: Element
         if name == "template":
             node = Template(name, attrs, namespace="html")
@@ -642,6 +688,7 @@ class DefaultSafeEngine:
     def _close_until(self, name: str) -> None:
         idx = self._find_open_index(name)
         if idx is not None:
+            self._mark_active_formatting_dirty()
             del self._stack[idx:]
 
     def _close_until_before_boundary(self, name: str, boundaries: frozenset[str]) -> None:
@@ -649,6 +696,7 @@ class DefaultSafeEngine:
         for idx in range(len(stack) - 1, 0, -1):
             node_name = getattr(stack[idx], "name", None)
             if node_name == name:
+                self._mark_active_formatting_dirty()
                 del stack[idx:]
                 return
             if node_name in boundaries:
@@ -659,6 +707,7 @@ class DefaultSafeEngine:
         while len(stack) > 1:
             name = getattr(stack[-1], "name", None)
             if name in self._implied_end_tags and name != exclude:
+                self._mark_active_formatting_dirty()
                 stack.pop()
                 continue
             break
@@ -685,11 +734,8 @@ class DefaultSafeEngine:
             self._close_until("optgroup")
             return
 
-        if name == "a":
-            self._close_until("a")
-            return
-
         if name in HEADING_ELEMENTS and getattr(self._stack[-1], "name", None) in HEADING_ELEMENTS:
+            self._mark_active_formatting_dirty()
             self._stack.pop()
 
     def _repair_table_for_start(self, name: str) -> None:
@@ -701,6 +747,7 @@ class DefaultSafeEngine:
             if getattr(self._current_parent(), "name", None) != "table":
                 table_idx = self._find_open_index("table")
                 if table_idx is not None:
+                    self._mark_active_formatting_dirty()
                     del self._stack[table_idx + 1 :]
             return
 
@@ -713,6 +760,7 @@ class DefaultSafeEngine:
             elif parent_name not in self._table_section_tags:
                 table_idx = self._find_open_index("table")
                 if table_idx is not None:
+                    self._mark_active_formatting_dirty()
                     del self._stack[table_idx + 1 :]
                     self._insert_allowed_element("tbody", {}, False, self._current_parent())
             return
@@ -731,6 +779,7 @@ class DefaultSafeEngine:
                 return
             table_idx = self._find_open_index("table")
             if table_idx is not None:
+                self._mark_active_formatting_dirty()
                 del self._stack[table_idx + 1 :]
                 self._insert_allowed_element("tbody", {}, False, self._current_parent())
                 self._insert_allowed_element("tr", {}, False, self._current_parent())
@@ -742,6 +791,7 @@ class DefaultSafeEngine:
             if name == "table":
                 return
             if name in self._table_cell_tags:
+                self._mark_active_formatting_dirty()
                 del stack[idx:]
                 return
 
@@ -865,6 +915,268 @@ class DefaultSafeEngine:
         if html[pos] == "\r":
             return pos + 2 if pos + 1 < end and html[pos + 1] == "\n" else pos + 1
         return pos
+
+    def _parse_formatting_start(self, name: str, attrs: dict[str, str | None], pos: int) -> int:
+        if name == "a" and self._find_active_formatting_index("a") is not None:
+            self._adoption_agency("a")
+            self._remove_last_active_formatting_by_name("a")
+            self._remove_last_open_element_by_name("a")
+
+        if self._active_formatting_dirty:
+            self._reconstruct_active_formatting()
+        sanitized_attrs = self._sanitize_attrs(name, attrs)
+        signature = self._attrs_signature(sanitized_attrs)
+        if len(self._active_formatting) >= 3:
+            duplicate_index = self._find_active_formatting_duplicate(name, signature)
+            if duplicate_index is not None:
+                del self._active_formatting[duplicate_index]
+
+        node = self._insert_sanitized_element(name, sanitized_attrs, False, self._current_parent())
+        self._append_active_formatting_entry(name, node.attrs, node, signature)
+        return pos
+
+    def _attrs_signature(self, attrs: dict[str, str | None]) -> tuple[tuple[str, str], ...]:
+        if not attrs:
+            return ()
+        if len(attrs) == 1:
+            name, value = next(iter(attrs.items()))
+            return ((name, value or ""),)
+        items = [(name, value or "") for name, value in attrs.items()]
+        items.sort()
+        return tuple(items)
+
+    def _append_active_formatting_entry(
+        self,
+        name: str,
+        attrs: dict[str, str | None],
+        node: Element,
+        signature: tuple[tuple[str, str], ...],
+    ) -> None:
+        entry_attrs = attrs if attrs else {}
+        self._active_formatting.append(_FormattingEntry(name, entry_attrs, node, signature))
+        self._active_formatting_dirty = False
+
+    def _find_active_formatting_index(self, name: str) -> int | None:
+        active = self._active_formatting
+        for idx in range(len(active) - 1, -1, -1):
+            if active[idx].name == name:
+                return idx
+        return None
+
+    def _find_active_formatting_index_by_node(self, node: Node) -> int | None:
+        active = self._active_formatting
+        for idx in range(len(active) - 1, -1, -1):
+            if active[idx].node is node:
+                return idx
+        return None
+
+    def _find_active_formatting_duplicate(self, name: str, signature: tuple[tuple[str, str], ...]) -> int | None:
+        matches = 0
+        first_index: int | None = None
+        for idx, entry in enumerate(self._active_formatting):
+            if entry.name == name and entry.signature == signature:
+                matches += 1
+                if first_index is None:
+                    first_index = idx
+        return first_index if matches >= 3 else None
+
+    def _remove_last_active_formatting_by_name(self, name: str) -> None:
+        active = self._active_formatting
+        for idx in range(len(active) - 1, -1, -1):
+            if active[idx].name == name:
+                del active[idx]
+                return
+
+    def _remove_last_open_element_by_name(self, name: str) -> None:
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            if getattr(stack[idx], "name", None) == name:
+                self._mark_active_formatting_dirty()
+                del stack[idx]
+                return
+
+    def _reconstruct_active_formatting(self) -> None:
+        active = self._active_formatting
+        if not active:
+            self._active_formatting_dirty = False
+            return
+        if not self._active_formatting_dirty and active[-1].node in self._stack:
+            return
+
+        idx = len(active) - 1
+        while idx >= 0 and active[idx].node not in self._stack:
+            idx -= 1
+        idx += 1
+
+        while idx < len(active):
+            entry = active[idx]
+            node = self._insert_sanitized_element(entry.name, entry.attrs.copy(), False, self._current_parent())
+            entry.node = node
+            idx += 1
+        self._active_formatting_dirty = False
+
+    def _adoption_agency(self, subject: str) -> None:
+        stack = self._stack
+        active = self._active_formatting
+        for _ in range(8):
+            formatting_index = self._find_active_formatting_index(subject)
+            if formatting_index is None:
+                if stack and getattr(stack[-1], "name", None) == subject:
+                    self._close_until(subject)
+                return
+
+            entry = active[formatting_index]
+            formatting_element = entry.node
+            if stack and stack[-1] is formatting_element:
+                stack.pop()
+                del active[formatting_index]
+                if not active:
+                    self._active_formatting_dirty = False
+                return
+            try:
+                formatting_stack_index = stack.index(formatting_element)
+            except ValueError:
+                del active[formatting_index]
+                self._refresh_active_formatting_dirty()
+                return
+
+            if formatting_element is not stack[-1]:
+                pass
+
+            furthest_block: Node | None = None
+            furthest_block_index: int | None = None
+            for idx in range(formatting_stack_index + 1, len(stack)):
+                candidate = stack[idx]
+                if self._is_special_node(candidate):
+                    furthest_block = candidate
+                    furthest_block_index = idx
+                    break
+
+            if furthest_block is None:
+                self._mark_active_formatting_dirty()
+                del stack[formatting_stack_index:]
+                del self._active_formatting[formatting_index]
+                self._refresh_active_formatting_dirty()
+                return
+            if furthest_block_index is None:
+                return
+
+            bookmark = formatting_index + 1
+            last_node: Node = furthest_block
+            node_index = furthest_block_index
+
+            inner_counter = 0
+            while True:
+                inner_counter += 1
+                node_index -= 1
+                node = stack[node_index]
+                if node is formatting_element:
+                    break
+
+                node_formatting_index = self._find_active_formatting_index_by_node(node)
+                if inner_counter > 3 and node_formatting_index is not None:
+                    del self._active_formatting[node_formatting_index]
+                    if node_formatting_index < bookmark:
+                        bookmark -= 1
+                    node_formatting_index = None
+
+                if node_formatting_index is None:
+                    self._mark_active_formatting_dirty()
+                    del stack[node_index]
+                    continue
+
+                node_entry = self._active_formatting[node_formatting_index]
+                new_node = self._clone_formatting_entry(node_entry)
+                node_entry.node = new_node
+                stack[node_index] = new_node
+                node = new_node
+
+                if last_node is furthest_block:
+                    bookmark = node_formatting_index + 1
+
+                self._detach_node(last_node)
+                self._append_moved_node(node, last_node)
+                last_node = node
+
+            common_ancestor = stack[formatting_stack_index - 1]
+            self._detach_node(last_node)
+            foster = self._foster_parent_for(common_ancestor, for_tag=getattr(last_node, "name", None))
+            if foster is None:
+                self._append_moved_node(common_ancestor, last_node)
+            else:
+                foster_parent, position = foster
+                self._insert_moved_node_at(foster_parent, position, last_node)
+
+            new_formatting_element = self._clone_formatting_entry(entry)
+            entry.node = new_formatting_element
+
+            moved_children = list(furthest_block.children or ())
+            if furthest_block.children is not None:
+                furthest_block.children.clear()
+            for child in moved_children:
+                self._append_moved_node(new_formatting_element, child)
+
+            self._append_moved_node(furthest_block, new_formatting_element)
+
+            del self._active_formatting[formatting_index]
+            bookmark -= 1
+            if bookmark < 0:
+                bookmark = 0
+            if bookmark > len(self._active_formatting):
+                bookmark = len(self._active_formatting)
+            self._active_formatting.insert(bookmark, entry)
+
+            try:
+                self._mark_active_formatting_dirty()
+                stack.remove(formatting_element)
+            except ValueError:
+                pass
+            furthest_stack_index = stack.index(furthest_block)
+            stack.insert(furthest_stack_index + 1, new_formatting_element)
+            self._refresh_active_formatting_dirty()
+
+    def _mark_active_formatting_dirty(self) -> None:
+        if self._active_formatting:
+            self._active_formatting_dirty = True
+
+    def _refresh_active_formatting_dirty(self) -> None:
+        active = self._active_formatting
+        if not active:
+            self._active_formatting_dirty = False
+            return
+        stack = self._stack
+        self._active_formatting_dirty = any(entry.node not in stack for entry in active)
+
+    def _clone_formatting_entry(self, entry: _FormattingEntry) -> Element:
+        return Element(entry.name, entry.attrs.copy(), "html")
+
+    def _is_special_node(self, node: Node) -> bool:
+        return getattr(node, "namespace", None) in {None, "html"} and getattr(node, "name", None) in self._special_elements
+
+    def _detach_node(self, node: Node) -> None:
+        parent = node.parent
+        children = parent.children if parent is not None else None
+        if children is None:
+            return
+        try:
+            children.remove(node)
+        except ValueError:
+            return
+        node.parent = None
+
+    def _append_moved_node(self, parent: Node, node: Node) -> None:
+        children = parent.children
+        if children is None:
+            return
+        children.append(node)
+        node.parent = parent
+
+    def _insert_moved_node_at(self, parent: Node, position: int, node: Node) -> None:
+        children = parent.children
+        if children is None:
+            return
+        children.insert(position, node)
+        node.parent = parent
 
     def _parse_attrs(self, pos: int, end: int) -> tuple[dict[str, str | None], bool, int]:
         html = self._html_input
@@ -1038,6 +1350,7 @@ class DefaultSafeEngine:
         if children is not None:
             children.clear()
         self._frameset_seen = True
+        self._mark_active_formatting_dirty()
         self._stack = [self._doc, self._html]  # type: ignore[list-item]
         self._after_head = False
         return True
