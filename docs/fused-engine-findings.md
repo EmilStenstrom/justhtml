@@ -130,13 +130,13 @@ Current result:
 
 - Total html5lib tree cases: `1791`.
 - Eligible full-document cases: `1564`.
-- Exact matches: `1228`.
-- Mismatches: `334`.
+- Exact matches: `1275`.
+- Mismatches: `287`.
 - New-engine-only exceptions: `0`.
 - Reference-path exceptions: `2` malformed-doctype serializations.
-- Exact/total rate: `68.57%`.
-- Exact/eligible rate: `78.52%`.
-- Exact/compared rate: `78.62%`.
+- Exact/total rate: `71.19%`.
+- Exact/eligible rate: `81.52%`.
+- Exact/compared rate: `81.63%`.
 - Skipped unsupported modes: `192` fragment-context cases and `35`
   scripting-directive cases.
 
@@ -151,12 +151,16 @@ Incremental progress in this pass:
   `77.37%` eligible, `2.210x` speedup.
 - Bogus markup, `</br>`, and `<image>` recovery: `1228/1791` total
   (`68.57%`), `78.52%` eligible, `2.196x` speedup.
+- Active formatting/adoption agency for default-safe kept formatting tags:
+  `1275/1791` total (`71.19%`), `81.52%` eligible, `2.067x` speedup.
 
-The largest remaining buckets are adoption-agency/active-formatting behavior,
-select-like insertion modes, deeper table/template cases, script-data edge
-states, and quirks around malformed inline structure. Malformed doctype names
-are normalized in `DefaultSafeEngine` so the new engine does not produce unsafe
-names that later fail serialization.
+The largest remaining buckets are the unsupported parts of
+adoption-agency/active-formatting behavior, especially disallowed/ghost
+formatting elements and `nobr`; select-like insertion modes, deeper
+table/template cases, script-data edge states, and quirks around malformed
+inline/block structure. Malformed doctype names are normalized in
+`DefaultSafeEngine` so the new engine does not produce unsafe names that later
+fail serialization.
 
 ## Benchmark Result
 
@@ -180,8 +184,8 @@ Result:
 - Compliance-pass speedup: `2.283x`.
 - html5lib-scorecard pass median: `0.469793s`.
 - html5lib-scorecard pass speedup: `2.285x`.
-- Latest html5lib-targeting median: `0.488867s`.
-- Latest html5lib-targeting speedup: `2.196x`.
+- Latest html5lib-targeting median: `0.519467s`.
+- Latest html5lib-targeting speedup: `2.067x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -197,11 +201,11 @@ outputs exactly matched the existing parser. This is up from `2/100` for the
 raw one-pass parser and `20/100` after the first recovery pass.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1228/1791` total cases and `1228/1564` eligible full-document cases match the
+`1275/1791` total cases and `1275/1564` eligible full-document cases match the
 existing default-safe path, and the new engine has no current-only serialization
 exceptions in that suite.
 
-Remaining diffs are now more varied: exact whitespace counts, broader
+Remaining diffs are now more varied: exact whitespace counts, unsupported
 formatting-element/adoption behavior, malformed inline links, deeper table
 corner cases, select/template handling, foreign-content integration points, and
 some sanitizer edge cases around unusual attributes or escaped source.
