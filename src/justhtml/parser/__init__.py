@@ -16,6 +16,7 @@ from justhtml.transforms import apply_compiled_transforms, compile_transforms
 from justhtml.treebuilder import TreeBuilder
 
 from .context import FragmentContext
+from .default_safe_engine import DefaultSafeEngine
 from .encoding import decode_html
 from .fused import FusedDefaultTreeBuilder
 
@@ -78,6 +79,7 @@ class JustHTML:
         _tokenizer_opts: TokenizerOpts | None = None,
         transforms: list[TransformSpec] | None = None,
     ) -> None:
+        source_is_plain_str = isinstance(html, str)
         sanitize_enabled = True if sanitize is None else bool(sanitize)
 
         if fragment_context is not None:
@@ -151,6 +153,24 @@ class JustHTML:
         # Enable error collection if strict mode is on.
         # Node location tracking is opt-in to avoid slowing down the common case.
         should_collect = collect_errors or strict
+
+        if (
+            source_is_plain_str
+            and sanitize_enabled
+            and policy is None
+            and not transforms
+            and not should_collect
+            and not track_node_locations
+            and not debug
+            and not iframe_srcdoc
+            and _tokenizer_opts is None
+            and scripting_enabled
+        ):
+            self.tree_builder = None  # type: ignore[assignment]
+            self.tokenizer = None  # type: ignore[assignment]
+            self.root = DefaultSafeEngine(html_str, fragment=fragment).parse()
+            self.errors = []
+            return
 
         construction_sanitize_policy: SanitizationPolicy | None = None
         if sanitize_enabled and not transforms and policy is None:
