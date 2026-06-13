@@ -17,7 +17,7 @@ from justhtml.treebuilder import TreeBuilder
 
 from .context import FragmentContext
 from .encoding import decode_html
-from .fused import apply_default_sanitizer_fast_path, can_apply_default_sanitizer_fast_path
+from .fused import FusedDefaultTreeBuilder
 
 if TYPE_CHECKING:
     from justhtml.sanitizer import SanitizationPolicy
@@ -152,13 +152,26 @@ class JustHTML:
         # Node location tracking is opt-in to avoid slowing down the common case.
         should_collect = collect_errors or strict
 
-        self.tree_builder = TreeBuilder(
+        construction_sanitize_policy: SanitizationPolicy | None = None
+        if sanitize_enabled and not transforms and policy is None:
+            from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
+
+            construction_sanitize_policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
+
+        tree_builder_cls: type[TreeBuilder] = TreeBuilder
+        tree_builder_kwargs: dict[str, Any] = {}
+        if construction_sanitize_policy is not None:
+            tree_builder_cls = FusedDefaultTreeBuilder
+            tree_builder_kwargs["policy"] = construction_sanitize_policy
+
+        self.tree_builder = tree_builder_cls(
             fragment_context=fragment_context,
             iframe_srcdoc=iframe_srcdoc,
             collect_errors=should_collect,
             scripting_enabled=scripting_enabled,
             track_node_locations=bool(track_node_locations),
             track_tag_spans=track_tag_spans,
+            **tree_builder_kwargs,
         )
         opts = _tokenizer_opts.copy() if _tokenizer_opts is not None else TokenizerOpts()
         opts.scripting_enabled = bool(scripting_enabled)
@@ -198,7 +211,7 @@ class JustHTML:
         # during construction by ensuring a Sanitize transform runs. If the user
         # places an explicit Sanitize() in the transform list, that explicit
         # position becomes the sanitize point (no extra final pass is appended).
-        if transforms or sanitize_enabled:
+        if transforms or (sanitize_enabled and construction_sanitize_policy is None):
             from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
             from justhtml.transforms import HardenRawtext, Sanitize, Stage, _iter_flattened_transforms  # noqa: PLC0415
 
@@ -285,22 +298,16 @@ class JustHTML:
                     t_policy.reset_collected_security_errors()
                     reset_collect_policy_ids.add(policy_id)
 
-                used_fused_default_sanitizer = False
                 compiled_transforms: Any = None
                 if len(final_transforms) == 1 and isinstance(final_transforms[0], Sanitize):
                     only = final_transforms[0]
                     p = only.policy
                     if only.enabled and only.callback is None and only.report is None and p is not None:
-                        if can_apply_default_sanitizer_fast_path(p):
-                            apply_default_sanitizer_fast_path(self.root, p)
-                            used_fused_default_sanitizer = True
-                        else:
-                            compiled_transforms = p.compile().transforms
+                        compiled_transforms = p.compile().transforms
 
-                if not used_fused_default_sanitizer and compiled_transforms is None:
+                if compiled_transforms is None:
                     compiled_transforms = compile_transforms(tuple(final_transforms))
-                if not used_fused_default_sanitizer:
-                    apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
+                apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
 
                 # Merge collected security errors into the document error list.
                 # This mirrors the old behavior where safe output could feed
