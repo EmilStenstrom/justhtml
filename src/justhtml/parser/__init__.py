@@ -16,7 +16,7 @@ from justhtml.transforms import apply_compiled_transforms, compile_transforms
 from justhtml.treebuilder import TreeBuilder
 
 from .context import FragmentContext
-from .default_safe_engine import DefaultSafeEngine
+from .default_safe_engine import DefaultSafeEngine, compile_default_engine_plan
 from .encoding import decode_html
 from .fused import FusedDefaultTreeBuilder
 
@@ -168,7 +168,11 @@ class JustHTML:
         ):
             self.tree_builder = None  # type: ignore[assignment]
             self.tokenizer = None  # type: ignore[assignment]
-            self.root = DefaultSafeEngine(html_str, fragment=fragment).parse()
+            self.root = DefaultSafeEngine(
+                html_str,
+                fragment=fragment,
+                plan=compile_default_engine_plan(fragment=fragment),
+            ).parse()
             self.errors = []
             return
 

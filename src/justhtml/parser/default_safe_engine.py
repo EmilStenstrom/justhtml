@@ -9,6 +9,8 @@ investing in HTML5 parity.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from justhtml.core.constants import HEADING_ELEMENTS, IMPLIED_END_TAGS, TABLE_ALLOWED_CHILDREN, VOID_ELEMENTS
 from justhtml.core.entities import decode_entities_in_text
@@ -16,6 +18,12 @@ from justhtml.dom import Document, DocumentFragment, Element, Node, Template, Te
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, _strip_invisible_unicode
 from justhtml.sanitizer.url import _URL_SINK_ATTRS, _sanitize_url_sink_value, _url_sink_kind_for_attr
 from justhtml.tokenizer.tokens import Doctype
+
+if TYPE_CHECKING:
+    from collections.abc import Collection, Mapping
+
+    from justhtml.sanitizer import SanitizationPolicy
+    from justhtml.sanitizer.url import UrlPolicy, UrlRule
 
 _TAG_NAME_RE = re.compile(r"[A-Za-z][^\t\n\f />]*")
 _ATTR_NAME_RE = re.compile(r"[^\t\n\f />=\0\"'<]+")
@@ -64,9 +72,83 @@ _TABLE_CELL_TAGS = {"td", "th"}
 _TABLE_FOSTER_TARGETS = {"table", "tbody", "tfoot", "thead", "tr"}
 
 
+@dataclass(frozen=True, slots=True)
+class EnginePlan:
+    """Compiled execution plan for a sanitizer-aware parse run.
+
+    The executor copies these fields into instance slots so the hot path stays
+    close to the hardcoded PoC while giving policy/behavior compilation a clear
+    boundary.
+    """
+
+    policy: SanitizationPolicy
+    allowed_tags: frozenset[str]
+    allowed_global_attrs: Collection[str]
+    allowed_attrs_by_tag: Mapping[str, frozenset[str]]
+    url_policy: UrlPolicy
+    url_rules: Mapping[tuple[str, str], UrlRule]
+    drop_doctype: bool
+    drop_content_tags: frozenset[str]
+    drop_subtree_tags: frozenset[str]
+    head_content_tags: frozenset[str]
+    implied_end_tags: frozenset[str]
+    p_closing_start_tags: frozenset[str]
+    rawtext_as_text_tags: frozenset[str]
+    rcdata_tags: frozenset[str]
+    strip_invisible_unicode: bool
+    table_allowed_children: frozenset[str]
+    table_cell_tags: frozenset[str]
+    table_foster_targets: frozenset[str]
+    table_section_tags: frozenset[str]
+    void_elements: frozenset[str]
+
+
+_ENGINE_PLAN_CACHE: dict[bool, EnginePlan] = {}
+
+
+def compile_default_engine_plan(*, fragment: bool) -> EnginePlan:
+    """Return the cached default-safe execution plan."""
+    cache_key = bool(fragment)
+    cached = _ENGINE_PLAN_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
+    allowed_attrs = policy.allowed_attributes
+    allowed_global = allowed_attrs.get("*", ())
+    allowed_by_tag = {
+        str(tag).lower(): frozenset(allowed_global).union(attrs)
+        for tag, attrs in allowed_attrs.items()
+        if tag != "*"
+    }
+    plan = EnginePlan(
+        policy=policy,
+        allowed_tags=policy.allowed_tags,
+        allowed_global_attrs=allowed_global,
+        allowed_attrs_by_tag=allowed_by_tag,
+        url_policy=policy.url_policy,
+        url_rules=policy.url_policy.allow_rules,
+        drop_doctype=policy.drop_doctype,
+        drop_content_tags=frozenset(policy.drop_content_tags),
+        drop_subtree_tags=frozenset(_DROP_SUBTREE_TAGS),
+        head_content_tags=frozenset(_HEAD_CONTENT_TAGS),
+        implied_end_tags=frozenset(IMPLIED_END_TAGS),
+        p_closing_start_tags=frozenset(_P_CLOSING_START_TAGS),
+        rawtext_as_text_tags=frozenset(_RAWTEXT_AS_TEXT_TAGS),
+        rcdata_tags=frozenset(_RCDATA_TAGS),
+        strip_invisible_unicode=policy.strip_invisible_unicode,
+        table_allowed_children=frozenset(TABLE_ALLOWED_CHILDREN),
+        table_cell_tags=frozenset(_TABLE_CELL_TAGS),
+        table_foster_targets=frozenset(_TABLE_FOSTER_TARGETS),
+        table_section_tags=frozenset(_TABLE_SECTION_TAGS),
+        void_elements=VOID_ELEMENTS,
+    )
+    _ENGINE_PLAN_CACHE[cache_key] = plan
+    return plan
+
+
 class DefaultSafeEngine:
     __slots__ = (
-        "_allowed_attrs",
         "_allowed_by_tag",
         "_allowed_global",
         "_allowed_tags",
@@ -74,34 +156,57 @@ class DefaultSafeEngine:
         "_body_explicit",
         "_doc",
         "_doctype_seen",
+        "_drop_content_tags",
+        "_drop_doctype",
+        "_drop_subtree_tags",
         "_fragment",
         "_head",
+        "_head_content_tags",
         "_html",
         "_html_input",
+        "_implied_end_tags",
         "_length",
         "_lower_input",
-        "_policy",
+        "_p_closing_start_tags",
+        "_plan",
+        "_rawtext_as_text_tags",
+        "_rcdata_tags",
         "_stack",
+        "_strip_invisible_unicode",
+        "_table_allowed_children",
+        "_table_cell_tags",
+        "_table_foster_targets",
+        "_table_section_tags",
         "_url_policy",
         "_url_rules",
+        "_void_elements",
     )
 
-    def __init__(self, html: str, *, fragment: bool) -> None:
+    def __init__(self, html: str, *, fragment: bool, plan: EnginePlan | None = None) -> None:
         self._html_input = html
         self._length = len(html)
         self._lower_input = html.lower()
         self._fragment = bool(fragment)
-        self._policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
-        self._allowed_tags = self._policy.allowed_tags
-        self._allowed_attrs = self._policy.allowed_attributes
-        self._allowed_global = self._allowed_attrs.get("*", ())
-        self._allowed_by_tag = {
-            str(tag).lower(): frozenset(self._allowed_global).union(attrs)
-            for tag, attrs in self._allowed_attrs.items()
-            if tag != "*"
-        }
-        self._url_policy = self._policy.url_policy
-        self._url_rules = self._url_policy.allow_rules
+        self._plan = plan if plan is not None else compile_default_engine_plan(fragment=fragment)
+        self._allowed_tags = self._plan.allowed_tags
+        self._allowed_global = self._plan.allowed_global_attrs
+        self._allowed_by_tag = self._plan.allowed_attrs_by_tag
+        self._url_policy = self._plan.url_policy
+        self._url_rules = self._plan.url_rules
+        self._drop_doctype = self._plan.drop_doctype
+        self._drop_content_tags = self._plan.drop_content_tags
+        self._drop_subtree_tags = self._plan.drop_subtree_tags
+        self._head_content_tags = self._plan.head_content_tags
+        self._implied_end_tags = self._plan.implied_end_tags
+        self._p_closing_start_tags = self._plan.p_closing_start_tags
+        self._rawtext_as_text_tags = self._plan.rawtext_as_text_tags
+        self._rcdata_tags = self._plan.rcdata_tags
+        self._strip_invisible_unicode = self._plan.strip_invisible_unicode
+        self._table_allowed_children = self._plan.table_allowed_children
+        self._table_cell_tags = self._plan.table_cell_tags
+        self._table_foster_targets = self._plan.table_foster_targets
+        self._table_section_tags = self._plan.table_section_tags
+        self._void_elements = self._plan.void_elements
         self._doc: Document | DocumentFragment
         self._doctype_seen = False
         self._body_explicit = False
@@ -188,7 +293,7 @@ class DefaultSafeEngine:
         text = raw
         if "&" in text:
             text = decode_entities_in_text(text)
-        if text and not text.isascii():
+        if self._strip_invisible_unicode and text and not text.isascii():
             text = _strip_invisible_unicode(text)
         return text
 
@@ -217,7 +322,7 @@ class DefaultSafeEngine:
         html = self._html_input
         gt = html.find(">", pos, end)
         doctype_end = end if gt == -1 else gt
-        if not self._fragment and not self._policy.drop_doctype and not self._doctype_seen:
+        if not self._fragment and not self._drop_doctype and not self._doctype_seen:
             raw = html[pos:doctype_end]
             match = _DOCTYPE_RE.match(raw)
             if match:
@@ -273,7 +378,7 @@ class DefaultSafeEngine:
                 self._insert_allowed_element("p", {}, False, self._current_parent())
                 self._close_until("p")
             return pos
-        if name in IMPLIED_END_TAGS:
+        if name in self._implied_end_tags:
             self._generate_implied_end_tags(name)
         del stack[idx:]
         return pos
@@ -305,26 +410,26 @@ class DefaultSafeEngine:
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
                 return pos
 
-        if not self._fragment and self._current_parent() is self._head and name not in _HEAD_CONTENT_TAGS:
+        if not self._fragment and self._current_parent() is self._head and name not in self._head_content_tags:
             self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
 
-        if name in _DROP_CONTENT_TAGS:
+        if name in self._drop_content_tags:
             return self._skip_rawtext(name, pos, end)
-        if name in _DROP_SUBTREE_TAGS:
+        if name in self._drop_subtree_tags:
             return self._skip_subtree(name, pos, end)
-        if name in _RAWTEXT_AS_TEXT_TAGS:
+        if name in self._rawtext_as_text_tags:
             return self._parse_rawtext_as_text(name, pos, end)
-        if name in _RCDATA_TAGS:
+        if name in self._rcdata_tags:
             return self._parse_rcdata_element(name, attrs, self_closing, pos, end)
 
         parent: Node
-        if name in _HEAD_CONTENT_TAGS and not self._fragment and self._head is not None and not self._body_has_content():
+        if name in self._head_content_tags and not self._fragment and self._head is not None and not self._body_has_content():
             parent = self._head
         else:
             self._repair_stack_for_start(name)
             parent = self._current_parent()
 
-        if name in _TABLE_SECTION_TAGS | {"tr", "td", "th"}:
+        if name in self._table_section_tags or name in self._table_cell_tags or name == "tr":
             self._repair_table_for_start(name)
             parent = self._current_parent()
 
@@ -354,7 +459,7 @@ class DefaultSafeEngine:
         else:
             foster_parent, position = foster
             self._insert_at(foster_parent, position, node)
-        if name not in VOID_ELEMENTS and not self_closing:
+        if name not in self._void_elements and not self_closing:
             self._stack.append(node)
         return node
 
@@ -394,13 +499,13 @@ class DefaultSafeEngine:
         stack = self._stack
         while len(stack) > 1:
             name = getattr(stack[-1], "name", None)
-            if name in IMPLIED_END_TAGS and name != exclude:
+            if name in self._implied_end_tags and name != exclude:
                 stack.pop()
                 continue
             break
 
     def _repair_stack_for_start(self, name: str) -> None:
-        if name in _P_CLOSING_START_TAGS and self._find_open_index("p") is not None:
+        if name in self._p_closing_start_tags and self._find_open_index("p") is not None:
             self._close_until("p")
 
         if name == "li":
@@ -429,10 +534,10 @@ class DefaultSafeEngine:
             self._stack.pop()
 
     def _repair_table_for_start(self, name: str) -> None:
-        if name in _TABLE_SECTION_TAGS:
+        if name in self._table_section_tags:
             self._close_table_cell()
             self._close_until("tr")
-            for section in _TABLE_SECTION_TAGS:
+            for section in self._table_section_tags:
                 self._close_until(section)
             if getattr(self._current_parent(), "name", None) != "table":
                 table_idx = self._find_open_index("table")
@@ -446,14 +551,14 @@ class DefaultSafeEngine:
             parent_name = getattr(self._current_parent(), "name", None)
             if parent_name == "table":
                 self._insert_allowed_element("tbody", {}, False, self._current_parent())
-            elif parent_name not in _TABLE_SECTION_TAGS:
+            elif parent_name not in self._table_section_tags:
                 table_idx = self._find_open_index("table")
                 if table_idx is not None:
                     del self._stack[table_idx + 1 :]
                     self._insert_allowed_element("tbody", {}, False, self._current_parent())
             return
 
-        if name in _TABLE_CELL_TAGS:
+        if name in self._table_cell_tags:
             self._close_table_cell()
             parent_name = getattr(self._current_parent(), "name", None)
             if parent_name == "tr":
@@ -462,7 +567,7 @@ class DefaultSafeEngine:
                 self._insert_allowed_element("tbody", {}, False, self._current_parent())
                 self._insert_allowed_element("tr", {}, False, self._current_parent())
                 return
-            if parent_name in _TABLE_SECTION_TAGS:
+            if parent_name in self._table_section_tags:
                 self._insert_allowed_element("tr", {}, False, self._current_parent())
                 return
             table_idx = self._find_open_index("table")
@@ -479,9 +584,9 @@ class DefaultSafeEngine:
             del self._stack[max(idxs) :]
 
     def _foster_parent_for(self, parent: Node, *, for_tag: str | None = None) -> tuple[Node, int] | None:
-        if getattr(parent, "name", None) not in _TABLE_FOSTER_TARGETS:
+        if getattr(parent, "name", None) not in self._table_foster_targets:
             return None
-        if for_tag is not None and for_tag in TABLE_ALLOWED_CHILDREN:
+        if for_tag is not None and for_tag in self._table_allowed_children:
             return None
         table_idx = self._find_open_index("table")
         if table_idx is None:
@@ -508,7 +613,11 @@ class DefaultSafeEngine:
         raw_text, pos = self._consume_until_end_tag(name, pos, end)
         if not raw_text:
             return pos
-        text = raw_text if raw_text.isascii() else _strip_invisible_unicode(raw_text)
+        text = (
+            raw_text
+            if raw_text.isascii() or not self._strip_invisible_unicode
+            else _strip_invisible_unicode(raw_text)
+        )
         if not text:
             return pos
         parent: Node
@@ -545,7 +654,7 @@ class DefaultSafeEngine:
         else:
             self._repair_stack_for_start(name)
             parent = self._current_parent()
-        node = self._insert_allowed_element(name, attrs, False if name in _RCDATA_TAGS else self_closing, parent)
+        node = self._insert_allowed_element(name, attrs, False if name in self._rcdata_tags else self_closing, parent)
         if text:
             self._append(node, Text(text))
         if self._stack and self._stack[-1] is node:
@@ -612,7 +721,7 @@ class DefaultSafeEngine:
             if key not in allowed:
                 continue
             value = raw_value
-            if value is not None and not value.isascii():
+            if self._strip_invisible_unicode and value is not None and not value.isascii():
                 value = _strip_invisible_unicode(value)
             if key in _URL_SINK_ATTRS:
                 kind = _url_sink_kind_for_attr(tag=tag, attr=key, attrs=attrs)
