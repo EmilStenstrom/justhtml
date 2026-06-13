@@ -15,6 +15,9 @@ can, and skips the final generic `Sanitize(...)` transform.
 - Ordinary disallowed tags still enter tree construction so parser-sensitive
   elements such as `template` preserve HTML5 behavior; the same fused builder
   unwraps those recorded nodes at finish.
+- The tokenizer has a default-path callback for simple `<tag>` and `</tag>`
+  events, avoiding tag-buffer assembly for those events when error/location
+  tracking is disabled.
 - Custom policies and explicit transform pipelines still use the generic path.
 
 ## Benchmark Result
@@ -32,8 +35,9 @@ PYTHONPATH=src python benchmarks/fused_engine_gate.py \
 Result:
 
 - Baseline median: `1.073689s` for 100 `web100k` files.
-- Current prototype median: `1.031969s`.
-- Speedup: `1.040x`.
+- Current prototype median: `1.018393s` to `1.035433s` across repeated local
+  runs after the simple-tag callback and attr fast path.
+- Speedup: roughly `1.04x` to `1.05x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -42,9 +46,12 @@ Result:
 The event-time fused sanitizer is much closer to the requested architecture
 than the previous post-parse shortcut and passes the full non-coverage test
 harness. It still does not materially improve speed because tokenizer and
-treebuilder dispatch remain the dominant costs, and preserving HTML5 behavior
-for parser-sensitive disallowed wrappers requires some finish-time unwrapping.
+treebuilder dispatch remain the dominant costs. Attempts to inline common
+`IN_BODY` insertion-mode handling inside the fused sink made the benchmark
+slower, so the existing `TreeBuilder.process_token` hot path is already close
+to the practical limit for this shape.
 
-A real `2x` pure-Python result likely requires collapsing tokenizer state
-handlers and insertion-mode handlers into fewer direct hot-path functions, not
-only moving sanitizer work into the parser sink.
+A real `2x` pure-Python result likely requires a larger rewrite than a fused
+sink: the tokenizer and insertion-mode state machines would need to be
+co-designed around fewer Python calls and fewer object/list/dict mutations in
+the hot path.

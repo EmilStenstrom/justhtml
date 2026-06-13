@@ -202,6 +202,8 @@ class Tokenizer:
     __slots__ = (
         "_comment_token",
         "_newline_positions",
+        "_process_end_tag_fast",
+        "_process_start_tag_fast",
         "_state_handlers",
         "_tag_token",
         "buffer",
@@ -242,6 +244,8 @@ class Tokenizer:
 
     _comment_token: CommentToken
     _newline_positions: list[int] | None
+    _process_start_tag_fast: Any
+    _process_end_tag_fast: Any
     _state_handlers: list[Callable[[Tokenizer], bool]]
     _tag_token: Tag
     buffer: str
@@ -291,6 +295,8 @@ class Tokenizer:
         track_tag_positions: bool = False,
     ) -> None:
         self.sink = sink
+        self._process_start_tag_fast = getattr(sink, "process_start_tag_fast", None)
+        self._process_end_tag_fast = getattr(sink, "process_end_tag_fast", None)
         self.opts = opts or TokenizerOpts()
         self.collect_errors = collect_errors
         self.track_node_locations = bool(track_node_locations)
@@ -536,6 +542,39 @@ class Tokenizer:
                                 return self._state_before_attribute_name()
                             if next_char == ">":
                                 self.pos = pos + 1
+                                fast_start = self._process_start_tag_fast
+                                if (
+                                    fast_start is not None
+                                    and not self.collect_errors
+                                    and not self.track_tag_positions
+                                ):
+                                    self.last_start_tag_name = name
+                                    switched_to_rawtext = False
+                                    if (
+                                        name in _RAWTEXT_SWITCH_TAGS
+                                        or name == "plaintext"
+                                        or (name == "noscript" and self.opts.scripting_enabled)
+                                    ) and self._current_node_uses_html_text_parsing():
+                                        if name in _RCDATA_ELEMENTS:
+                                            self.state = self.RCDATA
+                                            self.rawtext_tag_name = name
+                                            switched_to_rawtext = True
+                                        elif name in _RAWTEXT_SWITCH_TAGS or name == "noscript":
+                                            self.state = self.RAWTEXT
+                                            self.rawtext_tag_name = name
+                                            switched_to_rawtext = True
+                                        else:
+                                            self.state = self.PLAINTEXT
+                                            switched_to_rawtext = True
+                                    result = fast_start(name)
+                                    if result == 1:
+                                        self.state = self.PLAINTEXT
+                                        switched_to_rawtext = True
+                                    if not switched_to_rawtext:
+                                        self.state = self.DATA
+                                        pos = self.pos
+                                        continue
+                                    return False
                                 if not self._emit_current_tag():
                                     self.state = self.DATA
                                     pos = self.pos
@@ -602,6 +641,16 @@ class Tokenizer:
                                         return self._state_before_attribute_name()
                                     if next_char == ">":
                                         self.pos = pos + 1
+                                        fast_end = self._process_end_tag_fast
+                                        if (
+                                            fast_end is not None
+                                            and not self.collect_errors
+                                            and not self.track_tag_positions
+                                        ):
+                                            fast_end(name)
+                                            self.state = self.DATA
+                                            pos = self.pos
+                                            continue
                                         self._emit_current_tag()
                                         self.state = self.DATA
                                         pos = self.pos
