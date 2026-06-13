@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 _TAG_NAME_RE = re.compile(r"[A-Za-z][^\t\n\f />]*")
 _ATTR_NAME_RE = re.compile(r"[^\t\n\f />=\0\"'<]+")
+_DOCTYPE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_-]*$")
 _DOCTYPE_RE = re.compile(
     r"""\s*([^\s>]+)(?:\s+(PUBLIC|SYSTEM)\s+(?:"([^"]*)"|'([^']*)')(?:\s+(?:"([^"]*)"|'([^']*)'))?)?""",
     re.IGNORECASE,
@@ -361,7 +362,8 @@ class DefaultSafeEngine:
             raw = html[pos:doctype_end]
             match = _DOCTYPE_RE.match(raw)
             if match:
-                name = match.group(1)
+                raw_name = match.group(1).lower()
+                name = raw_name if _DOCTYPE_NAME_RE.match(raw_name) else None
                 kind = match.group(2)
                 first_id = match.group(3) if match.group(3) is not None else match.group(4)
                 second_id = match.group(5) if match.group(5) is not None else match.group(6)
@@ -374,9 +376,9 @@ class DefaultSafeEngine:
                 else:
                     public_id = None
                     system_id = None
-                self._prepend_doctype(Doctype(name.lower(), public_id, system_id))
+                self._prepend_doctype(Doctype(name, public_id, system_id, force_quirks=name is None))
             else:
-                self._prepend_doctype(Doctype("html"))
+                self._prepend_doctype(Doctype(None, force_quirks=True))
         return end if gt == -1 else gt + 1
 
     def _prepend_doctype(self, doctype: Doctype) -> None:
