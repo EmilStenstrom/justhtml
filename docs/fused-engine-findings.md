@@ -88,6 +88,27 @@ The executor copies plan fields into slots during construction. This keeps the
 planner boundary explicit without adding `self._plan...` lookups to every hot
 path branch.
 
+## Compliance Pass
+
+A fourth pass targeted the largest remaining differential buckets:
+
+- After-head whitespace is now inserted before the pre-created `body` element,
+  matching the existing treebuilder's `AFTER_HEAD` behavior.
+- Text and rawtext-as-text paths normalize CR/CRLF line endings to LF.
+- `title` is only forced into `head` before body content starts; body-time
+  `title` elements stay in body content.
+- `li` and `dd`/`dt` implicit closes now stop at their list/definition
+  boundaries instead of closing outer ancestors.
+- Ignored initial LF handling was added for `pre`/`listing`.
+- Table section/row/cell starts now require the right table context, so orphan
+  `td`/`tr` tags are ignored like the treebuilder.
+- Nested-table row and cell repair is boundary-aware, avoiding accidental
+  closure of outer table rows/cells.
+
+Focused probes for after-head whitespace, nested lists, body-time `title`,
+`pre` initial LF, orphan table cells, adjacent table cells, and nested tables
+now match the existing parser.
+
 ## Benchmark Result
 
 Command:
@@ -106,7 +127,8 @@ Result:
 - Raw `DefaultSafeEngine` median before recovery: `0.382541s`.
 - Recovery-enabled median before `EnginePlan`: `0.471169s`.
 - EnginePlan-enabled median: `0.467711s`.
-- EnginePlan-enabled speedup: `2.296x`.
+- Compliance-pass median: `0.470205s`.
+- Compliance-pass speedup: `2.283x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -116,15 +138,15 @@ work into one hot path.
 
 ## Parity Status
 
-The PoC is not production-compatible yet. After the recovery pass, a 100-file
-differential smoke check completed without crashes and `20/100` serialized
+The PoC is not production-compatible yet. After the compliance pass, a 100-file
+differential smoke check completed without crashes and `75/100` serialized
 outputs exactly matched the existing parser. This is up from `2/100` for the
-raw one-pass parser.
+raw one-pass parser and `20/100` after the first recovery pass.
 
-Remaining early diffs are now often whitespace and head/body placement details,
-plus deeper HTML5 behavior such as formatting-element reconstruction, richer
-table insertion modes, select/template handling, foreign-content integration
-points, and malformed-markup recovery outside the common cases above.
+Remaining diffs are now more varied: exact whitespace counts, broader
+formatting-element/adoption behavior, malformed inline links, deeper table
+corner cases, select/template handling, foreign-content integration points, and
+some sanitizer edge cases around unusual attributes or escaped source.
 
 ## Current Conclusion
 
@@ -134,11 +156,12 @@ handlers, then incremental parity work driven by differential fixtures.
 
 The recovery pass is the strongest signal so far that this can remain viable:
 adding a meaningful subset of real HTML error handling moved the benchmark from
-`2.807x` to `2.296x`, still above the final `2.0x` target. The first
-`EnginePlan` split did not add measurable overhead; the cached plan slightly
-improved this local benchmark by avoiding per-parse policy compilation.
+`2.807x` to `2.283x`, still above the final `2.0x` target. The first
+`EnginePlan` split did not add measurable overhead, and the next compliance pass
+raised exact corpus matches from `20/100` to `75/100` while keeping most of the
+speed margin.
 
 The next engineering step is to keep `DefaultSafeEngine` as the PoC target and
 fill in only the HTML5 behaviors that materially affect sanitized output for
 real-world default-safe parsing. The remaining speed budget is approximately
-`0.069s` on this 100-file benchmark before falling below `2x`.
+`0.067s` on this 100-file benchmark before falling below `2x`.
