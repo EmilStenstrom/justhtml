@@ -68,6 +68,26 @@ A second PoC pass added direct recovery for common malformed real-world HTML:
 Focused malformed samples for those cases now match the existing parser's
 sanitized serialization.
 
+## EnginePlan Split
+
+A third pass introduced an explicit `EnginePlan`/executor split. The default
+document and fragment plans are compiled once and cached, then `JustHTML` passes
+the selected plan into `DefaultSafeEngine`.
+
+The current plan contains the policy-derived sanitizer data and the recovery
+sets the executor needs in the hot path:
+
+- Allowed tags and per-tag/global attribute allowlists.
+- URL policy and URL sink rules.
+- Doctype/comment/drop-content behavior.
+- RCDATA/rawtext-as-text handling sets.
+- Head/body, implied-end-tag, and table-recovery sets.
+- Invisible-Unicode stripping and void-element behavior.
+
+The executor copies plan fields into slots during construction. This keeps the
+planner boundary explicit without adding `self._plan...` lookups to every hot
+path branch.
+
 ## Benchmark Result
 
 Command:
@@ -84,8 +104,9 @@ Result:
 
 - Baseline median: `1.073689s` for 100 `web100k` files.
 - Raw `DefaultSafeEngine` median before recovery: `0.382541s`.
-- Recovery-enabled `DefaultSafeEngine` median: `0.471169s`.
-- Recovery-enabled speedup: `2.279x`.
+- Recovery-enabled median before `EnginePlan`: `0.471169s`.
+- EnginePlan-enabled median: `0.467711s`.
+- EnginePlan-enabled speedup: `2.296x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -113,9 +134,11 @@ handlers, then incremental parity work driven by differential fixtures.
 
 The recovery pass is the strongest signal so far that this can remain viable:
 adding a meaningful subset of real HTML error handling moved the benchmark from
-`2.807x` to `2.279x`, still above the final `2.0x` target.
+`2.807x` to `2.296x`, still above the final `2.0x` target. The first
+`EnginePlan` split did not add measurable overhead; the cached plan slightly
+improved this local benchmark by avoiding per-parse policy compilation.
 
 The next engineering step is to keep `DefaultSafeEngine` as the PoC target and
 fill in only the HTML5 behaviors that materially affect sanitized output for
 real-world default-safe parsing. The remaining speed budget is approximately
-`0.066s` on this 100-file benchmark before falling below `2x`.
+`0.069s` on this 100-file benchmark before falling below `2x`.
