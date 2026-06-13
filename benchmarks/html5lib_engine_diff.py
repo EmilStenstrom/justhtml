@@ -124,6 +124,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None, help="Stop after this many eligible cases")
     parser.add_argument("--examples", type=int, default=5, help="Number of mismatch/exception examples to print")
     parser.add_argument("--worst-files", type=int, default=10, help="Number of lowest-match files to print")
+    parser.add_argument("--total-cases", type=int, default=1791, help="Total suite denominator for progress reporting")
     parser.add_argument("--test-specs", nargs="*", default=None, help="Same file[:indices] filter as run_tests.py")
     parser.add_argument("--exclude-files", nargs="*", default=None, help="Skip files containing these substrings")
     parser.add_argument(
@@ -202,10 +203,12 @@ def main() -> int:
     eligible = counts["eligible"]
     compared = counts["compared"]
     exact = counts["exact"]
+    total_rate = exact / args.total_cases if args.total_cases else 0.0
     eligible_rate = exact / eligible if eligible else 0.0
     compared_rate = exact / compared if compared else 0.0
 
     print(f"tree_dir: {args.tree_dir}")
+    print(f"total_cases: {args.total_cases}")
     print(f"eligible_cases: {eligible}")
     print(f"compared_cases: {compared}")
     print(f"exact_matches: {exact}")
@@ -213,6 +216,7 @@ def main() -> int:
     print(f"current_exceptions: {counts['current_exceptions']}")
     print(f"reference_exceptions: {counts['reference_exceptions']}")
     print(f"both_exceptions: {counts['both_exceptions']}")
+    print(f"exact_rate_total: {total_rate:.2%}")
     print(f"exact_rate_eligible: {eligible_rate:.2%}")
     print(f"exact_rate_compared: {compared_rate:.2%}")
     if skipped:
