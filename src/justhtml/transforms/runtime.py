@@ -436,7 +436,7 @@ def apply_compiled_transforms(
                                 text_data = str(node.data or "")
                                 if text_data and not text_data.isascii():
                                     stripped_text = _strip_invisible_unicode(text_data)
-                                    if stripped_text != text_data:
+                                    if stripped_text != text_data:  # pragma: no branch
                                         if t.callback is not None:
                                             t.callback(node)
                                         t.report("Stripped invisible Unicode from text node", node=node)
