@@ -67,6 +67,10 @@ _P_CLOSING_START_TAGS = {
     "table",
     "ul",
 } | HEADING_ELEMENTS
+_DEFINITION_SCOPE_BOUNDARIES = {"dl"}
+_LIST_ITEM_SCOPE_BOUNDARIES = {"ol", "ul"}
+_PRE_LINEFEED_IGNORING_TAGS = {"listing", "pre"}
+_TABLE_CONTEXT_BOUNDARIES = frozenset({"table"})
 _TABLE_SECTION_TAGS = {"tbody", "thead", "tfoot"}
 _TABLE_CELL_TAGS = {"td", "th"}
 _TABLE_FOSTER_TARGETS = {"table", "tbody", "tfoot", "thead", "tr"}
@@ -87,12 +91,15 @@ class EnginePlan:
     allowed_attrs_by_tag: Mapping[str, frozenset[str]]
     url_policy: UrlPolicy
     url_rules: Mapping[tuple[str, str], UrlRule]
+    definition_scope_boundaries: frozenset[str]
     drop_doctype: bool
     drop_content_tags: frozenset[str]
     drop_subtree_tags: frozenset[str]
     head_content_tags: frozenset[str]
     implied_end_tags: frozenset[str]
+    list_item_scope_boundaries: frozenset[str]
     p_closing_start_tags: frozenset[str]
+    pre_linefeed_ignoring_tags: frozenset[str]
     rawtext_as_text_tags: frozenset[str]
     rcdata_tags: frozenset[str]
     strip_invisible_unicode: bool
@@ -128,12 +135,15 @@ def compile_default_engine_plan(*, fragment: bool) -> EnginePlan:
         allowed_attrs_by_tag=allowed_by_tag,
         url_policy=policy.url_policy,
         url_rules=policy.url_policy.allow_rules,
+        definition_scope_boundaries=frozenset(_DEFINITION_SCOPE_BOUNDARIES),
         drop_doctype=policy.drop_doctype,
         drop_content_tags=frozenset(policy.drop_content_tags),
         drop_subtree_tags=frozenset(_DROP_SUBTREE_TAGS),
         head_content_tags=frozenset(_HEAD_CONTENT_TAGS),
         implied_end_tags=frozenset(IMPLIED_END_TAGS),
+        list_item_scope_boundaries=frozenset(_LIST_ITEM_SCOPE_BOUNDARIES),
         p_closing_start_tags=frozenset(_P_CLOSING_START_TAGS),
+        pre_linefeed_ignoring_tags=frozenset(_PRE_LINEFEED_IGNORING_TAGS),
         rawtext_as_text_tags=frozenset(_RAWTEXT_AS_TEXT_TAGS),
         rcdata_tags=frozenset(_RCDATA_TAGS),
         strip_invisible_unicode=policy.strip_invisible_unicode,
@@ -149,11 +159,13 @@ def compile_default_engine_plan(*, fragment: bool) -> EnginePlan:
 
 class DefaultSafeEngine:
     __slots__ = (
+        "_after_head",
         "_allowed_by_tag",
         "_allowed_global",
         "_allowed_tags",
         "_body",
         "_body_explicit",
+        "_definition_scope_boundaries",
         "_doc",
         "_doctype_seen",
         "_drop_content_tags",
@@ -166,9 +178,11 @@ class DefaultSafeEngine:
         "_html_input",
         "_implied_end_tags",
         "_length",
+        "_list_item_scope_boundaries",
         "_lower_input",
         "_p_closing_start_tags",
         "_plan",
+        "_pre_linefeed_ignoring_tags",
         "_rawtext_as_text_tags",
         "_rcdata_tags",
         "_stack",
@@ -193,12 +207,15 @@ class DefaultSafeEngine:
         self._allowed_by_tag = self._plan.allowed_attrs_by_tag
         self._url_policy = self._plan.url_policy
         self._url_rules = self._plan.url_rules
+        self._definition_scope_boundaries = self._plan.definition_scope_boundaries
         self._drop_doctype = self._plan.drop_doctype
         self._drop_content_tags = self._plan.drop_content_tags
         self._drop_subtree_tags = self._plan.drop_subtree_tags
         self._head_content_tags = self._plan.head_content_tags
         self._implied_end_tags = self._plan.implied_end_tags
+        self._list_item_scope_boundaries = self._plan.list_item_scope_boundaries
         self._p_closing_start_tags = self._plan.p_closing_start_tags
+        self._pre_linefeed_ignoring_tags = self._plan.pre_linefeed_ignoring_tags
         self._rawtext_as_text_tags = self._plan.rawtext_as_text_tags
         self._rcdata_tags = self._plan.rcdata_tags
         self._strip_invisible_unicode = self._plan.strip_invisible_unicode
@@ -208,6 +225,7 @@ class DefaultSafeEngine:
         self._table_section_tags = self._plan.table_section_tags
         self._void_elements = self._plan.void_elements
         self._doc: Document | DocumentFragment
+        self._after_head = False
         self._doctype_seen = False
         self._body_explicit = False
         self._html: Element | None = None
@@ -291,6 +309,8 @@ class DefaultSafeEngine:
 
     def _clean_text(self, raw: str) -> str:
         text = raw
+        if "\r" in text:
+            text = text.replace("\r\n", "\n").replace("\r", "\n")
         if "&" in text:
             text = decode_entities_in_text(text)
         if self._strip_invisible_unicode and text and not text.isascii():
@@ -301,6 +321,10 @@ class DefaultSafeEngine:
         if not raw:
             return
         parent = self._current_parent()
+        if not self._fragment and parent is self._html and self._after_head and raw.strip(_SPACE) != "":
+            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+            self._after_head = False
+            parent = self._body
         if (
             not self._fragment
             and parent is self._body
@@ -311,6 +335,17 @@ class DefaultSafeEngine:
             return
         text = self._clean_text(raw)
         if text:
+            if not self._fragment and parent is self._html and self._after_head and text.strip(_SPACE) == "":
+                body = self._body
+                children = parent.children
+                position = len(children) if children is not None else 0
+                if children is not None:
+                    try:
+                        position = children.index(body)
+                    except ValueError:
+                        pass
+                self._insert_at(parent, position, Text(text))
+                return
             foster = self._foster_parent_for(parent) if text.strip(_SPACE) else None
             if foster is None:
                 self._append(parent, Text(text))
@@ -366,9 +401,11 @@ class DefaultSafeEngine:
 
         if not self._fragment and name in {"html", "body"}:
             self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+            self._after_head = False
             return pos
         if not self._fragment and name == "head":
-            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+            self._stack = [self._doc, self._html]  # type: ignore[list-item]
+            self._after_head = True
             return pos
 
         stack = self._stack
@@ -402,16 +439,23 @@ class DefaultSafeEngine:
             if name == "head":
                 if self._head is not None:
                     self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+                    self._after_head = False
                 return pos
             if name == "body":
                 if isinstance(self._body, Element):
                     self._body.attrs.update(self._sanitize_attrs("body", attrs))
                 self._body_explicit = True
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._after_head = False
                 return pos
 
         if not self._fragment and self._current_parent() is self._head and name not in self._head_content_tags:
             self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+            self._after_head = False
+
+        if not self._fragment and self._current_parent() is self._html and self._after_head and name != "body":
+            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+            self._after_head = False
 
         if name in self._drop_content_tags:
             return self._skip_rawtext(name, pos, end)
@@ -432,11 +476,22 @@ class DefaultSafeEngine:
         if name in self._table_section_tags or name in self._table_cell_tags or name == "tr":
             self._repair_table_for_start(name)
             parent = self._current_parent()
+            parent_name = getattr(parent, "name", None)
+            if name in self._table_section_tags:
+                if parent_name != "table":
+                    return pos
+            elif name == "tr":
+                if parent_name not in self._table_section_tags:
+                    return pos
+            elif parent_name != "tr":
+                return pos
 
         if name not in self._allowed_tags:
             return pos
 
         self._insert_allowed_element(name, attrs, self_closing, parent)
+        if name in self._pre_linefeed_ignoring_tags and pos < end and html[pos] == "\n":
+            pos += 1
         return pos
 
     def _insert_allowed_element(
@@ -479,9 +534,12 @@ class DefaultSafeEngine:
 
     def _body_has_content(self) -> bool:
         if self._fragment:
-            return bool(self._body.children)
-        body = self._body
-        return bool(body.children)
+            children = self._body.children
+        else:
+            children = self._body.children
+        if not children:
+            return False
+        return any(type(child) is not Text or bool(child.data) for child in children)
 
     def _find_open_index(self, name: str) -> int | None:
         stack = self._stack
@@ -494,6 +552,16 @@ class DefaultSafeEngine:
         idx = self._find_open_index(name)
         if idx is not None:
             del self._stack[idx:]
+
+    def _close_until_before_boundary(self, name: str, boundaries: frozenset[str]) -> None:
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            node_name = getattr(stack[idx], "name", None)
+            if node_name == name:
+                del stack[idx:]
+                return
+            if node_name in boundaries:
+                return
 
     def _generate_implied_end_tags(self, exclude: str | None = None) -> None:
         stack = self._stack
@@ -509,12 +577,12 @@ class DefaultSafeEngine:
             self._close_until("p")
 
         if name == "li":
-            self._close_until("li")
+            self._close_until_before_boundary("li", self._list_item_scope_boundaries)
             return
 
         if name in {"dd", "dt"}:
-            self._close_until("dd")
-            self._close_until("dt")
+            self._close_until_before_boundary("dd", self._definition_scope_boundaries)
+            self._close_until_before_boundary("dt", self._definition_scope_boundaries)
             return
 
         if name == "option":
@@ -536,9 +604,9 @@ class DefaultSafeEngine:
     def _repair_table_for_start(self, name: str) -> None:
         if name in self._table_section_tags:
             self._close_table_cell()
-            self._close_until("tr")
+            self._close_until_before_boundary("tr", _TABLE_CONTEXT_BOUNDARIES)
             for section in self._table_section_tags:
-                self._close_until(section)
+                self._close_until_before_boundary(section, _TABLE_CONTEXT_BOUNDARIES)
             if getattr(self._current_parent(), "name", None) != "table":
                 table_idx = self._find_open_index("table")
                 if table_idx is not None:
@@ -547,7 +615,7 @@ class DefaultSafeEngine:
 
         if name == "tr":
             self._close_table_cell()
-            self._close_until("tr")
+            self._close_until_before_boundary("tr", _TABLE_CONTEXT_BOUNDARIES)
             parent_name = getattr(self._current_parent(), "name", None)
             if parent_name == "table":
                 self._insert_allowed_element("tbody", {}, False, self._current_parent())
@@ -577,11 +645,14 @@ class DefaultSafeEngine:
                 self._insert_allowed_element("tr", {}, False, self._current_parent())
 
     def _close_table_cell(self) -> None:
-        td_idx = self._find_open_index("td")
-        th_idx = self._find_open_index("th")
-        idxs = [idx for idx in (td_idx, th_idx) if idx is not None]
-        if idxs:
-            del self._stack[max(idxs) :]
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            name = getattr(stack[idx], "name", None)
+            if name == "table":
+                return
+            if name in self._table_cell_tags:
+                del stack[idx:]
+                return
 
     def _foster_parent_for(self, parent: Node, *, for_tag: str | None = None) -> tuple[Node, int] | None:
         if getattr(parent, "name", None) not in self._table_foster_targets:
@@ -613,6 +684,8 @@ class DefaultSafeEngine:
         raw_text, pos = self._consume_until_end_tag(name, pos, end)
         if not raw_text:
             return pos
+        if "\r" in raw_text:
+            raw_text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
         text = (
             raw_text
             if raw_text.isascii() or not self._strip_invisible_unicode
@@ -649,11 +722,17 @@ class DefaultSafeEngine:
             return pos
 
         parent: Node
-        if name == "title" and not self._fragment and self._head is not None:
+        current_parent = self._current_parent()
+        if (
+            name == "title"
+            and not self._fragment
+            and self._head is not None
+            and (current_parent is self._head or (not self._body_explicit and not self._body_has_content()))
+        ):
             parent = self._head
         else:
             self._repair_stack_for_start(name)
-            parent = self._current_parent()
+            parent = current_parent
         node = self._insert_allowed_element(name, attrs, False if name in self._rcdata_tags else self_closing, parent)
         if text:
             self._append(node, Text(text))
