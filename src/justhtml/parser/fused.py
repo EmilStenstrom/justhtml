@@ -41,6 +41,7 @@ class FusedDefaultTreeBuilder(TreeBuilder):  # pragma: no cover
         "_fused_nodes_to_unwrap",
         "_fused_policy",
         "_fused_strip_invisible",
+        "_fused_tag",
         "_fused_url_policy",
         "_fused_url_rules",
     )
@@ -81,6 +82,7 @@ class FusedDefaultTreeBuilder(TreeBuilder):  # pragma: no cover
         self._fused_strip_invisible = policy.strip_invisible_unicode
         self._fused_drop_stack: list[str] = []
         self._fused_nodes_to_unwrap: list[Node] = []
+        self._fused_tag = Tag(Tag.START, "", {}, False)
 
     def _insert_element(self, tag: object, *, push: bool, namespace: str = "html") -> object:
         node = super()._insert_element(tag, push=push, namespace=namespace)
@@ -89,6 +91,14 @@ class FusedDefaultTreeBuilder(TreeBuilder):  # pragma: no cover
             if name not in self._fused_allowed_tags:
                 self._fused_nodes_to_unwrap.append(node)
         return node
+
+    def _insert_body_if_missing(self) -> None:
+        before = len(self.open_elements)
+        super()._insert_body_if_missing()
+        if len(self.open_elements) > before:
+            node = self.open_elements[-1]
+            if isinstance(node, Node) and "body" not in self._fused_allowed_tags:
+                self._fused_nodes_to_unwrap.append(node)
 
     def _fused_allowed_attrs_for(self, tag: str) -> frozenset[str] | Collection[str]:
         allowed = self._fused_allowed_by_tag.get(tag)
@@ -100,6 +110,25 @@ class FusedDefaultTreeBuilder(TreeBuilder):  # pragma: no cover
             return True
 
         allowed = self._fused_allowed_attrs_for(tag_name)
+        needs_rewrite = False
+        for raw_key, raw_value in attrs.items():
+            if type(raw_key) is not str or not raw_key.strip() or raw_key not in allowed:
+                needs_rewrite = True
+                break
+            if raw_key in _URL_SINK_ATTRS and _url_sink_kind_for_attr(tag=tag_name, attr=raw_key, attrs=attrs):
+                needs_rewrite = True
+                break
+            if (
+                self._fused_strip_invisible
+                and raw_value is not None
+                and type(raw_value) is str
+                and not raw_value.isascii()
+            ):
+                needs_rewrite = True
+                break
+        if not needs_rewrite:
+            return True
+
         out: dict[str, str | None] = {}
         changed = False
 
@@ -216,6 +245,42 @@ class FusedDefaultTreeBuilder(TreeBuilder):  # pragma: no cover
 
         return super().process_token(token)
 
+    def process_start_tag_fast(self, name: str) -> object:
+        if self._fused_drop_stack:
+            if name == self._fused_drop_stack[-1]:
+                self._fused_drop_stack.append(name)
+            return TokenSinkResult.Continue
+
+        if name in _FOREIGN_ROOT_TAGS or name in self._fused_drop_content_tags:
+            self._fused_drop_stack.append(name)
+            return TokenSinkResult.Continue
+
+        tag = self._fused_tag
+        tag.kind = Tag.START
+        tag.name = name
+        tag.attrs = {}
+        tag.self_closing = False
+        tag.start_pos = None
+        tag.end_pos = None
+        return super().process_token(tag)
+
+    def process_end_tag_fast(self, name: str) -> object:
+        if self._fused_drop_stack:
+            if name == self._fused_drop_stack[-1]:
+                self._fused_drop_stack.pop()
+                if not self._fused_drop_stack:
+                    self._fused_append_text_boundary()
+            return TokenSinkResult.Continue
+
+        tag = self._fused_tag
+        tag.kind = Tag.END
+        tag.name = name
+        tag.attrs = {}
+        tag.self_closing = False
+        tag.start_pos = None
+        tag.end_pos = None
+        return super().process_token(tag)
+
     def process_characters(self, data: str) -> object:
         if self._fused_drop_stack:
             return TokenSinkResult.Continue
@@ -226,7 +291,6 @@ class FusedDefaultTreeBuilder(TreeBuilder):  # pragma: no cover
     def finish(self) -> Node:
         root = super().finish()
         self._fused_unwrap_recorded_nodes()
-        self._fused_unwrap_unrecorded_disallowed_nodes(root)
         return root
 
     def _fused_unwrap_recorded_nodes(self) -> None:
@@ -234,25 +298,6 @@ class FusedDefaultTreeBuilder(TreeBuilder):  # pragma: no cover
             if node.parent is not None:
                 self._fused_unwrap_node(node)
         self._fused_nodes_to_unwrap.clear()
-
-    def _fused_unwrap_unrecorded_disallowed_nodes(self, root: Node) -> None:
-        stack: list[Node] = [root]
-        while stack:
-            node = stack.pop()
-            children = node.children
-            if children:
-                stack.extend(reversed(children))
-            if type(node) is Template and node.template_content is not None:
-                stack.append(node.template_content)
-
-            if node.parent is None:
-                continue
-            name = node.name
-            if name.startswith("#") or name == "!doctype":
-                continue
-            tag = name if name.islower() else name.lower()
-            if tag not in self._fused_allowed_tags:
-                self._fused_unwrap_node(node)
 
     def _fused_unwrap_node(self, node: Node) -> None:
         parent = node.parent
