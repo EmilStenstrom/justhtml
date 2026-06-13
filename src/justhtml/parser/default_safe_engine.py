@@ -37,6 +37,7 @@ _DROP_CONTENT_TAGS = {"script", "style"}
 _DROP_SUBTREE_TAGS = {"svg", "math"}
 _RCDATA_TAGS = {"title", "textarea"}
 _RAWTEXT_AS_TEXT_TAGS = {"noscript"}
+_PLAINTEXT_TAGS = {"plaintext"}
 _HEAD_CONTENT_TAGS = {"base", "basefont", "bgsound", "link", "meta", "noscript", "script", "style", "template", "title"}
 _P_CLOSING_START_TAGS = {
     "address",
@@ -75,6 +76,25 @@ _TABLE_CONTEXT_BOUNDARIES = frozenset({"table"})
 _TABLE_SECTION_TAGS = {"tbody", "thead", "tfoot"}
 _TABLE_CELL_TAGS = {"td", "th"}
 _TABLE_FOSTER_TARGETS = {"table", "tbody", "tfoot", "thead", "tr"}
+_FRAMESET_BODY_OK_TAGS = {"div", "p"}
+_FRAMESET_BLOCKING_START_TAGS = {
+    "applet",
+    "area",
+    "button",
+    "dd",
+    "dt",
+    "embed",
+    "iframe",
+    "input",
+    "keygen",
+    "listing",
+    "marquee",
+    "object",
+    "select",
+    "textarea",
+    "wbr",
+    "xmp",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +116,8 @@ class EnginePlan:
     drop_doctype: bool
     drop_content_tags: frozenset[str]
     drop_subtree_tags: frozenset[str]
+    frameset_body_ok_tags: frozenset[str]
+    frameset_blocking_start_tags: frozenset[str]
     head_content_tags: frozenset[str]
     implied_end_tags: frozenset[str]
     list_item_scope_boundaries: frozenset[str]
@@ -103,6 +125,7 @@ class EnginePlan:
     pre_linefeed_ignoring_tags: frozenset[str]
     rawtext_as_text_tags: frozenset[str]
     rcdata_tags: frozenset[str]
+    plaintext_tags: frozenset[str]
     strip_invisible_unicode: bool
     table_allowed_children: frozenset[str]
     table_cell_tags: frozenset[str]
@@ -140,6 +163,8 @@ def compile_default_engine_plan(*, fragment: bool) -> EnginePlan:
         drop_doctype=policy.drop_doctype,
         drop_content_tags=frozenset(policy.drop_content_tags),
         drop_subtree_tags=frozenset(_DROP_SUBTREE_TAGS),
+        frameset_body_ok_tags=frozenset(_FRAMESET_BODY_OK_TAGS),
+        frameset_blocking_start_tags=frozenset(_FRAMESET_BLOCKING_START_TAGS),
         head_content_tags=frozenset(_HEAD_CONTENT_TAGS),
         implied_end_tags=frozenset(IMPLIED_END_TAGS),
         list_item_scope_boundaries=frozenset(_LIST_ITEM_SCOPE_BOUNDARIES),
@@ -147,6 +172,7 @@ def compile_default_engine_plan(*, fragment: bool) -> EnginePlan:
         pre_linefeed_ignoring_tags=frozenset(_PRE_LINEFEED_IGNORING_TAGS),
         rawtext_as_text_tags=frozenset(_RAWTEXT_AS_TEXT_TAGS),
         rcdata_tags=frozenset(_RCDATA_TAGS),
+        plaintext_tags=frozenset(_PLAINTEXT_TAGS),
         strip_invisible_unicode=policy.strip_invisible_unicode,
         table_allowed_children=frozenset(TABLE_ALLOWED_CHILDREN),
         table_cell_tags=frozenset(_TABLE_CELL_TAGS),
@@ -172,7 +198,14 @@ class DefaultSafeEngine:
         "_drop_content_tags",
         "_drop_doctype",
         "_drop_subtree_tags",
+        "_dropped_to_eof",
+        "_explicit_head",
+        "_explicit_html",
         "_fragment",
+        "_frameset_blocked",
+        "_frameset_blocking_start_tags",
+        "_frameset_body_ok_tags",
+        "_frameset_seen",
         "_head",
         "_head_content_tags",
         "_html",
@@ -182,6 +215,7 @@ class DefaultSafeEngine:
         "_list_item_scope_boundaries",
         "_lower_input",
         "_p_closing_start_tags",
+        "_plaintext_tags",
         "_plan",
         "_pre_linefeed_ignoring_tags",
         "_rawtext_as_text_tags",
@@ -212,10 +246,13 @@ class DefaultSafeEngine:
         self._drop_doctype = self._plan.drop_doctype
         self._drop_content_tags = self._plan.drop_content_tags
         self._drop_subtree_tags = self._plan.drop_subtree_tags
+        self._frameset_body_ok_tags = self._plan.frameset_body_ok_tags
+        self._frameset_blocking_start_tags = self._plan.frameset_blocking_start_tags
         self._head_content_tags = self._plan.head_content_tags
         self._implied_end_tags = self._plan.implied_end_tags
         self._list_item_scope_boundaries = self._plan.list_item_scope_boundaries
         self._p_closing_start_tags = self._plan.p_closing_start_tags
+        self._plaintext_tags = self._plan.plaintext_tags
         self._pre_linefeed_ignoring_tags = self._plan.pre_linefeed_ignoring_tags
         self._rawtext_as_text_tags = self._plan.rawtext_as_text_tags
         self._rcdata_tags = self._plan.rcdata_tags
@@ -227,7 +264,12 @@ class DefaultSafeEngine:
         self._void_elements = self._plan.void_elements
         self._doc: Document | DocumentFragment
         self._after_head = False
+        self._dropped_to_eof = False
         self._doctype_seen = False
+        self._explicit_head = False
+        self._explicit_html = False
+        self._frameset_blocked = False
+        self._frameset_seen = False
         self._body_explicit = False
         self._html: Element | None = None
         self._head: Element | None = None
@@ -255,6 +297,7 @@ class DefaultSafeEngine:
             self._stack = [doc, html_el, body]
 
         self._parse_range(0, self._length)
+        self._finish_document_shell()
         return self._doc
 
     def _append(self, parent: Node, node: Node | Text) -> None:
@@ -302,16 +345,22 @@ class DefaultSafeEngine:
             if ch == "/":
                 pos = self._parse_end_tag(pos + 1, end)
                 continue
+            if ch == "?":
+                gt = html.find(">", pos + 1, end)
+                pos = end if gt == -1 else gt + 1
+                continue
             if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
                 self._append_text("<")
                 continue
             pos = self._parse_start_tag(pos, end)
         return pos
 
-    def _clean_text(self, raw: str) -> str:
+    def _clean_text(self, raw: str, *, replace_null: bool = False) -> str:
         text = raw
         if "\r" in text:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
+        if "\0" in text:
+            text = text.replace("\0", "\ufffd" if replace_null else "")
         if "&" in text:
             text = decode_entities_in_text(text)
         if self._strip_invisible_unicode and text and not text.isascii():
@@ -320,6 +369,9 @@ class DefaultSafeEngine:
 
     def _append_text(self, raw: str) -> None:
         if not raw:
+            return
+        if not self._fragment and self._frameset_seen and not self._body_explicit:
+            self._append_frameset_text(raw)
             return
         parent = self._current_parent()
         if not self._fragment and parent is self._html and self._after_head and raw.strip(_SPACE) != "":
@@ -358,7 +410,14 @@ class DefaultSafeEngine:
         html = self._html_input
         gt = html.find(">", pos, end)
         doctype_end = end if gt == -1 else gt
-        if not self._fragment and not self._drop_doctype and not self._doctype_seen:
+        if (
+            not self._fragment
+            and not self._drop_doctype
+            and not self._doctype_seen
+            and not self._explicit_html
+            and not self._frameset_seen
+            and not self._body_has_content()
+        ):
             raw = html[pos:doctype_end]
             match = _DOCTYPE_RE.match(raw)
             if match:
@@ -394,7 +453,11 @@ class DefaultSafeEngine:
         html = self._html_input
         match = _TAG_NAME_RE.match(html, pos, end)
         if not match:
-            return pos
+            if pos >= end:
+                self._append_text("</")
+                return end
+            gt = html.find(">", pos, end)
+            return end if gt == -1 else gt + 1
         name = match.group(0)
         if not name.islower():
             name = name.lower()
@@ -402,12 +465,20 @@ class DefaultSafeEngine:
         pos = end if gt == -1 else gt + 1
 
         if not self._fragment and name in {"html", "body"}:
-            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+            if self._frameset_seen and not self._body_explicit:
+                self._stack = [self._doc, self._html]  # type: ignore[list-item]
+            else:
+                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
             self._after_head = False
             return pos
         if not self._fragment and name == "head":
             self._stack = [self._doc, self._html]  # type: ignore[list-item]
             self._after_head = True
+            return pos
+        if self._frameset_seen and not self._body_explicit:
+            return pos
+        if name == "br":
+            self._insert_allowed_element("br", {}, False, self._current_parent())
             return pos
 
         stack = self._stack
@@ -430,15 +501,19 @@ class DefaultSafeEngine:
             return pos
         raw_name = match.group(0)
         name = raw_name if raw_name.islower() else raw_name.lower()
+        if name == "image":
+            name = "img"
         pos = match.end()
 
         attrs, self_closing, pos = self._parse_attrs(pos, end)
         if not self._fragment:
             if name == "html":
+                self._explicit_html = True
                 if self._html is not None:
                     self._html.attrs.update(self._sanitize_attrs("html", attrs))
                 return pos
             if name == "head":
+                self._explicit_head = True
                 if self._head is not None:
                     self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
                     self._after_head = False
@@ -459,6 +534,17 @@ class DefaultSafeEngine:
             self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
             self._after_head = False
 
+        if self._blocks_frameset(name, attrs):
+            self._frameset_blocked = True
+
+        if name == "frameset" and self._accept_frameset():
+            return pos
+
+        if self._frameset_seen and not self._body_explicit:
+            if name == "noframes":
+                return self._parse_raw_literal_text("noframes", pos, end)
+            return pos
+
         if name in self._drop_content_tags:
             return self._skip_rawtext(name, pos, end)
         if name in self._drop_subtree_tags:
@@ -467,6 +553,8 @@ class DefaultSafeEngine:
             return self._parse_rawtext_as_text(name, pos, end)
         if name in self._rcdata_tags:
             return self._parse_rcdata_element(name, attrs, self_closing, pos, end)
+        if name in self._plaintext_tags:
+            return self._parse_plaintext_as_text(pos, end)
 
         parent: Node
         if name in self._head_content_tags and not self._fragment and self._head is not None and not self._body_has_content():
@@ -488,12 +576,13 @@ class DefaultSafeEngine:
             elif parent_name != "tr":
                 return pos
 
+        skip_initial_lf = name in self._pre_linefeed_ignoring_tags
         if name not in self._allowed_tags:
-            return pos
+            return self._skip_initial_linefeed(pos, end) if skip_initial_lf else pos
 
         self._insert_allowed_element(name, attrs, self_closing, parent)
-        if name in self._pre_linefeed_ignoring_tags and pos < end and html[pos] == "\n":
-            pos += 1
+        if skip_initial_lf:
+            pos = self._skip_initial_linefeed(pos, end)
         return pos
 
     def _insert_allowed_element(
@@ -717,7 +806,7 @@ class DefaultSafeEngine:
         end: int,
     ) -> int:
         raw_text, pos = self._consume_until_end_tag(name, pos, end)
-        text = self._clean_text(raw_text)
+        text = self._clean_text(raw_text, replace_null=True)
         if name not in self._allowed_tags:
             if text:
                 self._append(self._current_parent(), Text(text))
@@ -740,6 +829,41 @@ class DefaultSafeEngine:
             self._append(node, Text(text))
         if self._stack and self._stack[-1] is node:
             self._stack.pop()
+        return pos
+
+    def _parse_plaintext_as_text(self, pos: int, end: int) -> int:
+        self._append_raw_literal_text(self._html_input[pos:end])
+        return end
+
+    def _parse_raw_literal_text(self, name: str, pos: int, end: int) -> int:
+        text, pos = self._consume_until_end_tag(name, pos, end)
+        self._append_raw_literal_text(text)
+        return pos
+
+    def _append_raw_literal_text(self, text: str) -> None:
+        if "\r" in text:
+            text = text.replace("\r\n", "\n").replace("\r", "\n")
+        if "\0" in text:
+            text = text.replace("\0", "\ufffd")
+        if self._strip_invisible_unicode and text and not text.isascii():
+            text = _strip_invisible_unicode(text)
+        if text:
+            parent = self._html if self._frameset_seen and not self._body_explicit and self._html is not None else self._current_parent()
+            foster = self._foster_parent_for(parent) if text.strip(_SPACE) else None
+            if foster is None:
+                self._append(parent, Text(text))
+            else:
+                foster_parent, position = foster
+                self._insert_at(foster_parent, position, Text(text))
+
+    def _skip_initial_linefeed(self, pos: int, end: int) -> int:
+        html = self._html_input
+        if pos >= end:
+            return pos
+        if html[pos] == "\n":
+            return pos + 1
+        if html[pos] == "\r":
+            return pos + 2 if pos + 1 < end and html[pos + 1] == "\n" else pos + 1
         return pos
 
     def _parse_attrs(self, pos: int, end: int) -> tuple[dict[str, str | None], bool, int]:
@@ -829,6 +953,7 @@ class DefaultSafeEngine:
         html = self._html_input
         close = self._lower_input.find(f"</{name}", pos, end)
         if close == -1:
+            self._dropped_to_eof = True
             self._append(self._current_parent(), Text(""))
             return end
         gt = html.find(">", close + len(name) + 2, end)
@@ -841,6 +966,7 @@ class DefaultSafeEngine:
         while pos < end and depth:
             lt = html.find("<", pos, end)
             if lt == -1:
+                self._dropped_to_eof = True
                 return end
             p = lt + 1
             is_end = p < end and html[p] == "/"
@@ -857,4 +983,93 @@ class DefaultSafeEngine:
             pos = end if gt == -1 else gt + 1
             if tag == name:
                 depth += -1 if is_end else 1
+        if depth:
+            self._dropped_to_eof = True
         return pos
+
+    def _finish_document_shell(self) -> None:
+        if self._fragment or (not self._dropped_to_eof and not self._frameset_seen):
+            return
+        html = self._html
+        head = self._head
+        body = self._body if isinstance(self._body, Element) else None
+        if html is None or head is None or body is None:
+            return
+        if self._frameset_seen:
+            if self._node_is_empty(body) and not self._body_explicit:
+                self._remove_child(html, body)
+            return
+        if not self._node_is_empty(body) or self._body_explicit:
+            return
+
+        if self._explicit_head or not self._node_is_empty(head):
+            self._remove_child(html, body)
+            return
+
+        if self._explicit_html:
+            self._remove_child(html, head)
+            self._remove_child(html, body)
+            return
+
+        self._remove_child(self._doc, html)
+
+    def _node_is_empty(self, node: Node) -> bool:
+        children = node.children
+        if not children:
+            return True
+        return all(type(child) is Text and not child.data for child in children)
+
+    def _remove_child(self, parent: Node, child: Node) -> None:
+        children = parent.children
+        if children is None:
+            return
+        try:
+            children.remove(child)
+        except ValueError:
+            return
+        child.parent = None
+
+    def _accept_frameset(self) -> bool:
+        if self._fragment or self._frameset_blocked or self._body_explicit or not isinstance(self._body, Element):
+            return False
+        if not self._body_allows_frameset(self._body):
+            return False
+        children = self._body.children
+        if children is not None:
+            children.clear()
+        self._frameset_seen = True
+        self._stack = [self._doc, self._html]  # type: ignore[list-item]
+        self._after_head = False
+        return True
+
+    def _blocks_frameset(self, name: str, attrs: dict[str, str | None]) -> bool:
+        if self._fragment or self._frameset_seen or name not in self._frameset_blocking_start_tags:
+            return False
+        if name == "input":
+            input_type = attrs.get("type")
+            return not (isinstance(input_type, str) and input_type.lower() == "hidden")
+        return True
+
+    def _body_allows_frameset(self, node: Node) -> bool:
+        children = node.children
+        if not children:
+            return True
+        for child in children:
+            if type(child) is Text:
+                if (child.data or "").strip(_SPACE):
+                    return False
+                continue
+            name = getattr(child, "name", None)
+            if name not in self._frameset_body_ok_tags or not self._body_allows_frameset(child):
+                return False
+        return True
+
+    def _append_frameset_text(self, raw: str) -> None:
+        if "\r" in raw:
+            raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+        pos = 0
+        end = len(raw)
+        while pos < end and raw[pos] in _SPACE:
+            pos += 1
+        if pos and self._html is not None:
+            self._append(self._html, Text(raw[:pos]))
