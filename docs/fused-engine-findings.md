@@ -39,15 +39,34 @@ tracking, and no iframe `srcdoc` mode.
 The engine combines scanning, DOM construction, and default sanitizer decisions
 in a single loop:
 
-- Comments and doctypes are dropped while scanning.
+- Comments are dropped while scanning; document doctypes are preserved because
+  `DEFAULT_DOCUMENT_POLICY` allows them.
 - `script`/`style` raw text and `svg`/`math` subtrees are skipped before DOM
   insertion.
 - Default tag and attribute allowlists are applied before node creation.
 - URL sink attributes use the existing URL sanitizer helpers.
 - Text and attribute entity decoding happens inline.
 - Full-document mode creates the default `html/head/body` shell up front.
-- A small amount of parser-sensitive structure is handled directly, currently
-  including `title` placement and basic `table > tr` `tbody` insertion.
+- Parser-sensitive structure is handled directly for the common recovery cases
+  listed below.
+
+## HTML Recovery Pass
+
+A second PoC pass added direct recovery for common malformed real-world HTML:
+
+- Lightweight doctype parsing for `html`, `PUBLIC`, and `SYSTEM` doctypes.
+- Leading pre-document whitespace suppression while preserving whitespace
+  inside `head` and after an explicit `body`.
+- `head` to `body` transition when body content starts inside an explicit
+  `head`.
+- RCDATA/rawtext-as-text handling for `title`, `textarea`, and `noscript`.
+- Implicit closing for `p`, `li`, `dd`/`dt`, `option`/`optgroup`, headings,
+  and nested `a` tags.
+- Table repair for implicit `tbody`, `tr`, adjacent cells, and foster-parented
+  non-table text/content.
+
+Focused malformed samples for those cases now match the existing parser's
+sanitized serialization.
 
 ## Benchmark Result
 
@@ -64,8 +83,9 @@ PYTHONPATH=src python benchmarks/fused_engine_gate.py \
 Result:
 
 - Baseline median: `1.073689s` for 100 `web100k` files.
-- Current `DefaultSafeEngine` median: `0.382541s` for 100 `web100k` files.
-- Speedup: `2.807x`.
+- Raw `DefaultSafeEngine` median before recovery: `0.382541s`.
+- Recovery-enabled `DefaultSafeEngine` median: `0.471169s`.
+- Recovery-enabled speedup: `2.279x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -75,12 +95,15 @@ work into one hot path.
 
 ## Parity Status
 
-The PoC is not production-compatible yet. A 100-file differential smoke check
-completed without crashes, but only `2/100` serialized outputs exactly matched
-the existing parser. The largest gaps are expected HTML5 treebuilder behavior:
-doctype handling, foster parenting, formatting-element reconstruction, richer
-table insertion modes, rawtext/RCDATA corner cases, foreign-content integration
-points, and malformed-markup recovery.
+The PoC is not production-compatible yet. After the recovery pass, a 100-file
+differential smoke check completed without crashes and `20/100` serialized
+outputs exactly matched the existing parser. This is up from `2/100` for the
+raw one-pass parser.
+
+Remaining early diffs are now often whitespace and head/body placement details,
+plus deeper HTML5 behavior such as formatting-element reconstruction, richer
+table insertion modes, select/template handling, foreign-content integration
+points, and malformed-markup recovery outside the common cases above.
 
 ## Current Conclusion
 
@@ -88,8 +111,11 @@ The viable path is not a lightly fused version of the existing html5ever-shaped
 pipeline. It is a new default-safe parser with its own small set of direct
 handlers, then incremental parity work driven by differential fixtures.
 
+The recovery pass is the strongest signal so far that this can remain viable:
+adding a meaningful subset of real HTML error handling moved the benchmark from
+`2.807x` to `2.279x`, still above the final `2.0x` target.
+
 The next engineering step is to keep `DefaultSafeEngine` as the PoC target and
 fill in only the HTML5 behaviors that materially affect sanitized output for
-real-world default-safe parsing. If those parity additions keep the median under
-roughly `0.54s` on this benchmark, the branch can still clear the final 2x
-target with margin.
+real-world default-safe parsing. The remaining speed budget is approximately
+`0.066s` on this 100-file benchmark before falling below `2x`.

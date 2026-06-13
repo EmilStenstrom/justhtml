@@ -10,17 +10,58 @@ from __future__ import annotations
 
 import re
 
-from justhtml.core.constants import VOID_ELEMENTS
+from justhtml.core.constants import HEADING_ELEMENTS, IMPLIED_END_TAGS, TABLE_ALLOWED_CHILDREN, VOID_ELEMENTS
 from justhtml.core.entities import decode_entities_in_text
 from justhtml.dom import Document, DocumentFragment, Element, Node, Template, Text
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, _strip_invisible_unicode
 from justhtml.sanitizer.url import _URL_SINK_ATTRS, _sanitize_url_sink_value, _url_sink_kind_for_attr
+from justhtml.tokenizer.tokens import Doctype
 
 _TAG_NAME_RE = re.compile(r"[A-Za-z][^\t\n\f />]*")
 _ATTR_NAME_RE = re.compile(r"[^\t\n\f />=\0\"'<]+")
+_DOCTYPE_RE = re.compile(
+    r"""\s*([^\s>]+)(?:\s+(PUBLIC|SYSTEM)\s+(?:"([^"]*)"|'([^']*)')(?:\s+(?:"([^"]*)"|'([^']*)'))?)?""",
+    re.IGNORECASE,
+)
 _SPACE = " \t\n\f\r"
 _DROP_CONTENT_TAGS = {"script", "style"}
 _DROP_SUBTREE_TAGS = {"svg", "math"}
+_RCDATA_TAGS = {"title", "textarea"}
+_RAWTEXT_AS_TEXT_TAGS = {"noscript"}
+_HEAD_CONTENT_TAGS = {"base", "basefont", "bgsound", "link", "meta", "noscript", "script", "style", "template", "title"}
+_P_CLOSING_START_TAGS = {
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "center",
+    "details",
+    "dialog",
+    "dir",
+    "div",
+    "dl",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "header",
+    "hgroup",
+    "hr",
+    "main",
+    "menu",
+    "nav",
+    "ol",
+    "p",
+    "pre",
+    "search",
+    "section",
+    "summary",
+    "table",
+    "ul",
+} | HEADING_ELEMENTS
+_TABLE_SECTION_TAGS = {"tbody", "thead", "tfoot"}
+_TABLE_CELL_TAGS = {"td", "th"}
+_TABLE_FOSTER_TARGETS = {"table", "tbody", "tfoot", "thead", "tr"}
 
 
 class DefaultSafeEngine:
@@ -30,7 +71,9 @@ class DefaultSafeEngine:
         "_allowed_global",
         "_allowed_tags",
         "_body",
+        "_body_explicit",
         "_doc",
+        "_doctype_seen",
         "_fragment",
         "_head",
         "_html",
@@ -60,10 +103,12 @@ class DefaultSafeEngine:
         self._url_policy = self._policy.url_policy
         self._url_rules = self._url_policy.allow_rules
         self._doc: Document | DocumentFragment
+        self._doctype_seen = False
+        self._body_explicit = False
         self._html: Element | None = None
         self._head: Element | None = None
         self._body: Element | DocumentFragment
-        self._stack: list[Node | Text] = []
+        self._stack: list[Node] = []
 
     def parse(self) -> Document | DocumentFragment:
         if self._fragment:
@@ -124,6 +169,9 @@ class DefaultSafeEngine:
                     close = html.find("-->", pos + 1, end)
                     pos = end if close == -1 else close + 3
                     continue
+                if self._lower_input.startswith("<!doctype", lt):
+                    pos = self._parse_doctype(pos + 8, end)
+                    continue
                 gt = html.find(">", pos + 1, end)
                 pos = end if gt == -1 else gt + 1
                 continue
@@ -136,16 +184,69 @@ class DefaultSafeEngine:
             pos = self._parse_start_tag(pos, end)
         return pos
 
-    def _append_text(self, raw: str) -> None:
-        if not raw:
-            return
+    def _clean_text(self, raw: str) -> str:
         text = raw
         if "&" in text:
             text = decode_entities_in_text(text)
-        if not text.isascii():
+        if text and not text.isascii():
             text = _strip_invisible_unicode(text)
+        return text
+
+    def _append_text(self, raw: str) -> None:
+        if not raw:
+            return
+        parent = self._current_parent()
+        if (
+            not self._fragment
+            and parent is self._body
+            and not self._body_explicit
+            and not self._body_has_content()
+            and raw.strip(_SPACE) == ""
+        ):
+            return
+        text = self._clean_text(raw)
         if text:
-            self._append(self._current_parent(), Text(text))
+            foster = self._foster_parent_for(parent) if text.strip(_SPACE) else None
+            if foster is None:
+                self._append(parent, Text(text))
+            else:
+                foster_parent, position = foster
+                self._insert_at(foster_parent, position, Text(text))
+
+    def _parse_doctype(self, pos: int, end: int) -> int:
+        html = self._html_input
+        gt = html.find(">", pos, end)
+        doctype_end = end if gt == -1 else gt
+        if not self._fragment and not self._policy.drop_doctype and not self._doctype_seen:
+            raw = html[pos:doctype_end]
+            match = _DOCTYPE_RE.match(raw)
+            if match:
+                name = match.group(1)
+                kind = match.group(2)
+                first_id = match.group(3) if match.group(3) is not None else match.group(4)
+                second_id = match.group(5) if match.group(5) is not None else match.group(6)
+                if kind is not None and kind.lower() == "public":
+                    public_id = first_id
+                    system_id = second_id
+                elif kind is not None and kind.lower() == "system":
+                    public_id = None
+                    system_id = first_id
+                else:
+                    public_id = None
+                    system_id = None
+                self._prepend_doctype(Doctype(name.lower(), public_id, system_id))
+            else:
+                self._prepend_doctype(Doctype("html"))
+        return end if gt == -1 else gt + 1
+
+    def _prepend_doctype(self, doctype: Doctype) -> None:
+        children = self._doc.children
+        if children is None:
+            return
+        node = Node("!doctype", data=doctype)
+        children.insert(0, node)
+        node.parent = self._doc
+        self._doctype_seen = True
 
     def _parse_end_tag(self, pos: int, end: int) -> int:
         html = self._html_input
@@ -166,11 +267,15 @@ class DefaultSafeEngine:
             return pos
 
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            if getattr(node, "name", None) == name:
-                del stack[idx:]
-                break
+        idx = self._find_open_index(name)
+        if idx is None:
+            if name == "p":
+                self._insert_allowed_element("p", {}, False, self._current_parent())
+                self._close_until("p")
+            return pos
+        if name in IMPLIED_END_TAGS:
+            self._generate_implied_end_tags(name)
+        del stack[idx:]
         return pos
 
     def _parse_start_tag(self, pos: int, end: int) -> int:
@@ -196,29 +301,46 @@ class DefaultSafeEngine:
             if name == "body":
                 if isinstance(self._body, Element):
                     self._body.attrs.update(self._sanitize_attrs("body", attrs))
+                self._body_explicit = True
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
                 return pos
+
+        if not self._fragment and self._current_parent() is self._head and name not in _HEAD_CONTENT_TAGS:
+            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
 
         if name in _DROP_CONTENT_TAGS:
             return self._skip_rawtext(name, pos, end)
         if name in _DROP_SUBTREE_TAGS:
             return self._skip_subtree(name, pos, end)
+        if name in _RAWTEXT_AS_TEXT_TAGS:
+            return self._parse_rawtext_as_text(name, pos, end)
+        if name in _RCDATA_TAGS:
+            return self._parse_rcdata_element(name, attrs, self_closing, pos, end)
 
         parent: Node
-        if name == "title" and not self._fragment and self._head is not None:
+        if name in _HEAD_CONTENT_TAGS and not self._fragment and self._head is not None and not self._body_has_content():
             parent = self._head
         else:
+            self._repair_stack_for_start(name)
             parent = self._current_parent()
 
-        if name == "tr" and getattr(parent, "name", None) == "table":
-            tbody = Element("tbody", {}, "html")
-            self._append(parent, tbody)
-            self._stack.append(tbody)
-            parent = tbody
+        if name in _TABLE_SECTION_TAGS | {"tr", "td", "th"}:
+            self._repair_table_for_start(name)
+            parent = self._current_parent()
 
         if name not in self._allowed_tags:
             return pos
 
+        self._insert_allowed_element(name, attrs, self_closing, parent)
+        return pos
+
+    def _insert_allowed_element(
+        self,
+        name: str,
+        attrs: dict[str, str | None],
+        self_closing: bool,
+        parent: Node,
+    ) -> Element:
         attrs = self._sanitize_attrs(name, attrs)
         node: Element
         if name == "template":
@@ -226,9 +348,208 @@ class DefaultSafeEngine:
         else:
             node = Element(name, attrs, "html")
         node._self_closing = self_closing
-        self._append(parent, node)
+        foster = self._foster_parent_for(parent, for_tag=name)
+        if foster is None:
+            self._append(parent, node)
+        else:
+            foster_parent, position = foster
+            self._insert_at(foster_parent, position, node)
         if name not in VOID_ELEMENTS and not self_closing:
             self._stack.append(node)
+        return node
+
+    def _insert_at(self, parent: Node, position: int, node: Node | Text) -> None:
+        children = parent.children
+        if children is None:
+            return
+        if type(node) is Text:
+            if position > 0 and type(children[position - 1]) is Text:
+                children[position - 1].data = (children[position - 1].data or "") + (node.data or "")
+                return
+            if position < len(children) and type(children[position]) is Text:
+                children[position].data = (node.data or "") + (children[position].data or "")
+                return
+        children.insert(position, node)
+        node.parent = parent
+
+    def _body_has_content(self) -> bool:
+        if self._fragment:
+            return bool(self._body.children)
+        body = self._body
+        return bool(body.children)
+
+    def _find_open_index(self, name: str) -> int | None:
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            if getattr(stack[idx], "name", None) == name:
+                return idx
+        return None
+
+    def _close_until(self, name: str) -> None:
+        idx = self._find_open_index(name)
+        if idx is not None:
+            del self._stack[idx:]
+
+    def _generate_implied_end_tags(self, exclude: str | None = None) -> None:
+        stack = self._stack
+        while len(stack) > 1:
+            name = getattr(stack[-1], "name", None)
+            if name in IMPLIED_END_TAGS and name != exclude:
+                stack.pop()
+                continue
+            break
+
+    def _repair_stack_for_start(self, name: str) -> None:
+        if name in _P_CLOSING_START_TAGS and self._find_open_index("p") is not None:
+            self._close_until("p")
+
+        if name == "li":
+            self._close_until("li")
+            return
+
+        if name in {"dd", "dt"}:
+            self._close_until("dd")
+            self._close_until("dt")
+            return
+
+        if name == "option":
+            self._close_until("option")
+            return
+
+        if name == "optgroup":
+            self._close_until("option")
+            self._close_until("optgroup")
+            return
+
+        if name == "a":
+            self._close_until("a")
+            return
+
+        if name in HEADING_ELEMENTS and getattr(self._stack[-1], "name", None) in HEADING_ELEMENTS:
+            self._stack.pop()
+
+    def _repair_table_for_start(self, name: str) -> None:
+        if name in _TABLE_SECTION_TAGS:
+            self._close_table_cell()
+            self._close_until("tr")
+            for section in _TABLE_SECTION_TAGS:
+                self._close_until(section)
+            if getattr(self._current_parent(), "name", None) != "table":
+                table_idx = self._find_open_index("table")
+                if table_idx is not None:
+                    del self._stack[table_idx + 1 :]
+            return
+
+        if name == "tr":
+            self._close_table_cell()
+            self._close_until("tr")
+            parent_name = getattr(self._current_parent(), "name", None)
+            if parent_name == "table":
+                self._insert_allowed_element("tbody", {}, False, self._current_parent())
+            elif parent_name not in _TABLE_SECTION_TAGS:
+                table_idx = self._find_open_index("table")
+                if table_idx is not None:
+                    del self._stack[table_idx + 1 :]
+                    self._insert_allowed_element("tbody", {}, False, self._current_parent())
+            return
+
+        if name in _TABLE_CELL_TAGS:
+            self._close_table_cell()
+            parent_name = getattr(self._current_parent(), "name", None)
+            if parent_name == "tr":
+                return
+            if parent_name == "table":
+                self._insert_allowed_element("tbody", {}, False, self._current_parent())
+                self._insert_allowed_element("tr", {}, False, self._current_parent())
+                return
+            if parent_name in _TABLE_SECTION_TAGS:
+                self._insert_allowed_element("tr", {}, False, self._current_parent())
+                return
+            table_idx = self._find_open_index("table")
+            if table_idx is not None:
+                del self._stack[table_idx + 1 :]
+                self._insert_allowed_element("tbody", {}, False, self._current_parent())
+                self._insert_allowed_element("tr", {}, False, self._current_parent())
+
+    def _close_table_cell(self) -> None:
+        td_idx = self._find_open_index("td")
+        th_idx = self._find_open_index("th")
+        idxs = [idx for idx in (td_idx, th_idx) if idx is not None]
+        if idxs:
+            del self._stack[max(idxs) :]
+
+    def _foster_parent_for(self, parent: Node, *, for_tag: str | None = None) -> tuple[Node, int] | None:
+        if getattr(parent, "name", None) not in _TABLE_FOSTER_TARGETS:
+            return None
+        if for_tag is not None and for_tag in TABLE_ALLOWED_CHILDREN:
+            return None
+        table_idx = self._find_open_index("table")
+        if table_idx is None:
+            return None
+        table = self._stack[table_idx]
+        table_parent = table.parent
+        children = table_parent.children if table_parent is not None else None
+        if table_parent is None or children is None:
+            return None
+        try:
+            return table_parent, children.index(table)
+        except ValueError:
+            return None
+
+    def _consume_until_end_tag(self, name: str, pos: int, end: int) -> tuple[str, int]:
+        html = self._html_input
+        close = self._lower_input.find(f"</{name}", pos, end)
+        if close == -1:
+            return html[pos:end], end
+        gt = html.find(">", close + len(name) + 2, end)
+        return html[pos:close], (end if gt == -1 else gt + 1)
+
+    def _parse_rawtext_as_text(self, name: str, pos: int, end: int) -> int:
+        raw_text, pos = self._consume_until_end_tag(name, pos, end)
+        if not raw_text:
+            return pos
+        text = raw_text if raw_text.isascii() else _strip_invisible_unicode(raw_text)
+        if not text:
+            return pos
+        parent: Node
+        if (
+            not self._fragment
+            and not self._body_explicit
+            and not self._body_has_content()
+            and self._head is not None
+        ):
+            parent = self._head
+        else:
+            parent = self._current_parent()
+        self._append(parent, Text(text))
+        return pos
+
+    def _parse_rcdata_element(
+        self,
+        name: str,
+        attrs: dict[str, str | None],
+        self_closing: bool,
+        pos: int,
+        end: int,
+    ) -> int:
+        raw_text, pos = self._consume_until_end_tag(name, pos, end)
+        text = self._clean_text(raw_text)
+        if name not in self._allowed_tags:
+            if text:
+                self._append(self._current_parent(), Text(text))
+            return pos
+
+        parent: Node
+        if name == "title" and not self._fragment and self._head is not None:
+            parent = self._head
+        else:
+            self._repair_stack_for_start(name)
+            parent = self._current_parent()
+        node = self._insert_allowed_element(name, attrs, False if name in _RCDATA_TAGS else self_closing, parent)
+        if text:
+            self._append(node, Text(text))
+        if self._stack and self._stack[-1] is node:
+            self._stack.pop()
         return pos
 
     def _parse_attrs(self, pos: int, end: int) -> tuple[dict[str, str | None], bool, int]:
