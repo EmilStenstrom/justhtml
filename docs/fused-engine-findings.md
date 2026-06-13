@@ -109,6 +109,41 @@ Focused probes for after-head whitespace, nested lists, body-time `title`,
 `pre` initial LF, orphan table cells, adjacent table cells, and nested tables
 now match the existing parser.
 
+## html5lib Differential Scorecard
+
+A reusable differential runner now targets the html5lib tree-construction
+fixtures directly:
+
+```bash
+PYTHONPATH=src python benchmarks/html5lib_engine_diff.py \
+  --examples 5 \
+  --worst-files 12
+```
+
+This compares `JustHTML(html)` through `DefaultSafeEngine` against the current
+tokenizer/treebuilder path forced with `JustHTML(html, collect_errors=True)`.
+It is not the upstream html5lib pass/fail result because default-safe
+sanitization changes observable output. The official tree harness still passes
+against the existing parser path because it runs with `sanitize=False`.
+
+Current result:
+
+- Eligible full-document cases: `1564`.
+- Exact matches: `942`.
+- Mismatches: `620`.
+- New-engine-only exceptions: `0`.
+- Reference-path exceptions: `2` malformed-doctype serializations.
+- Exact/eligible rate: `60.23%`.
+- Exact/compared rate: `60.31%`.
+- Skipped unsupported modes: `192` fragment-context cases and `35`
+  scripting-directive cases.
+
+The largest remaining buckets are adoption-agency/active-formatting behavior,
+`plaintext`, select-like insertion modes, deeper table/template cases, and
+quirks around malformed inline structure. Malformed doctype names are now
+normalized in `DefaultSafeEngine` so the new engine does not produce unsafe
+names that later fail serialization.
+
 ## Benchmark Result
 
 Command:
@@ -129,6 +164,8 @@ Result:
 - EnginePlan-enabled median: `0.467711s`.
 - Compliance-pass median: `0.470205s`.
 - Compliance-pass speedup: `2.283x`.
+- html5lib-scorecard pass median: `0.469793s`.
+- html5lib-scorecard pass speedup: `2.285x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -142,6 +179,10 @@ The PoC is not production-compatible yet. After the compliance pass, a 100-file
 differential smoke check completed without crashes and `75/100` serialized
 outputs exactly matched the existing parser. This is up from `2/100` for the
 raw one-pass parser and `20/100` after the first recovery pass.
+
+The broader html5lib differential scorecard is now the main compliance driver:
+`942/1564` eligible full-document cases match the existing default-safe path,
+and the new engine has no current-only serialization exceptions in that suite.
 
 Remaining diffs are now more varied: exact whitespace counts, broader
 formatting-element/adoption behavior, malformed inline links, deeper table
