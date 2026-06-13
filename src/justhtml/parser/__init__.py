@@ -17,6 +17,7 @@ from justhtml.treebuilder import TreeBuilder
 
 from .context import FragmentContext
 from .encoding import decode_html
+from .fused import apply_default_sanitizer_fast_path, can_apply_default_sanitizer_fast_path
 
 if TYPE_CHECKING:
     from justhtml.sanitizer import SanitizationPolicy
@@ -284,16 +285,22 @@ class JustHTML:
                     t_policy.reset_collected_security_errors()
                     reset_collect_policy_ids.add(policy_id)
 
+                used_fused_default_sanitizer = False
                 compiled_transforms: Any = None
                 if len(final_transforms) == 1 and isinstance(final_transforms[0], Sanitize):
                     only = final_transforms[0]
                     p = only.policy
                     if only.enabled and only.callback is None and only.report is None and p is not None:
-                        compiled_transforms = p.compile().transforms
+                        if can_apply_default_sanitizer_fast_path(p):
+                            apply_default_sanitizer_fast_path(self.root, p)
+                            used_fused_default_sanitizer = True
+                        else:
+                            compiled_transforms = p.compile().transforms
 
-                if compiled_transforms is None:
+                if not used_fused_default_sanitizer and compiled_transforms is None:
                     compiled_transforms = compile_transforms(tuple(final_transforms))
-                apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
+                if not used_fused_default_sanitizer:
+                    apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
 
                 # Merge collected security errors into the document error list.
                 # This mirrors the old behavior where safe output could feed
