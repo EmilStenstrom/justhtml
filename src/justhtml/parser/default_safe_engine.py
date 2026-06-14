@@ -127,7 +127,7 @@ _TEMPLATE_MODE_ROW = "row"
 _TEMPLATE_MODE_CELL = "cell"
 _TEMPLATE_MODE_COLGROUP = "colgroup"
 _TEMPLATE_TABLE_CONTEXT_START_TAGS = {"caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr"}
-_TEMPLATE_TABLE_BODY_IGNORED_START_TAGS = {"caption", "col", "colgroup", "tbody", "tfoot", "thead", "table"}
+_TEMPLATE_TABLE_BODY_IGNORED_START_TAGS = {"caption", "col", "colgroup", "table"}
 _TEMPLATE_ROW_STRUCTURE_START_TAGS = {"caption", "col", "colgroup", "tbody", "tfoot", "thead", "tr", "table"}
 _FRAMESET_BODY_OK_TAGS = {"div", "p"}
 _FRAMESET_BLOCKING_START_TAGS = {
@@ -772,9 +772,15 @@ class DefaultSafeEngine:
             return
         parent = self._current_parent()
         parent_name = getattr(parent, "name", None)
-        if self._active_formatting_dirty and parent_name not in self._table_cell_tags and parent_name != "caption":
-            self._reconstruct_active_formatting()
-            parent = self._current_parent()
+        if self._active_formatting_dirty:
+            reconstruct = parent_name not in self._table_cell_tags and parent_name != "caption"
+            if reconstruct and parent_name in self._table_foster_targets:
+                if raw_is_space is None:
+                    raw_is_space = raw.strip(_SPACE) == ""
+                reconstruct = not raw_is_space
+            if reconstruct:
+                self._reconstruct_active_formatting()
+                parent = self._current_parent()
         if (
             not self._fragment
             and self._head is not None
@@ -936,6 +942,10 @@ class DefaultSafeEngine:
             parent_name = getattr(self._current_parent(), "name", None)
             if self._find_open_index("table") is not None and parent_name not in {"body", "html"}:
                 return pos
+            if parent_name not in {"body", "html"} and self._find_open_index("body") is not None:
+                self._after_head = False
+                self._body_mode_seen = True
+                return pos
             if self._frameset_seen and not self._body_explicit:
                 self._stack = [self._doc, self._html]  # type: ignore[list-item]
             else:
@@ -948,7 +958,7 @@ class DefaultSafeEngine:
             self._stack = [self._doc, self._html]  # type: ignore[list-item]
             self._after_head = True
             return pos
-        if name == "colgroup":
+        if name == "colgroup" and not self._parser_only_template_depth:
             self._in_colgroup = False
             return pos
         if name == "table":
@@ -1158,8 +1168,19 @@ class DefaultSafeEngine:
                 self._body_mode_seen = True
                 current_top = self._body
 
-        if not in_parser_only_template and self._blocks_frameset_action(action, attrs):
-            self._frameset_blocked = True
+        if (
+            not in_parser_only_template
+            and not self._fragment
+            and not self._frameset_seen
+            and action is not None
+            and action.blocks_frameset
+        ):
+            if action.name == "input":
+                input_type = attrs.get("type")
+                if not (isinstance(input_type, str) and input_type.lower() == "hidden"):
+                    self._frameset_blocked = True
+            else:
+                self._frameset_blocked = True
 
         if name == "frameset" and self._accept_fragment_frameset():
             return pos
@@ -1199,9 +1220,10 @@ class DefaultSafeEngine:
         if action is not None and action.plaintext:
             return self._parse_plaintext_as_text(pos, end)
 
-        fragment_pos = self._handle_fragment_context_start(name, attrs, self_closing, pos)
-        if fragment_pos is not None:
-            return fragment_pos
+        if self._fragment_context_name is not None:
+            fragment_pos = self._handle_fragment_context_start(name, attrs, self_closing, pos)
+            if fragment_pos is not None:
+                return fragment_pos
 
         if name == "template" and name not in self._allowed_tags:
             self._start_parser_only_template()
@@ -1278,6 +1300,15 @@ class DefaultSafeEngine:
             elif name == "menuitem" and self._active_formatting_dirty:
                 self._reconstruct_active_formatting()
             return pos
+
+        if (
+            self._active_formatting_dirty
+            and parent.name in self._table_foster_targets
+            and name not in self._table_allowed_children
+            and (action is None or not action.p_closing)
+        ):
+            self._reconstruct_active_formatting()
+            parent = self._current_parent()
 
         self._insert_allowed_element(name, attrs, self_closing, parent)
         if action.pre_linefeed:
@@ -1550,9 +1581,11 @@ class DefaultSafeEngine:
                 return pos
             if name == "tr":
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
+                self._insert_template_mode_element("tbody", {}, False)
                 return self._handle_template_table_body_start(name, attrs, self_closing, pos)
             if name in self._table_cell_tags:
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
+                self._insert_template_mode_element("tbody", {}, False)
                 return self._handle_template_table_body_start(name, attrs, self_closing, pos)
             if name in {"col", "colgroup"}:
                 self._set_current_template_mode(_TEMPLATE_MODE_COLGROUP)
@@ -1586,6 +1619,11 @@ class DefaultSafeEngine:
             self._set_current_template_mode(_TEMPLATE_MODE_ROW)
             self._insert_template_mode_element("tr", {}, False)
             return self._handle_template_row_start(name, attrs, self_closing, pos)
+        if name in self._table_section_tags:
+            if self._close_open_template_table_section():
+                self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
+                return self._handle_template_mode_start(name, attrs, self_closing, pos)
+            return pos
         if name in _TEMPLATE_TABLE_BODY_IGNORED_START_TAGS:
             return pos
         return None
@@ -1642,11 +1680,26 @@ class DefaultSafeEngine:
             if name in {"caption", "col", "colgroup", "td", "th", "tr"}:
                 return True
         if mode == _TEMPLATE_MODE_COLGROUP:
+            if name == "colgroup":
+                self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
+                return True
             return name != "template"
         return False
 
     def _close_template_row(self) -> bool:
         return self._close_until_before_boundary("tr", _TEMPLATE_SCOPE_BOUNDARIES)
+
+    def _close_open_template_table_section(self) -> bool:
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            node_name = stack[idx].name
+            if node_name in self._table_section_tags:
+                self._mark_active_formatting_dirty()
+                del stack[idx:]
+                return True
+            if node_name == "template":
+                return False
+        return False
 
     def _close_template_cell(self) -> bool:
         stack = self._stack
@@ -2266,6 +2319,11 @@ class DefaultSafeEngine:
                 last_node = node
 
             common_ancestor = stack[formatting_stack_index - 1]
+            if common_ancestor.namespace == _PARSER_ONLY_NAMESPACE:
+                ancestor_index = formatting_stack_index - 2
+                while ancestor_index > 0 and stack[ancestor_index].namespace == _PARSER_ONLY_NAMESPACE:
+                    ancestor_index -= 1
+                common_ancestor = stack[ancestor_index]
             self._detach_node(last_node)
             foster = self._foster_parent_for(common_ancestor, for_tag=getattr(last_node, "name", None))
             if foster is None:
