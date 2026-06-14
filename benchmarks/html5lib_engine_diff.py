@@ -77,10 +77,8 @@ def _new_runner(test_dir: Path, config: dict[str, object]) -> Any:
 
 
 def _skip_reason(test: Any) -> str | None:
-    if test.fragment_context is not None:
-        return "fragment_context"
-    if test.script_directive is not None:
-        return "script_directive"
+    if test.script_directive == "script-on":
+        return "script_on"
     if test.xml_coercion:
         return "xml_coercion"
     if test.iframe_srcdoc:
@@ -88,17 +86,30 @@ def _skip_reason(test: Any) -> str | None:
     return None
 
 
-def _render_current(html: str) -> str:
-    return JustHTML(html).to_html(pretty=False)
+def _scripting_enabled(test: Any) -> bool:
+    return bool(test.script_directive != "script-off")
 
 
-def _render_reference(html: str) -> str:
-    return JustHTML(html, collect_errors=True).to_html(pretty=False)
+def _render_current(test: Any) -> str:
+    return JustHTML(
+        test.data,
+        fragment_context=test.fragment_context,
+        scripting_enabled=_scripting_enabled(test),
+    ).to_html(pretty=False)
 
 
-def _try_render(render: Callable[[str], str], html: str) -> tuple[str | None, str | None]:
+def _render_reference(test: Any) -> str:
+    return JustHTML(
+        test.data,
+        fragment_context=test.fragment_context,
+        scripting_enabled=_scripting_enabled(test),
+        collect_errors=True,
+    ).to_html(pretty=False)
+
+
+def _try_render(render: Callable[[Any], str], test: Any) -> tuple[str | None, str | None]:
     try:
-        return render(html), None
+        return render(test), None
     except Exception as exc:  # noqa: BLE001 - scorecard must keep scanning after parser failures
         return None, f"{type(exc).__name__}: {exc}"
 
@@ -159,8 +170,8 @@ def main() -> int:
         counts["eligible"] += 1
         per_file[file_key]["eligible"] += 1
 
-        current, current_exc = _try_render(_render_current, test.data)
-        reference, reference_exc = _try_render(_render_reference, test.data)
+        current, current_exc = _try_render(_render_current, test)
+        reference, reference_exc = _try_render(_render_reference, test)
 
         if current_exc is not None and reference_exc is not None:
             kind = "both_exceptions"
