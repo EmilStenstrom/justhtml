@@ -29,6 +29,12 @@ This showed that removing the final generic sanitizer pass is not enough.
 Tokenizer state dispatch, token construction, and treebuilder insertion-mode
 dispatch remain the dominant cost.
 
+`FusedDefaultTreeBuilder` has now been deleted. It was useful as a benchmark
+probe, but keeping it would leave three construction paths: the new engine, the
+fused tokenizer/treebuilder path, and the legacy tokenizer/treebuilder path.
+The release direction is one production parser path, so the intermediate fused
+builder should not survive.
+
 ## DefaultSafeEngine PoC
 
 `DefaultSafeEngine` is intentionally narrower and less compatible. It is routed
@@ -133,6 +139,13 @@ tokenizer/treebuilder path forced with `JustHTML(html, collect_errors=True)`.
 It is not the upstream html5lib pass/fail result because default-safe
 sanitization changes observable output. The official tree harness still passes
 against the existing parser path because it runs with `sanitize=False`.
+
+After deleting `FusedDefaultTreeBuilder`, this runner's forced reference path is
+no longer a stable snapshot of the previous construction-sanitized behavior:
+`collect_errors=True` now necessarily uses the generic tokenizer/treebuilder
+plus post-parse sanitizer path. Further deletion work should either freeze
+expected serialized outputs or teach the harness an explicit expected-output
+mode instead of treating the remaining legacy parser as the reference.
 
 Current result:
 
@@ -250,6 +263,8 @@ Result:
 - Template/foster/body-stack parity speedup: `2.050x`.
 - Safe malformed-doctype serialization median: `0.531217s`.
 - Safe malformed-doctype serialization speedup: `2.021x`.
+- Fused treebuilder deletion/custom policy planner median: `0.529293s`.
+- Fused treebuilder deletion/custom policy planner speedup: `2.029x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -261,11 +276,20 @@ sanitization, and active-formatting reconstruction.
 
 ## Parity Status
 
-The engine is not production-compatible as the default parser yet, mainly
-because the remaining product surface extends beyond this differential
-scorecard: custom policies, explicit transforms, strict/error collection,
-location tracking, and broader application-level compatibility still need
-promotion work.
+The engine is not production-compatible as the only parser yet, mainly because
+the remaining product surface extends beyond this differential scorecard:
+custom policy features, explicit transforms, raw/trusted `sanitize=False`
+parsing, strict/error collection, location tracking, iframe `srcdoc`, and
+broader application-level compatibility still need promotion work.
+
+The latest deletion pass removes the obsolete fused treebuilder path and starts
+moving custom policies into the engine planner. `DefaultSafeEngine` can now
+compile conservative safe-policy subsets: strip-mode unsafe handling,
+unwrap-mode disallowed tags, dropped comments, no forced link-rel merge, no
+allowed style/SVG/MathML surface, default-policy tag/attribute subsets, and URL
+sink attrs only when the policy supplies explicit URL rules. Unsupported policy
+features deliberately stay on the remaining legacy path until they have engine
+semantics.
 
 The broader html5lib differential scorecard is now the main compliance driver:
 `1783/1783` scored cases match the existing default-safe path, with `0`
