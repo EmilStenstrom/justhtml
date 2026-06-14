@@ -374,6 +374,24 @@ table scope, and generic end tags stop at special elements. Adoption-created
 formatting clones also retain the existing parser's compatibility behavior for
 disallowed formatting tags and their state-only attributes.
 
+The public API routing pass moves the remaining ordinary constructor cases onto
+`DefaultSafeEngine`. `JustHTML(...)` now uses a compiled safe plan for
+compilable sanitization policies and a compiled raw plan for `sanitize=False`,
+explicit transform pipelines, and policies that still need the generic
+post-parse transform runtime. Raw plans preserve comments, doctypes, attributes,
+foreign content, rawtext/RCDATA/plaintext, malformed source text needed by
+escape-mode sanitization, and the source spans required by `Escape(...)`.
+Location tracking is now handled directly by the engine through opt-in origin
+and tag-span metadata.
+
+The current verification numbers for this pass are:
+
+- Full harness: `10323/10323` passed, `6` skipped.
+- Default-safe html5lib differential: `1783/1783` exact matches, excluding `8`
+  script-on cases.
+- Default-safe web100k gate: `0.533649s` median over `31` iterations, `2.012x`
+  speedup against the recorded `1.073689s` baseline.
+
 ## Current Conclusion
 
 The viable path is not a lightly fused version of the existing html5ever-shaped

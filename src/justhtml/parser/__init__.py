@@ -21,6 +21,7 @@ from .default_safe_engine import (
     can_compile_engine_plan,
     compile_default_engine_plan,
     compile_engine_plan,
+    compile_raw_engine_plan,
 )
 from .encoding import decode_html
 
@@ -99,9 +100,16 @@ class JustHTML:
         needs_escape_incomplete_tags = False
         if transforms:
             from justhtml.sanitizer import DEFAULT_POLICY  # noqa: PLC0415
-            from justhtml.transforms import HardenRawtext, Sanitize, _iter_flattened_transforms  # noqa: PLC0415
+            from justhtml.transforms import (  # noqa: PLC0415
+                Escape,
+                HardenRawtext,
+                Sanitize,
+                _iter_flattened_transforms,
+            )
 
             for t in _iter_flattened_transforms(transforms):
+                if isinstance(t, Escape):
+                    track_tag_spans = True
                 if isinstance(t, Sanitize):
                     has_sanitize_transform = True
                     if explicit_sanitize_policy is None:
@@ -110,7 +118,6 @@ class JustHTML:
                     if effective.disallowed_tag_handling == "escape":
                         track_tag_spans = True
                         needs_escape_incomplete_tags = True
-                        break
                 if isinstance(t, HardenRawtext):
                     has_harden_rawtext_transform = True
                     if explicit_rawtext_policy is None:
@@ -166,19 +173,25 @@ class JustHTML:
 
                 engine_policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
 
-        if (
-            engine_policy is not None
-            and can_compile_engine_plan(engine_policy, fragment=fragment)
-            and not track_node_locations
-            and _tokenizer_opts is None
-        ):
+        if _tokenizer_opts is None:
             self.tree_builder = None  # type: ignore[assignment]
             self.tokenizer = None  # type: ignore[assignment]
-            engine_plan = (
-                compile_default_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
-                if policy is None
-                else compile_engine_plan(policy=engine_policy, fragment=fragment, scripting_enabled=scripting_enabled)
+            use_compiled_safe_engine = (
+                engine_policy is not None
+                and not transforms
+                and can_compile_engine_plan(engine_policy, fragment=fragment)
             )
+            if use_compiled_safe_engine:
+                if policy is None:
+                    engine_plan = compile_default_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
+                else:
+                    engine_plan = compile_engine_plan(
+                        policy=cast("SanitizationPolicy", engine_policy),
+                        fragment=fragment,
+                        scripting_enabled=scripting_enabled,
+                    )
+            else:
+                engine_plan = compile_raw_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
             engine = DefaultSafeEngine(
                 html_str,
                 fragment=fragment,
@@ -187,9 +200,24 @@ class JustHTML:
                 plan=engine_plan,
                 collect_errors=should_collect,
                 iframe_srcdoc=iframe_srcdoc,
+                track_node_locations=bool(track_node_locations),
+                track_tag_spans=bool(track_node_locations) or track_tag_spans,
             )
             self.root = engine.parse()
-            self.errors = self._sorted_errors(engine.errors) if should_collect else []
+
+            transform_errors: list[ParseError] = []
+            if not use_compiled_safe_engine:
+                transform_errors = self._apply_constructor_transforms(
+                    transforms=transforms,
+                    sanitize_enabled=sanitize_enabled,
+                    policy=policy,
+                    has_sanitize_transform=has_sanitize_transform,
+                )
+
+            if should_collect:
+                self.errors = self._sorted_errors(engine.errors + transform_errors)
+            else:
+                self.errors = transform_errors
             if strict and self.errors:
                 raise StrictModeError(self.errors[0])
             return
@@ -233,121 +261,12 @@ class JustHTML:
         self.tokenizer.run(html_str)
         self.root = cast("Document | DocumentFragment", self.tree_builder.finish())
 
-        transform_errors: list[ParseError] = []
-
-        # Apply transforms after parse.
-        # Safety model: when sanitize=True, the in-memory tree is sanitized exactly once
-        # during construction by ensuring a Sanitize transform runs. If the user
-        # places an explicit Sanitize() in the transform list, that explicit
-        # position becomes the sanitize point (no extra final pass is appended).
-        if transforms or sanitize_enabled:
-            from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
-            from justhtml.transforms import HardenRawtext, Sanitize, Stage, _iter_flattened_transforms  # noqa: PLC0415
-
-            def _normalize_transform_policies(
-                items: list[TransformSpec] | tuple[TransformSpec, ...],
-                *,
-                default_policy: SanitizationPolicy,
-            ) -> list[TransformSpec]:
-                normalized: list[TransformSpec] = []
-                for item in items:
-                    if isinstance(item, Sanitize) and item.policy is None:
-                        normalized.append(
-                            Sanitize(
-                                policy=default_policy,
-                                enabled=item.enabled,
-                                callback=item.callback,
-                                report=item.report,
-                            )
-                        )
-                        continue
-
-                    if isinstance(item, HardenRawtext) and item.policy is None:
-                        normalized.append(
-                            HardenRawtext(
-                                policy=default_policy,
-                                enabled=item.enabled,
-                            )
-                        )
-                        continue
-
-                    if isinstance(item, Stage):
-                        normalized.append(
-                            Stage(
-                                _normalize_transform_policies(item.transforms, default_policy=default_policy),
-                                enabled=item.enabled,
-                                callback=item.callback,
-                                report=item.report,
-                            )
-                        )
-                        continue
-
-                    normalized.append(item)
-                return normalized
-
-            final_transforms: list[TransformSpec] = list(transforms or [])
-
-            # Normalize explicit Sanitize() transforms without their own policy
-            # to the constructor policy when supplied, otherwise to the same
-            # default policy choice as the old safe-output sanitizer (document
-            # vs fragment).
-            if final_transforms:
-                default_mode_policy = policy or (
-                    DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY
-                )
-                final_transforms = _normalize_transform_policies(
-                    final_transforms,
-                    default_policy=default_mode_policy,
-                )
-
-            # Auto-append a final Sanitize step only if the user didn't include
-            # Sanitize anywhere in their transform list.
-            if sanitize_enabled and not has_sanitize_transform:
-                effective_policy = (
-                    policy
-                    if policy is not None
-                    else (DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY)
-                )
-                final_transforms.append(Sanitize(policy=effective_policy))
-
-            if final_transforms:
-                # Avoid stale collected errors on reused policy objects. Constructor
-                # `doc.errors` should describe this parse, including when callers
-                # provide explicit Sanitize(...) transforms.
-                reset_collect_policy_ids: set[int] = set()
-                for transform_item in _iter_flattened_transforms(final_transforms):
-                    if not isinstance(transform_item, (Sanitize, HardenRawtext)) or not transform_item.enabled:
-                        continue
-                    t_policy = transform_item.policy
-                    if t_policy is None or t_policy.unsafe_handling != "collect":
-                        continue
-                    policy_id = id(t_policy)
-                    if policy_id in reset_collect_policy_ids:
-                        continue
-                    t_policy.reset_collected_security_errors()
-                    reset_collect_policy_ids.add(policy_id)
-
-                compiled_transforms: Any = None
-                if len(final_transforms) == 1 and isinstance(final_transforms[0], Sanitize):
-                    only = final_transforms[0]
-                    p = only.policy
-                    if only.enabled and only.callback is None and only.report is None and p is not None:
-                        compiled_transforms = p.compile().transforms
-
-                if compiled_transforms is None:
-                    compiled_transforms = compile_transforms(tuple(final_transforms))
-                apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
-
-                # Merge collected security errors into the document error list.
-                # This mirrors the old behavior where safe output could feed
-                # security findings into doc.errors.
-                for transform_item in _iter_flattened_transforms(final_transforms):
-                    if isinstance(transform_item, (Sanitize, HardenRawtext)) and transform_item.enabled:
-                        t_policy = transform_item.policy
-                        if t_policy is not None and t_policy.unsafe_handling == "collect":
-                            if t_policy.collects_security_errors_into(transform_errors):
-                                continue
-                            transform_errors.extend(t_policy.collected_security_errors())
+        transform_errors = self._apply_constructor_transforms(
+            transforms=transforms,
+            sanitize_enabled=sanitize_enabled,
+            policy=policy,
+            has_sanitize_transform=has_sanitize_transform,
+        )
 
         if should_collect:
             # Merge errors from both tokenizer and tree builder.
@@ -360,6 +279,135 @@ class JustHTML:
         # In strict mode, raise on first error
         if strict and self.errors:
             raise StrictModeError(self.errors[0])
+
+    def _apply_constructor_transforms(
+        self,
+        *,
+        transforms: list[TransformSpec] | None,
+        sanitize_enabled: bool,
+        policy: SanitizationPolicy | None,
+        has_sanitize_transform: bool,
+    ) -> list[ParseError]:
+        transform_errors: list[ParseError] = []
+
+        # Apply transforms after parse.
+        # Safety model: when sanitize=True, the in-memory tree is sanitized exactly once
+        # during construction by ensuring a Sanitize transform runs. If the user
+        # places an explicit Sanitize() in the transform list, that explicit
+        # position becomes the sanitize point (no extra final pass is appended).
+        if not transforms and not sanitize_enabled:
+            return transform_errors
+
+        from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
+        from justhtml.transforms import HardenRawtext, Sanitize, Stage, _iter_flattened_transforms  # noqa: PLC0415
+
+        def _normalize_transform_policies(
+            items: list[TransformSpec] | tuple[TransformSpec, ...],
+            *,
+            default_policy: SanitizationPolicy,
+        ) -> list[TransformSpec]:
+            normalized: list[TransformSpec] = []
+            for item in items:
+                if isinstance(item, Sanitize) and item.policy is None:
+                    normalized.append(
+                        Sanitize(
+                            policy=default_policy,
+                            enabled=item.enabled,
+                            callback=item.callback,
+                            report=item.report,
+                        )
+                    )
+                    continue
+
+                if isinstance(item, HardenRawtext) and item.policy is None:
+                    normalized.append(
+                        HardenRawtext(
+                            policy=default_policy,
+                            enabled=item.enabled,
+                        )
+                    )
+                    continue
+
+                if isinstance(item, Stage):
+                    normalized.append(
+                        Stage(
+                            _normalize_transform_policies(item.transforms, default_policy=default_policy),
+                            enabled=item.enabled,
+                            callback=item.callback,
+                            report=item.report,
+                        )
+                    )
+                    continue
+
+                normalized.append(item)
+            return normalized
+
+        final_transforms: list[TransformSpec] = list(transforms or [])
+
+        # Normalize explicit Sanitize() transforms without their own policy to
+        # the constructor policy when supplied, otherwise to the same default
+        # policy choice as the old safe-output sanitizer (document vs fragment).
+        if final_transforms:
+            default_mode_policy = policy or (
+                DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY
+            )
+            final_transforms = _normalize_transform_policies(
+                final_transforms,
+                default_policy=default_mode_policy,
+            )
+
+        # Auto-append a final Sanitize step only if the user didn't include
+        # Sanitize anywhere in their transform list.
+        if sanitize_enabled and not has_sanitize_transform:
+            effective_policy = (
+                policy
+                if policy is not None
+                else (DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY)
+            )
+            final_transforms.append(Sanitize(policy=effective_policy))
+
+        if not final_transforms:
+            return transform_errors
+
+        # Avoid stale collected errors on reused policy objects. Constructor
+        # `doc.errors` should describe this parse, including when callers provide
+        # explicit Sanitize(...) transforms.
+        reset_collect_policy_ids: set[int] = set()
+        for transform_item in _iter_flattened_transforms(final_transforms):
+            if not isinstance(transform_item, (Sanitize, HardenRawtext)) or not transform_item.enabled:
+                continue
+            t_policy = transform_item.policy
+            if t_policy is None or t_policy.unsafe_handling != "collect":
+                continue
+            policy_id = id(t_policy)
+            if policy_id in reset_collect_policy_ids:
+                continue
+            t_policy.reset_collected_security_errors()
+            reset_collect_policy_ids.add(policy_id)
+
+        compiled_transforms: Any = None
+        if len(final_transforms) == 1 and isinstance(final_transforms[0], Sanitize):
+            only = final_transforms[0]
+            p = only.policy
+            if only.enabled and only.callback is None and only.report is None and p is not None:
+                compiled_transforms = p.compile().transforms
+
+        if compiled_transforms is None:
+            compiled_transforms = compile_transforms(tuple(final_transforms))
+        apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
+
+        # Merge collected security errors into the document error list. This
+        # mirrors the old behavior where safe output could feed security findings
+        # into doc.errors.
+        for transform_item in _iter_flattened_transforms(final_transforms):
+            if isinstance(transform_item, (Sanitize, HardenRawtext)) and transform_item.enabled:
+                t_policy = transform_item.policy
+                if t_policy is not None and t_policy.unsafe_handling == "collect":
+                    if t_policy.collects_security_errors_into(transform_errors):
+                        continue
+                    transform_errors.extend(t_policy.collected_security_errors())
+
+        return transform_errors
 
     @staticmethod
     def escape_js_string(value: str, *, quote: str = '"') -> str:
