@@ -39,7 +39,6 @@ if TYPE_CHECKING:
     from justhtml.sanitizer.url.spec import UrlSinkKind
 
 _TAG_NAME_RE = re.compile(r"[A-Za-z][^\t\n\f />]*")
-_DOCTYPE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_-]*$")
 _DOCTYPE_RE = re.compile(
     r"""\s*([^\s>]+)(?:\s*(PUBLIC|SYSTEM)\s*(?:(?:"([^"]*)"|'([^']*)')\s*(?:"([^"]*)"|'([^']*)')?)?)?""",
     re.IGNORECASE,
@@ -879,8 +878,7 @@ class DefaultSafeEngine:
             raw = html[pos:doctype_end]
             match = _DOCTYPE_RE.match(raw)
             if match:
-                raw_name = match.group(1).lower()
-                name = raw_name if _DOCTYPE_NAME_RE.match(raw_name) else None
+                name = match.group(1).lower()
                 kind = match.group(2)
                 first_id = match.group(3) if match.group(3) is not None else match.group(4)
                 second_id = match.group(5) if match.group(5) is not None else match.group(6)
