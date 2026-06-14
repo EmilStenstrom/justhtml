@@ -115,6 +115,7 @@ _TABLE_CONTEXT_BOUNDARIES = frozenset({"table"})
 _GENERAL_END_TAG_BOUNDARIES = frozenset(SPECIAL_ELEMENTS) | _BUTTON_SCOPE_BOUNDARIES | _TABLE_CONTEXT_BOUNDARIES
 _TABLE_SECTION_TAGS = {"tbody", "thead", "tfoot"}
 _TABLE_CELL_TAGS = {"td", "th"}
+_TABLE_SCOPED_END_TAGS = {"caption", "table", "tbody", "td", "tfoot", "th", "thead", "tr"}
 _TABLE_FOSTER_TARGETS = {"table", "tbody", "tfoot", "thead", "tr"}
 _TABLE_STRUCTURE_START_TAGS = {"caption", "col", "colgroup", "table", "tbody", "td", "tfoot", "th", "thead", "tr"}
 _TEMPLATE_SCOPE_BOUNDARIES = frozenset({"template"})
@@ -360,11 +361,17 @@ class _FormattingEntry:
     signature: tuple[tuple[str, str], ...]
 
 
+class _FormattingMarker:
+    __slots__ = ()
+
+
+_ACTIVE_FORMATTING_MARKER = _FormattingMarker()
+
+
 class DefaultSafeEngine:
     __slots__ = (
         "_active_formatting",
         "_active_formatting_dirty",
-        "_active_formatting_marker_lengths",
         "_active_formatting_tags",
         "_after_head",
         "_allowed_tags",
@@ -417,12 +424,10 @@ class DefaultSafeEngine:
         "_stack",
         "_strip_invisible_unicode",
         "_table_allowed_children",
-        "_table_cell_active_formatting_lengths",
         "_table_cell_tags",
         "_table_foster_targets",
         "_table_section_tags",
         "_tag_actions",
-        "_template_active_formatting_lengths",
         "_template_modes",
         "_url_policy",
         "_void_elements",
@@ -501,12 +506,9 @@ class DefaultSafeEngine:
         self._html: Element | None = None
         self._head: Element | None = None
         self._body: Element | DocumentFragment
-        self._active_formatting: list[_FormattingEntry] = []
+        self._active_formatting: list[_FormattingEntry | _FormattingMarker] = []
         self._active_formatting_dirty = False
-        self._active_formatting_marker_lengths: list[int] = []
         self._nodes_to_unwrap: list[Element] = []
-        self._table_cell_active_formatting_lengths: list[int] = []
-        self._template_active_formatting_lengths: list[int] = []
         self._template_modes: list[str] = []
         self._stack: list[Node] = []
 
@@ -656,7 +658,7 @@ class DefaultSafeEngine:
         self._push_parser_only_element("template")
         self._parser_only_template_depth += 1
         self._template_modes.append(_TEMPLATE_MODE_INITIAL)
-        self._template_active_formatting_lengths.append(len(self._active_formatting))
+        self._push_active_formatting_marker()
 
     def _close_parser_only_template(self) -> bool:
         idx = self._open_parser_only_template_index()
@@ -667,10 +669,7 @@ class DefaultSafeEngine:
         self._parser_only_template_depth -= 1
         if self._template_modes:
             self._template_modes.pop()
-        if self._template_active_formatting_lengths:
-            active_len = self._template_active_formatting_lengths.pop()
-            del self._active_formatting[active_len:]
-            self._refresh_active_formatting_dirty()
+        self._clear_active_formatting_to_marker()
         return True
 
     def _mark_initial_content(self) -> None:
@@ -1016,6 +1015,8 @@ class DefaultSafeEngine:
             and not (self._fragment_context_node is not None and stack[-1] is self._fragment_context_node)
         ):
             self._mark_active_formatting_dirty()
+            if name in self._table_cell_tags or name in _ACTIVE_FORMATTING_MARKER_TAGS:
+                self._clear_active_formatting_to_marker()
             stack.pop()
             return pos
 
@@ -1029,8 +1030,10 @@ class DefaultSafeEngine:
             idx = self._find_open_index_in_current_scope(name)
         elif name not in self._special_elements and (action is None or not action.p_closing):
             idx = self._find_open_index_before_boundary(name, _GENERAL_END_TAG_BOUNDARIES)
-        else:
+        elif name in _TABLE_SCOPED_END_TAGS:
             idx = self._find_open_index_before_boundary(name, _TABLE_CONTEXT_BOUNDARIES)
+        else:
+            idx = self._find_open_index_before_boundary(name, _DEFAULT_SCOPE_BOUNDARIES)
         if idx is None:
             if name == "p":
                 if (
@@ -1051,7 +1054,7 @@ class DefaultSafeEngine:
             self._generate_implied_end_tags(name)
         self._mark_active_formatting_dirty()
         if name in self._table_cell_tags:
-            self._clear_active_formatting_to_table_cell_marker()
+            self._clear_active_formatting_to_marker()
         elif name in _ACTIVE_FORMATTING_MARKER_TAGS:
             self._clear_active_formatting_to_marker()
         del stack[idx:]
@@ -1170,6 +1173,10 @@ class DefaultSafeEngine:
             return pos
 
         if name == "frame":
+            return pos
+
+        if name == "select" and self._find_open_index("select") is not None:
+            self._close_until("select")
             return pos
 
         if action is not None and action.drop_content:
@@ -1317,9 +1324,9 @@ class DefaultSafeEngine:
         if not is_void:
             self._stack.append(node)
             if name in self._table_cell_tags:
-                self._table_cell_active_formatting_lengths.append(len(self._active_formatting))
+                self._push_active_formatting_marker()
             elif name in _ACTIVE_FORMATTING_MARKER_TAGS:
-                self._active_formatting_marker_lengths.append(len(self._active_formatting))
+                self._push_active_formatting_marker()
         return node
 
     def _insert_at(self, parent: Node, position: int, node: Node | Text) -> None:
@@ -1808,27 +1815,20 @@ class DefaultSafeEngine:
                 return
             if name in self._table_cell_tags:
                 self._mark_active_formatting_dirty()
-                self._clear_active_formatting_to_table_cell_marker()
+                self._clear_active_formatting_to_marker()
                 del stack[idx:]
                 return
 
-    def _clear_active_formatting_to_table_cell_marker(self) -> None:
-        markers = self._table_cell_active_formatting_lengths
-        if not markers:
-            return
-        active_len = markers.pop()
-        if active_len < len(self._active_formatting):
-            del self._active_formatting[active_len:]
-            self._refresh_active_formatting_dirty()
+    def _push_active_formatting_marker(self) -> None:
+        self._active_formatting.append(_ACTIVE_FORMATTING_MARKER)
 
     def _clear_active_formatting_to_marker(self) -> None:
-        markers = self._active_formatting_marker_lengths
-        if not markers:
-            return
-        active_len = markers.pop()
-        if active_len < len(self._active_formatting):
-            del self._active_formatting[active_len:]
-            self._refresh_active_formatting_dirty()
+        active = self._active_formatting
+        while active:
+            entry = active.pop()
+            if entry is _ACTIVE_FORMATTING_MARKER:
+                break
+        self._refresh_active_formatting_dirty()
 
     def _foster_parent_for(self, parent: Node, *, for_tag: str | None = None) -> tuple[Node, int] | None:
         if getattr(parent, "name", None) not in self._table_foster_targets:
@@ -2098,14 +2098,18 @@ class DefaultSafeEngine:
     def _find_active_formatting_index(self, name: str) -> int | None:
         active = self._active_formatting
         for idx in range(len(active) - 1, -1, -1):
-            if active[idx].name == name:
+            entry = active[idx]
+            if isinstance(entry, _FormattingMarker):
+                break
+            if entry.name == name:
                 return idx
         return None
 
     def _find_active_formatting_index_by_node(self, node: Node) -> int | None:
         active = self._active_formatting
         for idx in range(len(active) - 1, -1, -1):
-            if active[idx].node is node:
+            entry = active[idx]
+            if not isinstance(entry, _FormattingMarker) and entry.node is node:
                 return idx
         return None
 
@@ -2113,6 +2117,10 @@ class DefaultSafeEngine:
         matches = 0
         first_index: int | None = None
         for idx, entry in enumerate(self._active_formatting):
+            if isinstance(entry, _FormattingMarker):
+                matches = 0
+                first_index = None
+                continue
             if entry.name == name and entry.signature == signature:
                 matches += 1
                 if first_index is None:
@@ -2122,7 +2130,10 @@ class DefaultSafeEngine:
     def _remove_last_active_formatting_by_name(self, name: str) -> None:
         active = self._active_formatting
         for idx in range(len(active) - 1, -1, -1):
-            if active[idx].name == name:
+            entry = active[idx]
+            if isinstance(entry, _FormattingMarker):
+                break
+            if entry.name == name:
                 del active[idx]
                 return
 
@@ -2139,16 +2150,26 @@ class DefaultSafeEngine:
         if not active:
             self._active_formatting_dirty = False
             return
-        if not self._active_formatting_dirty and active[-1].node in self._stack:
+        last_entry = active[-1]
+        if isinstance(last_entry, _FormattingMarker):
+            self._active_formatting_dirty = False
+            return
+        if not self._active_formatting_dirty and last_entry.node in self._stack:
             return
 
         idx = len(active) - 1
-        while idx >= 0 and active[idx].node not in self._stack:
+        while idx >= 0:
+            entry = active[idx]
+            if isinstance(entry, _FormattingMarker) or entry.node in self._stack:
+                break
             idx -= 1
         idx += 1
 
         while idx < len(active):
             entry = active[idx]
+            if isinstance(entry, _FormattingMarker):
+                idx += 1
+                continue
             node = self._insert_sanitized_element(entry.name, entry.attrs.copy(), False, self._current_parent())
             entry.node = node
             idx += 1
@@ -2165,6 +2186,8 @@ class DefaultSafeEngine:
                 return
 
             entry = active[formatting_index]
+            if isinstance(entry, _FormattingMarker):
+                return
             formatting_element = entry.node
             if stack and stack[-1] is formatting_element:
                 stack.pop()
@@ -2228,6 +2251,8 @@ class DefaultSafeEngine:
                     continue
 
                 node_entry = self._active_formatting[node_formatting_index]
+                if isinstance(node_entry, _FormattingMarker):
+                    return
                 new_node = self._clone_formatting_entry(node_entry)
                 node_entry.node = new_node
                 stack[node_index] = new_node
@@ -2297,10 +2322,15 @@ class DefaultSafeEngine:
             self._active_formatting_dirty = False
             return
         stack = self._stack
-        self._active_formatting_dirty = any(entry.node not in stack for entry in active)
+        self._active_formatting_dirty = any(
+            not isinstance(entry, _FormattingMarker) and entry.node not in stack for entry in active
+        )
 
     def _clone_formatting_entry(self, entry: _FormattingEntry) -> Element:
-        return Element(entry.name, entry.attrs.copy(), "html")
+        node = Element(entry.name, entry.attrs.copy(), "html")
+        if entry.name not in self._allowed_tags and self._find_open_index("select") is not None:
+            self._nodes_to_unwrap.append(node)
+        return node
 
     def _is_special_node(self, node: Node) -> bool:
         return (
