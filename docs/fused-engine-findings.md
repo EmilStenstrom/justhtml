@@ -130,13 +130,13 @@ Current result:
 
 - Total html5lib tree cases: `1791`.
 - Eligible full-document cases: `1564`.
-- Exact matches: `1275`.
-- Mismatches: `287`.
+- Exact matches: `1308`.
+- Mismatches: `254`.
 - New-engine-only exceptions: `0`.
 - Reference-path exceptions: `2` malformed-doctype serializations.
-- Exact/total rate: `71.19%`.
-- Exact/eligible rate: `81.52%`.
-- Exact/compared rate: `81.63%`.
+- Exact/total rate: `73.03%`.
+- Exact/eligible rate: `83.63%`.
+- Exact/compared rate: `83.74%`.
 - Skipped unsupported modes: `192` fragment-context cases and `35`
   scripting-directive cases.
 
@@ -153,6 +153,8 @@ Incremental progress in this pass:
   (`68.57%`), `78.52%` eligible, `2.196x` speedup.
 - Active formatting/adoption agency for default-safe kept formatting tags:
   `1275/1791` total (`71.19%`), `81.52%` eligible, `2.067x` speedup.
+- Production-safe generic recovery cleanup: `1308/1791` total (`73.03%`),
+  `83.63%` eligible, `2.053x` speedup.
 
 The largest remaining buckets are the unsupported parts of
 adoption-agency/active-formatting behavior, especially disallowed/ghost
@@ -184,8 +186,8 @@ Result:
 - Compliance-pass speedup: `2.283x`.
 - html5lib-scorecard pass median: `0.469793s`.
 - html5lib-scorecard pass speedup: `2.285x`.
-- Latest html5lib-targeting median: `0.519467s`.
-- Latest html5lib-targeting speedup: `2.067x`.
+- Latest html5lib-targeting median: `0.522882s`.
+- Latest html5lib-targeting speedup: `2.053x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -195,13 +197,13 @@ work into one hot path.
 
 ## Parity Status
 
-The PoC is not production-compatible yet. After the compliance pass, a 100-file
+The engine is not production-compatible yet. After the compliance pass, a 100-file
 differential smoke check completed without crashes and `75/100` serialized
 outputs exactly matched the existing parser. This is up from `2/100` for the
 raw one-pass parser and `20/100` after the first recovery pass.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1275/1791` total cases and `1275/1564` eligible full-document cases match the
+`1308/1791` total cases and `1308/1564` eligible full-document cases match the
 existing default-safe path, and the new engine has no current-only serialization
 exceptions in that suite.
 
@@ -209,6 +211,25 @@ Remaining diffs are now more varied: exact whitespace counts, unsupported
 formatting-element/adoption behavior, malformed inline links, deeper table
 corner cases, select/template handling, foreign-content integration points, and
 some sanitizer edge cases around unusual attributes or escaped source.
+
+## Productionization Pivot
+
+The next phase should stop chasing isolated fixture wins unless the change is a
+general parser rule with a clear owner in the engine architecture. Two rules
+should govern new work:
+
+- Keep generic behavior that maps to tokenizer, insertion-mode, sanitizer, or
+  serializer semantics.
+- Avoid one-off fixture shortcuts; add explicit engine state instead, such as a
+  compatibility-mode flag or script-data state machine, when the behavior needs
+  real state.
+
+The latest cleanup follows that rule. It keeps general fixes for block-end `p`
+closure, malformed comment endings, late doctypes, tolerant quoted doctype IDs,
+and rawtext end-tag boundaries. It deliberately does not include a narrow quirks
+shortcut for table-in-`p` behavior or a partial script double-escaped heuristic;
+those should be implemented later as proper compatibility-mode and script-data
+state handling.
 
 ## Current Conclusion
 
@@ -224,6 +245,6 @@ raised exact corpus matches from `20/100` to `75/100` while keeping most of the
 speed margin.
 
 The next engineering step is to keep `DefaultSafeEngine` as the PoC target and
-fill in only the HTML5 behaviors that materially affect sanitized output for
-real-world default-safe parsing. The remaining speed budget is approximately
-`0.067s` on this 100-file benchmark before falling below `2x`.
+turn it into a production parser incrementally: define state boundaries, add
+focused golden tests for each promoted rule, and keep the benchmark gate above
+`2x` while replacing fixture-shaped recovery with real parser state.
