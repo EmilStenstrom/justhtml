@@ -91,7 +91,10 @@ planner boundary explicit without adding `self._plan...` lookups to every hot
 path branch. The latest pass also moved attr filtering into the scanner: start
 tags now resolve one `TagAction`, then parse only attrs the plan can output or
 needs for parser state. The old raw-attrs dict plus second sanitizer pass is no
-longer in the default-engine hot path.
+longer in the default-engine hot path. A follow-up pass pushed projection
+further down by skipping discarded attr values without slicing or decoding them,
+then added direct end-tag scanning and a stack-top fast close for ordinary
+matched end tags.
 
 ## Compliance Pass
 
@@ -175,6 +178,9 @@ Incremental progress in this pass:
   sanitized attr scanning remove the raw attr dict plus `_sanitize_attrs`
   handoff from the hot path while preserving the same score:
   `1669/1791` total (`93.19%`), `93.61%` eligible, `2.131x` speedup.
+- Attr projection pushdown and direct end-tag fast close keep the same score
+  while increasing the speed margin:
+  `1669/1791` total (`93.19%`), `93.61%` eligible, `2.216x` speedup.
 
 The largest remaining buckets are the unsupported parts of
 adoption-agency/active-formatting behavior, especially disallowed/ghost
@@ -212,14 +218,16 @@ Result:
 - Expanded fragment/script-off speedup: `1.917x`.
 - Compiled tag/attr-action median: `0.503856s`.
 - Compiled tag/attr-action speedup: `2.131x`.
+- Attr projection/end-fast-close median: `0.484585s`.
+- Attr projection/end-fast-close speedup: `2.216x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
-The 2x target is back above the required gate. The margin is not huge, so the
-next productionization pass should keep pairing new parser-state work with
-hot-path profiling. After compiled attrs, the remaining hot areas are
-start-tag dispatch, text append/cleaning, end-tag regex matching, DOM
-insertion, and active-formatting reconstruction.
+The 2x target is back above the required gate with more usable margin. The next
+productionization pass should keep pairing new parser-state work with hot-path
+profiling. After attr projection and end-tag fast close, the remaining hot areas
+are start-tag/attr dispatch, text append/cleaning, DOM insertion, URL
+sanitization, and active-formatting reconstruction.
 
 ## Parity Status
 
