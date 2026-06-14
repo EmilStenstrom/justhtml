@@ -162,6 +162,7 @@ class JustHTML:
             and not should_collect
             and not track_node_locations
             and not debug
+            and fragment_context is None
             and not iframe_srcdoc
             and _tokenizer_opts is None
             and scripting_enabled
