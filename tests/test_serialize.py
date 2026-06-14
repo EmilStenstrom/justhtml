@@ -70,10 +70,9 @@ class TestSerialize(unittest.TestCase):
         node = Node("!doctype", data="svg")
         assert _serialize_doctype(node) == "<!DOCTYPE svg>"
 
-    def test_serialize_doctype_rejects_unsafe_name(self):
+    def test_serialize_doctype_omits_unsafe_name(self):
         node = Node("!doctype", data="html><img src=x onerror=alert(1)")
-        with self.assertRaisesRegex(ValueError, "Unsafe element name"):
-            _serialize_doctype(node)
+        assert _serialize_doctype(node) == "<!DOCTYPE>"
 
     def test_serialize_doctype_supports_public_identifier_without_system_identifier(self):
         node = Node("!doctype", data=Doctype(name="html", public_id="-//Example//DTD HTML//EN"))
@@ -811,8 +810,20 @@ class TestSerialize(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsafe element name"):
             Node("div><img src=x onerror=alert(1)", attrs={}).to_html(pretty=False)
 
-        with self.assertRaisesRegex(ValueError, "Unsafe element name"):
-            Node("!doctype", data="html><img src=x onerror=alert(1)").to_html(pretty=False)
+        assert Node("!doctype", data="html><img src=x onerror=alert(1)").to_html(pretty=False) == "<!DOCTYPE>"
+
+    def test_malformed_doctype_names_serialize_without_raising(self):
+        cases = [
+            ("<!DOCTYPE ...>Hello", "<!DOCTYPE><html><head></head><body>Hello</body></html>"),
+            (
+                "<!DOCTYPE <!DOCTYPE HTML>><!--<!--x-->-->",
+                "<!DOCTYPE><html><head></head><body>&gt;--&gt;</body></html>",
+            ),
+        ]
+        for html, expected in cases:
+            with self.subTest(html=html):
+                assert _JustHTML(html).to_html(pretty=False) == expected
+                assert _JustHTML(html, collect_errors=True).to_html(pretty=False) == expected
 
     def test_serializer_private_helpers_none(self):
         assert _escape_text(None) == ""

@@ -71,6 +71,14 @@ def _validate_serializable_attr_name(name: str) -> str:
     return _validate_serializable_name(name, _SERIALIZABLE_ATTR_NAME_RE, "attribute")
 
 
+def _safe_doctype_name(name: str) -> str:
+    if not name:
+        return ""
+    if not _SERIALIZABLE_TAG_NAME_RE.match(name):
+        return ""
+    return name
+
+
 def _serialize_comment_data(data: str | None) -> str:
     if not data:
         return ""
@@ -192,8 +200,7 @@ def _serialize_doctype(node: Any) -> str:
         public_id = doctype.public_id
         system_id = doctype.system_id
 
-    if name:
-        name = _validate_serializable_tag_name(name)
+    name = _safe_doctype_name(name)
 
     parts: list[str] = ["<!DOCTYPE"]
     if name:

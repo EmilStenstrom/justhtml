@@ -141,7 +141,7 @@ Current result:
 - Serialized output mismatches: `0`.
 - New-engine-only exceptions: `0`.
 - Unmatched reference-path exceptions: `0`.
-- Matching legacy exceptions: `2` malformed-doctype serializations.
+- Matching exceptions: `0`.
 - Exact/scored rate: `100.00%`.
 - Exact/compared rate: `100.00%`.
 - Excluded unsupported modes: `8` `script-on` cases that require JavaScript
@@ -199,14 +199,12 @@ Incremental progress in this pass:
   table-mode section transitions, table foster whitespace/reconstruction
   ordering, end-body stack retention, and start-tag hot-path cleanup:
   `1781/1783` scored (`99.89%`), `2.050x` speedup.
-- Legacy-compatible malformed-doctype name preservation and scorecard matching
-  exception accounting:
-  `1783/1783` scored (`100.00%`), `2.035x` speedup.
+- Safe malformed-doctype serialization for both parser paths:
+  `1783/1783` scored (`100.00%`), `2.021x` speedup.
 
-The final two cases preserve the legacy tokenizer's malformed doctype names
-(`...` and `<!doctype`) so serialization raises the same `ValueError` as the
-reference path. The differential runner counts identical exceptions as behavior
-matches.
+The final two cases preserve the legacy tokenizer's malformed doctype names in
+the tree, then omit those unsafe names during HTML serialization. Both parser
+paths now emit safe `<!DOCTYPE>` output instead of raising.
 
 ## Benchmark Result
 
@@ -250,8 +248,8 @@ Result:
 - Adoption/table-scope compliance speedup: `2.056x`.
 - Template/foster/body-stack parity median: `0.523710s`.
 - Template/foster/body-stack parity speedup: `2.050x`.
-- Malformed-doctype parity median: `0.527600s`.
-- Malformed-doctype parity speedup: `2.035x`.
+- Safe malformed-doctype serialization median: `0.531217s`.
+- Safe malformed-doctype serialization speedup: `2.021x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -272,10 +270,10 @@ promotion work.
 The broader html5lib differential scorecard is now the main compliance driver:
 `1783/1783` scored cases match the existing default-safe path, with `0`
 serialized-output mismatches, `0` unmatched current exceptions, and `0`
-unmatched reference exceptions in that suite. Two of those matches are identical
-legacy malformed-doctype serialization exceptions. The excluded tree-construction
-fixtures are the `script-on` cases that require JavaScript execution semantics;
-`script-off` cases now exercise `DefaultSafeEngine`.
+unmatched reference exceptions in that suite. The two formerly exceptional
+malformed-doctype cases now serialize safely on both parser paths. The excluded
+tree-construction fixtures are the `script-on` cases that require JavaScript
+execution semantics; `script-off` cases now exercise `DefaultSafeEngine`.
 
 ## Productionization Pivot
 
@@ -341,9 +339,7 @@ handlers, then incremental parity work driven by differential fixtures.
 
 The strongest signal so far is that the parser can now match every scored
 html5lib tree-construction case in the default-safe differential runner while
-still clearing the `2x` benchmark gate. The last two matches are
-legacy-compatible malformed-doctype serialization exceptions, not output
-mismatches.
+still clearing the `2x` benchmark gate, with no scorecard exceptions.
 
 The next engineering step is to keep `DefaultSafeEngine` as the productionizing
 target: define state boundaries, add focused golden tests for each promoted
