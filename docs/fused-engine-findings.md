@@ -301,6 +301,12 @@ tags. That keeps diagnostic work out of the normal parse hot path while moving
 the public constructor route onto `DefaultSafeEngine`; full html5lib parse-error
 parity is still separate work.
 
+Decoded byte-like inputs now follow the same default-safe engine route as
+string inputs after encoding detection. The remaining legacy constructor routes
+are therefore concentrated around unsupported policy features, explicit
+transforms, raw/trusted `sanitize=False`, location tracking, and private
+html5lib harness tokenizer options.
+
 The broader html5lib differential scorecard is now the main compliance driver:
 `1783/1783` scored cases match the existing default-safe path, with `0`
 serialized-output mismatches, `0` unmatched current exceptions, and `0`
