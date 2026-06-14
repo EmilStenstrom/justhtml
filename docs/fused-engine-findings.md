@@ -79,6 +79,8 @@ sets the executor needs in the hot path:
 
 - Allowed tags and per-tag/global attribute allowlists.
 - URL policy and URL sink rules.
+- Per-tag `TagAction` records for parser categories, output attrs,
+  parser-state-only attrs, and URL attr rules.
 - Doctype/comment/drop-content behavior.
 - RCDATA/rawtext-as-text handling sets.
 - Head/body, implied-end-tag, and table-recovery sets.
@@ -86,7 +88,10 @@ sets the executor needs in the hot path:
 
 The executor copies plan fields into slots during construction. This keeps the
 planner boundary explicit without adding `self._plan...` lookups to every hot
-path branch.
+path branch. The latest pass also moved attr filtering into the scanner: start
+tags now resolve one `TagAction`, then parse only attrs the plan can output or
+needs for parser state. The old raw-attrs dict plus second sanitizer pass is no
+longer in the default-engine hot path.
 
 ## Compliance Pass
 
@@ -166,6 +171,10 @@ Incremental progress in this pass:
   runner, all fragment contexts routed through `DefaultSafeEngine`, and
   script-disabled `noscript` behavior compiled into the plan:
   `1669/1791` total (`93.19%`), `93.61%` eligible, `1.917x` speedup.
+- Compiled `TagAction` records, direct start-tag scanning, and direct
+  sanitized attr scanning remove the raw attr dict plus `_sanitize_attrs`
+  handoff from the hot path while preserving the same score:
+  `1669/1791` total (`93.19%`), `93.61%` eligible, `2.131x` speedup.
 
 The largest remaining buckets are the unsupported parts of
 adoption-agency/active-formatting behavior, especially disallowed/ghost
@@ -201,13 +210,16 @@ Result:
 - Latest html5lib-targeting speedup: `1.986x`.
 - Expanded fragment/script-off median: `0.560081s`.
 - Expanded fragment/script-off speedup: `1.917x`.
+- Compiled tag/attr-action median: `0.503856s`.
+- Compiled tag/attr-action speedup: `2.131x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
-The 2x target remains feasible in pure Python, but the expanded coverage has
-now spent the available speed margin. The next productionization pass should
-pair new parser-state work with hot-path profiling, especially around start-tag
-dispatch, attribute parsing, and active-formatting reconstruction.
+The 2x target is back above the required gate. The margin is not huge, so the
+next productionization pass should keep pairing new parser-state work with
+hot-path profiling. After compiled attrs, the remaining hot areas are
+start-tag dispatch, text append/cleaning, end-tag regex matching, DOM
+insertion, and active-formatting reconstruction.
 
 ## Parity Status
 

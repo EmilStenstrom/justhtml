@@ -32,15 +32,17 @@ if TYPE_CHECKING:
     from justhtml.parser.context import FragmentContext
     from justhtml.sanitizer import SanitizationPolicy
     from justhtml.sanitizer.url import UrlPolicy, UrlRule
+    from justhtml.sanitizer.url.spec import UrlSinkKind
 
 _TAG_NAME_RE = re.compile(r"[A-Za-z][^\t\n\f />]*")
-_ATTR_NAME_RE = re.compile(r"[^\t\n\f />=\0\"'<]+")
 _DOCTYPE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_-]*$")
 _DOCTYPE_RE = re.compile(
     r"""\s*([^\s>]+)(?:\s*(PUBLIC|SYSTEM)\s*(?:(?:"([^"]*)"|'([^']*)')\s*(?:"([^"]*)"|'([^']*)')?)?)?""",
     re.IGNORECASE,
 )
 _SPACE = " \t\n\f\r"
+_TAG_NAME_STOP = "\t\n\f />"
+_ATTR_NAME_STOP = "\t\n\f />=\0\"'<"
 _DROP_CONTENT_TAGS = {"script", "style"}
 _DROP_SUBTREE_TAGS = {"svg", "math"}
 _RCDATA_TAGS = {"title", "textarea"}
@@ -171,10 +173,104 @@ class EnginePlan:
     table_cell_tags: frozenset[str]
     table_foster_targets: frozenset[str]
     table_section_tags: frozenset[str]
+    tag_actions: Mapping[str, TagAction]
     void_elements: frozenset[str]
 
 
 _ENGINE_PLAN_CACHE: dict[tuple[bool, bool], EnginePlan] = {}
+
+
+@dataclass(frozen=True, slots=True)
+class TagAction:
+    """Compiled hot-path metadata for one start-tag name."""
+
+    name: str
+    allowed: bool
+    allowed_attrs: frozenset[str]
+    state_attrs: frozenset[str]
+    url_attr_kinds: Mapping[str, UrlSinkKind]
+    url_attr_rules: Mapping[str, UrlRule]
+    scan_attrs: bool
+    active_formatting: bool
+    blocks_frameset: bool
+    drop_content: bool
+    drop_subtree: bool
+    head_content: bool
+    p_closing: bool
+    plaintext: bool
+    pre_linefeed: bool
+    rawtext_as_text: bool
+    rcdata: bool
+    table_cell: bool
+    table_section: bool
+    void: bool
+
+
+def _compile_tag_actions(
+    *,
+    allowed_tags: frozenset[str],
+    allowed_global: Collection[str],
+    allowed_by_tag: Mapping[str, frozenset[str]],
+    url_rules: Mapping[tuple[str, str], UrlRule],
+    rawtext_as_text_tags: set[str],
+) -> dict[str, TagAction]:
+    known_tags = set(allowed_tags)
+    known_tags.update(_DROP_CONTENT_TAGS)
+    known_tags.update(_DROP_SUBTREE_TAGS)
+    known_tags.update(rawtext_as_text_tags)
+    known_tags.update(_RCDATA_TAGS)
+    known_tags.update(_PLAINTEXT_TAGS)
+    known_tags.update(_ACTIVE_FORMATTING_TAGS)
+    known_tags.update(_HEAD_CONTENT_TAGS)
+    known_tags.update(_P_CLOSING_START_TAGS)
+    known_tags.update(_PRE_LINEFEED_IGNORING_TAGS)
+    known_tags.update(_TABLE_SECTION_TAGS)
+    known_tags.update(_TABLE_CELL_TAGS)
+    known_tags.update(_TABLE_STRUCTURE_START_TAGS)
+    known_tags.update(_FRAMESET_BLOCKING_START_TAGS)
+    known_tags.update({"body", "button", "frameset", "head", "html", "image", "input", "template", "tr"})
+
+    actions: dict[str, TagAction] = {}
+    global_attrs = frozenset(allowed_global)
+    for tag in known_tags:
+        allowed = tag in allowed_tags
+        allowed_attrs = allowed_by_tag.get(tag, global_attrs) if allowed else frozenset()
+        state_attrs = frozenset({"type"}) if tag == "input" else frozenset()
+        url_attr_kinds: dict[str, UrlSinkKind] = {}
+        url_attr_rules: dict[str, UrlRule] = {}
+        for attr in allowed_attrs.intersection(_URL_SINK_ATTRS):
+            rule = url_rules.get((tag, attr))
+            if rule is None:
+                continue
+            kind = _url_sink_kind_for_attr(tag=tag, attr=attr, attrs={attr: ""})
+            if kind is None:
+                continue
+            url_attr_kinds[attr] = kind
+            url_attr_rules[attr] = rule
+
+        actions[tag] = TagAction(
+            name=tag,
+            allowed=allowed,
+            allowed_attrs=allowed_attrs,
+            state_attrs=state_attrs,
+            url_attr_kinds=url_attr_kinds,
+            url_attr_rules=url_attr_rules,
+            scan_attrs=bool(allowed_attrs or state_attrs),
+            active_formatting=tag in _ACTIVE_FORMATTING_TAGS and allowed,
+            blocks_frameset=tag in _FRAMESET_BLOCKING_START_TAGS,
+            drop_content=tag in _DROP_CONTENT_TAGS,
+            drop_subtree=tag in _DROP_SUBTREE_TAGS,
+            head_content=tag in _HEAD_CONTENT_TAGS,
+            p_closing=tag in _P_CLOSING_START_TAGS,
+            plaintext=tag in _PLAINTEXT_TAGS,
+            pre_linefeed=tag in _PRE_LINEFEED_IGNORING_TAGS,
+            rawtext_as_text=tag in rawtext_as_text_tags,
+            rcdata=tag in _RCDATA_TAGS,
+            table_cell=tag in _TABLE_CELL_TAGS,
+            table_section=tag in _TABLE_SECTION_TAGS,
+            void=tag in VOID_ELEMENTS,
+        )
+    return actions
 
 
 def compile_default_engine_plan(*, fragment: bool, scripting_enabled: bool = True) -> EnginePlan:
@@ -191,6 +287,13 @@ def compile_default_engine_plan(*, fragment: bool, scripting_enabled: bool = Tru
         str(tag).lower(): frozenset(allowed_global).union(attrs) for tag, attrs in allowed_attrs.items() if tag != "*"
     }
     rawtext_as_text_tags = _RAWTEXT_AS_TEXT_TAGS if scripting_enabled else _RAWTEXT_AS_TEXT_TAGS - {"noscript"}
+    tag_actions = _compile_tag_actions(
+        allowed_tags=policy.allowed_tags,
+        allowed_global=allowed_global,
+        allowed_by_tag=allowed_by_tag,
+        url_rules=policy.url_policy.allow_rules,
+        rawtext_as_text_tags=rawtext_as_text_tags,
+    )
     plan = EnginePlan(
         policy=policy,
         allowed_tags=policy.allowed_tags,
@@ -219,6 +322,7 @@ def compile_default_engine_plan(*, fragment: bool, scripting_enabled: bool = Tru
         table_cell_tags=frozenset(_TABLE_CELL_TAGS),
         table_foster_targets=frozenset(_TABLE_FOSTER_TARGETS),
         table_section_tags=frozenset(_TABLE_SECTION_TAGS),
+        tag_actions=tag_actions,
         void_elements=VOID_ELEMENTS,
     )
     _ENGINE_PLAN_CACHE[cache_key] = plan
@@ -239,8 +343,6 @@ class DefaultSafeEngine:
         "_active_formatting_dirty",
         "_active_formatting_tags",
         "_after_head",
-        "_allowed_by_tag",
-        "_allowed_global",
         "_allowed_tags",
         "_body",
         "_body_explicit",
@@ -288,10 +390,10 @@ class DefaultSafeEngine:
         "_table_cell_tags",
         "_table_foster_targets",
         "_table_section_tags",
+        "_tag_actions",
         "_template_active_formatting_lengths",
         "_template_modes",
         "_url_policy",
-        "_url_rules",
         "_void_elements",
     )
 
@@ -322,10 +424,7 @@ class DefaultSafeEngine:
         )
         self._active_formatting_tags = self._plan.active_formatting_tags
         self._allowed_tags = self._plan.allowed_tags
-        self._allowed_global = self._plan.allowed_global_attrs
-        self._allowed_by_tag = self._plan.allowed_attrs_by_tag
         self._url_policy = self._plan.url_policy
-        self._url_rules = self._plan.url_rules
         self._definition_scope_boundaries = self._plan.definition_scope_boundaries
         self._drop_doctype = self._plan.drop_doctype
         self._drop_content_tags = self._plan.drop_content_tags
@@ -347,6 +446,7 @@ class DefaultSafeEngine:
         self._table_cell_tags = self._plan.table_cell_tags
         self._table_foster_targets = self._plan.table_foster_targets
         self._table_section_tags = self._plan.table_section_tags
+        self._tag_actions = self._plan.tag_actions
         self._void_elements = self._plan.void_elements
         self._doc: Document | DocumentFragment
         self._after_head = False
@@ -777,19 +877,25 @@ class DefaultSafeEngine:
 
     def _parse_start_tag(self, pos: int, end: int) -> int:
         html = self._html_input
-        match = _TAG_NAME_RE.match(html, pos, end)
-        if not match:
+        name_start = pos
+        if pos >= end:
             self._append_text("<")
             return pos
-        raw_name = match.group(0)
+        pos += 1
+        while pos < end and html[pos] not in _TAG_NAME_STOP:
+            pos += 1
+        raw_name = html[name_start:pos]
+        if not raw_name:
+            self._append_text("<")
+            return pos
         name = raw_name if raw_name.islower() else raw_name.lower()
         if name == "image":
             name = "img"
         if not self._initial_mode_done:
             self._mark_initial_content()
-        pos = match.end()
 
-        attrs, self_closing, pos = self._parse_attrs(pos, end)
+        action = self._tag_actions.get(name)
+        attrs, self_closing, pos = self._parse_attrs_for_action(action, pos, end)
         in_parser_only_template = self._parser_only_template_depth > 0
         if self._in_head_noscript:
             if name in {"head", "noscript"}:
@@ -800,7 +906,7 @@ class DefaultSafeEngine:
             if name == "html":
                 self._explicit_html = True
                 if self._html is not None:
-                    self._html.attrs.update(self._sanitize_attrs("html", attrs))
+                    self._html.attrs.update(attrs)
                 return pos
             if name == "head":
                 self._explicit_head = True
@@ -810,20 +916,20 @@ class DefaultSafeEngine:
                 return pos
             if name == "body":
                 if isinstance(self._body, Element):
-                    self._body.attrs.update(self._sanitize_attrs("body", attrs))
+                    self._body.attrs.update(attrs)
                 self._body_explicit = True
                 self._body_mode_seen = True
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
                 self._after_head = False
                 return pos
-            if not self._body_mode_seen and name not in self._head_content_tags:
+            if not self._body_mode_seen and not (action.head_content if action is not None else False):
                 self._body_mode_seen = True
 
         if (
             not in_parser_only_template
             and not self._fragment
             and self._current_parent() is self._head
-            and name not in self._head_content_tags
+            and not (action.head_content if action is not None else False)
         ):
             self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
             self._after_head = False
@@ -840,7 +946,7 @@ class DefaultSafeEngine:
             self._after_head = False
             self._body_mode_seen = True
 
-        if not in_parser_only_template and self._blocks_frameset(name, attrs):
+        if not in_parser_only_template and self._blocks_frameset_action(action, attrs):
             self._frameset_blocked = True
 
         if not in_parser_only_template and name == "frameset" and self._accept_frameset():
@@ -851,11 +957,11 @@ class DefaultSafeEngine:
                 return self._parse_raw_literal_text("noframes", pos, end)
             return pos
 
-        if name in self._drop_content_tags:
+        if action is not None and action.drop_content:
             return self._skip_rawtext(name, pos, end)
-        if name in self._drop_subtree_tags:
+        if action is not None and action.drop_subtree:
             return self._skip_subtree(name, pos, end)
-        if name in self._rawtext_as_text_tags:
+        if action is not None and action.rawtext_as_text:
             return self._parse_rawtext_as_text(name, pos, end)
         if (
             name == "noscript"
@@ -865,9 +971,9 @@ class DefaultSafeEngine:
         ):
             self._in_head_noscript = True
             return pos
-        if name in self._rcdata_tags:
+        if action is not None and action.rcdata:
             return self._parse_rcdata_element(name, attrs, self_closing, pos, end)
-        if name in self._plaintext_tags:
+        if action is not None and action.plaintext:
             return self._parse_plaintext_as_text(pos, end)
 
         fragment_pos = self._handle_fragment_context_start(name, attrs, self_closing, pos)
@@ -889,7 +995,7 @@ class DefaultSafeEngine:
             self._push_parser_only_element("button")
             return pos
 
-        if name in self._active_formatting_tags:
+        if action is not None and action.active_formatting:
             return self._parse_formatting_start(name, attrs, pos)
 
         parent: Node
@@ -905,12 +1011,12 @@ class DefaultSafeEngine:
             parent = self._current_parent()
 
         if not in_parser_only_template and (
-            name in self._table_section_tags or name in self._table_cell_tags or name == "tr"
+            (action is not None and (action.table_section or action.table_cell)) or name == "tr"
         ):
             self._repair_table_for_start(name)
             parent = self._current_parent()
             parent_name = getattr(parent, "name", None)
-            if name in self._table_section_tags:
+            if action is not None and action.table_section:
                 if parent_name != "table":
                     return pos
             elif name == "tr":
@@ -919,13 +1025,13 @@ class DefaultSafeEngine:
             elif parent_name != "tr":
                 return pos
 
-        if name not in self._allowed_tags:
-            if name in self._pre_linefeed_ignoring_tags:
+        if action is None or not action.allowed:
+            if action is not None and action.pre_linefeed:
                 self._ignore_lf = True
             return pos
 
         self._insert_allowed_element(name, attrs, self_closing, parent)
-        if name in self._pre_linefeed_ignoring_tags:
+        if action.pre_linefeed:
             self._ignore_lf = True
         return pos
 
@@ -936,7 +1042,6 @@ class DefaultSafeEngine:
         self_closing: bool,
         parent: Node,
     ) -> Element:
-        attrs = self._sanitize_attrs(name, attrs)
         return self._insert_sanitized_element(name, attrs, self_closing, parent)
 
     def _insert_sanitized_element(
@@ -1599,14 +1704,13 @@ class DefaultSafeEngine:
 
         if self._active_formatting_dirty:
             self._reconstruct_active_formatting()
-        sanitized_attrs = self._sanitize_attrs(name, attrs)
-        signature = self._attrs_signature(sanitized_attrs)
+        signature = self._attrs_signature(attrs)
         if len(self._active_formatting) >= 3:
             duplicate_index = self._find_active_formatting_duplicate(name, signature)
             if duplicate_index is not None:
                 del self._active_formatting[duplicate_index]
 
-        node = self._insert_sanitized_element(name, sanitized_attrs, False, self._current_parent())
+        node = self._insert_sanitized_element(name, attrs, False, self._current_parent())
         self._append_active_formatting_entry(name, node.attrs, node, signature)
         return pos
 
@@ -1856,32 +1960,82 @@ class DefaultSafeEngine:
         children.insert(position, node)
         node.parent = parent
 
-    def _parse_attrs(self, pos: int, end: int) -> tuple[dict[str, str | None], bool, int]:
+    def _skip_attrs(self, pos: int, end: int) -> tuple[dict[str, str | None], bool, int]:
         html = self._html_input
-        attrs: dict[str, str | None] = {}
-        self_closing = False
         while pos < end:
             while pos < end and html[pos] in _SPACE:
                 pos += 1
             if pos >= end:
-                return attrs, self_closing, pos
+                return {}, False, pos
             ch = html[pos]
             if ch == ">":
-                return attrs, self_closing, pos + 1
+                return {}, False, pos + 1
+            if ch == "/" and pos + 1 < end and html[pos + 1] == ">":
+                return {}, True, pos + 2
+
+            name_start = pos
+            while pos < end and html[pos] not in _ATTR_NAME_STOP:
+                pos += 1
+            if pos == name_start:
+                pos += 1
+                continue
+            while pos < end and html[pos] in _SPACE:
+                pos += 1
+            if pos < end and html[pos] == "=":
+                pos += 1
+                while pos < end and html[pos] in _SPACE:
+                    pos += 1
+                if pos < end and html[pos] in "\"'":
+                    quote = html[pos]
+                    close = html.find(quote, pos + 1, end)
+                    pos = end if close == -1 else close + 1
+                else:
+                    while pos < end and html[pos] not in _SPACE + ">":
+                        pos += 1
+        return {}, False, pos
+
+    def _parse_attrs_for_action(
+        self,
+        action: TagAction | None,
+        pos: int,
+        end: int,
+    ) -> tuple[dict[str, str | None], bool, int]:
+        if action is None or not action.scan_attrs:
+            return self._skip_attrs(pos, end)
+
+        html = self._html_input
+        attrs: dict[str, str | None] = {}
+        allowed_attrs = action.allowed_attrs
+        state_attrs = action.state_attrs
+        url_attr_kinds = action.url_attr_kinds
+        url_attr_rules = action.url_attr_rules
+        tag = action.name
+
+        while pos < end:
+            while pos < end and html[pos] in _SPACE:
+                pos += 1
+            if pos >= end:
+                return attrs, False, pos
+            ch = html[pos]
+            if ch == ">":
+                return attrs, False, pos + 1
             if ch == "/" and pos + 1 < end and html[pos + 1] == ">":
                 return attrs, True, pos + 2
 
-            match = _ATTR_NAME_RE.match(html, pos, end)
-            if not match:
+            name_start = pos
+            while pos < end and html[pos] not in _ATTR_NAME_STOP:
+                pos += 1
+            if pos == name_start:
                 pos += 1
                 continue
-            key = match.group(0)
-            if not key.islower():
-                key = key.lower()
-            pos = match.end()
+            raw_key = html[name_start:pos]
+            key = raw_key if raw_key.islower() else raw_key.lower()
+            keep_output = key in allowed_attrs
+            keep_state = key in state_attrs
+
             while pos < end and html[pos] in _SPACE:
                 pos += 1
-            value: str | None = ""
+            value = ""
             if pos < end and html[pos] == "=":
                 pos += 1
                 while pos < end and html[pos] in _SPACE:
@@ -1902,42 +2056,33 @@ class DefaultSafeEngine:
                     while pos < end and html[pos] not in _SPACE + ">":
                         pos += 1
                     value = html[value_start:pos]
-            if isinstance(value, str) and "&" in value:
-                value = decode_entities_in_text(value, in_attribute=True)
-            attrs[key] = value
-        return attrs, self_closing, pos
 
-    def _sanitize_attrs(self, tag: str, attrs: dict[str, str | None]) -> dict[str, str | None]:
-        if not attrs:
-            return {}
-        allowed = self._allowed_by_tag.get(tag, self._allowed_global)
-        out: dict[str, str | None] = {}
-        for key, raw_value in attrs.items():
-            if key not in allowed:
+            if not keep_output and not keep_state:
                 continue
-            value = raw_value
-            if self._strip_invisible_unicode and value is not None and not value.isascii():
+            if "&" in value:
+                value = decode_entities_in_text(value, in_attribute=True)
+            if keep_state and not keep_output:
+                attrs[key] = value
+                continue
+            if self._strip_invisible_unicode and value and not value.isascii():
                 value = _strip_invisible_unicode(value)
-            if key in _URL_SINK_ATTRS:
-                kind = _url_sink_kind_for_attr(tag=tag, attr=key, attrs=attrs)
-                if kind is not None:
-                    if value is None:
-                        continue
-                    rule = self._url_rules.get((tag, key))
-                    if rule is None:
-                        continue
-                    value = _sanitize_url_sink_value(
-                        url_policy=self._url_policy,
-                        rule=rule,
-                        tag=tag,
-                        attr=key,
-                        kind=kind,
-                        value=value,
-                    )
-                    if value is None:
-                        continue
-            out[key] = value
-        return out
+            if key in url_attr_kinds:
+                rule = url_attr_rules.get(key)
+                if rule is None:
+                    continue
+                sanitized = _sanitize_url_sink_value(
+                    url_policy=self._url_policy,
+                    rule=rule,
+                    tag=tag,
+                    attr=key,
+                    kind=url_attr_kinds[key],
+                    value=value,
+                )
+                if sanitized is None:
+                    continue
+                value = sanitized
+            attrs[key] = value
+        return attrs, False, pos
 
     def _skip_rawtext(self, name: str, pos: int, end: int) -> int:
         close, next_pos = (
@@ -2033,10 +2178,10 @@ class DefaultSafeEngine:
         self._after_head = False
         return True
 
-    def _blocks_frameset(self, name: str, attrs: dict[str, str | None]) -> bool:
-        if self._fragment or self._frameset_seen or name not in self._frameset_blocking_start_tags:
+    def _blocks_frameset_action(self, action: TagAction | None, attrs: dict[str, str | None]) -> bool:
+        if self._fragment or self._frameset_seen or action is None or not action.blocks_frameset:
             return False
-        if name == "input":
+        if action.name == "input":
             input_type = attrs.get("type")
             return not (isinstance(input_type, str) and input_type.lower() == "hidden")
         return True
