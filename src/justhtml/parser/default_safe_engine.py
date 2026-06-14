@@ -25,7 +25,7 @@ from justhtml.core.constants import (
 )
 from justhtml.core.entities import decode_entities_in_text
 from justhtml.dom import Document, DocumentFragment, Element, Node, Template, Text
-from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, _strip_invisible_unicode
+from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, _strip_invisible_unicode
 from justhtml.sanitizer.url import _URL_SINK_ATTRS, _sanitize_url_sink_value, _url_sink_kind_for_attr
 from justhtml.tokenizer.tokens import Doctype
 from justhtml.treebuilder.utils import doctype_error_and_quirks
@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
 
     from justhtml.parser.context import FragmentContext
-    from justhtml.sanitizer import SanitizationPolicy
     from justhtml.sanitizer.url import UrlPolicy, UrlRule
     from justhtml.sanitizer.url.spec import UrlSinkKind
 
@@ -190,7 +189,7 @@ class EnginePlan:
     void_elements: frozenset[str]
 
 
-_ENGINE_PLAN_CACHE: dict[tuple[bool, bool], EnginePlan] = {}
+_DEFAULT_ENGINE_PLAN_CACHE: dict[tuple[bool, bool], EnginePlan] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,11 +225,13 @@ def _compile_tag_actions(
     allowed_global: Collection[str],
     allowed_by_tag: Mapping[str, frozenset[str]],
     url_rules: Mapping[tuple[str, str], UrlRule],
+    drop_content_tags: frozenset[str],
+    drop_subtree_tags: frozenset[str],
     rawtext_as_text_tags: set[str],
 ) -> dict[str, TagAction]:
     known_tags = set(allowed_tags)
-    known_tags.update(_DROP_CONTENT_TAGS)
-    known_tags.update(_DROP_SUBTREE_TAGS)
+    known_tags.update(drop_content_tags)
+    known_tags.update(drop_subtree_tags)
     known_tags.update(rawtext_as_text_tags)
     known_tags.update(_RCDATA_TAGS)
     known_tags.update(_PLAINTEXT_TAGS)
@@ -281,8 +282,8 @@ def _compile_tag_actions(
             preserve_state_attrs=preserve_state_attrs,
             active_formatting=tag in _ACTIVE_FORMATTING_TAGS,
             blocks_frameset=tag in _FRAMESET_BLOCKING_START_TAGS,
-            drop_content=tag in _DROP_CONTENT_TAGS,
-            drop_subtree=tag in _DROP_SUBTREE_TAGS,
+            drop_content=tag in drop_content_tags,
+            drop_subtree=tag in drop_subtree_tags,
             head_content=tag in _HEAD_CONTENT_TAGS,
             p_closing=tag in _P_CLOSING_START_TAGS,
             plaintext=tag in _PLAINTEXT_TAGS,
@@ -296,28 +297,65 @@ def _compile_tag_actions(
     return actions
 
 
-def compile_default_engine_plan(*, fragment: bool, scripting_enabled: bool = True) -> EnginePlan:
-    """Return the cached default-safe execution plan."""
-    cache_key = (bool(fragment), bool(scripting_enabled))
-    cached = _ENGINE_PLAN_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
+def can_compile_engine_plan(policy: SanitizationPolicy, *, fragment: bool) -> bool:
+    """Return True when a policy can run entirely inside DefaultSafeEngine."""
+    if policy.unsafe_handling != "strip":
+        return False
+    if policy.disallowed_tag_handling != "unwrap":
+        return False
+    if not fragment and not {"html", "head", "body"}.issubset(policy.allowed_tags):
+        return False
+    if not policy.drop_comments:
+        return False
+    if policy.force_link_rel:
+        return False
+    if "style" in policy.allowed_tags:
+        return False
+    if "svg" in policy.allowed_tags or "math" in policy.allowed_tags:
+        return False
+    default_policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
+    default_tags = default_policy.allowed_tags
+    if not policy.allowed_tags.issubset(default_tags):
+        return False
+    if policy is not default_policy and "template" not in policy.allowed_tags:
+        return False
 
-    policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
+    for tag, attrs in policy.allowed_attributes.items():
+        allowed = default_policy.allowed_attributes.get(tag)
+        if allowed is None:
+            allowed = default_policy.allowed_attributes.get("*", ())
+        if not set(attrs).issubset(allowed):
+            return False
+        if any(attr in _URL_SINK_ATTRS and (tag, attr) not in policy.url_policy.allow_rules for attr in attrs):
+            return False
+    return not any("style" in attrs for attrs in policy.allowed_attributes.values())
+
+
+def compile_engine_plan(
+    *,
+    policy: SanitizationPolicy,
+    fragment: bool,
+    scripting_enabled: bool = True,
+) -> EnginePlan:
+    """Compile a sanitizer-aware execution plan for DefaultSafeEngine."""
     allowed_attrs = policy.allowed_attributes
     allowed_global = allowed_attrs.get("*", ())
     allowed_by_tag = {
         str(tag).lower(): frozenset(allowed_global).union(attrs) for tag, attrs in allowed_attrs.items() if tag != "*"
     }
     rawtext_as_text_tags = _RAWTEXT_AS_TEXT_TAGS if scripting_enabled else _RAWTEXT_AS_TEXT_TAGS - {"noscript"}
+    drop_content_tags = frozenset(policy.drop_content_tags)
+    drop_subtree_tags = frozenset(_DROP_SUBTREE_TAGS)
     tag_actions = _compile_tag_actions(
         allowed_tags=policy.allowed_tags,
         allowed_global=allowed_global,
         allowed_by_tag=allowed_by_tag,
         url_rules=policy.url_policy.allow_rules,
+        drop_content_tags=drop_content_tags,
+        drop_subtree_tags=drop_subtree_tags,
         rawtext_as_text_tags=rawtext_as_text_tags,
     )
-    plan = EnginePlan(
+    return EnginePlan(
         policy=policy,
         allowed_tags=policy.allowed_tags,
         allowed_global_attrs=allowed_global,
@@ -326,8 +364,8 @@ def compile_default_engine_plan(*, fragment: bool, scripting_enabled: bool = Tru
         url_rules=policy.url_policy.allow_rules,
         definition_scope_boundaries=frozenset(_DEFINITION_SCOPE_BOUNDARIES),
         drop_doctype=policy.drop_doctype,
-        drop_content_tags=frozenset(policy.drop_content_tags),
-        drop_subtree_tags=frozenset(_DROP_SUBTREE_TAGS),
+        drop_content_tags=drop_content_tags,
+        drop_subtree_tags=drop_subtree_tags,
         active_formatting_tags=frozenset(_ACTIVE_FORMATTING_TAGS),
         frameset_body_ok_tags=frozenset(_FRAMESET_BODY_OK_TAGS),
         frameset_blocking_start_tags=frozenset(_FRAMESET_BLOCKING_START_TAGS),
@@ -348,7 +386,18 @@ def compile_default_engine_plan(*, fragment: bool, scripting_enabled: bool = Tru
         tag_actions=tag_actions,
         void_elements=VOID_ELEMENTS,
     )
-    _ENGINE_PLAN_CACHE[cache_key] = plan
+
+
+def compile_default_engine_plan(*, fragment: bool, scripting_enabled: bool = True) -> EnginePlan:
+    """Return the cached default-safe execution plan."""
+    cache_key = (bool(fragment), bool(scripting_enabled))
+    cached = _DEFAULT_ENGINE_PLAN_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
+    plan = compile_engine_plan(policy=policy, fragment=fragment, scripting_enabled=scripting_enabled)
+    _DEFAULT_ENGINE_PLAN_CACHE[cache_key] = plan
     return plan
 
 

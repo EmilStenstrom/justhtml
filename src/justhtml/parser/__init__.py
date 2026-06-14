@@ -16,9 +16,13 @@ from justhtml.transforms import apply_compiled_transforms, compile_transforms
 from justhtml.treebuilder import TreeBuilder
 
 from .context import FragmentContext
-from .default_safe_engine import DefaultSafeEngine, compile_default_engine_plan
+from .default_safe_engine import (
+    DefaultSafeEngine,
+    can_compile_engine_plan,
+    compile_default_engine_plan,
+    compile_engine_plan,
+)
 from .encoding import decode_html
-from .fused import FusedDefaultTreeBuilder
 
 if TYPE_CHECKING:
     from justhtml.sanitizer import SanitizationPolicy
@@ -154,11 +158,19 @@ class JustHTML:
         # Node location tracking is opt-in to avoid slowing down the common case.
         should_collect = collect_errors or strict
 
+        engine_policy: SanitizationPolicy | None = None
+        if sanitize_enabled and not transforms:
+            if policy is not None:
+                engine_policy = policy
+            else:
+                from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
+
+                engine_policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
+
         if (
             source_is_plain_str
-            and sanitize_enabled
-            and policy is None
-            and not transforms
+            and engine_policy is not None
+            and can_compile_engine_plan(engine_policy, fragment=fragment)
             and not should_collect
             and not track_node_locations
             and not debug
@@ -167,36 +179,28 @@ class JustHTML:
         ):
             self.tree_builder = None  # type: ignore[assignment]
             self.tokenizer = None  # type: ignore[assignment]
+            engine_plan = (
+                compile_default_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
+                if policy is None
+                else compile_engine_plan(policy=engine_policy, fragment=fragment, scripting_enabled=scripting_enabled)
+            )
             self.root = DefaultSafeEngine(
                 html_str,
                 fragment=fragment,
                 fragment_context=fragment_context,
                 scripting_enabled=scripting_enabled,
-                plan=compile_default_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled),
+                plan=engine_plan,
             ).parse()
             self.errors = []
             return
 
-        construction_sanitize_policy: SanitizationPolicy | None = None
-        if sanitize_enabled and not transforms and policy is None:
-            from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
-
-            construction_sanitize_policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
-
-        tree_builder_cls: type[TreeBuilder] = TreeBuilder
-        tree_builder_kwargs: dict[str, Any] = {}
-        if construction_sanitize_policy is not None:
-            tree_builder_cls = FusedDefaultTreeBuilder
-            tree_builder_kwargs["policy"] = construction_sanitize_policy
-
-        self.tree_builder = tree_builder_cls(
+        self.tree_builder = TreeBuilder(
             fragment_context=fragment_context,
             iframe_srcdoc=iframe_srcdoc,
             collect_errors=should_collect,
             scripting_enabled=scripting_enabled,
             track_node_locations=bool(track_node_locations),
             track_tag_spans=track_tag_spans,
-            **tree_builder_kwargs,
         )
         opts = _tokenizer_opts.copy() if _tokenizer_opts is not None else TokenizerOpts()
         opts.scripting_enabled = bool(scripting_enabled)
@@ -236,7 +240,7 @@ class JustHTML:
         # during construction by ensuring a Sanitize transform runs. If the user
         # places an explicit Sanitize() in the transform list, that explicit
         # position becomes the sanitize point (no extra final pass is appended).
-        if transforms or (sanitize_enabled and construction_sanitize_policy is None):
+        if transforms or sanitize_enabled:
             from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
             from justhtml.transforms import HardenRawtext, Sanitize, Stage, _iter_flattened_transforms  # noqa: PLC0415
 
