@@ -2,6 +2,7 @@ from .dom import Comment, Document, DocumentFragment, Element, Node, NodeType, Q
 from .parser import JustHTML, StrictModeError
 from .parser.stream import stream
 from .sanitizer import (
+    ALLOW_ALL_TAGS,
     CSS_PRESET_TEXT,
     DEFAULT_DOCUMENT_POLICY,
     DEFAULT_POLICY,
@@ -41,6 +42,7 @@ from .transforms import (
 )
 
 __all__ = [
+    "ALLOW_ALL_TAGS",
     "CSS_PRESET_TEXT",
     "DEFAULT_DOCUMENT_POLICY",
     "DEFAULT_POLICY",

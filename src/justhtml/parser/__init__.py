@@ -49,8 +49,9 @@ class StrictModeError(SyntaxError):
 
 
 class JustHTML:
-    __slots__ = ("debug", "encoding", "errors", "fragment_context", "root", "tokenizer", "tree_builder")
+    __slots__ = ("_raw_root", "debug", "encoding", "errors", "fragment_context", "root", "tokenizer", "tree_builder")
 
+    _raw_root: Document | DocumentFragment
     debug: bool
     encoding: str | None
     errors: list[ParseError]
@@ -189,6 +190,10 @@ class JustHTML:
 
         self.tokenizer.run(html_str)
         self.root = cast("Document | DocumentFragment", self.tree_builder.finish())
+        # Snapshot the raw DOM before transforms (incl. sanitization) mutate
+        # the tree in-place.  Users can access pre-sanitization elements via
+        # the ``raw_root`` property.
+        self._raw_root = cast("Document | DocumentFragment", self.root.clone_node(deep=True))
 
         transform_errors: list[ParseError] = []
 
@@ -405,6 +410,29 @@ class JustHTML:
         from justhtml.serializer import _escape_text  # noqa: PLC0415
 
         return JustHTML.escape_js_string(_escape_text(value), quote=quote)
+
+    @property
+    def raw_root(self) -> Document | DocumentFragment:
+        """The pre-sanitization DOM tree.
+
+        When ``sanitize=False`` (or no transforms), this is identical to
+        ``root``.  When ``sanitize=True``, this contains ALL elements —
+        including ``<input>``, ``<meta>``, ``<link>``, ``<form>`` — that
+        the default sanitizer policy would otherwise drop.
+
+        Use this when you need to query elements the default content
+        sanitizer removes, without disabling sanitization entirely::
+
+            doc = JustHTML(html)           # sanitize=True by default
+            doc.query("meta")             # []  (sanitized away)
+            doc.raw_root.query("meta")    # [<Element meta>]  (preserved)
+
+        .. note::
+
+           The raw tree has *not* been URL-sanitised or XSS-stripped.
+           Treat ``raw_root`` attribute values as untrusted input.
+        """
+        return self._raw_root
 
     def query(self, selector: str) -> list[QueryMatch]:
         """Query the document using a CSS selector. Delegates to root.query()."""

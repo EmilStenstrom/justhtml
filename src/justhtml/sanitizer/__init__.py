@@ -23,6 +23,7 @@ from .policy import (
     CSS_PRESET_TEXT,
     DEFAULT_DOCUMENT_POLICY,
     DEFAULT_POLICY,
+    ALLOW_ALL_TAGS,
     CompiledSanitizationPolicy,
     SanitizationPolicy,
     UnsafeHandler,
@@ -58,6 +59,7 @@ from .url import (
 )
 
 __all__ = [
+    "ALLOW_ALL_TAGS",
     "CSS_PRESET_TEXT",
     "DEFAULT_DOCUMENT_POLICY",
     "DEFAULT_POLICY",

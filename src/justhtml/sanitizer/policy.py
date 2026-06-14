@@ -417,4 +417,5 @@ _policy_defaults = import_module(".policy_defaults", __package__)
 CSS_PRESET_TEXT: frozenset[str] = _policy_defaults.CSS_PRESET_TEXT
 DEFAULT_DOCUMENT_POLICY: SanitizationPolicy = _policy_defaults.DEFAULT_DOCUMENT_POLICY
 DEFAULT_POLICY: SanitizationPolicy = _policy_defaults.DEFAULT_POLICY
+ALLOW_ALL_TAGS: SanitizationPolicy = _policy_defaults.ALLOW_ALL_TAGS
 _seal_url_policy = cast("Any", _policy_defaults._seal_url_policy)

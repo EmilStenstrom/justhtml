@@ -143,3 +143,116 @@ def _build_default_policies() -> tuple[object, frozenset[str], object]:
 
 
 DEFAULT_POLICY, CSS_PRESET_TEXT, DEFAULT_DOCUMENT_POLICY = _build_default_policies()
+
+
+def _build_allow_all_tags() -> "SanitizationPolicy":
+    """Build a policy that preserves all standard HTML5 elements.
+
+    Drops only ``<script>`` and ``<style>`` *content* (same as the
+    default policy), but keeps structural and form elements
+    (``<input>``, ``<meta>``, ``<link>``, ``<form>``, etc.) that the
+    default content-oriented policy strips.
+
+    Use for **web scraping** where you want XSS/URL protection but
+    need access to the full DOM::
+
+        from justhtml import JustHTML, ALLOW_ALL_TAGS
+        doc = JustHTML(html, policy=ALLOW_ALL_TAGS)
+        doc.query("meta[property='og:title']")  # works!
+    """
+    from justhtml.sanitizer.policy import SanitizationPolicy  # noqa: PLC0415
+
+    all_tags = {
+        # Document structure
+        "html", "head", "body", "title",
+        # Metadata
+        "meta", "link", "base",
+        # Sections
+        "article", "aside", "footer", "header", "hgroup", "main", "nav", "section",
+        # Headings
+        "h1", "h2", "h3", "h4", "h5", "h6",
+        # Block
+        "address", "blockquote", "dd", "div", "dl", "dt", "figcaption", "figure",
+        "hr", "li", "ol", "p", "pre", "ul",
+        # Inline
+        "a", "abbr", "b", "bdi", "bdo", "br", "cite", "code", "data", "dfn", "em",
+        "i", "kbd", "mark", "q", "rp", "rt", "rtc", "ruby", "s", "samp", "small",
+        "span", "strong", "sub", "sup", "time", "u", "var", "wbr",
+        # Media
+        "area", "audio", "img", "map", "track", "video",
+        # Embedded
+        "embed", "iframe", "object", "param", "picture", "source",
+        # Table
+        "caption", "col", "colgroup", "table", "tbody", "td", "tfoot", "th",
+        "thead", "tr",
+        # Form
+        "button", "datalist", "fieldset", "form", "input", "label", "legend",
+        "meter", "optgroup", "option", "output", "progress", "select", "textarea",
+        # Interactive
+        "details", "dialog", "menu", "summary",
+        # Scripting (content dropped by default, element preserved)
+        "noscript", "canvas", "template",
+        # Deprecated but still in the wild
+        "center", "font", "big", "strike", "tt",
+    }
+
+    policy = SanitizationPolicy(
+        allowed_tags=sorted(all_tags),
+        allowed_attributes={
+            "*": ["class", "id", "title", "lang", "dir", "role", "tabindex"],
+            "a": ["href", "title", "target", "rel"],
+            "img": ["src", "alt", "title", "width", "height", "loading", "decoding",
+                    "srcset", "sizes"],
+            "input": ["type", "name", "value", "placeholder", "checked", "disabled",
+                      "readonly", "required", "min", "max", "step", "pattern",
+                      "accept", "autocomplete", "autofocus"],
+            "form": ["action", "method", "enctype", "novalidate"],
+            "textarea": ["name", "rows", "cols", "placeholder", "disabled",
+                         "readonly", "required"],
+            "select": ["name", "multiple", "disabled", "required"],
+            "option": ["value", "selected", "disabled"],
+            "button": ["type", "name", "value", "disabled"],
+            "meta": ["charset", "name", "content", "http-equiv", "property"],
+            "link": ["rel", "href", "type", "sizes", "media"],
+            "th": ["colspan", "rowspan", "scope"],
+            "td": ["colspan", "rowspan"],
+            "iframe": ["src", "width", "height", "frameborder", "allowfullscreen"],
+            "video": ["src", "controls", "autoplay", "loop", "muted", "poster",
+                      "width", "height"],
+            "audio": ["src", "controls", "autoplay", "loop", "muted"],
+            "source": ["src", "type", "srcset", "sizes"],
+            "time": ["datetime"],
+            "data": ["value"],
+            "meter": ["value", "min", "max", "low", "high", "optimum"],
+            "progress": ["value", "max"],
+            "output": ["for", "form", "name"],
+            "details": ["open"],
+            "dialog": ["open"],
+        },
+        url_policy=UrlPolicy(
+            default_handling="strip",
+            allow_rules={
+                ("a", "href"): UrlRule(
+                    allowed_schemes=["http", "https", "mailto", "tel"],
+                    handling="allow",
+                    resolve_protocol_relative="https",
+                ),
+                ("img", "src"): UrlRule(
+                    allowed_schemes=[],
+                    handling="allow",
+                    resolve_protocol_relative=None,
+                ),
+                ("form", "action"): UrlRule(
+                    allowed_schemes=["http", "https"],
+                    handling="allow",
+                    resolve_protocol_relative="https",
+                ),
+            },
+        ),
+        allowed_css_properties=set(),
+    )
+    _seal_default_policy(policy)
+    return policy
+
+
+ALLOW_ALL_TAGS = _build_allow_all_tags()
