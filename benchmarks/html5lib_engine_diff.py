@@ -132,17 +132,17 @@ def _preview(value: str | None, *, limit: int = 220) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tree-dir", type=Path, default=_default_tree_dir())
-    parser.add_argument("--limit", type=int, default=None, help="Stop after this many eligible cases")
+    parser.add_argument("--limit", type=int, default=None, help="Stop after this many scored cases")
     parser.add_argument("--examples", type=int, default=5, help="Number of mismatch/exception examples to print")
     parser.add_argument("--worst-files", type=int, default=10, help="Number of lowest-match files to print")
-    parser.add_argument("--total-cases", type=int, default=1791, help="Total suite denominator for progress reporting")
+    parser.add_argument("--total-cases", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--test-specs", nargs="*", default=None, help="Same file[:indices] filter as run_tests.py")
     parser.add_argument("--exclude-files", nargs="*", default=None, help="Skip files containing these substrings")
     parser.add_argument(
         "--fail-under-rate",
         type=float,
         default=None,
-        help="Fail when exact/eligible rate is below this decimal threshold, e.g. 0.75",
+        help="Fail when exact/scored rate is below this decimal threshold, e.g. 0.75",
     )
     parser.add_argument(
         "--fail-on-current-exceptions",
@@ -153,22 +153,22 @@ def main() -> int:
 
     runner = _new_runner(args.tree_dir, _runner_config(args))
     counts: Counter[str] = Counter()
-    skipped: Counter[str] = Counter()
+    excluded: Counter[str] = Counter()
     per_file: defaultdict[str, Counter[str]] = defaultdict(Counter)
     examples: list[Example] = []
 
     for file_path, index, test in _iter_cases(runner):
         reason = _skip_reason(test)
         if reason is not None:
-            skipped[reason] += 1
+            excluded[reason] += 1
             continue
 
-        if args.limit is not None and counts["eligible"] >= args.limit:
+        if args.limit is not None and counts["scored"] >= args.limit:
             break
 
         file_key = file_path.name
-        counts["eligible"] += 1
-        per_file[file_key]["eligible"] += 1
+        counts["scored"] += 1
+        per_file[file_key]["scored"] += 1
 
         current, current_exc = _try_render(_render_current, test)
         reference, reference_exc = _try_render(_render_reference, test)
@@ -211,42 +211,39 @@ def main() -> int:
                 )
             )
 
-    eligible = counts["eligible"]
+    scored = counts["scored"]
     compared = counts["compared"]
     exact = counts["exact"]
-    total_rate = exact / args.total_cases if args.total_cases else 0.0
-    eligible_rate = exact / eligible if eligible else 0.0
+    exact_rate = exact / scored if scored else 0.0
     compared_rate = exact / compared if compared else 0.0
 
     print(f"tree_dir: {args.tree_dir}")
-    print(f"total_cases: {args.total_cases}")
-    print(f"eligible_cases: {eligible}")
+    print(f"scored_cases: {scored}")
     print(f"compared_cases: {compared}")
     print(f"exact_matches: {exact}")
     print(f"mismatches: {counts['mismatches']}")
     print(f"current_exceptions: {counts['current_exceptions']}")
     print(f"reference_exceptions: {counts['reference_exceptions']}")
     print(f"both_exceptions: {counts['both_exceptions']}")
-    print(f"exact_rate_total: {total_rate:.2%}")
-    print(f"exact_rate_eligible: {eligible_rate:.2%}")
+    print(f"exact_rate: {exact_rate:.2%}")
     print(f"exact_rate_compared: {compared_rate:.2%}")
-    if skipped:
-        print("skipped: " + ", ".join(f"{reason}={count}" for reason, count in sorted(skipped.items())))
+    if excluded:
+        print("excluded: " + ", ".join(f"{reason}={count}" for reason, count in sorted(excluded.items())))
 
     if per_file and args.worst_files:
         print("\nworst_files:")
         worst = sorted(
             per_file.items(),
             key=lambda item: (
-                item[1]["exact"] / item[1]["eligible"] if item[1]["eligible"] else 1.0,
-                -item[1]["eligible"],
+                item[1]["exact"] / item[1]["scored"] if item[1]["scored"] else 1.0,
+                -item[1]["scored"],
                 item[0],
             ),
         )
         for file_key, stats in worst[: args.worst_files]:
-            rate = stats["exact"] / stats["eligible"] if stats["eligible"] else 0.0
+            rate = stats["exact"] / stats["scored"] if stats["scored"] else 0.0
             print(
-                f"  {file_key}: {stats['exact']}/{stats['eligible']} exact ({rate:.1%}), "
+                f"  {file_key}: {stats['exact']}/{stats['scored']} exact ({rate:.1%}), "
                 f"mismatches={stats['mismatches']}, current_exceptions={stats['current_exceptions']}, "
                 f"reference_exceptions={stats['reference_exceptions']}, both_exceptions={stats['both_exceptions']}"
             )
@@ -268,9 +265,9 @@ def main() -> int:
     if args.fail_on_current_exceptions and counts["current_exceptions"]:
         print("FAIL: new engine raised where reference path serialized", file=sys.stderr)
         return 1
-    if args.fail_under_rate is not None and eligible_rate < args.fail_under_rate:
+    if args.fail_under_rate is not None and exact_rate < args.fail_under_rate:
         print(
-            f"FAIL: exact/eligible rate {eligible_rate:.2%} is below required {args.fail_under_rate:.2%}",
+            f"FAIL: exact rate {exact_rate:.2%} is below required {args.fail_under_rate:.2%}",
             file=sys.stderr,
         )
         return 1
