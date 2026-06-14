@@ -241,6 +241,8 @@ Result:
 - Hot-path recovery speedup: `2.174x`.
 - Latest compliance median: `0.514311s`.
 - Latest compliance speedup: `2.088x`.
+- Frameset/table-rawtext compliance median: `0.516347s`.
+- Frameset/table-rawtext compliance speedup: `2.079x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -258,7 +260,7 @@ outputs exactly matched the existing parser. This is up from `2/100` for the
 raw one-pass parser and `20/100` after the first recovery pass.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1711/1791` total cases and `1711/1783` eligible cases match the existing
+`1748/1791` total cases and `1748/1783` eligible cases match the existing
 default-safe path, and the new engine has no current-only serialization
 exceptions in that suite. The only skipped tree-construction fixtures are the
 `script-on` cases that require JavaScript execution semantics; `script-off`
@@ -266,8 +268,9 @@ cases now exercise `DefaultSafeEngine`.
 
 Remaining diffs are now more concentrated in deeper active-formatting and
 adoption-agency behavior, select-like insertion modes, parser-only template
-table modes, deeper table corner cases, foreign-content integration points, and
-a small number of escaped-source and malformed-attribute edges.
+table modes, and a small number of RCDATA/head-text edges. Two remaining
+failures are reference-side unsafe doctype serialization exceptions rather than
+current-engine crashes.
 
 ## Productionization Pivot
 
@@ -308,6 +311,14 @@ those recorded nodes at finish, preserving sanitized output while avoiding the
 largest correctness loss from dropping disallowed tags before tree construction.
 Column/form/void/head-only tags remain skipped in the specialized path where
 retaining them would require insertion modes this engine has not implemented.
+
+The frameset/table-rawtext pass keeps the same productionizing bias. Parser-only
+`frame` tags now affect frameset parsing without producing sanitized output,
+frameset text preservation follows the treebuilder rule of retaining whitespace
+while ignoring non-whitespace, and dropped `script`/`style` content records when
+the next table whitespace token must still be foster-parented. A short hot-path
+cleanup kept that extra table whitespace check out of ordinary text appends,
+preserving the `2x` speed gate.
 
 ## Current Conclusion
 

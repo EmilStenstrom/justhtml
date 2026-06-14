@@ -372,6 +372,7 @@ class DefaultSafeEngine:
         "_dropped_to_eof",
         "_explicit_head",
         "_explicit_html",
+        "_foster_next_table_whitespace",
         "_fragment",
         "_fragment_context_name",
         "_fragment_context_namespace",
@@ -475,6 +476,7 @@ class DefaultSafeEngine:
         self._doctype_seen = False
         self._explicit_head = False
         self._explicit_html = False
+        self._foster_next_table_whitespace = False
         self._frameset_blocked = False
         self._frameset_seen = False
         self._has_selectedcontent = False
@@ -741,6 +743,10 @@ class DefaultSafeEngine:
         if not raw:
             return
         raw_is_space: bool | None = None
+        foster_table_whitespace = False
+        if self._foster_next_table_whitespace:
+            foster_table_whitespace = True
+            self._foster_next_table_whitespace = False
         if not self._fragment and not self._initial_mode_done:
             raw_is_space = raw.strip(_SPACE) == ""
             if not raw_is_space:
@@ -824,12 +830,11 @@ class DefaultSafeEngine:
                             pass
                     self._insert_at(parent, position, Text(text))
                     return
-            foster = (
-                self._foster_parent_for(parent)
-                if parent.name in self._table_foster_targets
-                and not (text_is_space if text_is_space is not None else text.strip(_SPACE) == "")
-                else None
-            )
+            foster = None
+            if parent.name in self._table_foster_targets:
+                is_table_space = text_is_space if text_is_space is not None else text.strip(_SPACE) == ""
+                if not is_table_space or foster_table_whitespace:
+                    foster = self._foster_parent_for(parent)
             if foster is None:
                 self._append(parent, Text(text))
             else:
@@ -1137,6 +1142,9 @@ class DefaultSafeEngine:
         if self._frameset_seen and not self._body_explicit:
             if name == "noframes":
                 return self._parse_raw_literal_text("noframes", pos, end)
+            return pos
+
+        if name == "frame":
             return pos
 
         if action is not None and action.drop_content:
@@ -2504,6 +2512,7 @@ class DefaultSafeEngine:
         self._append_text_boundary(self._current_parent())
         if name in {"script", "style"}:
             self._skip_escaped_comment_space = True
+            self._foster_next_table_whitespace = self._table_has_preceding_foster_text(self._current_parent())
         return next_pos
 
     def _skip_subtree(self, name: str, pos: int, end: int) -> int:
@@ -2554,6 +2563,17 @@ class DefaultSafeEngine:
         if depth:
             self._dropped_to_eof = True
         return pos
+
+    def _table_has_preceding_foster_text(self, parent: Node) -> bool:
+        foster = self._foster_parent_for(parent)
+        if foster is None:
+            return False
+        foster_parent, position = foster
+        children = foster_parent.children
+        if children is None or position <= 0:
+            return False
+        previous = children[position - 1]
+        return type(previous) is Text and bool(previous.data)
 
     def _finish_document_shell(self) -> None:
         if self._fragment or (not self._dropped_to_eof and not self._frameset_seen):
@@ -2661,9 +2681,8 @@ class DefaultSafeEngine:
     def _append_frameset_text(self, raw: str) -> None:
         if "\r" in raw:
             raw = raw.replace("\r\n", "\n").replace("\r", "\n")
-        pos = 0
-        end = len(raw)
-        while pos < end and raw[pos] in _SPACE:
-            pos += 1
-        if pos and self._html is not None:
-            self._append(self._html, Text(raw[:pos]))
+        if self._html is None:
+            return
+        text = "".join(ch for ch in raw if ch in _SPACE)
+        if text:
+            self._append(self._html, Text(text))
