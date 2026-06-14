@@ -173,7 +173,15 @@ def main() -> int:
         current, current_exc = _try_render(_render_current, test)
         reference, reference_exc = _try_render(_render_reference, test)
 
-        if current_exc is not None and reference_exc is not None:
+        if current_exc is not None and reference_exc is not None and current_exc == reference_exc:
+            kind = "exact"
+            counts["compared"] += 1
+            counts[kind] += 1
+            counts["matching_exceptions"] += 1
+            per_file[file_key]["compared"] += 1
+            per_file[file_key][kind] += 1
+            per_file[file_key]["matching_exceptions"] += 1
+        elif current_exc is not None and reference_exc is not None:
             kind = "both_exceptions"
             counts[kind] += 1
             per_file[file_key][kind] += 1
@@ -225,6 +233,7 @@ def main() -> int:
     print(f"current_exceptions: {counts['current_exceptions']}")
     print(f"reference_exceptions: {counts['reference_exceptions']}")
     print(f"both_exceptions: {counts['both_exceptions']}")
+    print(f"matching_exceptions: {counts['matching_exceptions']}")
     print(f"exact_rate: {exact_rate:.2%}")
     print(f"exact_rate_compared: {compared_rate:.2%}")
     if excluded:

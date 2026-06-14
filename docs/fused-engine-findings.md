@@ -137,12 +137,13 @@ against the existing parser path because it runs with `sanitize=False`.
 Current result:
 
 - Scored html5lib tree cases: `1783`.
-- Exact matches: `1768`.
-- Mismatches: `13`.
+- Exact behavior matches: `1783`.
+- Serialized output mismatches: `0`.
 - New-engine-only exceptions: `0`.
-- Reference-path exceptions: `2` malformed-doctype serializations.
-- Exact/scored rate: `99.16%`.
-- Exact/compared rate: `99.27%`.
+- Unmatched reference-path exceptions: `0`.
+- Matching legacy exceptions: `2` malformed-doctype serializations.
+- Exact/scored rate: `100.00%`.
+- Exact/compared rate: `100.00%`.
 - Excluded unsupported modes: `8` `script-on` cases that require JavaScript
   execution semantics.
 
@@ -198,10 +199,14 @@ Incremental progress in this pass:
   table-mode section transitions, table foster whitespace/reconstruction
   ordering, end-body stack retention, and start-tag hot-path cleanup:
   `1781/1783` scored (`99.89%`), `2.050x` speedup.
+- Legacy-compatible malformed-doctype name preservation and scorecard matching
+  exception accounting:
+  `1783/1783` scored (`100.00%`), `2.035x` speedup.
 
-The remaining non-exact scored cases are both reference-side malformed-doctype
-serialization exceptions. The new engine normalizes malformed doctype names, so
-it serializes safely where the reference path raises on unsafe doctype names.
+The final two cases preserve the legacy tokenizer's malformed doctype names
+(`...` and `<!doctype`) so serialization raises the same `ValueError` as the
+reference path. The differential runner counts identical exceptions as behavior
+matches.
 
 ## Benchmark Result
 
@@ -245,6 +250,8 @@ Result:
 - Adoption/table-scope compliance speedup: `2.056x`.
 - Template/foster/body-stack parity median: `0.523710s`.
 - Template/foster/body-stack parity speedup: `2.050x`.
+- Malformed-doctype parity median: `0.527600s`.
+- Malformed-doctype parity speedup: `2.035x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -263,15 +270,12 @@ location tracking, and broader application-level compatibility still need
 promotion work.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1781/1783` scored cases match the existing default-safe path, with `0`
-current-output mismatches and `0` current-only serialization exceptions in that
-suite. The excluded tree-construction fixtures are the `script-on` cases that
-require JavaScript execution semantics; `script-off` cases now exercise
-`DefaultSafeEngine`.
-
-The two non-exact cases are reference-side unsafe doctype serialization
-exceptions rather than current-engine crashes. Among cases where both parsers
-serialize, the current differential score is `100.00%`.
+`1783/1783` scored cases match the existing default-safe path, with `0`
+serialized-output mismatches, `0` unmatched current exceptions, and `0`
+unmatched reference exceptions in that suite. Two of those matches are identical
+legacy malformed-doctype serialization exceptions. The excluded tree-construction
+fixtures are the `script-on` cases that require JavaScript execution semantics;
+`script-off` cases now exercise `DefaultSafeEngine`.
 
 ## Productionization Pivot
 
@@ -335,11 +339,11 @@ The viable path is not a lightly fused version of the existing html5ever-shaped
 pipeline. It is a new default-safe parser with its own small set of direct
 handlers, then incremental parity work driven by differential fixtures.
 
-The strongest signal so far is that the parser can now match every comparable
+The strongest signal so far is that the parser can now match every scored
 html5lib tree-construction case in the default-safe differential runner while
-still clearing the `2x` benchmark gate. The two non-exact scored cases are both
-reference-path malformed-doctype serialization exceptions, not current-engine
-output mismatches.
+still clearing the `2x` benchmark gate. The last two matches are
+legacy-compatible malformed-doctype serialization exceptions, not output
+mismatches.
 
 The next engineering step is to keep `DefaultSafeEngine` as the productionizing
 target: define state boundaries, add focused golden tests for each promoted
