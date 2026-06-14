@@ -29,6 +29,7 @@ from justhtml.treebuilder.utils import doctype_error_and_quirks
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
 
+    from justhtml.parser.context import FragmentContext
     from justhtml.sanitizer import SanitizationPolicy
     from justhtml.sanitizer.url import UrlPolicy, UrlRule
 
@@ -93,6 +94,7 @@ _P_CLOSING_START_TAGS = {
     "table",
     "ul",
 } | HEADING_ELEMENTS
+_HEAD_NOSCRIPT_ALLOWED_START_TAGS = {"basefont", "bgsound", "link", "meta", "noframes", "style"}
 _DEFINITION_SCOPE_BOUNDARIES = {"dl"}
 _LIST_ITEM_SCOPE_BOUNDARIES = {"ol", "ul"}
 _PRE_LINEFEED_IGNORING_TAGS = {"listing", "pre"}
@@ -100,6 +102,7 @@ _TABLE_CONTEXT_BOUNDARIES = frozenset({"table"})
 _TABLE_SECTION_TAGS = {"tbody", "thead", "tfoot"}
 _TABLE_CELL_TAGS = {"td", "th"}
 _TABLE_FOSTER_TARGETS = {"table", "tbody", "tfoot", "thead", "tr"}
+_TABLE_STRUCTURE_START_TAGS = {"caption", "col", "colgroup", "table", "tbody", "td", "tfoot", "th", "thead", "tr"}
 _TEMPLATE_SCOPE_BOUNDARIES = frozenset({"template"})
 _TEMPLATE_MODE_INITIAL = "template"
 _TEMPLATE_MODE_BODY = "body"
@@ -171,12 +174,12 @@ class EnginePlan:
     void_elements: frozenset[str]
 
 
-_ENGINE_PLAN_CACHE: dict[bool, EnginePlan] = {}
+_ENGINE_PLAN_CACHE: dict[tuple[bool, bool], EnginePlan] = {}
 
 
-def compile_default_engine_plan(*, fragment: bool) -> EnginePlan:
+def compile_default_engine_plan(*, fragment: bool, scripting_enabled: bool = True) -> EnginePlan:
     """Return the cached default-safe execution plan."""
-    cache_key = bool(fragment)
+    cache_key = (bool(fragment), bool(scripting_enabled))
     cached = _ENGINE_PLAN_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -187,6 +190,7 @@ def compile_default_engine_plan(*, fragment: bool) -> EnginePlan:
     allowed_by_tag = {
         str(tag).lower(): frozenset(allowed_global).union(attrs) for tag, attrs in allowed_attrs.items() if tag != "*"
     }
+    rawtext_as_text_tags = _RAWTEXT_AS_TEXT_TAGS if scripting_enabled else _RAWTEXT_AS_TEXT_TAGS - {"noscript"}
     plan = EnginePlan(
         policy=policy,
         allowed_tags=policy.allowed_tags,
@@ -206,7 +210,7 @@ def compile_default_engine_plan(*, fragment: bool) -> EnginePlan:
         list_item_scope_boundaries=frozenset(_LIST_ITEM_SCOPE_BOUNDARIES),
         p_closing_start_tags=frozenset(_P_CLOSING_START_TAGS),
         pre_linefeed_ignoring_tags=frozenset(_PRE_LINEFEED_IGNORING_TAGS),
-        rawtext_as_text_tags=frozenset(_RAWTEXT_AS_TEXT_TAGS),
+        rawtext_as_text_tags=frozenset(rawtext_as_text_tags),
         rcdata_tags=frozenset(_RCDATA_TAGS),
         plaintext_tags=frozenset(_PLAINTEXT_TAGS),
         special_elements=frozenset(SPECIAL_ELEMENTS),
@@ -251,6 +255,9 @@ class DefaultSafeEngine:
         "_explicit_head",
         "_explicit_html",
         "_fragment",
+        "_fragment_context_name",
+        "_fragment_context_namespace",
+        "_fragment_context_node",
         "_frameset_blocked",
         "_frameset_blocking_start_tags",
         "_frameset_body_ok_tags",
@@ -261,6 +268,7 @@ class DefaultSafeEngine:
         "_html_input",
         "_ignore_lf",
         "_implied_end_tags",
+        "_in_head_noscript",
         "_initial_mode_done",
         "_length",
         "_list_item_scope_boundaries",
@@ -287,12 +295,31 @@ class DefaultSafeEngine:
         "_void_elements",
     )
 
-    def __init__(self, html: str, *, fragment: bool, plan: EnginePlan | None = None) -> None:
+    def __init__(
+        self,
+        html: str,
+        *,
+        fragment: bool,
+        fragment_context: FragmentContext | None = None,
+        scripting_enabled: bool = True,
+        plan: EnginePlan | None = None,
+    ) -> None:
         self._html_input = html
         self._length = len(html)
         self._lower_input = html.lower()
         self._fragment = bool(fragment)
-        self._plan = plan if plan is not None else compile_default_engine_plan(fragment=fragment)
+        self._fragment_context_name = (
+            fragment_context.tag_name.lower() if fragment_context is not None and fragment_context.tag_name else None
+        )
+        self._fragment_context_namespace = (
+            fragment_context.namespace.lower() if fragment_context is not None and fragment_context.namespace else None
+        )
+        self._fragment_context_node: Element | None = None
+        self._plan = (
+            plan
+            if plan is not None
+            else compile_default_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
+        )
         self._active_formatting_tags = self._plan.active_formatting_tags
         self._allowed_tags = self._plan.allowed_tags
         self._allowed_global = self._plan.allowed_global_attrs
@@ -330,6 +357,7 @@ class DefaultSafeEngine:
         self._frameset_blocked = False
         self._frameset_seen = False
         self._ignore_lf = False
+        self._in_head_noscript = False
         self._initial_mode_done = bool(fragment)
         self._quirks_mode = "no-quirks"
         self._body_explicit = False
@@ -347,8 +375,39 @@ class DefaultSafeEngine:
         if self._fragment:
             root = DocumentFragment()
             self._doc = root
-            self._body = root
-            self._stack = [root]
+            context_name = self._fragment_context_name
+            html_context = self._fragment_context_namespace in {None, "html"}
+            if html_context and context_name in self._rcdata_tags:
+                self._body = root
+                self._stack = [root]
+                text = self._clean_text(self._html_input, replace_null=True)
+                if context_name == "textarea" and text.startswith("\n"):
+                    text = text[1:]
+                if text:
+                    self._append(root, Text(text))
+                return root
+
+            if html_context and context_name in self._plaintext_tags:
+                self._body = root
+                self._stack = [root]
+                self._append_raw_literal_text(self._html_input)
+                return root
+
+            if html_context and (context_name in self._drop_content_tags or context_name in self._rawtext_as_text_tags):
+                self._body = root
+                self._stack = [root]
+                self._append_raw_literal_text(self._html_input)
+                return root
+
+            if context_name and context_name != "div":
+                context = Element(context_name, {}, self._fragment_context_namespace or "html")
+                self._append(root, context)
+                self._fragment_context_node = context
+                self._body = context
+                self._stack = [root, context]
+            else:
+                self._body = root
+                self._stack = [root]
         else:
             doc = Document()
             html_el = Element("html", {}, "html")
@@ -365,6 +424,7 @@ class DefaultSafeEngine:
 
         self._parse_range(0, self._length)
         self._finish_document_shell()
+        self._finish_fragment_context()
         return self._doc
 
     def _append(self, parent: Node, node: Node | Text) -> None:
@@ -384,6 +444,25 @@ class DefaultSafeEngine:
         node = Text("")
         node.parent = parent
         children.append(node)
+
+    def _finish_fragment_context(self) -> None:
+        context = self._fragment_context_node
+        if context is None:
+            return
+        root = self._doc
+        children = root.children
+        if children is None:
+            return
+        try:
+            index = children.index(context)
+        except ValueError:
+            return
+        replacement = list(context.children or ())
+        for child in replacement:
+            child.parent = root
+        children[index : index + 1] = replacement
+        context.children = []
+        context.parent = None
 
     def _current_parent(self) -> Node:
         stack = self._stack
@@ -530,6 +609,8 @@ class DefaultSafeEngine:
         if not self._fragment and self._frameset_seen and not self._body_explicit:
             self._append_frameset_text(raw)
             return
+        if self._fragment_context_name == "colgroup":
+            return
         if self._parser_only_template_depth and self._template_modes[-1] == _TEMPLATE_MODE_COLGROUP:
             return
         if self._active_formatting_dirty:
@@ -551,6 +632,9 @@ class DefaultSafeEngine:
         if self._ignore_lf:
             self._ignore_lf = False
             text = text.removeprefix("\n")
+        if self._in_head_noscript and text.strip(_SPACE) != "":
+            self._leave_head_noscript_to_body()
+            parent = self._body
         if text:
             if not self._fragment and parent is self._html and self._after_head and text.strip(_SPACE) == "":
                 body = self._body
@@ -655,6 +739,13 @@ class DefaultSafeEngine:
             return pos
         if self._frameset_seen and not self._body_explicit:
             return pos
+        if self._in_head_noscript:
+            if name == "noscript":
+                self._in_head_noscript = False
+                return pos
+            if name != "br":
+                return pos
+            self._leave_head_noscript_to_body()
         if name == "br":
             self._insert_allowed_element("br", {}, False, self._current_parent())
             return pos
@@ -675,6 +766,8 @@ class DefaultSafeEngine:
                 self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
             elif name in self._p_closing_start_tags:
                 self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
+            return pos
+        if self._fragment_context_node is not None and stack[idx] is self._fragment_context_node:
             return pos
         if name in self._implied_end_tags:
             self._generate_implied_end_tags(name)
@@ -698,6 +791,11 @@ class DefaultSafeEngine:
 
         attrs, self_closing, pos = self._parse_attrs(pos, end)
         in_parser_only_template = self._parser_only_template_depth > 0
+        if self._in_head_noscript:
+            if name in {"head", "noscript"}:
+                return pos
+            if name not in _HEAD_NOSCRIPT_ALLOWED_START_TAGS and name != "html":
+                self._leave_head_noscript_to_body()
         if not self._fragment and not in_parser_only_template:
             if name == "html":
                 self._explicit_html = True
@@ -759,10 +857,22 @@ class DefaultSafeEngine:
             return self._skip_subtree(name, pos, end)
         if name in self._rawtext_as_text_tags:
             return self._parse_rawtext_as_text(name, pos, end)
+        if (
+            name == "noscript"
+            and not self._fragment
+            and self._head is not None
+            and self._current_parent() is self._head
+        ):
+            self._in_head_noscript = True
+            return pos
         if name in self._rcdata_tags:
             return self._parse_rcdata_element(name, attrs, self_closing, pos, end)
         if name in self._plaintext_tags:
             return self._parse_plaintext_as_text(pos, end)
+
+        fragment_pos = self._handle_fragment_context_start(name, attrs, self_closing, pos)
+        if fragment_pos is not None:
+            return fragment_pos
 
         if name == "template" and name not in self._allowed_tags:
             self._start_parser_only_template()
@@ -905,6 +1015,79 @@ class DefaultSafeEngine:
     def _set_current_template_mode(self, mode: str) -> None:
         if self._template_modes:
             self._template_modes[-1] = mode
+
+    def _leave_head_noscript_to_body(self) -> None:
+        self._in_head_noscript = False
+        if self._fragment or self._html is None:
+            return
+        self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+        self._after_head = False
+        self._body_mode_seen = True
+
+    def _close_to_fragment_context(self) -> bool:
+        context = self._fragment_context_node
+        if context is None:
+            return False
+        stack = self._stack
+        try:
+            idx = stack.index(context)
+        except ValueError:
+            return False
+        if len(stack) > idx + 1:
+            self._mark_active_formatting_dirty()
+            del stack[idx + 1 :]
+        return True
+
+    def _handle_fragment_context_start(
+        self,
+        name: str,
+        attrs: dict[str, str | None],
+        self_closing: bool,
+        pos: int,
+    ) -> int | None:
+        context_name = self._fragment_context_name
+        if context_name is None:
+            return None
+
+        if context_name == "colgroup":
+            return pos
+
+        if context_name == "caption":
+            return pos if name in _TABLE_STRUCTURE_START_TAGS else None
+
+        if context_name == "table":
+            if name in {"col", "colgroup", "table"}:
+                return pos
+            if name == "caption":
+                if self._close_to_fragment_context():
+                    self._insert_allowed_element(name, attrs, self_closing, self._current_parent())
+                    return pos
+            return None
+
+        if context_name in self._table_section_tags:
+            if name == "tr":
+                if self._close_to_fragment_context():
+                    self._insert_allowed_element(name, attrs, self_closing, self._current_parent())
+                    return pos
+            if name in self._table_cell_tags:
+                self._close_table_cell()
+                if getattr(self._current_parent(), "name", None) != "tr" and self._close_to_fragment_context():
+                    self._insert_allowed_element("tr", {}, False, self._current_parent())
+                if getattr(self._current_parent(), "name", None) == "tr":
+                    self._insert_allowed_element(name, attrs, self_closing, self._current_parent())
+                return pos
+            if name in _TABLE_STRUCTURE_START_TAGS:
+                return pos
+            return None
+
+        if context_name == "tr":
+            if name in self._table_cell_tags:
+                if self._close_to_fragment_context():
+                    self._insert_allowed_element(name, attrs, self_closing, self._current_parent())
+                    return pos
+            if name in _TABLE_STRUCTURE_START_TAGS:
+                return pos
+        return None
 
     def _insert_template_mode_element(
         self,
@@ -1093,6 +1276,8 @@ class DefaultSafeEngine:
         for idx in range(len(stack) - 1, 0, -1):
             node_name = getattr(stack[idx], "name", None)
             if node_name == name:
+                if self._fragment_context_node is not None and stack[idx] is self._fragment_context_node:
+                    return False
                 self._mark_active_formatting_dirty()
                 del stack[idx:]
                 return True

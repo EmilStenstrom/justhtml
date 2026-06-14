@@ -129,16 +129,16 @@ against the existing parser path because it runs with `sanitize=False`.
 Current result:
 
 - Total html5lib tree cases: `1791`.
-- Eligible full-document cases: `1564`.
-- Exact matches: `1461`.
-- Mismatches: `101`.
+- Eligible cases: `1783`.
+- Exact matches: `1669`.
+- Mismatches: `112`.
 - New-engine-only exceptions: `0`.
 - Reference-path exceptions: `2` malformed-doctype serializations.
-- Exact/total rate: `81.57%`.
-- Exact/eligible rate: `93.41%`.
-- Exact/compared rate: `93.53%`.
-- Skipped unsupported modes: `192` fragment-context cases and `35`
-  scripting-directive cases.
+- Exact/total rate: `93.19%`.
+- Exact/eligible rate: `93.61%`.
+- Exact/compared rate: `93.71%`.
+- Skipped unsupported modes: `8` `script-on` cases that require JavaScript
+  execution semantics.
 
 Incremental progress in this pass:
 
@@ -162,6 +162,10 @@ Incremental progress in this pass:
 - Parser-only template scopes, template insertion modes, stricter rawtext end
   tags, script escaped-state scanning, and disallowed rawtext-as-text handling:
   `1461/1791` total (`81.57%`), `93.41%` eligible, `1.986x` speedup.
+- Fragment contexts and `script-off` cases included in the differential
+  runner, all fragment contexts routed through `DefaultSafeEngine`, and
+  script-disabled `noscript` behavior compiled into the plan:
+  `1669/1791` total (`93.19%`), `93.61%` eligible, `1.917x` speedup.
 
 The largest remaining buckets are the unsupported parts of
 adoption-agency/active-formatting behavior, especially disallowed/ghost
@@ -195,12 +199,14 @@ Result:
 - html5lib-scorecard pass speedup: `2.285x`.
 - Latest html5lib-targeting median: `0.540501s`.
 - Latest html5lib-targeting speedup: `1.986x`.
+- Expanded fragment/script-off median: `0.560081s`.
+- Expanded fragment/script-off speedup: `1.917x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
-The 2x target remains feasible in pure Python, but the latest compliance gains
-consume most of the speed margin. The next productionization pass should pair
-new parser-state work with hot-path profiling, especially around start-tag
+The 2x target remains feasible in pure Python, but the expanded coverage has
+now spent the available speed margin. The next productionization pass should
+pair new parser-state work with hot-path profiling, especially around start-tag
 dispatch, attribute parsing, and active-formatting reconstruction.
 
 ## Parity Status
@@ -211,9 +217,11 @@ outputs exactly matched the existing parser. This is up from `2/100` for the
 raw one-pass parser and `20/100` after the first recovery pass.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1461/1791` total cases and `1461/1564` eligible full-document cases match the
-existing default-safe path, and the new engine has no current-only serialization
-exceptions in that suite.
+`1669/1791` total cases and `1669/1783` eligible cases match the existing
+default-safe path, and the new engine has no current-only serialization
+exceptions in that suite. The only skipped tree-construction fixtures are the
+`script-on` cases that require JavaScript execution semantics; `script-off`
+cases now exercise `DefaultSafeEngine`.
 
 Remaining diffs are now more concentrated in active-formatting/adoption-agency
 behavior, `nobr`, select-like insertion modes, deeper table corner cases,
@@ -266,5 +274,5 @@ speed margin.
 
 The next engineering step is to keep `DefaultSafeEngine` as the PoC target and
 turn it into a production parser incrementally: define state boundaries, add
-focused golden tests for each promoted rule, and keep the benchmark gate above
-`2x` while replacing fixture-shaped recovery with real parser state.
+focused golden tests for each promoted rule, and recover the benchmark gate back
+above `2x` while replacing fixture-shaped recovery with real parser state.

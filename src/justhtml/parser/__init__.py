@@ -162,17 +162,17 @@ class JustHTML:
             and not should_collect
             and not track_node_locations
             and not debug
-            and fragment_context is None
             and not iframe_srcdoc
             and _tokenizer_opts is None
-            and scripting_enabled
         ):
             self.tree_builder = None  # type: ignore[assignment]
             self.tokenizer = None  # type: ignore[assignment]
             self.root = DefaultSafeEngine(
                 html_str,
                 fragment=fragment,
-                plan=compile_default_engine_plan(fragment=fragment),
+                fragment_context=fragment_context,
+                scripting_enabled=scripting_enabled,
+                plan=compile_default_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled),
             ).parse()
             self.errors = []
             return
