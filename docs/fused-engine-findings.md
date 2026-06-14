@@ -267,6 +267,8 @@ Result:
 - Fused treebuilder deletion/custom policy planner speedup: `2.029x`.
 - Engine error pre-scan/srcdoc routing median: `0.533418s`.
 - Engine error pre-scan/srcdoc routing speedup: `2.013x`.
+- Normalized-input engine routing median: `0.536114s`.
+- Normalized-input engine routing speedup: `2.003x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -301,11 +303,12 @@ tags. That keeps diagnostic work out of the normal parse hot path while moving
 the public constructor route onto `DefaultSafeEngine`; full html5lib parse-error
 parity is still separate work.
 
-Decoded byte-like inputs now follow the same default-safe engine route as
-string inputs after encoding detection. The remaining legacy constructor routes
-are therefore concentrated around unsupported policy features, explicit
-transforms, raw/trusted `sanitize=False`, location tracking, and private
-html5lib harness tokenizer options.
+All normalized text inputs now follow the same default-safe engine route when
+the selected policy can compile, regardless of whether the original source was
+a string, bytes-like value, `None`, DOM node, or other stringable object. The
+remaining legacy constructor routes are therefore concentrated around
+unsupported policy features, explicit transforms, raw/trusted `sanitize=False`,
+location tracking, and private html5lib harness tokenizer options.
 
 The broader html5lib differential scorecard is now the main compliance driver:
 `1783/1783` scored cases match the existing default-safe path, with `0`
