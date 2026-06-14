@@ -24,10 +24,11 @@ from justhtml.core.constants import (
     VOID_ELEMENTS,
 )
 from justhtml.core.entities import decode_entities_in_text
+from justhtml.core.errors import generate_error_message
 from justhtml.dom import Document, DocumentFragment, Element, Node, Template, Text
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, _strip_invisible_unicode
 from justhtml.sanitizer.url import _URL_SINK_ATTRS, _sanitize_url_sink_value, _url_sink_kind_for_attr
-from justhtml.tokenizer.tokens import Doctype
+from justhtml.tokenizer.tokens import Doctype, ParseError
 from justhtml.treebuilder.utils import doctype_error_and_quirks
 
 if TYPE_CHECKING:
@@ -426,6 +427,7 @@ class DefaultSafeEngine:
         "_body",
         "_body_explicit",
         "_body_mode_seen",
+        "_collect_errors",
         "_definition_scope_boundaries",
         "_doc",
         "_doctype_seen",
@@ -433,6 +435,7 @@ class DefaultSafeEngine:
         "_drop_doctype",
         "_drop_subtree_tags",
         "_dropped_to_eof",
+        "_errors",
         "_explicit_head",
         "_explicit_html",
         "_foster_next_table_whitespace",
@@ -449,6 +452,7 @@ class DefaultSafeEngine:
         "_head_content_tags",
         "_html",
         "_html_input",
+        "_iframe_srcdoc",
         "_ignore_lf",
         "_implied_end_tags",
         "_in_colgroup",
@@ -489,11 +493,16 @@ class DefaultSafeEngine:
         fragment_context: FragmentContext | None = None,
         scripting_enabled: bool = True,
         plan: EnginePlan | None = None,
+        collect_errors: bool = False,
+        iframe_srcdoc: bool = False,
     ) -> None:
         self._html_input = html
         self._length = len(html)
         self._lower_input = html.lower()
         self._fragment = bool(fragment)
+        self._collect_errors = bool(collect_errors)
+        self._errors: list[ParseError] = []
+        self._iframe_srcdoc = bool(iframe_srcdoc)
         self._fragment_context_name = (
             fragment_context.tag_name.lower() if fragment_context is not None and fragment_context.tag_name else None
         )
@@ -560,7 +569,157 @@ class DefaultSafeEngine:
         self._template_modes: list[str] = []
         self._stack: list[Node] = []
 
+    @property
+    def errors(self) -> list[ParseError]:
+        return self._errors
+
+    def _source_location(self, pos: int) -> tuple[int, int]:
+        html = self._html_input
+        if pos < 0:
+            pos = 0
+        elif pos >= self._length:
+            pos = max(0, self._length - 1)
+        line = html.count("\n", 0, pos + 1) + 1
+        last_newline = html.rfind("\n", 0, pos + 1)
+        column = pos + 1 if last_newline == -1 else pos - last_newline
+        return line, column
+
+    def _emit_error(
+        self,
+        code: str,
+        pos: int,
+        *,
+        tag_name: str | None = None,
+        category: str = "tokenizer",
+        end_pos: int | None = None,
+    ) -> None:
+        if not self._collect_errors:
+            return
+        line, column = self._source_location(pos)
+        end_column = None
+        if end_pos is not None:
+            end_line, end_col = self._source_location(end_pos)
+            if end_line == line:
+                end_column = end_col + 1
+        self._errors.append(
+            ParseError(
+                code,
+                line=line,
+                column=column,
+                category=category,
+                message=generate_error_message(code, tag_name),
+                source_html=self._html_input,
+                end_column=end_column,
+            )
+        )
+
+    def _emit_null_errors(self, start: int, end: int) -> None:
+        if not self._collect_errors:
+            return
+        html = self._html_input
+        pos = html.find("\0", start, end)
+        while pos != -1:
+            self._emit_error("unexpected-null-character", pos)
+            pos = html.find("\0", pos + 1, end)
+
+    def _collect_basic_errors(self) -> None:
+        html = self._html_input
+        lower = self._lower_input
+        end = self._length
+        self._emit_null_errors(0, end)
+
+        if not self._fragment:
+            first = 0
+            while first < end and html[first] in _SPACE:
+                first += 1
+            if first < end and not lower.startswith("<!doctype", first):
+                if html[first] == "<" and first + 1 < end and html[first + 1].isalpha():
+                    tag_end = self._find_tag_end(first + 2, end)
+                    self._emit_error(
+                        "expected-doctype-but-got-start-tag",
+                        tag_end if tag_end != -1 else end - 1,
+                        tag_name=self._read_tag_name(first + 1, end),
+                        category="treebuilder",
+                        end_pos=tag_end if tag_end != -1 else None,
+                    )
+                else:
+                    self._emit_error("expected-doctype-but-got-chars", first, category="treebuilder")
+
+        open_tags: list[str] = []
+        pos = 0
+        while pos < end:
+            lt = html.find("<", pos, end)
+            if lt == -1:
+                return
+            pos = lt + 1
+            if pos >= end:
+                return
+            ch = html[pos]
+            if ch == "!":
+                if html.startswith("<!--", lt):
+                    close = self._find_comment_end(pos + 1, end)
+                    if close == -1:
+                        self._emit_error("eof-in-comment", end - 1)
+                        return
+                    pos = close + 3
+                    continue
+                tag_end = self._find_tag_end(pos + 1, end)
+                if tag_end == -1:
+                    self._emit_error("eof-in-tag", end - 1)
+                    return
+                pos = tag_end + 1
+                continue
+            if ch == "/":
+                name_start = pos + 1
+                if name_start >= end or not html[name_start].isalpha():
+                    tag_end = self._find_tag_end(name_start, end)
+                    pos = end if tag_end == -1 else tag_end + 1
+                    continue
+                name = self._read_tag_name(name_start, end)
+                tag_end = self._find_tag_end(name_start + len(name), end)
+                if tag_end == -1:
+                    self._emit_error("eof-in-tag", end - 1)
+                    return
+                if name == "br" or name not in open_tags:
+                    self._emit_error("unexpected-end-tag", lt, tag_name=name, category="treebuilder", end_pos=tag_end)
+                else:
+                    for idx in range(len(open_tags) - 1, -1, -1):
+                        if open_tags[idx] == name:
+                            del open_tags[idx:]
+                            break
+                pos = tag_end + 1
+                continue
+            if not ch.isalpha():
+                pos = lt + 1
+                continue
+            name = self._read_tag_name(pos, end)
+            tag_end = self._find_tag_end(pos + len(name), end)
+            if tag_end == -1:
+                self._emit_error("eof-in-tag", end - 1)
+                return
+            if name not in self._void_elements and not self._is_self_closing_source_tag(pos + len(name), tag_end):
+                open_tags.append(name)
+            pos = tag_end + 1
+
+    def _read_tag_name(self, pos: int, end: int) -> str:
+        html = self._html_input
+        start = pos
+        while pos < end and html[pos] not in _TAG_NAME_STOP:
+            pos += 1
+        name = html[start:pos]
+        return name if name.islower() else name.lower()
+
+    def _is_self_closing_source_tag(self, pos: int, tag_end: int) -> bool:
+        html = self._html_input
+        idx = tag_end - 1
+        while idx >= pos and html[idx] in _SPACE:
+            idx -= 1
+        return idx >= pos and html[idx] == "/"
+
     def parse(self) -> Document | DocumentFragment:
+        if self._collect_errors:
+            self._collect_basic_errors()
+
         if self._fragment:
             root = DocumentFragment()
             self._doc = root
@@ -941,11 +1100,11 @@ class DefaultSafeEngine:
                     public_id = None
                     system_id = None
                 doctype = Doctype(name, public_id, system_id, force_quirks=name is None)
-                self._quirks_mode = doctype_error_and_quirks(doctype)[1]
+                self._quirks_mode = doctype_error_and_quirks(doctype, self._iframe_srcdoc)[1]
                 self._prepend_doctype(doctype)
             else:
                 doctype = Doctype(None, force_quirks=True)
-                self._quirks_mode = doctype_error_and_quirks(doctype)[1]
+                self._quirks_mode = doctype_error_and_quirks(doctype, self._iframe_srcdoc)[1]
                 self._prepend_doctype(doctype)
         return end if gt == -1 else gt + 1
 
