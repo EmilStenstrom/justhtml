@@ -190,12 +190,18 @@ Incremental progress in this pass:
   attr-scanner constant reuse, and stack-top mode checks recover much of the
   lost speed while preserving the compliance gains:
   `1711/1791` total (`95.53%`), `95.96%` eligible, `2.174x` speedup.
+- Incremental html5lib compliance pass for self-closing non-void tags,
+  after-head head content, dropped rawtext whitespace, escaped-script EOF
+  shell retention, selectedcontent projection, foreign-content subtree
+  skipping, plaintext `p` closure, colgroup/table repairs, fragment nested
+  tables, and table-scope end-tag boundaries:
+  `1744/1791` total (`97.38%`), `97.81%` eligible, `2.088x` speedup.
 
 The largest remaining buckets are the unsupported parts of deeper
-adoption-agency/active-formatting behavior, especially around tables and nested
-formatting reconstruction; select-like insertion modes, parser-only template
-table modes, foreign-content integration points, and quirks around malformed
-inline/block structure. Malformed doctype names are normalized in
+adoption-agency/active-formatting behavior, especially around tables, `font`,
+`nobr`, and nested formatting reconstruction; parser-only template table modes;
+frameset edge text; and quirks around malformed inline/block structure.
+Malformed doctype names are normalized in
 `DefaultSafeEngine` so the new engine does not produce unsafe names that later
 fail serialization.
 
@@ -233,6 +239,8 @@ Result:
 - Unsafe unwrap/scope compliance speedup: `2.071x`.
 - Hot-path recovery median: `0.493839s`.
 - Hot-path recovery speedup: `2.174x`.
+- Latest compliance median: `0.514311s`.
+- Latest compliance speedup: `2.088x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 

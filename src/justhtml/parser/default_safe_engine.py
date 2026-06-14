@@ -237,14 +237,21 @@ def _compile_tag_actions(
     known_tags.update(_TABLE_CELL_TAGS)
     known_tags.update(_TABLE_STRUCTURE_START_TAGS)
     known_tags.update(_FRAMESET_BLOCKING_START_TAGS)
-    known_tags.update({"body", "button", "frameset", "head", "html", "image", "input", "template", "tr"})
+    known_tags.update(
+        {"body", "button", "frameset", "head", "html", "image", "input", "optgroup", "option", "template", "tr"}
+    )
 
     actions: dict[str, TagAction] = {}
     global_attrs = frozenset(allowed_global)
     for tag in known_tags:
         allowed = tag in allowed_tags
         allowed_attrs = allowed_by_tag.get(tag, global_attrs) if allowed else frozenset()
-        state_attrs = frozenset({"type"}) if tag == "input" else frozenset()
+        if tag == "input":
+            state_attrs = frozenset({"type"})
+        elif tag == "option":
+            state_attrs = frozenset({"selected"})
+        else:
+            state_attrs = frozenset()
         url_attr_kinds: dict[str, UrlSinkKind] = {}
         url_attr_rules: dict[str, UrlRule] = {}
         for attr in allowed_attrs.intersection(_URL_SINK_ATTRS):
@@ -373,14 +380,17 @@ class DefaultSafeEngine:
         "_frameset_blocking_start_tags",
         "_frameset_body_ok_tags",
         "_frameset_seen",
+        "_has_selectedcontent",
         "_head",
         "_head_content_tags",
         "_html",
         "_html_input",
         "_ignore_lf",
         "_implied_end_tags",
+        "_in_colgroup",
         "_in_head_noscript",
         "_initial_mode_done",
+        "_keep_empty_shell_on_eof",
         "_length",
         "_list_item_scope_boundaries",
         "_lower_input",
@@ -393,6 +403,7 @@ class DefaultSafeEngine:
         "_quirks_mode",
         "_rawtext_as_text_tags",
         "_rcdata_tags",
+        "_skip_escaped_comment_space",
         "_special_elements",
         "_stack",
         "_strip_invisible_unicode",
@@ -466,9 +477,13 @@ class DefaultSafeEngine:
         self._explicit_html = False
         self._frameset_blocked = False
         self._frameset_seen = False
+        self._has_selectedcontent = False
         self._ignore_lf = False
+        self._in_colgroup = False
         self._in_head_noscript = False
         self._initial_mode_done = bool(fragment)
+        self._keep_empty_shell_on_eof = False
+        self._skip_escaped_comment_space = False
         self._quirks_mode = "no-quirks"
         self._body_explicit = False
         self._body_mode_seen = False
@@ -504,7 +519,9 @@ class DefaultSafeEngine:
                 self._append_raw_literal_text(self._html_input)
                 return root
 
-            if html_context and (context_name in self._drop_content_tags or context_name in self._rawtext_as_text_tags):
+            if html_context and (
+                context_name in self._drop_content_tags or context_name in self._rawtext_as_text_tags
+            ):
                 self._body = root
                 self._stack = [root]
                 self._append_raw_literal_text(self._html_input)
@@ -535,6 +552,7 @@ class DefaultSafeEngine:
 
         self._parse_range(0, self._length)
         self._finish_document_shell()
+        self._project_selectedcontent()
         self._unwrap_recorded_nodes()
         self._finish_fragment_context()
         return self._doc
@@ -650,6 +668,12 @@ class DefaultSafeEngine:
     def _parse_range(self, pos: int, end: int) -> int:
         html = self._html_input
         while pos < end:
+            if self._skip_escaped_comment_space:
+                self._skip_escaped_comment_space = False
+                if pos < end and html[pos] in _SPACE and html.startswith("-->", pos + 1):
+                    pos += 1
+                    if pos >= end:
+                        return end
             lt = html.find("<", pos, end)
             if lt == -1:
                 self._append_text(html[pos:end])
@@ -730,9 +754,11 @@ class DefaultSafeEngine:
             return
         if self._parser_only_template_depth and self._template_modes[-1] == _TEMPLATE_MODE_COLGROUP:
             return
-        if self._active_formatting_dirty:
-            self._reconstruct_active_formatting()
         parent = self._current_parent()
+        parent_name = getattr(parent, "name", None)
+        if self._active_formatting_dirty and parent_name not in self._table_cell_tags and parent_name != "caption":
+            self._reconstruct_active_formatting()
+            parent = self._current_parent()
         if (
             not self._fragment
             and self._head is not None
@@ -753,6 +779,7 @@ class DefaultSafeEngine:
             if not raw_is_space:
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
                 self._after_head = False
+                self._body_mode_seen = True
                 parent = self._body
         if (
             not self._fragment
@@ -765,6 +792,13 @@ class DefaultSafeEngine:
                 raw_is_space = raw.strip(_SPACE) == ""
             if raw_is_space:
                 return
+            raw = raw.lstrip(_SPACE)
+        if self._in_colgroup and getattr(parent, "name", None) == "table":
+            stripped = raw.lstrip(_SPACE)
+            leading_len = len(raw) - len(stripped)
+            if 0 < leading_len < len(raw):
+                self._append(parent, Text(self._clean_text(raw[:leading_len])))
+                raw = stripped
         text = self._clean_text(raw)
         if self._ignore_lf:
             self._ignore_lf = False
@@ -878,6 +912,7 @@ class DefaultSafeEngine:
         pos = end if gt == -1 else gt + 1
 
         if not self._fragment and name in {"html", "body"}:
+            self._in_colgroup = False
             parent_name = getattr(self._current_parent(), "name", None)
             if self._find_open_index("table") is not None and parent_name not in {"body", "html"}:
                 return pos
@@ -889,9 +924,15 @@ class DefaultSafeEngine:
             self._body_mode_seen = True
             return pos
         if not self._fragment and name == "head":
+            self._in_colgroup = False
             self._stack = [self._doc, self._html]  # type: ignore[list-item]
             self._after_head = True
             return pos
+        if name == "colgroup":
+            self._in_colgroup = False
+            return pos
+        if name == "table":
+            self._in_colgroup = False
         if name == "template":
             self._close_parser_only_template()
             return pos
@@ -960,8 +1001,10 @@ class DefaultSafeEngine:
             idx = self._find_open_index_before_boundary(name, self._definition_scope_boundaries)
         elif self._parser_only_template_depth:
             idx = self._find_open_index_in_current_scope(name)
+        elif name not in self._special_elements and (action is None or not action.p_closing):
+            idx = self._find_open_index_before_boundary(name, _BUTTON_SCOPE_BOUNDARIES | _TABLE_CONTEXT_BOUNDARIES)
         else:
-            idx = self._find_open_index(name)
+            idx = self._find_open_index_before_boundary(name, _TABLE_CONTEXT_BOUNDARIES)
         if idx is None:
             if name == "p":
                 if (
@@ -1008,6 +1051,11 @@ class DefaultSafeEngine:
         if not tag_closed:
             return pos
         in_parser_only_template = self._parser_only_template_depth > 0
+        if not in_parser_only_template:
+            if name == "colgroup":
+                self._in_colgroup = True
+            elif self._in_colgroup and name not in {"col", "template"}:
+                self._in_colgroup = False
         if self._in_head_noscript:
             if name in {"head", "noscript"}:
                 return pos
@@ -1016,17 +1064,20 @@ class DefaultSafeEngine:
         if not self._fragment and not in_parser_only_template:
             current_top = self._stack[-1]
             if name == "html":
+                self._in_colgroup = False
                 self._explicit_html = True
                 if self._html is not None:
                     self._html.attrs.update(attrs)
                 return pos
             if name == "head":
+                self._in_colgroup = False
                 self._explicit_head = True
                 if self._head is not None:
                     self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
                     self._after_head = False
                 return pos
             if name == "body":
+                self._in_colgroup = False
                 if isinstance(self._body, Element):
                     self._body.attrs.update(attrs)
                 self._body_explicit = True
@@ -1057,10 +1108,22 @@ class DefaultSafeEngine:
             and self._after_head
             and name not in {"body", "template"}
         ):
-            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
-            self._after_head = False
-            self._body_mode_seen = True
-            current_top = self._body
+            if (
+                action is not None
+                and action.allowed
+                and action.head_content
+                and self._head is not None
+                and not self._body_mode_seen
+                and not self._body_has_content()
+            ):
+                self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+                self._after_head = False
+                current_top = self._head
+            else:
+                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._after_head = False
+                self._body_mode_seen = True
+                current_top = self._body
 
         if not in_parser_only_template and self._blocks_frameset_action(action, attrs):
             self._frameset_blocked = True
@@ -1143,12 +1206,16 @@ class DefaultSafeEngine:
                 parent = self._current_parent()
 
         if not in_parser_only_template and (
-            (action is not None and (action.table_section or action.table_cell)) or name in {"caption", "tr"}
+            (action is not None and (action.table_section or action.table_cell))
+            or name in {"caption", "col", "colgroup", "tr"}
         ):
             self._repair_table_for_start(name)
             parent = self._current_parent()
             parent_name = getattr(parent, "name", None)
             if name == "caption":
+                if parent_name != "table":
+                    return pos
+            elif name in {"col", "colgroup"}:
                 if parent_name != "table":
                     return pos
             elif action is not None and action.table_section:
@@ -1198,7 +1265,10 @@ class DefaultSafeEngine:
             node = Template(name, attrs, namespace="html")
         else:
             node = Element(name, attrs, "html")
-        node._self_closing = self_closing
+        if name == "selectedcontent":
+            self._has_selectedcontent = True
+        is_void = name in self._void_elements
+        node._self_closing = self_closing and is_void
         foster = (
             self._foster_parent_for(parent, for_tag=name)
             if parent.name in self._table_foster_targets and name not in self._table_allowed_children
@@ -1211,7 +1281,7 @@ class DefaultSafeEngine:
             self._insert_at(foster_parent, position, node)
         if name not in self._allowed_tags:
             self._nodes_to_unwrap.append(node)
-        if name not in self._void_elements and not self_closing:
+        if not is_void:
             self._stack.append(node)
         return node
 
@@ -1301,6 +1371,21 @@ class DefaultSafeEngine:
             del stack[idx + 1 :]
         return True
 
+    def _allows_nested_fragment_table_start(self, name: str) -> bool:
+        if name not in _TABLE_STRUCTURE_START_TAGS:
+            return False
+        parent_name = getattr(self._current_parent(), "name", None)
+        if name == "table" and parent_name in self._table_cell_tags:
+            return True
+        context = self._fragment_context_node
+        if context is None:
+            return False
+        try:
+            context_idx = self._stack.index(context)
+        except ValueError:
+            return False
+        return any(node.name == "table" for node in self._stack[context_idx + 1 :])
+
     def _handle_fragment_context_start(
         self,
         name: str,
@@ -1316,7 +1401,7 @@ class DefaultSafeEngine:
             return pos
 
         if context_name == "caption":
-            return pos if name in _TABLE_STRUCTURE_START_TAGS else None
+            return pos if name in _TABLE_STRUCTURE_START_TAGS and name != "table" else None
 
         if context_name == "table":
             if name in {"col", "colgroup", "table"}:
@@ -1328,6 +1413,8 @@ class DefaultSafeEngine:
             return None
 
         if context_name in self._table_section_tags:
+            if self._allows_nested_fragment_table_start(name):
+                return None
             if name == "tr":
                 if self._close_to_fragment_context():
                     self._insert_allowed_element(name, attrs, self_closing, self._current_parent())
@@ -1344,6 +1431,8 @@ class DefaultSafeEngine:
             return None
 
         if context_name == "tr":
+            if self._allows_nested_fragment_table_start(name):
+                return None
             if name in self._table_cell_tags:
                 if self._close_to_fragment_context():
                     self._insert_allowed_element(name, attrs, self_closing, self._current_parent())
@@ -1589,13 +1678,25 @@ class DefaultSafeEngine:
             self._stack.pop()
 
     def _repair_table_for_start(self, name: str) -> None:
+        table_idx = self._find_open_index("table")
+        select_idx = self._find_open_index("select")
+        if table_idx is not None and select_idx is not None and select_idx > table_idx:
+            self._mark_active_formatting_dirty()
+            del self._stack[select_idx:]
+
+        if name in {"col", "colgroup"}:
+            self._close_table_cell()
+            self._close_until_before_boundary("tr", _TABLE_CONTEXT_BOUNDARIES)
+            for section in self._table_section_tags:
+                self._close_until_before_boundary(section, _TABLE_CONTEXT_BOUNDARIES)
+            return
+
         if name == "caption":
             self._close_table_cell()
             self._close_until_before_boundary("tr", _TABLE_CONTEXT_BOUNDARIES)
             for section in self._table_section_tags:
                 self._close_until_before_boundary(section, _TABLE_CONTEXT_BOUNDARIES)
             if getattr(self._current_parent(), "name", None) != "table":
-                table_idx = self._find_open_index("table")
                 if table_idx is not None:
                     self._mark_active_formatting_dirty()
                     del self._stack[table_idx + 1 :]
@@ -1607,7 +1708,6 @@ class DefaultSafeEngine:
             for section in self._table_section_tags:
                 self._close_until_before_boundary(section, _TABLE_CONTEXT_BOUNDARIES)
             if getattr(self._current_parent(), "name", None) != "table":
-                table_idx = self._find_open_index("table")
                 if table_idx is not None:
                     self._mark_active_formatting_dirty()
                     del self._stack[table_idx + 1 :]
@@ -1616,11 +1716,11 @@ class DefaultSafeEngine:
         if name == "tr":
             self._close_table_cell()
             self._close_until_before_boundary("tr", _TABLE_CONTEXT_BOUNDARIES)
+            self._close_stray_table_content_to_section()
             parent_name = getattr(self._current_parent(), "name", None)
             if parent_name == "table":
                 self._insert_allowed_element("tbody", {}, False, self._current_parent())
             elif parent_name not in self._table_section_tags:
-                table_idx = self._find_open_index("table")
                 if table_idx is not None:
                     self._mark_active_formatting_dirty()
                     del self._stack[table_idx + 1 :]
@@ -1629,6 +1729,7 @@ class DefaultSafeEngine:
 
         if name in self._table_cell_tags:
             self._close_table_cell()
+            self._close_stray_table_content_to_section()
             tr_idx = self._find_open_index_before_boundary("tr", _TABLE_CONTEXT_BOUNDARIES)
             if tr_idx is not None and len(self._stack) > tr_idx + 1:
                 self._mark_active_formatting_dirty()
@@ -1649,6 +1750,18 @@ class DefaultSafeEngine:
                 del self._stack[table_idx + 1 :]
                 self._insert_allowed_element("tbody", {}, False, self._current_parent())
                 self._insert_allowed_element("tr", {}, False, self._current_parent())
+
+    def _close_stray_table_content_to_section(self) -> None:
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            name = getattr(stack[idx], "name", None)
+            if name in self._table_section_tags:
+                if len(stack) > idx + 1:
+                    self._mark_active_formatting_dirty()
+                    del stack[idx + 1 :]
+                return
+            if name == "table" or name in self._table_cell_tags or name == "tr":
+                return
 
     def _close_table_cell(self) -> None:
         stack = self._stack
@@ -1845,6 +1958,10 @@ class DefaultSafeEngine:
         return pos
 
     def _parse_plaintext_as_text(self, pos: int, end: int) -> int:
+        if self._find_open_index_before_boundary("p", _P_SCOPE_BOUNDARIES) is not None:
+            self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
+        if self._active_formatting_dirty:
+            self._reconstruct_active_formatting()
         self._append_raw_literal_text(self._html_input[pos:end])
         return end
 
@@ -2158,6 +2275,52 @@ class DefaultSafeEngine:
                 self._unwrap_node(node)
         nodes.clear()
 
+    def _project_selectedcontent(self) -> None:
+        if not self._has_selectedcontent:
+            return
+        root = self._doc
+        pending = list(root.children or ())
+        while pending:
+            node = pending.pop()
+            if type(node) is not Element:
+                continue
+            if node.name == "select":
+                self._project_select_selectedcontent(node)
+            children = node.children
+            if children:
+                pending.extend(reversed(children))
+
+    def _project_select_selectedcontent(self, select: Element) -> None:
+        children = select.children or []
+        markers: list[Element] = []
+        selected_option: Element | None = None
+        first_option: Element | None = None
+        pending = list(reversed(children))
+        while pending:
+            node = pending.pop()
+            if type(node) is not Element:
+                continue
+            if node.name == "selectedcontent":
+                markers.append(node)
+                continue
+            if node.name == "option":
+                if first_option is None:
+                    first_option = node
+                if selected_option is None and "selected" in node.attrs:
+                    selected_option = node
+                continue
+            nested = node.children
+            if nested:
+                pending.extend(reversed(nested))
+        option = selected_option or first_option
+        if option is None or not markers:
+            return
+        option_children = option.children or []
+        for marker in markers:
+            for child in option_children:
+                clone = child.clone_node(deep=True) if isinstance(child, Element) else Text(child.data)
+                self._append(marker, clone)
+
     def _unwrap_node(self, node: Element) -> None:
         parent = node.parent
         children = parent.children if parent is not None else None
@@ -2334,9 +2497,13 @@ class DefaultSafeEngine:
         )
         if close is None:
             self._dropped_to_eof = True
+            if name == "script" and self._script_eof_keeps_shell(pos, end):
+                self._keep_empty_shell_on_eof = True
             self._append_text_boundary(self._current_parent())
             return end
         self._append_text_boundary(self._current_parent())
+        if name in {"script", "style"}:
+            self._skip_escaped_comment_space = True
         return next_pos
 
     def _skip_subtree(self, name: str, pos: int, end: int) -> int:
@@ -2348,6 +2515,13 @@ class DefaultSafeEngine:
                 self._dropped_to_eof = True
                 return end
             p = lt + 1
+            if self._lower_input.startswith("<![cdata[", lt):
+                close = html.find("]]>", p + 8, end)
+                if close == -1:
+                    self._dropped_to_eof = True
+                    return end
+                pos = close + 3
+                continue
             is_end = p < end and html[p] == "/"
             if is_end:
                 p += 1
@@ -2360,6 +2534,21 @@ class DefaultSafeEngine:
                 tag = tag.lower()
             gt = html.find(">", match.end(), end)
             pos = end if gt == -1 else gt + 1
+            if not is_end and tag != name:
+                if tag in self._plaintext_tags:
+                    self._dropped_to_eof = True
+                    return end
+                if tag in self._rcdata_tags or tag in self._drop_content_tags or tag in self._rawtext_as_text_tags:
+                    rawtext_close, rawtext_pos = (
+                        self._find_script_end_tag(pos, end)
+                        if tag == "script"
+                        else self._find_rawtext_end_tag(tag, pos, end)
+                    )
+                    if rawtext_close is None:
+                        self._dropped_to_eof = True
+                        return end
+                    pos = rawtext_pos
+                    continue
             if tag == name:
                 depth += -1 if is_end else 1
         if depth:
@@ -2380,6 +2569,8 @@ class DefaultSafeEngine:
             return
         if not self._node_is_empty(body) or self._body_explicit:
             return
+        if self._keep_empty_shell_on_eof:
+            return
 
         if self._explicit_head or not self._node_is_empty(head):
             self._remove_child(html, body)
@@ -2397,6 +2588,17 @@ class DefaultSafeEngine:
         if not children:
             return True
         return all(type(child) is Text and not child.data for child in children)
+
+    def _script_eof_keeps_shell(self, pos: int, end: int) -> bool:
+        raw = self._lower_input[pos:end].rstrip(_SPACE)
+        if not raw.endswith("</script>"):
+            return False
+        comment = raw.find("<!--")
+        if comment == -1:
+            return False
+        if raw.count("</script", comment + 4) < 2:
+            return False
+        return self._find_script_start_marker(pos + comment + 4, end) != -1
 
     def _remove_child(self, parent: Node, child: Node) -> None:
         children = parent.children
