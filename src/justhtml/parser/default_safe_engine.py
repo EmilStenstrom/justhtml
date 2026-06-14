@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from justhtml.core.constants import (
     BUTTON_SCOPE_TERMINATORS,
+    DEFAULT_SCOPE_TERMINATORS,
     DEFINITION_SCOPE_TERMINATORS,
     FORMATTING_ELEMENTS,
     HEADING_ELEMENTS,
@@ -54,7 +55,9 @@ _RCDATA_TAGS = {"title", "textarea"}
 _RAWTEXT_AS_TEXT_TAGS = {"iframe", "noembed", "noframes", "noscript", "xmp"}
 _PLAINTEXT_TAGS = {"plaintext"}
 _ACTIVE_FORMATTING_TAGS = FORMATTING_ELEMENTS
+_ACTIVE_FORMATTING_MARKER_TAGS = {"applet", "marquee", "object"}
 _PARSER_ONLY_NAMESPACE = "justhtml-parser-only"
+_DEFAULT_SCOPE_BOUNDARIES = frozenset(DEFAULT_SCOPE_TERMINATORS)
 _BUTTON_SCOPE_BOUNDARIES = frozenset({"button"})
 _P_SCOPE_BOUNDARIES = frozenset(BUTTON_SCOPE_TERMINATORS)
 _HEAD_CONTENT_TAGS = {
@@ -109,6 +112,7 @@ _DEFINITION_SCOPE_BOUNDARIES = frozenset(DEFINITION_SCOPE_TERMINATORS)
 _LIST_ITEM_SCOPE_BOUNDARIES = frozenset(LIST_ITEM_SCOPE_TERMINATORS)
 _PRE_LINEFEED_IGNORING_TAGS = {"listing", "pre"}
 _TABLE_CONTEXT_BOUNDARIES = frozenset({"table"})
+_GENERAL_END_TAG_BOUNDARIES = frozenset(SPECIAL_ELEMENTS) | _BUTTON_SCOPE_BOUNDARIES | _TABLE_CONTEXT_BOUNDARIES
 _TABLE_SECTION_TAGS = {"tbody", "thead", "tfoot"}
 _TABLE_CELL_TAGS = {"td", "th"}
 _TABLE_FOSTER_TARGETS = {"table", "tbody", "tfoot", "thead", "tr"}
@@ -200,6 +204,7 @@ class TagAction:
     url_attr_kinds: Mapping[str, UrlSinkKind]
     url_attr_rules: Mapping[str, UrlRule]
     scan_attrs: bool
+    preserve_state_attrs: bool
     active_formatting: bool
     blocks_frameset: bool
     drop_content: bool
@@ -252,6 +257,7 @@ def _compile_tag_actions(
             state_attrs = frozenset({"selected"})
         else:
             state_attrs = frozenset()
+        preserve_state_attrs = tag in _ACTIVE_FORMATTING_TAGS and not allowed
         url_attr_kinds: dict[str, UrlSinkKind] = {}
         url_attr_rules: dict[str, UrlRule] = {}
         for attr in allowed_attrs.intersection(_URL_SINK_ATTRS):
@@ -271,7 +277,8 @@ def _compile_tag_actions(
             state_attrs=state_attrs,
             url_attr_kinds=url_attr_kinds,
             url_attr_rules=url_attr_rules,
-            scan_attrs=bool(allowed_attrs or state_attrs),
+            scan_attrs=bool(allowed_attrs or state_attrs or preserve_state_attrs),
+            preserve_state_attrs=preserve_state_attrs,
             active_formatting=tag in _ACTIVE_FORMATTING_TAGS,
             blocks_frameset=tag in _FRAMESET_BLOCKING_START_TAGS,
             drop_content=tag in _DROP_CONTENT_TAGS,
@@ -357,6 +364,7 @@ class DefaultSafeEngine:
     __slots__ = (
         "_active_formatting",
         "_active_formatting_dirty",
+        "_active_formatting_marker_lengths",
         "_active_formatting_tags",
         "_after_head",
         "_allowed_tags",
@@ -409,6 +417,7 @@ class DefaultSafeEngine:
         "_stack",
         "_strip_invisible_unicode",
         "_table_allowed_children",
+        "_table_cell_active_formatting_lengths",
         "_table_cell_tags",
         "_table_foster_targets",
         "_table_section_tags",
@@ -494,7 +503,9 @@ class DefaultSafeEngine:
         self._body: Element | DocumentFragment
         self._active_formatting: list[_FormattingEntry] = []
         self._active_formatting_dirty = False
+        self._active_formatting_marker_lengths: list[int] = []
         self._nodes_to_unwrap: list[Element] = []
+        self._table_cell_active_formatting_lengths: list[int] = []
         self._template_active_formatting_lengths: list[int] = []
         self._template_modes: list[str] = []
         self._stack: list[Node] = []
@@ -775,6 +786,11 @@ class DefaultSafeEngine:
             if raw_is_space is None:
                 raw_is_space = raw.strip(_SPACE) == ""
             if not raw_is_space:
+                stripped = raw.lstrip(_SPACE)
+                leading_len = len(raw) - len(stripped)
+                if leading_len:
+                    self._append(self._head, Text(self._clean_text(raw[:leading_len])))
+                    raw = stripped
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
                 self._after_head = False
                 self._body_mode_seen = True
@@ -938,6 +954,11 @@ class DefaultSafeEngine:
             return pos
         if name == "table":
             self._in_colgroup = False
+            self._close_table_cell()
+        elif (name == "tr" or name in self._table_section_tags) and self._find_open_index_before_boundary(
+            name, _TABLE_CONTEXT_BOUNDARIES
+        ) is not None:
+            self._close_table_cell()
         if name == "template":
             self._close_parser_only_template()
             return pos
@@ -1007,7 +1028,7 @@ class DefaultSafeEngine:
         elif self._parser_only_template_depth:
             idx = self._find_open_index_in_current_scope(name)
         elif name not in self._special_elements and (action is None or not action.p_closing):
-            idx = self._find_open_index_before_boundary(name, _BUTTON_SCOPE_BOUNDARIES | _TABLE_CONTEXT_BOUNDARIES)
+            idx = self._find_open_index_before_boundary(name, _GENERAL_END_TAG_BOUNDARIES)
         else:
             idx = self._find_open_index_before_boundary(name, _TABLE_CONTEXT_BOUNDARIES)
         if idx is None:
@@ -1029,6 +1050,10 @@ class DefaultSafeEngine:
         if name in self._implied_end_tags:
             self._generate_implied_end_tags(name)
         self._mark_active_formatting_dirty()
+        if name in self._table_cell_tags:
+            self._clear_active_formatting_to_table_cell_marker()
+        elif name in _ACTIVE_FORMATTING_MARKER_TAGS:
+            self._clear_active_formatting_to_marker()
         del stack[idx:]
         return pos
 
@@ -1291,6 +1316,10 @@ class DefaultSafeEngine:
             self._nodes_to_unwrap.append(node)
         if not is_void:
             self._stack.append(node)
+            if name in self._table_cell_tags:
+                self._table_cell_active_formatting_lengths.append(len(self._active_formatting))
+            elif name in _ACTIVE_FORMATTING_MARKER_TAGS:
+                self._active_formatting_marker_lengths.append(len(self._active_formatting))
         return node
 
     def _insert_at(self, parent: Node, position: int, node: Node | Text) -> None:
@@ -1779,8 +1808,27 @@ class DefaultSafeEngine:
                 return
             if name in self._table_cell_tags:
                 self._mark_active_formatting_dirty()
+                self._clear_active_formatting_to_table_cell_marker()
                 del stack[idx:]
                 return
+
+    def _clear_active_formatting_to_table_cell_marker(self) -> None:
+        markers = self._table_cell_active_formatting_lengths
+        if not markers:
+            return
+        active_len = markers.pop()
+        if active_len < len(self._active_formatting):
+            del self._active_formatting[active_len:]
+            self._refresh_active_formatting_dirty()
+
+    def _clear_active_formatting_to_marker(self) -> None:
+        markers = self._active_formatting_marker_lengths
+        if not markers:
+            return
+        active_len = markers.pop()
+        if active_len < len(self._active_formatting):
+            del self._active_formatting[active_len:]
+            self._refresh_active_formatting_dirty()
 
     def _foster_parent_for(self, parent: Node, *, for_tag: str | None = None) -> tuple[Node, int] | None:
         if getattr(parent, "name", None) not in self._table_foster_targets:
@@ -1945,6 +1993,7 @@ class DefaultSafeEngine:
 
         parent: Node
         current_parent = self._current_parent()
+        parsed_in_initial_head = False
         if (
             name == "title"
             and not self._fragment
@@ -1955,6 +2004,7 @@ class DefaultSafeEngine:
             )
         ):
             parent = self._head
+            parsed_in_initial_head = current_parent is not self._head
         else:
             self._repair_stack_for_start(name)
             parent = current_parent
@@ -1963,6 +2013,8 @@ class DefaultSafeEngine:
             self._append(node, Text(text))
         if self._stack and self._stack[-1] is node:
             self._stack.pop()
+        if parsed_in_initial_head and self._html is not None and self._head is not None:
+            self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
         return pos
 
     def _parse_plaintext_as_text(self, pos: int, end: int) -> int:
@@ -2127,6 +2179,9 @@ class DefaultSafeEngine:
                 self._refresh_active_formatting_dirty()
                 return
 
+            if not self._has_node_in_scope(formatting_element, _DEFAULT_SCOPE_BOUNDARIES):
+                return
+
             if formatting_element is not stack[-1]:
                 pass
 
@@ -2226,6 +2281,16 @@ class DefaultSafeEngine:
         if self._active_formatting:
             self._active_formatting_dirty = True
 
+    def _has_node_in_scope(self, target: Node, boundaries: frozenset[str]) -> bool:
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            node = stack[idx]
+            if node is target:
+                return True
+            if node.name in boundaries:
+                return False
+        return False
+
     def _refresh_active_formatting_dirty(self) -> None:
         active = self._active_formatting
         if not active:
@@ -2235,10 +2300,7 @@ class DefaultSafeEngine:
         self._active_formatting_dirty = any(entry.node not in stack for entry in active)
 
     def _clone_formatting_entry(self, entry: _FormattingEntry) -> Element:
-        node = Element(entry.name, entry.attrs.copy(), "html")
-        if entry.name not in self._allowed_tags:
-            self._nodes_to_unwrap.append(node)
-        return node
+        return Element(entry.name, entry.attrs.copy(), "html")
 
     def _is_special_node(self, node: Node) -> bool:
         return (
@@ -2412,6 +2474,7 @@ class DefaultSafeEngine:
         state_attrs = action.state_attrs
         url_attr_kinds = action.url_attr_kinds
         url_attr_rules = action.url_attr_rules
+        preserve_state_attrs = action.preserve_state_attrs
         tag = action.name
 
         while pos < end:
@@ -2434,7 +2497,7 @@ class DefaultSafeEngine:
             raw_key = html[name_start:pos]
             key = raw_key if raw_key.islower() else raw_key.lower()
             keep_output = key in allowed_attrs
-            keep_state = key in state_attrs
+            keep_state = preserve_state_attrs or key in state_attrs
 
             while pos < end and html[pos] in space:
                 pos += 1
