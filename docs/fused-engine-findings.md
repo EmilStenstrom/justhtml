@@ -138,13 +138,13 @@ Current result:
 
 - Total html5lib tree cases: `1791`.
 - Eligible cases: `1783`.
-- Exact matches: `1669`.
-- Mismatches: `112`.
+- Exact matches: `1710`.
+- Mismatches: `71`.
 - New-engine-only exceptions: `0`.
 - Reference-path exceptions: `2` malformed-doctype serializations.
-- Exact/total rate: `93.19%`.
-- Exact/eligible rate: `93.61%`.
-- Exact/compared rate: `93.71%`.
+- Exact/total rate: `95.48%`.
+- Exact/eligible rate: `95.91%`.
+- Exact/compared rate: `96.01%`.
 - Skipped unsupported modes: `8` `script-on` cases that require JavaScript
   execution semantics.
 
@@ -181,12 +181,17 @@ Incremental progress in this pass:
 - Attr projection pushdown and direct end-tag fast close keep the same score
   while increasing the speed margin:
   `1669/1791` total (`93.19%`), `93.61%` eligible, `2.216x` speedup.
+- Parser-mode/table-scope repair, unsafe unwrap-node construction for
+  parser-sensitive disallowed tags, shared scope terminators, heading end-tag
+  handling, body-time head-content placement, and skipped-menuitem active
+  formatting reconstruction:
+  `1710/1791` total (`95.48%`), `95.91%` eligible, `2.071x` speedup.
 
-The largest remaining buckets are the unsupported parts of
-adoption-agency/active-formatting behavior, especially disallowed/ghost
-formatting elements and `nobr`; select-like insertion modes, deeper table
-corner cases, and quirks around malformed inline/block structure. Malformed
-doctype names are normalized in
+The largest remaining buckets are the unsupported parts of deeper
+adoption-agency/active-formatting behavior, especially around tables and nested
+formatting reconstruction; select-like insertion modes, parser-only template
+table modes, foreign-content integration points, and quirks around malformed
+inline/block structure. Malformed doctype names are normalized in
 `DefaultSafeEngine` so the new engine does not produce unsafe names that later
 fail serialization.
 
@@ -199,7 +204,7 @@ PYTHONPATH=src python benchmarks/fused_engine_gate.py \
   --iterations 9 \
   --limit 100 \
   --baseline-seconds 1.073689 \
-  --fail-under-speedup 1.7
+  --fail-under-speedup 2.0
 ```
 
 Result:
@@ -220,12 +225,14 @@ Result:
 - Compiled tag/attr-action speedup: `2.131x`.
 - Attr projection/end-fast-close median: `0.484585s`.
 - Attr projection/end-fast-close speedup: `2.216x`.
+- Unsafe unwrap/scope compliance median: `0.518448s`.
+- Unsafe unwrap/scope compliance speedup: `2.071x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
-The 2x target is back above the required gate with more usable margin. The next
-productionization pass should keep pairing new parser-state work with hot-path
-profiling. After attr projection and end-tag fast close, the remaining hot areas
+The 2x target remains above the required gate, but the latest compliance work
+spent part of the previous margin. The next productionization pass should keep
+pairing new parser-state work with hot-path profiling. The remaining hot areas
 are start-tag/attr dispatch, text append/cleaning, DOM insertion, URL
 sanitization, and active-formatting reconstruction.
 
@@ -237,16 +244,16 @@ outputs exactly matched the existing parser. This is up from `2/100` for the
 raw one-pass parser and `20/100` after the first recovery pass.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1669/1791` total cases and `1669/1783` eligible cases match the existing
+`1710/1791` total cases and `1710/1783` eligible cases match the existing
 default-safe path, and the new engine has no current-only serialization
 exceptions in that suite. The only skipped tree-construction fixtures are the
 `script-on` cases that require JavaScript execution semantics; `script-off`
 cases now exercise `DefaultSafeEngine`.
 
-Remaining diffs are now more concentrated in active-formatting/adoption-agency
-behavior, `nobr`, select-like insertion modes, deeper table corner cases,
-foreign-content integration points, and a small number of escaped-source and
-malformed-attribute edges.
+Remaining diffs are now more concentrated in deeper active-formatting and
+adoption-agency behavior, select-like insertion modes, parser-only template
+table modes, deeper table corner cases, foreign-content integration points, and
+a small number of escaped-source and malformed-attribute edges.
 
 ## Productionization Pivot
 
@@ -278,6 +285,15 @@ The decoded `ignore_lf` state follows the same model: the engine now strips the
 first decoded LF text token after `pre`, `listing`, and `textarea`, matching the
 treebuilder's token-level behavior rather than skipping only a raw source
 newline.
+
+The latest compliance pass extends that architecture from parser-only stack
+nodes to recorded unsafe unwrap nodes. Safe tags still go straight to the final
+DOM, but parser-sensitive disallowed tags can temporarily participate in stack
+scope, adoption-agency, and formatting reconstruction. The engine then unwraps
+those recorded nodes at finish, preserving sanitized output while avoiding the
+largest correctness loss from dropping disallowed tags before tree construction.
+Column/form/void/head-only tags remain skipped in the specialized path where
+retaining them would require insertion modes this engine has not implemented.
 
 ## Current Conclusion
 
