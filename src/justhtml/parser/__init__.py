@@ -83,7 +83,7 @@ class JustHTML:
         _tokenizer_opts: TokenizerOpts | None = None,
         transforms: list[TransformSpec] | None = None,
     ) -> None:
-        source_is_plain_str = isinstance(html, str)
+        source_can_use_engine = html is None or isinstance(html, (str, bytes, bytearray, memoryview))
         sanitize_enabled = True if sanitize is None else bool(sanitize)
 
         if fragment_context is not None:
@@ -168,7 +168,7 @@ class JustHTML:
                 engine_policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
 
         if (
-            source_is_plain_str
+            source_can_use_engine
             and engine_policy is not None
             and can_compile_engine_plan(engine_policy, fragment=fragment)
             and not track_node_locations
