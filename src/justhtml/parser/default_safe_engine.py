@@ -236,6 +236,7 @@ class DefaultSafeEngine:
         "_head_content_tags",
         "_html",
         "_html_input",
+        "_ignore_lf",
         "_implied_end_tags",
         "_initial_mode_done",
         "_length",
@@ -301,6 +302,7 @@ class DefaultSafeEngine:
         self._explicit_html = False
         self._frameset_blocked = False
         self._frameset_seen = False
+        self._ignore_lf = False
         self._initial_mode_done = bool(fragment)
         self._quirks_mode = "no-quirks"
         self._body_explicit = False
@@ -457,6 +459,9 @@ class DefaultSafeEngine:
         ):
             return
         text = self._clean_text(raw)
+        if self._ignore_lf:
+            self._ignore_lf = False
+            text = text.removeprefix("\n")
         if text:
             if not self._fragment and parent is self._html and self._after_head and text.strip(_SPACE) == "":
                 body = self._body
@@ -672,13 +677,14 @@ class DefaultSafeEngine:
             elif parent_name != "tr":
                 return pos
 
-        skip_initial_lf = name in self._pre_linefeed_ignoring_tags
         if name not in self._allowed_tags:
-            return self._skip_initial_linefeed(pos, end) if skip_initial_lf else pos
+            if name in self._pre_linefeed_ignoring_tags:
+                self._ignore_lf = True
+            return pos
 
         self._insert_allowed_element(name, attrs, self_closing, parent)
-        if skip_initial_lf:
-            pos = self._skip_initial_linefeed(pos, end)
+        if name in self._pre_linefeed_ignoring_tags:
+            self._ignore_lf = True
         return pos
 
     def _insert_allowed_element(
@@ -962,6 +968,8 @@ class DefaultSafeEngine:
     ) -> int:
         raw_text, pos = self._consume_until_end_tag(name, pos, end)
         text = self._clean_text(raw_text, replace_null=True)
+        if name == "textarea" and text.startswith("\n"):
+            text = text[1:]
         if name not in self._allowed_tags:
             if text:
                 self._append(self._current_parent(), Text(text))
@@ -1010,16 +1018,6 @@ class DefaultSafeEngine:
             else:
                 foster_parent, position = foster
                 self._insert_at(foster_parent, position, Text(text))
-
-    def _skip_initial_linefeed(self, pos: int, end: int) -> int:
-        html = self._html_input
-        if pos >= end:
-            return pos
-        if html[pos] == "\n":
-            return pos + 1
-        if html[pos] == "\r":
-            return pos + 2 if pos + 1 < end and html[pos + 1] == "\n" else pos + 1
-        return pos
 
     def _parse_formatting_start(self, name: str, attrs: dict[str, str | None], pos: int) -> int:
         if name == "a" and self._find_active_formatting_index("a") is not None:
