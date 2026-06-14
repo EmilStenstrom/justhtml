@@ -36,7 +36,7 @@ _TAG_NAME_RE = re.compile(r"[A-Za-z][^\t\n\f />]*")
 _ATTR_NAME_RE = re.compile(r"[^\t\n\f />=\0\"'<]+")
 _DOCTYPE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_-]*$")
 _DOCTYPE_RE = re.compile(
-    r"""\s*([^\s>]+)(?:\s+(PUBLIC|SYSTEM)\s+(?:"([^"]*)"|'([^']*)')(?:\s+(?:"([^"]*)"|'([^']*)'))?)?""",
+    r"""\s*([^\s>]+)(?:\s*(PUBLIC|SYSTEM)\s*(?:(?:"([^"]*)"|'([^']*)')\s*(?:"([^"]*)"|'([^']*)')?)?)?""",
     re.IGNORECASE,
 )
 _SPACE = " \t\n\f\r"
@@ -65,6 +65,7 @@ _P_CLOSING_START_TAGS = {
     "header",
     "hgroup",
     "hr",
+    "listing",
     "main",
     "menu",
     "nav",
@@ -361,7 +362,7 @@ class DefaultSafeEngine:
             ch = html[pos]
             if ch == "!":
                 if html.startswith("<!--", lt):
-                    close = html.find("-->", pos + 1, end)
+                    close = self._find_comment_end(pos + 1, end)
                     pos = end if close == -1 else close + 3
                     continue
                 if self._lower_input.startswith("<!doctype", lt):
@@ -382,6 +383,21 @@ class DefaultSafeEngine:
                 continue
             pos = self._parse_start_tag(pos, end)
         return pos
+
+    def _find_comment_end(self, pos: int, end: int) -> int:
+        html = self._html_input
+        while True:
+            close = html.find("--", pos, end)
+            if close == -1:
+                return -1
+            suffix = close + 2
+            if suffix < end and html[suffix] == ">":
+                return close
+            if suffix + 1 < end and html[suffix] == "!" and html[suffix + 1] == ">":
+                return close + 1
+            if suffix + 1 < end and html[suffix] == "-" and html[suffix + 1] == ">":
+                return close + 1
+            pos = suffix
 
     def _clean_text(self, raw: str, *, replace_null: bool = False) -> str:
         text = raw
@@ -445,6 +461,8 @@ class DefaultSafeEngine:
             and not self._drop_doctype
             and not self._doctype_seen
             and not self._explicit_html
+            and not self._body_explicit
+            and not self._frameset_blocked
             and not self._frameset_seen
             and not self._body_has_content()
         ):
@@ -519,6 +537,8 @@ class DefaultSafeEngine:
         if idx is None:
             if name == "p":
                 self._insert_allowed_element("p", {}, False, self._current_parent())
+                self._close_until("p")
+            elif name in self._p_closing_start_tags:
                 self._close_until("p")
             return pos
         if name in self._implied_end_tags:
@@ -815,11 +835,43 @@ class DefaultSafeEngine:
 
     def _consume_until_end_tag(self, name: str, pos: int, end: int) -> tuple[str, int]:
         html = self._html_input
-        close = self._lower_input.find(f"</{name}", pos, end)
-        if close == -1:
+        close, next_pos = self._find_rawtext_end_tag(name, pos, end)
+        if close is None:
             return html[pos:end], end
-        gt = html.find(">", close + len(name) + 2, end)
-        return html[pos:close], (end if gt == -1 else gt + 1)
+        return html[pos:close], next_pos
+
+    def _find_rawtext_end_tag(self, name: str, pos: int, end: int) -> tuple[int | None, int]:
+        html = self._html_input
+        lower = self._lower_input
+        needle = f"</{name}"
+        needle_len = len(needle)
+        search = pos
+        while True:
+            close = lower.find(needle, search, end)
+            if close == -1:
+                return None, end
+            after_name = close + needle_len
+            if after_name < end and html[after_name] not in _SPACE + "/>":
+                search = after_name
+                continue
+            tag_end = self._find_tag_end(after_name, end)
+            next_pos = end if tag_end == -1 else tag_end + 1
+            return close, next_pos
+
+    def _find_tag_end(self, pos: int, end: int) -> int:
+        html = self._html_input
+        quote: str | None = None
+        while pos < end:
+            ch = html[pos]
+            if quote is not None:
+                if ch == quote:
+                    quote = None
+            elif ch == '"' or ch == "'":
+                quote = ch
+            elif ch == ">":
+                return pos
+            pos += 1
+        return -1
 
     def _parse_rawtext_as_text(self, name: str, pos: int, end: int) -> int:
         raw_text, pos = self._consume_until_end_tag(name, pos, end)
@@ -1262,15 +1314,13 @@ class DefaultSafeEngine:
         return out
 
     def _skip_rawtext(self, name: str, pos: int, end: int) -> int:
-        html = self._html_input
-        close = self._lower_input.find(f"</{name}", pos, end)
-        if close == -1:
+        close, next_pos = self._find_rawtext_end_tag(name, pos, end)
+        if close is None:
             self._dropped_to_eof = True
             self._append(self._current_parent(), Text(""))
             return end
-        gt = html.find(">", close + len(name) + 2, end)
         self._append(self._current_parent(), Text(""))
-        return end if gt == -1 else gt + 1
+        return next_pos
 
     def _skip_subtree(self, name: str, pos: int, end: int) -> int:
         html = self._html_input
