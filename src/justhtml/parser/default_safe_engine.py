@@ -46,6 +46,8 @@ _DOCTYPE_RE = re.compile(
 _SPACE = " \t\n\f\r"
 _TAG_NAME_STOP = "\t\n\f />"
 _ATTR_NAME_STOP = "\t\n\f />=\0\"'<"
+_ATTR_VALUE_STOP = _SPACE + ">"
+_TAG_END_NAME_STOP = _SPACE + "/>"
 _DROP_CONTENT_TAGS = {"script", "style"}
 _DROP_SUBTREE_TAGS = {"svg", "math"}
 _RCDATA_TAGS = {"title", "textarea"}
@@ -714,8 +716,11 @@ class DefaultSafeEngine:
     def _append_text(self, raw: str) -> None:
         if not raw:
             return
-        if not self._fragment and not self._initial_mode_done and raw.strip(_SPACE) != "":
-            self._mark_initial_content()
+        raw_is_space: bool | None = None
+        if not self._fragment and not self._initial_mode_done:
+            raw_is_space = raw.strip(_SPACE) == ""
+            if not raw_is_space:
+                self._mark_initial_content()
         if not self._fragment and self._frameset_seen and not self._body_explicit:
             self._append_frameset_text(raw)
             return
@@ -733,46 +738,64 @@ class DefaultSafeEngine:
             and self._head is not None
             and parent is self._head
             and not self._parser_only_template_depth
-            and raw.strip(_SPACE) != ""
             and self._html is not None
         ):
-            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
-            self._after_head = False
-            self._body_mode_seen = True
-            parent = self._body
-        if not self._fragment and parent is self._html and self._after_head and raw.strip(_SPACE) != "":
-            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
-            self._after_head = False
-            parent = self._body
+            if raw_is_space is None:
+                raw_is_space = raw.strip(_SPACE) == ""
+            if not raw_is_space:
+                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._after_head = False
+                self._body_mode_seen = True
+                parent = self._body
+        if not self._fragment and parent is self._html and self._after_head:
+            if raw_is_space is None:
+                raw_is_space = raw.strip(_SPACE) == ""
+            if not raw_is_space:
+                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._after_head = False
+                parent = self._body
         if (
             not self._fragment
             and parent is self._body
             and not self._body_explicit
             and not self._body_mode_seen
             and not self._body_has_content()
-            and raw.strip(_SPACE) == ""
         ):
-            return
+            if raw_is_space is None:
+                raw_is_space = raw.strip(_SPACE) == ""
+            if raw_is_space:
+                return
         text = self._clean_text(raw)
         if self._ignore_lf:
             self._ignore_lf = False
             text = text.removeprefix("\n")
-        if self._in_head_noscript and text.strip(_SPACE) != "":
-            self._leave_head_noscript_to_body()
-            parent = self._body
+        text_is_space: bool | None = None
+        if self._in_head_noscript:
+            text_is_space = text.strip(_SPACE) == "" if text else True
+            if not text_is_space:
+                self._leave_head_noscript_to_body()
+                parent = self._body
         if text:
-            if not self._fragment and parent is self._html and self._after_head and text.strip(_SPACE) == "":
-                body = self._body
-                children = parent.children
-                position = len(children) if children is not None else 0
-                if children is not None:
-                    try:
-                        position = children.index(body)
-                    except ValueError:
-                        pass
-                self._insert_at(parent, position, Text(text))
-                return
-            foster = self._foster_parent_for(parent) if text.strip(_SPACE) else None
+            if not self._fragment and parent is self._html and self._after_head:
+                if text_is_space is None:
+                    text_is_space = text.strip(_SPACE) == ""
+                if text_is_space:
+                    body = self._body
+                    children = parent.children
+                    position = len(children) if children is not None else 0
+                    if children is not None:
+                        try:
+                            position = children.index(body)
+                        except ValueError:
+                            pass
+                    self._insert_at(parent, position, Text(text))
+                    return
+            foster = (
+                self._foster_parent_for(parent)
+                if parent.name in self._table_foster_targets
+                and not (text_is_space if text_is_space is not None else text.strip(_SPACE) == "")
+                else None
+            )
             if foster is None:
                 self._append(parent, Text(text))
             else:
@@ -879,7 +902,7 @@ class DefaultSafeEngine:
         if (
             not self._fragment
             and self._head is not None
-            and self._current_parent() is self._head
+            and self._stack[-1] is self._head
             and name not in {"br", "body", "head", "html", "template"}
         ):
             if self._html is not None:
@@ -891,7 +914,7 @@ class DefaultSafeEngine:
             not self._fragment
             and name == "br"
             and self._head is not None
-            and self._current_parent() is self._head
+            and self._stack[-1] is self._head
             and self._html is not None
         ):
             self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
@@ -991,6 +1014,7 @@ class DefaultSafeEngine:
             if name not in _HEAD_NOSCRIPT_ALLOWED_START_TAGS and name != "html":
                 self._leave_head_noscript_to_body()
         if not self._fragment and not in_parser_only_template:
+            current_top = self._stack[-1]
             if name == "html":
                 self._explicit_html = True
                 if self._html is not None:
@@ -1012,27 +1036,31 @@ class DefaultSafeEngine:
                 return pos
             if not self._body_mode_seen and not (action.head_content if action is not None else False):
                 self._body_mode_seen = True
+        else:
+            current_top = None
 
         if (
             not in_parser_only_template
             and not self._fragment
-            and self._current_parent() is self._head
+            and current_top is self._head
             and not (action.head_content if action is not None else False)
         ):
             self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
             self._after_head = False
             self._body_mode_seen = True
+            current_top = self._body
 
         if (
             not in_parser_only_template
             and not self._fragment
-            and self._current_parent() is self._html
+            and current_top is self._html
             and self._after_head
             and name not in {"body", "template"}
         ):
             self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
             self._after_head = False
             self._body_mode_seen = True
+            current_top = self._body
 
         if not in_parser_only_template and self._blocks_frameset_action(action, attrs):
             self._frameset_blocked = True
@@ -1058,7 +1086,8 @@ class DefaultSafeEngine:
             name == "noscript"
             and not self._fragment
             and self._head is not None
-            and self._current_parent() is self._head
+            and not in_parser_only_template
+            and self._stack[-1] is self._head
         ):
             self._in_head_noscript = True
             return pos
@@ -1170,7 +1199,11 @@ class DefaultSafeEngine:
         else:
             node = Element(name, attrs, "html")
         node._self_closing = self_closing
-        foster = self._foster_parent_for(parent, for_tag=name)
+        foster = (
+            self._foster_parent_for(parent, for_tag=name)
+            if parent.name in self._table_foster_targets and name not in self._table_allowed_children
+            else None
+        )
         if foster is None:
             self._append(parent, node)
         else:
@@ -1668,7 +1701,7 @@ class DefaultSafeEngine:
             if close == -1:
                 return None, end
             after_name = close + needle_len
-            if after_name < end and html[after_name] not in _SPACE + "/>":
+            if after_name < end and html[after_name] not in _TAG_END_NAME_STOP:
                 search = after_name
                 continue
             tag_end = self._find_tag_end(after_name, end)
@@ -1728,7 +1761,7 @@ class DefaultSafeEngine:
             if start == -1:
                 return -1
             after_name = start + needle_len
-            if after_name >= end or html[after_name] in _SPACE + "/>":
+            if after_name >= end or html[after_name] in _TAG_END_NAME_STOP:
                 return start
             search = after_name
 
@@ -1833,7 +1866,11 @@ class DefaultSafeEngine:
                 if self._frameset_seen and not self._body_explicit and self._html is not None
                 else self._current_parent()
             )
-            foster = self._foster_parent_for(parent) if text.strip(_SPACE) else None
+            foster = (
+                self._foster_parent_for(parent)
+                if parent.name in self._table_foster_targets and text.strip(_SPACE)
+                else None
+            )
             if foster is None:
                 self._append(parent, Text(text))
             else:
@@ -1850,7 +1887,7 @@ class DefaultSafeEngine:
 
         if self._active_formatting_dirty:
             self._reconstruct_active_formatting()
-        signature = self._attrs_signature(attrs)
+        signature = () if not attrs else self._attrs_signature(attrs)
         if len(self._active_formatting) >= 3:
             duplicate_index = self._find_active_formatting_duplicate(name, signature)
             if duplicate_index is not None:
@@ -2149,8 +2186,11 @@ class DefaultSafeEngine:
 
     def _skip_attrs(self, pos: int, end: int) -> tuple[dict[str, str | None], bool, int, bool]:
         html = self._html_input
+        space = _SPACE
+        attr_name_stop = _ATTR_NAME_STOP
+        attr_value_stop = _ATTR_VALUE_STOP
         while pos < end:
-            while pos < end and html[pos] in _SPACE:
+            while pos < end and html[pos] in space:
                 pos += 1
             if pos >= end:
                 return {}, False, pos, False
@@ -2161,16 +2201,16 @@ class DefaultSafeEngine:
                 return {}, True, pos + 2, True
 
             name_start = pos
-            while pos < end and html[pos] not in _ATTR_NAME_STOP:
+            while pos < end and html[pos] not in attr_name_stop:
                 pos += 1
             if pos == name_start:
                 pos += 1
                 continue
-            while pos < end and html[pos] in _SPACE:
+            while pos < end and html[pos] in space:
                 pos += 1
             if pos < end and html[pos] == "=":
                 pos += 1
-                while pos < end and html[pos] in _SPACE:
+                while pos < end and html[pos] in space:
                     pos += 1
                 if pos < end and html[pos] in "\"'":
                     quote = html[pos]
@@ -2179,7 +2219,7 @@ class DefaultSafeEngine:
                         return {}, False, end, False
                     pos = close + 1
                 else:
-                    while pos < end and html[pos] not in _SPACE + ">":
+                    while pos < end and html[pos] not in attr_value_stop:
                         pos += 1
         return {}, False, pos, False
 
@@ -2193,6 +2233,9 @@ class DefaultSafeEngine:
             return self._skip_attrs(pos, end)
 
         html = self._html_input
+        space = _SPACE
+        attr_name_stop = _ATTR_NAME_STOP
+        attr_value_stop = _ATTR_VALUE_STOP
         attrs: dict[str, str | None] = {}
         allowed_attrs = action.allowed_attrs
         state_attrs = action.state_attrs
@@ -2201,7 +2244,7 @@ class DefaultSafeEngine:
         tag = action.name
 
         while pos < end:
-            while pos < end and html[pos] in _SPACE:
+            while pos < end and html[pos] in space:
                 pos += 1
             if pos >= end:
                 return attrs, False, pos, False
@@ -2212,7 +2255,7 @@ class DefaultSafeEngine:
                 return attrs, True, pos + 2, True
 
             name_start = pos
-            while pos < end and html[pos] not in _ATTR_NAME_STOP:
+            while pos < end and html[pos] not in attr_name_stop:
                 pos += 1
             if pos == name_start:
                 pos += 1
@@ -2222,12 +2265,12 @@ class DefaultSafeEngine:
             keep_output = key in allowed_attrs
             keep_state = key in state_attrs
 
-            while pos < end and html[pos] in _SPACE:
+            while pos < end and html[pos] in space:
                 pos += 1
             if not keep_output and not keep_state:
                 if pos < end and html[pos] == "=":
                     pos += 1
-                    while pos < end and html[pos] in _SPACE:
+                    while pos < end and html[pos] in space:
                         pos += 1
                     if pos < end and html[pos] in "\"'":
                         quote = html[pos]
@@ -2236,14 +2279,14 @@ class DefaultSafeEngine:
                             return attrs, False, end, False
                         pos = close + 1
                     else:
-                        while pos < end and html[pos] not in _SPACE + ">":
+                        while pos < end and html[pos] not in attr_value_stop:
                             pos += 1
                 continue
 
             value = ""
             if pos < end and html[pos] == "=":
                 pos += 1
-                while pos < end and html[pos] in _SPACE:
+                while pos < end and html[pos] in space:
                     pos += 1
                 if pos < end and html[pos] in "\"'":
                     quote = html[pos]
@@ -2256,7 +2299,7 @@ class DefaultSafeEngine:
                     pos = close + 1
                 else:
                     value_start = pos
-                    while pos < end and html[pos] not in _SPACE + ">":
+                    while pos < end and html[pos] not in attr_value_stop:
                         pos += 1
                     value = html[value_start:pos]
 
