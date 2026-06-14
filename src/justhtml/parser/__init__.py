@@ -171,10 +171,7 @@ class JustHTML:
             source_is_plain_str
             and engine_policy is not None
             and can_compile_engine_plan(engine_policy, fragment=fragment)
-            and not should_collect
             and not track_node_locations
-            and not debug
-            and not iframe_srcdoc
             and _tokenizer_opts is None
         ):
             self.tree_builder = None  # type: ignore[assignment]
@@ -184,14 +181,19 @@ class JustHTML:
                 if policy is None
                 else compile_engine_plan(policy=engine_policy, fragment=fragment, scripting_enabled=scripting_enabled)
             )
-            self.root = DefaultSafeEngine(
+            engine = DefaultSafeEngine(
                 html_str,
                 fragment=fragment,
                 fragment_context=fragment_context,
                 scripting_enabled=scripting_enabled,
                 plan=engine_plan,
-            ).parse()
-            self.errors = []
+                collect_errors=should_collect,
+                iframe_srcdoc=iframe_srcdoc,
+            )
+            self.root = engine.parse()
+            self.errors = self._sorted_errors(engine.errors) if should_collect else []
+            if strict and self.errors:
+                raise StrictModeError(self.errors[0])
             return
 
         self.tree_builder = TreeBuilder(

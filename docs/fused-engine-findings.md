@@ -265,6 +265,8 @@ Result:
 - Safe malformed-doctype serialization speedup: `2.021x`.
 - Fused treebuilder deletion/custom policy planner median: `0.529293s`.
 - Fused treebuilder deletion/custom policy planner speedup: `2.029x`.
+- Engine error pre-scan/srcdoc routing median: `0.533418s`.
+- Engine error pre-scan/srcdoc routing speedup: `2.013x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -279,8 +281,8 @@ sanitization, and active-formatting reconstruction.
 The engine is not production-compatible as the only parser yet, mainly because
 the remaining product surface extends beyond this differential scorecard:
 custom policy features, explicit transforms, raw/trusted `sanitize=False`
-parsing, strict/error collection, location tracking, iframe `srcdoc`, and
-broader application-level compatibility still need promotion work.
+parsing, location tracking, and broader application-level compatibility still
+need promotion work.
 
 The latest deletion pass removes the obsolete fused treebuilder path and starts
 moving custom policies into the engine planner. `DefaultSafeEngine` can now
@@ -290,6 +292,14 @@ allowed style/SVG/MathML surface, default-policy tag/attribute subsets, and URL
 sink attrs only when the policy supplies explicit URL rules. Unsupported policy
 features deliberately stay on the remaining legacy path until they have engine
 semantics.
+
+Default-safe `collect_errors`, `strict`, `debug`, and iframe `srcdoc` no longer
+force the tokenizer/treebuilder path for compilable engine plans. Error
+collection currently uses a separate lightweight pre-scan for null characters,
+EOF-in-tag/comment cases, missing initial doctype, and obvious unexpected end
+tags. That keeps diagnostic work out of the normal parse hot path while moving
+the public constructor route onto `DefaultSafeEngine`; full html5lib parse-error
+parity is still separate work.
 
 The broader html5lib differential scorecard is now the main compliance driver:
 `1783/1783` scored cases match the existing default-safe path, with `0`
