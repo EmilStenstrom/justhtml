@@ -1,9 +1,8 @@
-"""Experimental default-safe parser.
+"""Specialized default-safe parser.
 
-This is a proof-of-concept engine for the narrow ``JustHTML(str)`` default-safe
-path. It intentionally does not reuse the tokenizer or treebuilder; the goal is
-to measure whether a single Python loop can plausibly reach a 2x speedup before
-investing in HTML5 parity.
+This engine targets the narrow ``JustHTML(str)`` default-safe path. It does not
+reuse the tokenizer or treebuilder; scanning, tree construction, and default
+sanitizer work are fused into one parser hot path.
 """
 
 from __future__ import annotations
@@ -25,6 +24,7 @@ from justhtml.dom import Document, DocumentFragment, Element, Node, Template, Te
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, _strip_invisible_unicode
 from justhtml.sanitizer.url import _URL_SINK_ATTRS, _sanitize_url_sink_value, _url_sink_kind_for_attr
 from justhtml.tokenizer.tokens import Doctype
+from justhtml.treebuilder.utils import doctype_error_and_quirks
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
@@ -46,6 +46,8 @@ _RCDATA_TAGS = {"title", "textarea"}
 _RAWTEXT_AS_TEXT_TAGS = {"noscript"}
 _PLAINTEXT_TAGS = {"plaintext"}
 _ACTIVE_FORMATTING_TAGS = FORMATTING_ELEMENTS
+_PARSER_ONLY_NAMESPACE = "justhtml-parser-only"
+_BUTTON_SCOPE_BOUNDARIES = frozenset({"button"})
 _HEAD_CONTENT_TAGS = {"base", "basefont", "bgsound", "link", "meta", "noscript", "script", "style", "template", "title"}
 _P_CLOSING_START_TAGS = {
     "address",
@@ -235,6 +237,7 @@ class DefaultSafeEngine:
         "_html",
         "_html_input",
         "_implied_end_tags",
+        "_initial_mode_done",
         "_length",
         "_list_item_scope_boundaries",
         "_lower_input",
@@ -242,6 +245,7 @@ class DefaultSafeEngine:
         "_plaintext_tags",
         "_plan",
         "_pre_linefeed_ignoring_tags",
+        "_quirks_mode",
         "_rawtext_as_text_tags",
         "_rcdata_tags",
         "_special_elements",
@@ -297,6 +301,8 @@ class DefaultSafeEngine:
         self._explicit_html = False
         self._frameset_blocked = False
         self._frameset_seen = False
+        self._initial_mode_done = bool(fragment)
+        self._quirks_mode = "no-quirks"
         self._body_explicit = False
         self._html: Element | None = None
         self._head: Element | None = None
@@ -340,10 +346,26 @@ class DefaultSafeEngine:
         node.parent = parent
 
     def _current_parent(self) -> Node:
-        current = self._stack[-1]
+        stack = self._stack
+        current = stack[-1]
+        if current.namespace == _PARSER_ONLY_NAMESPACE:
+            idx = len(stack) - 2
+            while idx > 0:
+                current = stack[idx]
+                if current.namespace != _PARSER_ONLY_NAMESPACE:
+                    break
+                idx -= 1
         if type(current) is Template and current.template_content is not None:
             return current.template_content
         return current  # type: ignore[return-value]
+
+    def _push_parser_only_element(self, name: str) -> None:
+        self._stack.append(Element(name, {}, _PARSER_ONLY_NAMESPACE))
+
+    def _mark_initial_content(self) -> None:
+        if not self._fragment and not self._initial_mode_done:
+            self._quirks_mode = "quirks"
+            self._initial_mode_done = True
 
     def _parse_range(self, pos: int, end: int) -> int:
         html = self._html_input
@@ -414,6 +436,8 @@ class DefaultSafeEngine:
     def _append_text(self, raw: str) -> None:
         if not raw:
             return
+        if not self._fragment and not self._initial_mode_done and raw.strip(_SPACE) != "":
+            self._mark_initial_content()
         if not self._fragment and self._frameset_seen and not self._body_explicit:
             self._append_frameset_text(raw)
             return
@@ -459,7 +483,7 @@ class DefaultSafeEngine:
         if (
             not self._fragment
             and not self._drop_doctype
-            and not self._doctype_seen
+            and not self._initial_mode_done
             and not self._explicit_html
             and not self._body_explicit
             and not self._frameset_blocked
@@ -483,9 +507,13 @@ class DefaultSafeEngine:
                 else:
                     public_id = None
                     system_id = None
-                self._prepend_doctype(Doctype(name, public_id, system_id, force_quirks=name is None))
+                doctype = Doctype(name, public_id, system_id, force_quirks=name is None)
+                self._quirks_mode = doctype_error_and_quirks(doctype)[1]
+                self._prepend_doctype(doctype)
             else:
-                self._prepend_doctype(Doctype(None, force_quirks=True))
+                doctype = Doctype(None, force_quirks=True)
+                self._quirks_mode = doctype_error_and_quirks(doctype)[1]
+                self._prepend_doctype(doctype)
         return end if gt == -1 else gt + 1
 
     def _prepend_doctype(self, doctype: Doctype) -> None:
@@ -496,6 +524,7 @@ class DefaultSafeEngine:
         children.insert(0, node)
         node.parent = self._doc
         self._doctype_seen = True
+        self._initial_mode_done = True
 
     def _parse_end_tag(self, pos: int, end: int) -> int:
         html = self._html_input
@@ -509,6 +538,8 @@ class DefaultSafeEngine:
         name = match.group(0)
         if not name.islower():
             name = name.lower()
+        if not self._initial_mode_done:
+            self._mark_initial_content()
         gt = html.find(">", match.end(), end)
         pos = end if gt == -1 else gt + 1
 
@@ -533,7 +564,7 @@ class DefaultSafeEngine:
             return pos
 
         stack = self._stack
-        idx = self._find_open_index(name)
+        idx = self._find_open_index_before_boundary("p", _BUTTON_SCOPE_BOUNDARIES) if name == "p" else self._find_open_index(name)
         if idx is None:
             if name == "p":
                 self._insert_allowed_element("p", {}, False, self._current_parent())
@@ -557,6 +588,8 @@ class DefaultSafeEngine:
         name = raw_name if raw_name.islower() else raw_name.lower()
         if name == "image":
             name = "img"
+        if not self._initial_mode_done:
+            self._mark_initial_content()
         pos = match.end()
 
         attrs, self_closing, pos = self._parse_attrs(pos, end)
@@ -609,6 +642,12 @@ class DefaultSafeEngine:
             return self._parse_rcdata_element(name, attrs, self_closing, pos, end)
         if name in self._plaintext_tags:
             return self._parse_plaintext_as_text(pos, end)
+
+        if name == "button" and name not in self._allowed_tags:
+            if self._find_open_index("button") is not None:
+                self._close_until("button")
+            self._push_parser_only_element("button")
+            return pos
 
         if name in self._active_formatting_tags:
             return self._parse_formatting_start(name, attrs, pos)
@@ -701,8 +740,18 @@ class DefaultSafeEngine:
     def _find_open_index(self, name: str) -> int | None:
         stack = self._stack
         for idx in range(len(stack) - 1, 0, -1):
-            if getattr(stack[idx], "name", None) == name:
+            if stack[idx].name == name:
                 return idx
+        return None
+
+    def _find_open_index_before_boundary(self, name: str, boundaries: frozenset[str]) -> int | None:
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            node_name = stack[idx].name
+            if node_name == name:
+                return idx
+            if node_name in boundaries:
+                return None
         return None
 
     def _close_until(self, name: str) -> None:
@@ -733,7 +782,11 @@ class DefaultSafeEngine:
             break
 
     def _repair_stack_for_start(self, name: str) -> None:
-        if name in self._p_closing_start_tags and self._find_open_index("p") is not None:
+        if (
+            name in self._p_closing_start_tags
+            and not (name == "table" and self._quirks_mode == "quirks")
+            and self._find_open_index_before_boundary("p", _BUTTON_SCOPE_BOUNDARIES) is not None
+        ):
             self._close_until("p")
 
         if name == "li":
