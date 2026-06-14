@@ -136,66 +136,64 @@ against the existing parser path because it runs with `sanitize=False`.
 
 Current result:
 
-- Total html5lib tree cases: `1791`.
-- Eligible cases: `1783`.
-- Exact matches: `1711`.
-- Mismatches: `70`.
+- Scored html5lib tree cases: `1783`.
+- Exact matches: `1768`.
+- Mismatches: `13`.
 - New-engine-only exceptions: `0`.
 - Reference-path exceptions: `2` malformed-doctype serializations.
-- Exact/total rate: `95.53%`.
-- Exact/eligible rate: `95.96%`.
-- Exact/compared rate: `96.07%`.
-- Skipped unsupported modes: `8` `script-on` cases that require JavaScript
+- Exact/scored rate: `99.16%`.
+- Exact/compared rate: `99.27%`.
+- Excluded unsupported modes: `8` `script-on` cases that require JavaScript
   execution semantics.
 
 Incremental progress in this pass:
 
-- Start: `942/1791` total (`52.60%`), `60.23%` eligible.
-- Dropped-to-EOF shell cleanup: `1113/1791` total (`62.14%`),
-  `71.16%` eligible, `2.301x` speedup.
-- Null, plaintext, and `pre`/`listing` newline handling: `1142/1791`
-  total (`63.76%`), `73.02%` eligible, `2.198x` speedup.
-- Frameset/`noframes` shell behavior: `1210/1791` total (`67.56%`),
-  `77.37%` eligible, `2.210x` speedup.
-- Bogus markup, `</br>`, and `<image>` recovery: `1228/1791` total
-  (`68.57%`), `78.52%` eligible, `2.196x` speedup.
+- Start: `942/1783` scored (`52.83%`).
+- Dropped-to-EOF shell cleanup: `1113/1783` scored (`62.42%`),
+  `2.301x` speedup.
+- Null, plaintext, and `pre`/`listing` newline handling: `1142/1783`
+  scored (`64.05%`), `2.198x` speedup.
+- Frameset/`noframes` shell behavior: `1210/1783` scored (`67.86%`),
+  `2.210x` speedup.
+- Bogus markup, `</br>`, and `<image>` recovery: `1228/1783` scored
+  (`68.87%`), `2.196x` speedup.
 - Active formatting/adoption agency for default-safe kept formatting tags:
-  `1275/1791` total (`71.19%`), `81.52%` eligible, `2.067x` speedup.
-- Production-safe generic recovery cleanup: `1308/1791` total (`73.03%`),
-  `83.63%` eligible, `2.053x` speedup.
-- Document-mode state and parser-only button scope nodes: `1324/1791` total
-  (`73.93%`), `84.65%` eligible, `2.030x` speedup.
+  `1275/1783` scored (`71.51%`), `2.067x` speedup.
+- Production-safe generic recovery cleanup: `1308/1783` scored (`73.36%`),
+  `2.053x` speedup.
+- Document-mode state and parser-only button scope nodes: `1324/1783` scored
+  (`74.26%`), `2.030x` speedup.
 - Decoded `ignore_lf` state for `pre`, `listing`, and `textarea`:
-  `1328/1791` total (`74.15%`), `84.91%` eligible, `2.041x` speedup.
+  `1328/1783` scored (`74.48%`), `2.041x` speedup.
 - Parser-only template scopes, template insertion modes, stricter rawtext end
   tags, script escaped-state scanning, and disallowed rawtext-as-text handling:
-  `1461/1791` total (`81.57%`), `93.41%` eligible, `1.986x` speedup.
+  `1461/1783` scored (`81.94%`), `1.986x` speedup.
 - Fragment contexts and `script-off` cases included in the differential
   runner, all fragment contexts routed through `DefaultSafeEngine`, and
   script-disabled `noscript` behavior compiled into the plan:
-  `1669/1791` total (`93.19%`), `93.61%` eligible, `1.917x` speedup.
+  `1669/1783` scored (`93.61%`), `1.917x` speedup.
 - Compiled `TagAction` records, direct start-tag scanning, and direct
   sanitized attr scanning remove the raw attr dict plus `_sanitize_attrs`
   handoff from the hot path while preserving the same score:
-  `1669/1791` total (`93.19%`), `93.61%` eligible, `2.131x` speedup.
+  `1669/1783` scored (`93.61%`), `2.131x` speedup.
 - Attr projection pushdown and direct end-tag fast close keep the same score
   while increasing the speed margin:
-  `1669/1791` total (`93.19%`), `93.61%` eligible, `2.216x` speedup.
+  `1669/1783` scored (`93.61%`), `2.216x` speedup.
 - Parser-mode/table-scope repair, unsafe unwrap-node construction for
   parser-sensitive disallowed tags, shared scope terminators, heading end-tag
   handling, body-time head-content placement, and skipped-menuitem active
   formatting reconstruction:
-  `1710/1791` total (`95.48%`), `95.91%` eligible, `2.071x` speedup.
+  `1710/1783` scored (`95.91%`), `2.071x` speedup.
 - Text-path lazy whitespace classification, foster-parent fast checks,
   attr-scanner constant reuse, and stack-top mode checks recover much of the
   lost speed while preserving the compliance gains:
-  `1711/1791` total (`95.53%`), `95.96%` eligible, `2.174x` speedup.
+  `1711/1783` scored (`95.96%`), `2.174x` speedup.
 - Incremental html5lib compliance pass for self-closing non-void tags,
   after-head head content, dropped rawtext whitespace, escaped-script EOF
   shell retention, selectedcontent projection, foreign-content subtree
   skipping, plaintext `p` closure, colgroup/table repairs, fragment nested
   tables, and table-scope end-tag boundaries:
-  `1744/1791` total (`97.38%`), `97.81%` eligible, `2.088x` speedup.
+  `1744/1783` scored (`97.81%`), `2.088x` speedup.
 
 The largest remaining buckets are the unsupported parts of deeper
 adoption-agency/active-formatting behavior, especially around tables, `font`,
@@ -262,11 +260,10 @@ outputs exactly matched the existing parser. This is up from `2/100` for the
 raw one-pass parser and `20/100` after the first recovery pass.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1768/1791` total cases and `1768/1783` eligible cases match the existing
-default-safe path, and the new engine has no current-only serialization
-exceptions in that suite. The only skipped tree-construction fixtures are the
-`script-on` cases that require JavaScript execution semantics; `script-off`
-cases now exercise `DefaultSafeEngine`.
+`1768/1783` scored cases match the existing default-safe path, and the new
+engine has no current-only serialization exceptions in that suite. The excluded
+tree-construction fixtures are the `script-on` cases that require JavaScript
+execution semantics; `script-off` cases now exercise `DefaultSafeEngine`.
 
 Remaining diffs are now more concentrated in deeper active-formatting and
 adoption-agency behavior, select-like insertion modes, parser-only template
