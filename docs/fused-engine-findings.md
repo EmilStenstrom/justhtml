@@ -243,6 +243,8 @@ Result:
 - Latest compliance speedup: `2.088x`.
 - Frameset/table-rawtext compliance median: `0.516347s`.
 - Frameset/table-rawtext compliance speedup: `2.079x`.
+- Adoption/table-scope compliance median: `0.522134s`.
+- Adoption/table-scope compliance speedup: `2.056x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -260,7 +262,7 @@ outputs exactly matched the existing parser. This is up from `2/100` for the
 raw one-pass parser and `20/100` after the first recovery pass.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1748/1791` total cases and `1748/1783` eligible cases match the existing
+`1768/1791` total cases and `1768/1783` eligible cases match the existing
 default-safe path, and the new engine has no current-only serialization
 exceptions in that suite. The only skipped tree-construction fixtures are the
 `script-on` cases that require JavaScript execution semantics; `script-off`
@@ -319,6 +321,14 @@ while ignoring non-whitespace, and dropped `script`/`style` content records when
 the next table whitespace token must still be foster-parented. A short hot-path
 cleanup kept that extra table whitespace check out of ordinary text appends,
 preserving the `2x` speed gate.
+
+The adoption/table-scope pass moved more treebuilder rules into explicit engine
+state: ordinary adoption agency now checks default HTML scope before rewriting,
+table cells clear only the active-formatting entries created inside the cell,
+malformed section end tags no longer close cells unless their row/section is in
+table scope, and generic end tags stop at special elements. Adoption-created
+formatting clones also retain the existing parser's compatibility behavior for
+disallowed formatting tags and their state-only attributes.
 
 ## Current Conclusion
 
