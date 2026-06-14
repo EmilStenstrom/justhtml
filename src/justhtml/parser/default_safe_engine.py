@@ -806,19 +806,27 @@ class DefaultSafeEngine:
 
     def _parse_end_tag(self, pos: int, end: int) -> int:
         html = self._html_input
-        match = _TAG_NAME_RE.match(html, pos, end)
-        if not match:
+        if pos >= end:
+            self._append_text("</")
+            return end
+        ch = html[pos]
+        if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
             if pos >= end:
                 self._append_text("</")
                 return end
             gt = html.find(">", pos, end)
             return end if gt == -1 else gt + 1
-        name = match.group(0)
+        name_start = pos
+        pos += 1
+        while pos < end and html[pos] not in _TAG_NAME_STOP:
+            pos += 1
+        name = html[name_start:pos]
         if not name.islower():
             name = name.lower()
         if not self._initial_mode_done:
             self._mark_initial_content()
-        gt = html.find(">", match.end(), end)
+        action = self._tag_actions.get(name)
+        gt = html.find(">", pos, end)
         pos = end if gt == -1 else gt + 1
 
         if not self._fragment and name in {"html", "body"}:
@@ -849,11 +857,21 @@ class DefaultSafeEngine:
         if name == "br":
             self._insert_allowed_element("br", {}, False, self._current_parent())
             return pos
-        if name in self._active_formatting_tags:
+        if action is not None and action.active_formatting:
             self._adoption_agency(name)
             return pos
 
         stack = self._stack
+        if (
+            not self._parser_only_template_depth
+            and len(stack) > 1
+            and stack[-1].name == name
+            and not (self._fragment_context_node is not None and stack[-1] is self._fragment_context_node)
+        ):
+            self._mark_active_formatting_dirty()
+            stack.pop()
+            return pos
+
         if name == "p":
             idx = self._find_open_index_before_boundary("p", _P_SCOPE_BOUNDARIES)
         elif self._parser_only_template_depth:
@@ -2035,6 +2053,20 @@ class DefaultSafeEngine:
 
             while pos < end and html[pos] in _SPACE:
                 pos += 1
+            if not keep_output and not keep_state:
+                if pos < end and html[pos] == "=":
+                    pos += 1
+                    while pos < end and html[pos] in _SPACE:
+                        pos += 1
+                    if pos < end and html[pos] in "\"'":
+                        quote = html[pos]
+                        close = html.find(quote, pos + 1, end)
+                        pos = end if close == -1 else close + 1
+                    else:
+                        while pos < end and html[pos] not in _SPACE + ">":
+                            pos += 1
+                continue
+
             value = ""
             if pos < end and html[pos] == "=":
                 pos += 1
@@ -2057,8 +2089,6 @@ class DefaultSafeEngine:
                         pos += 1
                     value = html[value_start:pos]
 
-            if not keep_output and not keep_state:
-                continue
             if "&" in value:
                 value = decode_entities_in_text(value, in_attribute=True)
             if keep_state and not keep_output:
