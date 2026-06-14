@@ -194,14 +194,14 @@ Incremental progress in this pass:
   skipping, plaintext `p` closure, colgroup/table repairs, fragment nested
   tables, and table-scope end-tag boundaries:
   `1744/1783` scored (`97.81%`), `2.088x` speedup.
+- Active-formatting markers, parser-only template adoption moves, template
+  table-mode section transitions, table foster whitespace/reconstruction
+  ordering, end-body stack retention, and start-tag hot-path cleanup:
+  `1781/1783` scored (`99.89%`), `2.050x` speedup.
 
-The largest remaining buckets are the unsupported parts of deeper
-adoption-agency/active-formatting behavior, especially around tables, `font`,
-`nobr`, and nested formatting reconstruction; parser-only template table modes;
-frameset edge text; and quirks around malformed inline/block structure.
-Malformed doctype names are normalized in
-`DefaultSafeEngine` so the new engine does not produce unsafe names that later
-fail serialization.
+The remaining non-exact scored cases are both reference-side malformed-doctype
+serialization exceptions. The new engine normalizes malformed doctype names, so
+it serializes safely where the reference path raises on unsafe doctype names.
 
 ## Benchmark Result
 
@@ -243,6 +243,8 @@ Result:
 - Frameset/table-rawtext compliance speedup: `2.079x`.
 - Adoption/table-scope compliance median: `0.522134s`.
 - Adoption/table-scope compliance speedup: `2.056x`.
+- Template/foster/body-stack parity median: `0.523710s`.
+- Template/foster/body-stack parity speedup: `2.050x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -254,22 +256,22 @@ sanitization, and active-formatting reconstruction.
 
 ## Parity Status
 
-The engine is not production-compatible yet. After the compliance pass, a 100-file
-differential smoke check completed without crashes and `75/100` serialized
-outputs exactly matched the existing parser. This is up from `2/100` for the
-raw one-pass parser and `20/100` after the first recovery pass.
+The engine is not production-compatible as the default parser yet, mainly
+because the remaining product surface extends beyond this differential
+scorecard: custom policies, explicit transforms, strict/error collection,
+location tracking, and broader application-level compatibility still need
+promotion work.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1768/1783` scored cases match the existing default-safe path, and the new
-engine has no current-only serialization exceptions in that suite. The excluded
-tree-construction fixtures are the `script-on` cases that require JavaScript
-execution semantics; `script-off` cases now exercise `DefaultSafeEngine`.
+`1781/1783` scored cases match the existing default-safe path, with `0`
+current-output mismatches and `0` current-only serialization exceptions in that
+suite. The excluded tree-construction fixtures are the `script-on` cases that
+require JavaScript execution semantics; `script-off` cases now exercise
+`DefaultSafeEngine`.
 
-Remaining diffs are now more concentrated in deeper active-formatting and
-adoption-agency behavior, select-like insertion modes, parser-only template
-table modes, and a small number of RCDATA/head-text edges. Two remaining
-failures are reference-side unsafe doctype serialization exceptions rather than
-current-engine crashes.
+The two non-exact cases are reference-side unsafe doctype serialization
+exceptions rather than current-engine crashes. Among cases where both parsers
+serialize, the current differential score is `100.00%`.
 
 ## Productionization Pivot
 
@@ -333,14 +335,13 @@ The viable path is not a lightly fused version of the existing html5ever-shaped
 pipeline. It is a new default-safe parser with its own small set of direct
 handlers, then incremental parity work driven by differential fixtures.
 
-The recovery pass is the strongest signal so far that this can remain viable:
-adding a meaningful subset of real HTML error handling moved the benchmark from
-`2.807x` to `2.283x`, still above the final `2.0x` target. The first
-`EnginePlan` split did not add measurable overhead, and the next compliance pass
-raised exact corpus matches from `20/100` to `75/100` while keeping most of the
-speed margin.
+The strongest signal so far is that the parser can now match every comparable
+html5lib tree-construction case in the default-safe differential runner while
+still clearing the `2x` benchmark gate. The two non-exact scored cases are both
+reference-path malformed-doctype serialization exceptions, not current-engine
+output mismatches.
 
-The next engineering step is to keep `DefaultSafeEngine` as the PoC target and
-turn it into a production parser incrementally: define state boundaries, add
-focused golden tests for each promoted rule, and recover the benchmark gate back
-above `2x` while replacing fixture-shaped recovery with real parser state.
+The next engineering step is to keep `DefaultSafeEngine` as the productionizing
+target: define state boundaries, add focused golden tests for each promoted
+rule, preserve the benchmark gate above `2x`, and move the remaining public API
+surface from fallback behavior onto explicit engine plans.
