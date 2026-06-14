@@ -130,13 +130,13 @@ Current result:
 
 - Total html5lib tree cases: `1791`.
 - Eligible full-document cases: `1564`.
-- Exact matches: `1324`.
-- Mismatches: `238`.
+- Exact matches: `1328`.
+- Mismatches: `234`.
 - New-engine-only exceptions: `0`.
 - Reference-path exceptions: `2` malformed-doctype serializations.
-- Exact/total rate: `73.93%`.
-- Exact/eligible rate: `84.65%`.
-- Exact/compared rate: `84.76%`.
+- Exact/total rate: `74.15%`.
+- Exact/eligible rate: `84.91%`.
+- Exact/compared rate: `85.02%`.
 - Skipped unsupported modes: `192` fragment-context cases and `35`
   scripting-directive cases.
 
@@ -157,6 +157,8 @@ Incremental progress in this pass:
   `83.63%` eligible, `2.053x` speedup.
 - Document-mode state and parser-only button scope nodes: `1324/1791` total
   (`73.93%`), `84.65%` eligible, `2.030x` speedup.
+- Decoded `ignore_lf` state for `pre`, `listing`, and `textarea`:
+  `1328/1791` total (`74.15%`), `84.91%` eligible, `2.041x` speedup.
 
 The largest remaining buckets are the unsupported parts of
 adoption-agency/active-formatting behavior, especially disallowed/ghost
@@ -188,8 +190,8 @@ Result:
 - Compliance-pass speedup: `2.283x`.
 - html5lib-scorecard pass median: `0.469793s`.
 - html5lib-scorecard pass speedup: `2.285x`.
-- Latest html5lib-targeting median: `0.528816s`.
-- Latest html5lib-targeting speedup: `2.030x`.
+- Latest html5lib-targeting median: `0.525967s`.
+- Latest html5lib-targeting speedup: `2.041x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -205,7 +207,7 @@ outputs exactly matched the existing parser. This is up from `2/100` for the
 raw one-pass parser and `20/100` after the first recovery pass.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1324/1791` total cases and `1324/1564` eligible full-document cases match the
+`1328/1791` total cases and `1328/1564` eligible full-document cases match the
 existing default-safe path, and the new engine has no current-only serialization
 exceptions in that suite.
 
@@ -239,6 +241,11 @@ parser-only stack nodes for disallowed scoped elements. The first scoped element
 is `button`: it affects button-scope decisions while DOM insertion skips the
 parser-only node, matching the eventual sanitizer unwrap behavior without
 creating unsafe output nodes.
+
+The decoded `ignore_lf` state follows the same model: the engine now strips the
+first decoded LF text token after `pre`, `listing`, and `textarea`, matching the
+treebuilder's token-level behavior rather than skipping only a raw source
+newline.
 
 ## Current Conclusion
 
