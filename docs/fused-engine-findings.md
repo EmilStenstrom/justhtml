@@ -138,13 +138,13 @@ Current result:
 
 - Total html5lib tree cases: `1791`.
 - Eligible cases: `1783`.
-- Exact matches: `1710`.
-- Mismatches: `71`.
+- Exact matches: `1711`.
+- Mismatches: `70`.
 - New-engine-only exceptions: `0`.
 - Reference-path exceptions: `2` malformed-doctype serializations.
-- Exact/total rate: `95.48%`.
-- Exact/eligible rate: `95.91%`.
-- Exact/compared rate: `96.01%`.
+- Exact/total rate: `95.53%`.
+- Exact/eligible rate: `95.96%`.
+- Exact/compared rate: `96.07%`.
 - Skipped unsupported modes: `8` `script-on` cases that require JavaScript
   execution semantics.
 
@@ -186,6 +186,10 @@ Incremental progress in this pass:
   handling, body-time head-content placement, and skipped-menuitem active
   formatting reconstruction:
   `1710/1791` total (`95.48%`), `95.91%` eligible, `2.071x` speedup.
+- Text-path lazy whitespace classification, foster-parent fast checks,
+  attr-scanner constant reuse, and stack-top mode checks recover much of the
+  lost speed while preserving the compliance gains:
+  `1711/1791` total (`95.53%`), `95.96%` eligible, `2.174x` speedup.
 
 The largest remaining buckets are the unsupported parts of deeper
 adoption-agency/active-formatting behavior, especially around tables and nested
@@ -227,6 +231,8 @@ Result:
 - Attr projection/end-fast-close speedup: `2.216x`.
 - Unsafe unwrap/scope compliance median: `0.518448s`.
 - Unsafe unwrap/scope compliance speedup: `2.071x`.
+- Hot-path recovery median: `0.493839s`.
+- Hot-path recovery speedup: `2.174x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
@@ -244,7 +250,7 @@ outputs exactly matched the existing parser. This is up from `2/100` for the
 raw one-pass parser and `20/100` after the first recovery pass.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1710/1791` total cases and `1710/1783` eligible cases match the existing
+`1711/1791` total cases and `1711/1783` eligible cases match the existing
 default-safe path, and the new engine has no current-only serialization
 exceptions in that suite. The only skipped tree-construction fixtures are the
 `script-on` cases that require JavaScript execution semantics; `script-off`
