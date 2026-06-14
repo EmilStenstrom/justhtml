@@ -130,13 +130,13 @@ Current result:
 
 - Total html5lib tree cases: `1791`.
 - Eligible full-document cases: `1564`.
-- Exact matches: `1328`.
-- Mismatches: `234`.
+- Exact matches: `1461`.
+- Mismatches: `101`.
 - New-engine-only exceptions: `0`.
 - Reference-path exceptions: `2` malformed-doctype serializations.
-- Exact/total rate: `74.15%`.
-- Exact/eligible rate: `84.91%`.
-- Exact/compared rate: `85.02%`.
+- Exact/total rate: `81.57%`.
+- Exact/eligible rate: `93.41%`.
+- Exact/compared rate: `93.53%`.
 - Skipped unsupported modes: `192` fragment-context cases and `35`
   scripting-directive cases.
 
@@ -159,12 +159,15 @@ Incremental progress in this pass:
   (`73.93%`), `84.65%` eligible, `2.030x` speedup.
 - Decoded `ignore_lf` state for `pre`, `listing`, and `textarea`:
   `1328/1791` total (`74.15%`), `84.91%` eligible, `2.041x` speedup.
+- Parser-only template scopes, template insertion modes, stricter rawtext end
+  tags, script escaped-state scanning, and disallowed rawtext-as-text handling:
+  `1461/1791` total (`81.57%`), `93.41%` eligible, `1.986x` speedup.
 
 The largest remaining buckets are the unsupported parts of
 adoption-agency/active-formatting behavior, especially disallowed/ghost
-formatting elements and `nobr`; select-like insertion modes, deeper
-table/template cases, script-data edge states, and quirks around malformed
-inline/block structure. Malformed doctype names are normalized in
+formatting elements and `nobr`; select-like insertion modes, deeper table
+corner cases, and quirks around malformed inline/block structure. Malformed
+doctype names are normalized in
 `DefaultSafeEngine` so the new engine does not produce unsafe names that later
 fail serialization.
 
@@ -190,14 +193,15 @@ Result:
 - Compliance-pass speedup: `2.283x`.
 - html5lib-scorecard pass median: `0.469793s`.
 - html5lib-scorecard pass speedup: `2.285x`.
-- Latest html5lib-targeting median: `0.525967s`.
-- Latest html5lib-targeting speedup: `2.041x`.
+- Latest html5lib-targeting median: `0.540501s`.
+- Latest html5lib-targeting speedup: `1.986x`.
 - Required continuation threshold: `1.7x`.
 - Required final target: `2.0x`.
 
-The 2x target is therefore feasible in pure Python, but only with a specialized
-default-safe engine that collapses tokenizer, tree construction, and sanitizer
-work into one hot path.
+The 2x target remains feasible in pure Python, but the latest compliance gains
+consume most of the speed margin. The next productionization pass should pair
+new parser-state work with hot-path profiling, especially around start-tag
+dispatch, attribute parsing, and active-formatting reconstruction.
 
 ## Parity Status
 
@@ -207,14 +211,14 @@ outputs exactly matched the existing parser. This is up from `2/100` for the
 raw one-pass parser and `20/100` after the first recovery pass.
 
 The broader html5lib differential scorecard is now the main compliance driver:
-`1328/1791` total cases and `1328/1564` eligible full-document cases match the
+`1461/1791` total cases and `1461/1564` eligible full-document cases match the
 existing default-safe path, and the new engine has no current-only serialization
 exceptions in that suite.
 
-Remaining diffs are now more varied: exact whitespace counts, unsupported
-formatting-element/adoption behavior, malformed inline links, deeper table
-corner cases, select/template handling, foreign-content integration points, and
-some sanitizer edge cases around unusual attributes or escaped source.
+Remaining diffs are now more concentrated in active-formatting/adoption-agency
+behavior, `nobr`, select-like insertion modes, deeper table corner cases,
+foreign-content integration points, and a small number of escaped-source and
+malformed-attribute edges.
 
 ## Productionization Pivot
 
