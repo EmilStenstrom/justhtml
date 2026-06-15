@@ -61,6 +61,12 @@ _TAG_NAME_STOP = "\t\n\f />"
 _ATTR_NAME_STOP = "\t\n\f />=\0\"'<"
 _ATTR_VALUE_STOP = _SPACE + ">"
 _TAG_END_NAME_STOP = _SPACE + "/>"
+_XML_INVALID_SINGLE_CHARS = []
+for _plane in range(17):
+    _base = _plane * 0x10000
+    _XML_INVALID_SINGLE_CHARS.append(chr(_base + 0xFFFE))
+    _XML_INVALID_SINGLE_CHARS.append(chr(_base + 0xFFFF))
+_XML_COERCION_PATTERN = re.compile(r"[\f\uFDD0-\uFDEF" + "".join(_XML_INVALID_SINGLE_CHARS) + "]")
 _DROP_CONTENT_TAGS = {"script", "style"}
 _DROP_SUBTREE_TAGS = {"svg", "math"}
 _RCDATA_TAGS = {"title", "textarea"}
@@ -121,6 +127,7 @@ _P_CLOSING_START_TAGS = {
     "li",
 } | HEADING_ELEMENTS
 _HEAD_NOSCRIPT_ALLOWED_START_TAGS = {"basefont", "bgsound", "link", "meta", "noframes", "style"}
+_HEAD_NOSCRIPT_VOID_START_TAGS = {"basefont", "bgsound"}
 _DEFINITION_SCOPE_BOUNDARIES = frozenset(DEFINITION_SCOPE_TERMINATORS)
 _LIST_ITEM_SCOPE_BOUNDARIES = frozenset(LIST_ITEM_SCOPE_TERMINATORS)
 _PRE_LINEFEED_IGNORING_TAGS = {"listing", "pre"}
@@ -163,6 +170,22 @@ _FRAMESET_BLOCKING_START_TAGS = {
 }
 _UNWRAP_CONSTRUCTION_SKIP_TAGS = {"col", "colgroup", "form", "menuitem"}
 _URL_FAST_FALLBACK = object()
+
+
+def _xml_coercion_callback(match: re.Match[str]) -> str:
+    return " " if match.group(0) == "\f" else "\ufffd"
+
+
+def _coerce_text_for_xml(text: str) -> str:
+    if text.isascii():
+        return text.replace("\f", " ") if "\f" in text else text
+    if not _XML_COERCION_PATTERN.search(text):
+        return text
+    return _XML_COERCION_PATTERN.sub(_xml_coercion_callback, text)
+
+
+def _coerce_comment_for_xml(text: str) -> str:
+    return text.replace("--", "- -") if "--" in text else text
 
 
 @dataclass(frozen=True, slots=True)
@@ -601,6 +624,7 @@ class DefaultSafeEngine:
         "_track_tag_spans",
         "_url_policy",
         "_void_elements",
+        "_xml_coercion",
     )
 
     def __init__(
@@ -615,6 +639,7 @@ class DefaultSafeEngine:
         iframe_srcdoc: bool = False,
         track_node_locations: bool = False,
         track_tag_spans: bool = False,
+        xml_coercion: bool = False,
     ) -> None:
         self._html_input = html
         self._length = len(html)
@@ -625,13 +650,17 @@ class DefaultSafeEngine:
         self._iframe_srcdoc = bool(iframe_srcdoc)
         self._track_node_locations = bool(track_node_locations)
         self._track_tag_spans = bool(track_tag_spans)
+        self._xml_coercion = bool(xml_coercion)
         self._line_starts: list[int] | None = None
-        self._fragment_context_name = (
-            fragment_context.tag_name.lower() if fragment_context is not None and fragment_context.tag_name else None
-        )
         self._fragment_context_namespace = (
             fragment_context.namespace.lower() if fragment_context is not None and fragment_context.namespace else None
         )
+        fragment_context_name: str | None = None
+        if fragment_context is not None and fragment_context.tag_name:
+            fragment_context_name = fragment_context.tag_name.lower()
+            if self._fragment_context_namespace == "svg":
+                fragment_context_name = SVG_TAG_NAME_ADJUSTMENTS.get(fragment_context_name, fragment_context_name)
+        self._fragment_context_name = fragment_context_name
         self._fragment_context_node: Element | None = None
         self._plan = (
             plan
@@ -762,12 +791,16 @@ class DefaultSafeEngine:
             return False
         if name in {"br", "p"}:
             return False
+        if name in _TABLE_SCOPED_END_TAGS:
+            return False
 
         for idx in range(len(stack) - 1, 0, -1):
             node = stack[idx]
             if node.namespace in {None, "html"}:
                 return True
             if self._node_matches_end_name(node, name):
+                if self._fragment_context_node is not None and node is self._fragment_context_node:
+                    return True
                 if self._track_tag_spans:
                     self._set_end_span(node, name, tag_start, tag_end)
                 del stack[idx:]
@@ -994,6 +1027,8 @@ class DefaultSafeEngine:
         children.append(node)
 
     def _append_comment(self, data: str, source_pos: int | None = None) -> None:
+        if self._xml_coercion:
+            data = _coerce_comment_for_xml(data)
         node = Comment(data=data)
         self._set_origin(node, source_pos)
         parent: Node
@@ -1007,6 +1042,24 @@ class DefaultSafeEngine:
                 node.parent = self._doc
                 return
             parent = self._doc
+        elif (
+            not self._fragment
+            and self._html is not None
+            and self._head is not None
+            and not self._explicit_head
+            and not self._body_mode_seen
+            and not self._body_has_content()
+        ):
+            children = self._html.children
+            if children is not None:
+                try:
+                    insert_at = children.index(self._head)
+                except ValueError:
+                    insert_at = len(children)
+                children.insert(insert_at, node)
+                node.parent = self._html
+                return
+            parent = self._html
         else:
             parent = self._current_parent()
         self._append(parent, node)
@@ -1055,8 +1108,28 @@ class DefaultSafeEngine:
                 return idx
         return None
 
+    def _open_template_index(self) -> int | None:
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            node = stack[idx]
+            if node.name != "template":
+                continue
+            if node.namespace == _PARSER_ONLY_NAMESPACE or (
+                type(node) is Template and node.namespace in {None, "html"}
+            ):
+                return idx
+        return None
+
     def _has_open_parser_only_template(self) -> bool:
         return self._parser_only_template_depth > 0
+
+    def _has_open_real_template(self) -> bool:
+        for node in reversed(self._stack):
+            if type(node) is Template and node.namespace in {None, "html"}:
+                return True
+            if node.namespace == _PARSER_ONLY_NAMESPACE:
+                return False
+        return False
 
     def _current_template_mode(self) -> str | None:
         modes = self._template_modes
@@ -1082,12 +1155,23 @@ class DefaultSafeEngine:
         self._push_active_formatting_marker()
 
     def _close_parser_only_template(self) -> bool:
-        idx = self._open_parser_only_template_index()
+        return self._close_open_template()
+
+    def _enter_template_mode(self) -> None:
+        self._template_modes.append(_TEMPLATE_MODE_INITIAL)
+        self._push_active_formatting_marker()
+
+    def _close_open_template(self, tag_start: int | None = None, tag_end: int | None = None) -> bool:
+        idx = self._open_template_index()
         if idx is None:
             return False
+        node = self._stack[idx]
+        if self._track_tag_spans and tag_start is not None and tag_end is not None:
+            self._set_end_span(node, "template", tag_start, tag_end)
         self._mark_active_formatting_dirty()
         del self._stack[idx:]
-        self._parser_only_template_depth -= 1
+        if node.namespace == _PARSER_ONLY_NAMESPACE:
+            self._parser_only_template_depth -= 1
         if self._template_modes:
             self._template_modes.pop()
         self._clear_active_formatting_to_marker()
@@ -1130,8 +1214,26 @@ class DefaultSafeEngine:
                         pos = end
                     else:
                         if not self._drop_comments:
-                            self._append_comment(html[pos + 3 : close], lt)
+                            comment_end = (
+                                close - 1
+                                if close > pos
+                                and close + 2 < end
+                                and html[close + 1] == "!"
+                                and html[close + 2] == ">"
+                                else close
+                            )
+                            self._append_comment(html[pos + 3 : comment_end], lt)
                         pos = close + 3
+                    continue
+                if (
+                    self._raw_mode
+                    and self._lower_input.startswith("<![cdata[", lt)
+                    and self._stack[-1].namespace not in {None, "html"}
+                ):
+                    close = html.find("]]>", pos + 8, end)
+                    cdata_end = end if close == -1 else close
+                    self._append_raw_literal_text(html[pos + 8 : cdata_end], pos + 8)
+                    pos = end if close == -1 else close + 3
                     continue
                 if self._lower_input.startswith("<!doctype", lt):
                     if self._raw_mode and self._track_tag_spans:
@@ -1146,14 +1248,9 @@ class DefaultSafeEngine:
                     pos = self._parse_doctype(pos + 8, end)
                     continue
                 gt = html.find(">", pos + 1, end)
-                if self._raw_mode:
-                    if gt == -1:
-                        self._append_text(html[lt:end], lt)
-                        pos = end
-                    else:
-                        self._append_text(html[lt : gt + 1], lt)
-                        pos = gt + 1
-                    continue
+                comment_end = end if gt == -1 else gt
+                if not self._drop_comments:
+                    self._append_comment(html[pos + 1 : comment_end].replace("\0", "\ufffd"), lt)
                 pos = end if gt == -1 else gt + 1
                 continue
             if ch == "/":
@@ -1162,12 +1259,10 @@ class DefaultSafeEngine:
             if ch == "?":
                 gt = html.find(">", pos + 1, end)
                 if self._raw_mode:
-                    if gt == -1:
-                        self._append_text(html[lt:end], lt)
-                        pos = end
-                    else:
-                        self._append_text(html[lt : gt + 1], lt)
-                        pos = gt + 1
+                    comment_end = end if gt == -1 else gt
+                    if not self._drop_comments:
+                        self._append_comment(html[pos:comment_end], lt)
+                    pos = end if gt == -1 else gt + 1
                     continue
                 pos = end if gt == -1 else gt + 1
                 continue
@@ -1202,6 +1297,8 @@ class DefaultSafeEngine:
             text = decode_entities_in_text(text)
         if self._strip_invisible_unicode and text and not text.isascii():
             text = _strip_invisible_unicode(text)
+        if self._xml_coercion and text:
+            text = _coerce_text_for_xml(text)
         return text
 
     def _append_text(self, raw: str, source_pos: int | None = None) -> None:
@@ -1213,7 +1310,7 @@ class DefaultSafeEngine:
             foster_table_whitespace = True
             self._foster_next_table_whitespace = False
         if not self._fragment and not self._initial_mode_done:
-            raw_is_space = raw.strip(_SPACE) == ""
+            raw_is_space = raw.replace("\0", "").strip(_SPACE) == ""
             if not raw_is_space:
                 self._mark_initial_content()
         if not self._fragment and self._frameset_seen and not self._body_explicit:
@@ -1223,7 +1320,7 @@ class DefaultSafeEngine:
             return
         if self._fragment_context_name == "colgroup":
             return
-        if self._parser_only_template_depth and self._template_modes[-1] == _TEMPLATE_MODE_COLGROUP:
+        if self._template_modes and self._template_modes[-1] == _TEMPLATE_MODE_COLGROUP:
             return
         parent = self._stack[-1]
         if parent.namespace == _PARSER_ONLY_NAMESPACE or (
@@ -1248,7 +1345,7 @@ class DefaultSafeEngine:
             not self._fragment
             and self._head is not None
             and parent is self._head
-            and not self._parser_only_template_depth
+            and not self._template_modes
             and self._html is not None
         ):
             if raw_is_space is None:
@@ -1299,15 +1396,42 @@ class DefaultSafeEngine:
                 if source_pos is not None:
                     source_pos += leading_len
                 raw = stripped
+        if self._in_colgroup and getattr(parent, "name", None) == "colgroup" and raw.strip(_SPACE):
+            stripped = raw.lstrip(_SPACE)
+            leading_len = len(raw) - len(stripped)
+            if leading_len:
+                leading_text = self._clean_text(raw[:leading_len])
+                if leading_text:
+                    node = (
+                        self._new_text(leading_text, source_pos) if self._track_node_locations else Text(leading_text)
+                    )
+                    self._append(parent, node)
+                if source_pos is not None:
+                    source_pos += leading_len
+                raw = stripped
+            self._in_colgroup = False
+            if self._stack and self._stack[-1] is parent:
+                self._stack.pop()
+            parent = self._current_parent()
         text = raw
         if "\r" in text:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
         if "\0" in text:
-            text = text.replace("\0", "")
+            parent_namespace = getattr(parent, "namespace", None)
+            null_replacement = (
+                "\ufffd"
+                if parent_namespace not in {None, "html"}
+                and not self._is_html_integration_point(parent)
+                and not self._is_mathml_text_integration_point(parent)
+                else ""
+            )
+            text = text.replace("\0", null_replacement)
         if "&" in text:
             text = decode_entities_in_text(text)
         if self._strip_invisible_unicode and text and not text.isascii():
             text = _strip_invisible_unicode(text)
+        if self._xml_coercion and text:
+            text = _coerce_text_for_xml(text)
         if self._ignore_lf:
             self._ignore_lf = False
             text = text.removeprefix("\n")
@@ -1448,10 +1572,10 @@ class DefaultSafeEngine:
             return pos
 
         if not self._fragment and name in {"html", "body"}:
-            self._in_colgroup = False
             parent_name = getattr(self._current_parent(), "name", None)
             if self._find_open_index("table") is not None and parent_name not in {"body", "html"}:
                 return pos
+            self._in_colgroup = False
             if parent_name not in {"body", "html"} and self._find_open_index("body") is not None:
                 self._after_head = False
                 self._body_mode_seen = True
@@ -1488,17 +1612,16 @@ class DefaultSafeEngine:
         ) is not None:
             self._close_table_cell()
         if name == "template":
-            if raw_mode:
-                idx = self._find_open_index("template")
-                if idx is not None:
-                    self._mark_active_formatting_dirty()
-                    if self._track_tag_spans:
-                        self._set_end_span(self._stack[idx], name, tag_start, tag_end)
-                    del self._stack[idx:]
-                return pos
-            self._close_parser_only_template()
+            self._close_open_template(tag_start, tag_end)
             return pos
-        if self._parser_only_template_depth and self._handle_template_mode_end(name):
+        if name == "menuitem":
+            for node in reversed(self._stack):
+                node_name = getattr(node, "name", None)
+                if node_name == "p":
+                    return pos
+                if node_name == "menuitem":
+                    break
+        if self._template_modes and self._handle_template_mode_end(name):
             return pos
         if self._frameset_seen and not self._body_explicit:
             return pos
@@ -1552,7 +1675,7 @@ class DefaultSafeEngine:
             return pos
 
         if (
-            not self._parser_only_template_depth
+            not self._template_modes
             and len(stack) > 1
             and self._node_matches_end_name(stack[-1], name)
             and not (self._fragment_context_node is not None and stack[-1] is self._fragment_context_node)
@@ -1571,12 +1694,12 @@ class DefaultSafeEngine:
             idx = self._find_open_index_before_boundary("li", self._list_item_scope_boundaries)
         elif name in {"dd", "dt"}:
             idx = self._find_open_index_before_boundary(name, self._definition_scope_boundaries)
-        elif self._parser_only_template_depth:
+        elif self._template_modes:
             idx = self._find_open_index_in_current_scope(name)
         elif name not in self._special_elements and (action is None or not action.p_closing):
             idx = self._find_open_index_before_boundary(name, _GENERAL_END_TAG_BOUNDARIES)
         elif name in _TABLE_SCOPED_END_TAGS:
-            idx = self._find_open_index_before_boundary(name, _TABLE_CONTEXT_BOUNDARIES)
+            idx = self._find_open_html_index_before_boundary(name, _TABLE_CONTEXT_BOUNDARIES)
         else:
             idx = self._find_open_index_before_boundary(name, _DEFAULT_SCOPE_BOUNDARIES)
         if idx is None:
@@ -1639,10 +1762,10 @@ class DefaultSafeEngine:
             return pos
         tag_end = pos
         allowed = raw_mode or (action is not None and action.allowed)
-        in_parser_only_template = self._parser_only_template_depth > 0
-        if raw_mode and self._fragment and name == "html" and not in_parser_only_template:
+        in_template_content = bool(self._template_modes)
+        if raw_mode and self._fragment and name == "html" and not in_template_content:
             return pos
-        if not in_parser_only_template:
+        if not in_template_content:
             if name == "colgroup":
                 self._in_colgroup = True
             elif self._in_colgroup and name not in {"col", "template"}:
@@ -1652,7 +1775,7 @@ class DefaultSafeEngine:
                 return pos
             if name not in _HEAD_NOSCRIPT_ALLOWED_START_TAGS and name != "html":
                 self._leave_head_noscript_to_body()
-        if not self._fragment and not in_parser_only_template:
+        if not self._fragment and not in_template_content:
             current_top = self._stack[-1]
             if name == "html":
                 self._in_colgroup = False
@@ -1689,7 +1812,7 @@ class DefaultSafeEngine:
             current_top = None
 
         if (
-            not in_parser_only_template
+            not in_template_content
             and not self._fragment
             and current_top is self._head
             and not (action.head_content if action is not None else False)
@@ -1700,7 +1823,7 @@ class DefaultSafeEngine:
             current_top = self._body
 
         if (
-            not in_parser_only_template
+            not in_template_content
             and not self._fragment
             and current_top is self._html
             and self._after_head
@@ -1711,6 +1834,7 @@ class DefaultSafeEngine:
                 and allowed
                 and action.head_content
                 and self._head is not None
+                and not self._in_head_noscript
                 and not self._body_mode_seen
                 and not self._body_has_content()
             ):
@@ -1724,7 +1848,7 @@ class DefaultSafeEngine:
                 current_top = self._body
 
         if (
-            not in_parser_only_template
+            not in_template_content
             and not self._fragment
             and not self._frameset_seen
             and action is not None
@@ -1737,25 +1861,47 @@ class DefaultSafeEngine:
             else:
                 self._frameset_blocked = True
 
-        if name == "frameset" and self._accept_fragment_frameset():
+        html_text_parsing = not raw_mode or self._raw_start_uses_html_text_parsing(name)
+
+        if (
+            self._fragment
+            and self._fragment_context_namespace not in {None, "html"}
+            and name in {"html", "head", "body", "frameset"}
+        ):
             return pos
 
-        if not in_parser_only_template and name == "frameset" and self._accept_frameset():
+        if html_text_parsing and name == "frameset" and self._accept_fragment_frameset():
+            if allowed:
+                self._insert_sanitized_element(
+                    name, attrs, self_closing, self._current_parent(), tag_start=tag_start, tag_end=tag_end
+                )
+            return pos
+
+        if html_text_parsing and not in_template_content and name == "frameset" and self._accept_frameset():
+            if allowed:
+                self._insert_sanitized_element(
+                    name, attrs, self_closing, self._current_parent(), tag_start=tag_start, tag_end=tag_end
+                )
             return pos
 
         if self._frameset_seen and not self._body_explicit:
             if name == "noframes":
-                return self._parse_raw_literal_text("noframes", pos, end)
+                return self._parse_rawtext_element(name, attrs, self_closing, pos, end, tag_start, tag_end)
+            if html_text_parsing and name in {"frame", "frameset"}:
+                if allowed:
+                    self._insert_sanitized_element(
+                        name, attrs, self_closing, self._current_parent(), tag_start=tag_start, tag_end=tag_end
+                    )
+                return pos
             return pos
 
-        if name == "frame" and not raw_mode:
+        if html_text_parsing and name in {"frame", "frameset"}:
             return pos
 
-        if name == "select" and self._find_open_index("select") is not None:
+        if html_text_parsing and name == "select" and self._find_open_index("select") is not None:
             self._close_until("select")
             return pos
 
-        html_text_parsing = not raw_mode or self._raw_start_uses_html_text_parsing(name)
         if raw_mode and html_text_parsing and name in self._rawtext_element_tags:
             return self._parse_rawtext_element(name, attrs, self_closing, pos, end, tag_start, tag_end)
         if action is not None and not raw_mode and action.drop_content:
@@ -1768,7 +1914,7 @@ class DefaultSafeEngine:
             name == "noscript"
             and not self._fragment
             and self._head is not None
-            and not in_parser_only_template
+            and not in_template_content
             and self._stack[-1] is self._head
         ):
             if raw_mode:
@@ -1784,7 +1930,7 @@ class DefaultSafeEngine:
                 return self._parse_plaintext_element(name, attrs, self_closing, pos, end, tag_start, tag_end)
             return self._parse_plaintext_as_text(pos, end)
 
-        if self._fragment_context_name is not None:
+        if html_text_parsing and self._fragment_context_name is not None:
             fragment_pos = self._handle_fragment_context_start(name, attrs, self_closing, pos)
             if fragment_pos is not None:
                 return fragment_pos
@@ -1793,12 +1939,12 @@ class DefaultSafeEngine:
             self._start_parser_only_template()
             return pos
 
-        if in_parser_only_template:
+        if html_text_parsing and self._template_modes:
             template_pos = self._handle_template_mode_start(name, attrs, self_closing, pos)
             if template_pos is not None:
                 return template_pos
 
-        if name == "button" and not allowed:
+        if html_text_parsing and name == "button" and not allowed:
             if self._find_open_index_in_current_scope("button") is not None:
                 self._close_until_before_boundary("button", frozenset({"template"}))
             self._insert_sanitized_element(
@@ -1806,13 +1952,23 @@ class DefaultSafeEngine:
             )
             return pos
 
-        if action is not None and action.active_formatting:
+        if html_text_parsing and action is not None and action.active_formatting:
             return self._parse_formatting_start(name, attrs, pos, tag_start=tag_start, tag_end=tag_end)
+
+        if html_text_parsing and name == "menuitem" and self._active_formatting_dirty:
+            self._reconstruct_active_formatting()
 
         if raw_mode and name in {"option", "optgroup"} and self._find_open_index("select") is not None:
             if len(self._stack) > 1 and self._stack[-1].name == "p":
                 self._mark_active_formatting_dirty()
                 self._stack.pop()
+
+        if html_text_parsing:
+            if name in {"rb", "rtc"}:
+                if self._stack and self._stack[-1].name in {"rb", "rp", "rt", "rtc"}:
+                    self._generate_implied_end_tags()
+            elif name in {"rp", "rt"}:
+                self._generate_implied_end_tags("rtc")
 
         parent: Node
         if (
@@ -1821,6 +1977,8 @@ class DefaultSafeEngine:
             and action.head_content
             and not self._fragment
             and self._head is not None
+            and not in_template_content
+            and not self._in_head_noscript
             and not self._body_mode_seen
             and not self._body_has_content()
         ):
@@ -1829,7 +1987,7 @@ class DefaultSafeEngine:
             self._repair_stack_for_start(name)
             parent = self._current_parent()
 
-        if not in_parser_only_template and name == "table":
+        if not in_template_content and name == "table":
             table_idx = self._find_open_index("table")
             td_idx = self._find_open_index_before_boundary("td", _TABLE_CONTEXT_BOUNDARIES)
             th_idx = self._find_open_index_before_boundary("th", _TABLE_CONTEXT_BOUNDARIES)
@@ -1838,9 +1996,13 @@ class DefaultSafeEngine:
                 del self._stack[table_idx:]
                 parent = self._current_parent()
 
-        if not in_parser_only_template and (
-            (action is not None and (action.table_section or action.table_cell))
-            or name in {"caption", "col", "colgroup", "tr"}
+        if (
+            html_text_parsing
+            and not in_template_content
+            and (
+                (action is not None and (action.table_section or action.table_cell))
+                or name in {"caption", "col", "colgroup", "tr"}
+            )
         ):
             self._repair_table_for_start(name)
             parent = self._current_parent()
@@ -1882,6 +2044,9 @@ class DefaultSafeEngine:
             parent = self._current_parent()
 
         self._insert_sanitized_element(name, attrs, self_closing, parent, tag_start=tag_start, tag_end=tag_end)
+        if self._in_head_noscript and name in _HEAD_NOSCRIPT_VOID_START_TAGS:
+            if len(self._stack) > 1 and getattr(self._stack[-1], "name", None) == name:
+                self._stack.pop()
         if action is not None and action.pre_linefeed:
             self._ignore_lf = True
         return pos
@@ -1922,8 +2087,8 @@ class DefaultSafeEngine:
             node._start_tag_end = tag_end
         if name == "selectedcontent":
             self._has_selectedcontent = True
-        is_void = name in self._void_elements
-        node._self_closing = self_closing and is_void
+        is_void = name in self._void_elements or (namespace not in {None, "html"} and self_closing)
+        node._self_closing = self_closing and name in self._void_elements
         foster = (
             self._foster_parent_for(parent, for_tag=name)
             if parent.name in self._table_foster_targets and name not in self._table_allowed_children
@@ -1941,6 +2106,8 @@ class DefaultSafeEngine:
             self._nodes_to_unwrap.append(node)
         if not is_void:
             self._stack.append(node)
+            if type(node) is Template and node.namespace in {None, "html"}:
+                self._enter_template_mode()
             if name in self._table_cell_tags:
                 self._push_active_formatting_marker()
             elif name in _ACTIVE_FORMATTING_MARKER_TAGS:
@@ -1990,6 +2157,8 @@ class DefaultSafeEngine:
             self._insert_at(foster_parent, position, node)
         if not is_void:
             self._stack.append(node)
+            if type(node) is Template and node.namespace in {None, "html"}:
+                self._enter_template_mode()
             if name in self._table_cell_tags:
                 self._push_active_formatting_marker()
             elif name in _ACTIVE_FORMATTING_MARKER_TAGS:
@@ -2023,7 +2192,11 @@ class DefaultSafeEngine:
             )
             if not breaks_out:
                 return current_ns or "html"
-            while len(self._stack) > 1 and self._stack[-1].namespace not in {None, "html"}:
+            while (
+                len(self._stack) > 1
+                and self._stack[-1].namespace not in {None, "html"}
+                and self._stack[-1] is not self._fragment_context_node
+            ):
                 self._stack.pop()
 
         if name == "svg":
@@ -2132,13 +2305,29 @@ class DefaultSafeEngine:
                 return None
         return None
 
+    def _find_open_html_index_before_boundary(self, name: str, boundaries: frozenset[str]) -> int | None:
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            node = stack[idx]
+            if node.namespace not in {None, "html"}:
+                continue
+            node_name = node.name
+            if node_name == name:
+                return idx
+            if node_name in boundaries:
+                return None
+        return None
+
     def _find_open_index_in_current_scope(self, name: str) -> int | None:
         stack = self._stack
         for idx in range(len(stack) - 1, 0, -1):
             node = stack[idx]
             if node.name == name:
                 return idx
-            if node.name == "template" and node.namespace == _PARSER_ONLY_NAMESPACE:
+            if node.name == "template" and (
+                node.namespace == _PARSER_ONLY_NAMESPACE
+                or (type(node) is Template and node.namespace in {None, "html"})
+            ):
                 return None
         return None
 
@@ -2277,6 +2466,9 @@ class DefaultSafeEngine:
             return pos
 
         if mode == _TEMPLATE_MODE_COLGROUP:
+            if name == "col":
+                self._insert_template_mode_element(name, attrs, self_closing)
+                return pos
             return pos
 
         if mode == _TEMPLATE_MODE_INITIAL:
@@ -2288,8 +2480,13 @@ class DefaultSafeEngine:
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
                 self._insert_template_mode_element(name, attrs, self_closing)
                 return pos
-            if name in {"col", "colgroup"}:
+            if name == "colgroup":
                 self._set_current_template_mode(_TEMPLATE_MODE_COLGROUP)
+                self._insert_template_mode_element(name, attrs, self_closing)
+                return pos
+            if name == "col":
+                self._set_current_template_mode(_TEMPLATE_MODE_COLGROUP)
+                self._insert_template_mode_element(name, attrs, self_closing)
                 return pos
             if name == "tr":
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
@@ -2358,6 +2555,9 @@ class DefaultSafeEngine:
             return pos
         if name in _TEMPLATE_TABLE_BODY_IGNORED_START_TAGS:
             return pos
+        if self._close_open_template_table_section():
+            self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
+            return self._handle_template_mode_start(name, attrs, self_closing, pos)
         return None
 
     def _handle_template_row_start(
@@ -2368,6 +2568,8 @@ class DefaultSafeEngine:
         pos: int,
     ) -> int | None:
         tr_index = self._find_open_index_before_boundary("tr", _TEMPLATE_SCOPE_BOUNDARIES)
+        if name in self._head_content_tags:
+            return None
         if name in self._table_cell_tags:
             self._set_current_template_mode(_TEMPLATE_MODE_CELL)
             self._insert_template_mode_element(name, attrs, self_closing)
@@ -2518,6 +2720,8 @@ class DefaultSafeEngine:
             self._close_until_before_boundary("tr", _TABLE_CONTEXT_BOUNDARIES)
             for section in self._table_section_tags:
                 self._close_until_before_boundary(section, _TABLE_CONTEXT_BOUNDARIES)
+            if name == "col" and getattr(self._current_parent(), "name", None) == "table":
+                self._insert_sanitized_element("colgroup", {}, False, self._current_parent())
             return
 
         if name == "caption":
@@ -2744,6 +2948,8 @@ class DefaultSafeEngine:
         text = (
             raw_text if raw_text.isascii() or not self._strip_invisible_unicode else _strip_invisible_unicode(raw_text)
         )
+        if self._xml_coercion and text:
+            text = _coerce_text_for_xml(text)
         if not text:
             return pos
         parent: Node
@@ -2850,6 +3056,8 @@ class DefaultSafeEngine:
             raw_text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
         if "\0" in raw_text:
             raw_text = raw_text.replace("\0", "\ufffd")
+        if self._xml_coercion and raw_text:
+            raw_text = _coerce_text_for_xml(raw_text)
         if raw_text:
             self._append(node, self._new_text(raw_text, text_start))
         if self._stack and self._stack[-1] is node:
@@ -2861,6 +3069,8 @@ class DefaultSafeEngine:
             not self._fragment
             and name in self._head_content_tags
             and self._head is not None
+            and not self._template_modes
+            and not self._in_head_noscript
             and not self._body_explicit
             and not self._body_has_content()
         )
@@ -2887,6 +3097,8 @@ class DefaultSafeEngine:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
         if "\0" in text:
             text = text.replace("\0", "\ufffd")
+        if self._xml_coercion and text:
+            text = _coerce_text_for_xml(text)
         if text:
             self._append(node, self._new_text(text, pos))
         return end
@@ -2912,6 +3124,8 @@ class DefaultSafeEngine:
             text = text.replace("\0", "\ufffd")
         if self._strip_invisible_unicode and text and not text.isascii():
             text = _strip_invisible_unicode(text)
+        if self._xml_coercion and text:
+            text = _coerce_text_for_xml(text)
         if text:
             parent = (
                 self._html
@@ -3266,6 +3480,8 @@ class DefaultSafeEngine:
         node.parent = None
 
     def _append_moved_node(self, parent: Node, node: Node) -> None:
+        if type(parent) is Template and parent.template_content is not None:
+            parent = parent.template_content
         children = parent.children
         if children is None:
             return
@@ -3273,6 +3489,8 @@ class DefaultSafeEngine:
         node.parent = parent
 
     def _insert_moved_node_at(self, parent: Node, position: int, node: Node) -> None:
+        if type(parent) is Template and parent.template_content is not None:
+            parent = parent.template_content
         children = parent.children
         if children is None:
             return
@@ -3838,8 +4056,30 @@ class DefaultSafeEngine:
                 if (child.data or "").strip(_SPACE):
                     return False
                 continue
+            if getattr(child, "namespace", None) not in {None, "html"}:
+                if self._foreign_subtree_allows_frameset(child):
+                    continue
+                return False
             name = getattr(child, "name", None)
+            if name == "input":
+                attrs = getattr(child, "attrs", None)
+                input_type = attrs.get("type") if attrs is not None else None
+                if isinstance(input_type, str) and input_type.lower() == "hidden":
+                    continue
             if name not in self._frameset_body_ok_tags or not self._body_allows_frameset(child):
+                return False
+        return True
+
+    def _foreign_subtree_allows_frameset(self, node: Node) -> bool:
+        children = node.children
+        if not children:
+            return True
+        for child in children:
+            if type(child) is Text:
+                if (child.data or "").strip(_SPACE + "\ufffd"):
+                    return False
+                continue
+            if not self._foreign_subtree_allows_frameset(child):
                 return False
         return True
 
@@ -3849,5 +4089,7 @@ class DefaultSafeEngine:
         if self._html is None:
             return
         text = "".join(ch for ch in raw if ch in _SPACE)
+        if self._xml_coercion and text:
+            text = _coerce_text_for_xml(text)
         if text:
             self._append(self._html, self._new_text(text))

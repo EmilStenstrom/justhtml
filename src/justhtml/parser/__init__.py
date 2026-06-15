@@ -11,9 +11,7 @@ from justhtml.sanitizer import (
     _sanitize_url_value_with_rule,
 )
 from justhtml.serializer import to_html as serialize_html
-from justhtml.tokenizer import Tokenizer, TokenizerOpts
 from justhtml.transforms import apply_compiled_transforms, compile_transforms
-from justhtml.treebuilder import TreeBuilder
 
 from .context import FragmentContext
 from .default_safe_engine import (
@@ -63,8 +61,8 @@ class JustHTML:
     errors: list[ParseError]
     fragment_context: FragmentContext | None
     root: Document | DocumentFragment
-    tokenizer: Tokenizer
-    tree_builder: TreeBuilder
+    tokenizer: Any | None
+    tree_builder: Any | None
 
     def __init__(
         self,
@@ -81,7 +79,7 @@ class JustHTML:
         iframe_srcdoc: bool = False,
         scripting_enabled: bool = True,
         strict: bool = False,
-        _tokenizer_opts: TokenizerOpts | None = None,
+        _tokenizer_opts: Any | None = None,
         transforms: list[TransformSpec] | None = None,
     ) -> None:
         sanitize_enabled = True if sanitize is None else bool(sanitize)
@@ -97,7 +95,6 @@ class JustHTML:
         has_harden_rawtext_transform = False
         explicit_sanitize_policy: SanitizationPolicy | None = None
         explicit_rawtext_policy: SanitizationPolicy | None = None
-        needs_escape_incomplete_tags = False
         if transforms:
             from justhtml.sanitizer import DEFAULT_POLICY  # noqa: PLC0415
             from justhtml.transforms import (  # noqa: PLC0415
@@ -117,7 +114,6 @@ class JustHTML:
                     effective = t.policy or policy or DEFAULT_POLICY
                     if effective.disallowed_tag_handling == "escape":
                         track_tag_spans = True
-                        needs_escape_incomplete_tags = True
                 if isinstance(t, HardenRawtext):
                     has_harden_rawtext_transform = True
                     if explicit_rawtext_policy is None:
@@ -128,7 +124,6 @@ class JustHTML:
         if sanitize_enabled and not has_sanitize_transform and policy is not None:
             if policy.disallowed_tag_handling == "escape":
                 track_tag_spans = True
-                needs_escape_incomplete_tags = True
 
         self.debug = bool(debug)
         self.fragment_context = fragment_context
@@ -173,110 +168,58 @@ class JustHTML:
 
                 engine_policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
 
-        if _tokenizer_opts is None:
-            self.tree_builder = None  # type: ignore[assignment]
-            self.tokenizer = None  # type: ignore[assignment]
-            use_compiled_safe_engine = (
-                engine_policy is not None
-                and not transforms
-                and can_compile_engine_plan(engine_policy, fragment=fragment)
-            )
-            if use_compiled_safe_engine:
-                if policy is None:
-                    engine_plan = compile_default_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
-                else:
-                    engine_plan = compile_engine_plan(
-                        policy=cast("SanitizationPolicy", engine_policy),
-                        fragment=fragment,
-                        scripting_enabled=scripting_enabled,
-                    )
-            else:
-                engine_plan = compile_raw_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
-            engine = DefaultSafeEngine(
-                html_str,
-                fragment=fragment,
-                fragment_context=fragment_context,
-                scripting_enabled=scripting_enabled,
-                plan=engine_plan,
-                collect_errors=should_collect,
-                iframe_srcdoc=iframe_srcdoc,
-                track_node_locations=bool(track_node_locations),
-                track_tag_spans=bool(track_node_locations) or track_tag_spans,
-            )
-            self.root = engine.parse()
+        xml_coercion = False
+        if _tokenizer_opts is not None:
+            if bool(getattr(_tokenizer_opts, "discard_bom", True)) and html_str.startswith("\ufeff"):
+                html_str = html_str[1:]
+            xml_coercion = bool(getattr(_tokenizer_opts, "xml_coercion", False))
+            if bool(getattr(_tokenizer_opts, "emit_bogus_markup_as_text", False)):
+                track_tag_spans = True
 
-            transform_errors: list[ParseError] = []
-            if not use_compiled_safe_engine:
-                transform_errors = self._apply_constructor_transforms(
-                    transforms=transforms,
-                    sanitize_enabled=sanitize_enabled,
-                    policy=policy,
-                    has_sanitize_transform=has_sanitize_transform,
+        self.tree_builder = None
+        self.tokenizer = None
+        use_compiled_safe_engine = (
+            engine_policy is not None and not transforms and can_compile_engine_plan(engine_policy, fragment=fragment)
+        )
+        if use_compiled_safe_engine:
+            if policy is None:
+                engine_plan = compile_default_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
+            else:
+                engine_plan = compile_engine_plan(
+                    policy=cast("SanitizationPolicy", engine_policy),
+                    fragment=fragment,
+                    scripting_enabled=scripting_enabled,
                 )
+        else:
+            engine_plan = compile_raw_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
 
-            if should_collect:
-                self.errors = self._sorted_errors(engine.errors + transform_errors)
-            else:
-                self.errors = transform_errors
-            if strict and self.errors:
-                raise StrictModeError(self.errors[0])
-            return
-
-        self.tree_builder = TreeBuilder(
+        engine = DefaultSafeEngine(
+            html_str,
+            fragment=fragment,
             fragment_context=fragment_context,
-            iframe_srcdoc=iframe_srcdoc,
-            collect_errors=should_collect,
             scripting_enabled=scripting_enabled,
-            track_node_locations=bool(track_node_locations),
-            track_tag_spans=track_tag_spans,
-        )
-        opts = _tokenizer_opts.copy() if _tokenizer_opts is not None else TokenizerOpts()
-        opts.scripting_enabled = bool(scripting_enabled)
-        if needs_escape_incomplete_tags:
-            opts.emit_bogus_markup_as_text = True
-
-        # For text-like HTML fragment contexts, set the initial tokenizer state
-        # to match the context element.
-        if fragment_context and fragment_context.namespace in {None, "html"}:
-            tag_name = fragment_context.tag_name.lower()
-            if tag_name in {"textarea", "title"}:
-                opts.initial_state = Tokenizer.RCDATA
-            elif tag_name in {"iframe", "noembed", "noframes", "script", "style", "xmp"} or (
-                tag_name == "noscript" and opts.scripting_enabled
-            ):
-                opts.initial_state = Tokenizer.RAWTEXT
-            elif tag_name == "plaintext":
-                opts.initial_state = Tokenizer.PLAINTEXT
-
-        self.tokenizer = Tokenizer(
-            self.tree_builder,
-            opts,
+            plan=engine_plan,
             collect_errors=should_collect,
+            iframe_srcdoc=iframe_srcdoc,
             track_node_locations=bool(track_node_locations),
-            track_tag_positions=bool(track_node_locations) or track_tag_spans,
+            track_tag_spans=bool(track_node_locations) or track_tag_spans,
+            xml_coercion=xml_coercion,
         )
-        # Link tokenizer to tree_builder for position info
-        self.tree_builder.tokenizer = self.tokenizer
+        self.root = engine.parse()
 
-        self.tokenizer.run(html_str)
-        self.root = cast("Document | DocumentFragment", self.tree_builder.finish())
-
-        transform_errors = self._apply_constructor_transforms(
-            transforms=transforms,
-            sanitize_enabled=sanitize_enabled,
-            policy=policy,
-            has_sanitize_transform=has_sanitize_transform,
-        )
+        transform_errors: list[ParseError] = []
+        if not use_compiled_safe_engine:
+            transform_errors = self._apply_constructor_transforms(
+                transforms=transforms,
+                sanitize_enabled=sanitize_enabled,
+                policy=policy,
+                has_sanitize_transform=has_sanitize_transform,
+            )
 
         if should_collect:
-            # Merge errors from both tokenizer and tree builder.
-            # Public API: users expect errors to be ordered by input position.
-            merged_errors = self.tokenizer.errors + self.tree_builder.errors + transform_errors
-            self.errors = self._sorted_errors(merged_errors)
+            self.errors = self._sorted_errors(engine.errors + transform_errors)
         else:
             self.errors = transform_errors
-
-        # In strict mode, raise on first error
         if strict and self.errors:
             raise StrictModeError(self.errors[0])
 
