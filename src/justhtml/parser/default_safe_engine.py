@@ -125,6 +125,7 @@ _P_CLOSING_START_TAGS = {
     "dd",
     "dt",
     "li",
+    "xmp",
 } | HEADING_ELEMENTS
 _HEAD_NOSCRIPT_ALLOWED_START_TAGS = {"basefont", "bgsound", "link", "meta", "noframes", "style"}
 _HEAD_NOSCRIPT_VOID_START_TAGS = {"basefont", "bgsound"}
@@ -1068,6 +1069,7 @@ class DefaultSafeEngine:
             and not self._explicit_head
             and not self._body_mode_seen
             and not self._body_has_content()
+            and self._current_parent() is self._body
         ):
             children = self._html.children
             if children is not None:
@@ -2930,6 +2932,8 @@ class DefaultSafeEngine:
                 continue
             tag_end = self._find_tag_end(after_name, end)
             if tag_end == -1:
+                if after_name < end and not html[after_name:end].strip(_SPACE + "/"):
+                    return close, end
                 search = after_name
                 continue
             next_pos = tag_end + 1
@@ -3101,8 +3105,15 @@ class DefaultSafeEngine:
         tag_end: int,
     ) -> int:
         parent: Node
+        parsed_in_initial_head = False
+        if (
+            name in self._p_closing_start_tags
+            and self._find_open_index_before_boundary("p", _P_SCOPE_BOUNDARIES) is not None
+        ):
+            self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
         if self._raw_head_text_parent(name) and self._head is not None:
             parent = self._head
+            parsed_in_initial_head = self._current_parent() is not self._head
         else:
             parent = self._current_parent()
         node = self._insert_sanitized_element(name, attrs, self_closing, parent, tag_start=tag_start, tag_end=tag_end)
@@ -3128,6 +3139,8 @@ class DefaultSafeEngine:
             self._append(node, self._new_text(raw_text, text_start))
         if self._stack and self._stack[-1] is node:
             self._stack.pop()
+        if parsed_in_initial_head and self._html is not None and self._head is not None:
+            self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
         return pos
 
     def _raw_head_text_parent(self, name: str) -> bool:
