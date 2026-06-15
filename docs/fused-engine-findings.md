@@ -384,13 +384,27 @@ escape-mode sanitization, and the source spans required by `Escape(...)`.
 Location tracking is now handled directly by the engine through opt-in origin
 and tag-span metadata.
 
-The current verification numbers for this pass are:
+That fallback-era public API routing pass verified:
 
 - Full harness: `10323/10323` passed, `6` skipped.
 - Default-safe html5lib differential: `1783/1783` exact matches, excluding `8`
   script-on cases.
 - Default-safe web100k gate: `0.533649s` median over `31` iterations, `2.012x`
   speedup against the recorded `1.073689s` baseline.
+
+The current replacement-path checkpoint removes the constructor fallback to
+`Tokenizer`/`TreeBuilder` and routes raw/tokenizer-option test harness cases
+through `DefaultSafeEngine` as well. The raw tree-construction score is now
+`1620/1791` (`90.4%`) excluding the `script-on` cases that require JavaScript
+execution. The default-safe differential remains exact at `1783/1783`, excluding
+the same `8` script-on cases, and the web100k gate is `0.580982s` median over
+`15` iterations, a `1.848x` speedup against the recorded `1.073689s` baseline.
+
+This pass promoted several formerly PoC behaviors into explicit parser state:
+real template insertion-mode stack entries, fragment-context-aware foreign
+content, XML coercion, head-noscript handling, frameset eligibility, colgroup
+text handling, foreign self-closing tags, table end tags crossing foreign
+content, and menuitem compatibility behavior.
 
 ## Current Conclusion
 
@@ -399,8 +413,11 @@ pipeline. It is a new default-safe parser with its own small set of direct
 handlers, then incremental parity work driven by differential fixtures.
 
 The strongest signal so far is that the parser can now match every scored
-html5lib tree-construction case in the default-safe differential runner while
-still clearing the `2x` benchmark gate, with no scorecard exceptions.
+html5lib tree-construction case in the default-safe differential runner with no
+scorecard exceptions, while the raw replacement path has crossed 90% upstream
+tree-suite compliance. The remaining work is parser compliance margin and
+performance margin: the raw path is not complete yet, and the latest broad
+replacement pass is below the original `2x` gate at `1.848x`.
 
 The next engineering step is to keep `DefaultSafeEngine` as the productionizing
 target: define state boundaries, add focused golden tests for each promoted
