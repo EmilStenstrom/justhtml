@@ -129,6 +129,7 @@ _P_CLOSING_START_TAGS = {
 _HEAD_NOSCRIPT_ALLOWED_START_TAGS = {"basefont", "bgsound", "link", "meta", "noframes", "style"}
 _HEAD_NOSCRIPT_VOID_START_TAGS = {"basefont", "bgsound"}
 _HEAD_ONLY_VOID_START_TAGS = {"basefont", "bgsound"}
+_HTML_VOID_COMPAT_TAGS = {"keygen"}
 _DEFINITION_SCOPE_BOUNDARIES = frozenset(DEFINITION_SCOPE_TERMINATORS)
 _LIST_ITEM_SCOPE_BOUNDARIES = frozenset(LIST_ITEM_SCOPE_TERMINATORS)
 _PRE_LINEFEED_IGNORING_TAGS = {"listing", "pre"}
@@ -982,7 +983,19 @@ class DefaultSafeEngine:
                 self._append_raw_literal_text(self._html_input, 0)
                 return root
 
-            if context_name and context_name != "div":
+            if html_context and context_name == "html":
+                context = Element("html", {}, "html")
+                head = Element("head", {}, "html")
+                body = Element("body", {}, "html")
+                self._append(root, context)
+                self._append(context, head)
+                self._append(context, body)
+                self._fragment_context_node = context
+                self._html = context
+                self._head = head
+                self._body = body
+                self._stack = [root, context, body]
+            elif context_name and context_name != "div":
                 context = Element(context_name, {}, self._fragment_context_namespace or "html")
                 self._append(root, context)
                 self._fragment_context_node = context
@@ -1599,6 +1612,9 @@ class DefaultSafeEngine:
                 if self._track_tag_spans:
                     self._set_end_span(self._html, name, tag_start, tag_end)
             return pos
+        if self._fragment and self._fragment_context_name == "html" and name == "html":
+            self._stack = [self._doc]
+            return pos
         if not self._fragment and name == "head":
             self._in_colgroup = False
             if self._head is not None:
@@ -1869,6 +1885,16 @@ class DefaultSafeEngine:
 
         html_text_parsing = not raw_mode or self._raw_start_uses_html_text_parsing(name)
 
+        if html_text_parsing and self._fragment_context_name == "select" and name == "input":
+            return pos
+
+        if html_text_parsing and self._fragment_context_name == "frameset" and name == "frame":
+            if allowed:
+                self._insert_sanitized_element(
+                    name, attrs, self_closing, self._current_parent(), tag_start=tag_start, tag_end=tag_end
+                )
+            return pos
+
         if (
             self._fragment
             and self._fragment_context_namespace not in {None, "html"}
@@ -2098,7 +2124,11 @@ class DefaultSafeEngine:
             node._start_tag_end = tag_end
         if name == "selectedcontent":
             self._has_selectedcontent = True
-        is_void = name in self._void_elements or (namespace not in {None, "html"} and self_closing)
+        is_void = (
+            name in self._void_elements
+            or name in _HTML_VOID_COMPAT_TAGS
+            or (namespace not in {None, "html"} and self_closing)
+        )
         node._self_closing = self_closing and name in self._void_elements
         foster = (
             self._foster_parent_for(parent, for_tag=name)
@@ -2153,7 +2183,11 @@ class DefaultSafeEngine:
             node._start_tag_end = tag_end
         if name == "selectedcontent":
             self._has_selectedcontent = True
-        is_void = name in self._void_elements or (namespace not in {None, "html"} and self_closing)
+        is_void = (
+            name in self._void_elements
+            or name in _HTML_VOID_COMPAT_TAGS
+            or (namespace not in {None, "html"} and self_closing)
+        )
         node._self_closing = self_closing and name in self._void_elements
         foster = (
             self._foster_parent_for(parent, for_tag=name)
@@ -2408,14 +2442,31 @@ class DefaultSafeEngine:
         if context_name is None:
             return None
 
+        if context_name == "html":
+            return pos if name in {"html", "head", "body"} else None
+
+        if context_name in {"body", "div"} and name in {"body", "frameset"}:
+            return pos
+
         if context_name == "colgroup":
+            if name == "col":
+                if self._close_to_fragment_context():
+                    self._insert_sanitized_element(name, attrs, self_closing, self._current_parent())
             return pos
 
         if context_name == "caption":
             return pos if name in _TABLE_STRUCTURE_START_TAGS and name != "table" else None
 
         if context_name == "table":
-            if name in {"col", "colgroup", "table"}:
+            if name == "colgroup":
+                if self._close_to_fragment_context():
+                    self._insert_sanitized_element(name, attrs, self_closing, self._current_parent())
+                return pos
+            if name == "col":
+                if getattr(self._current_parent(), "name", None) == "colgroup":
+                    self._insert_sanitized_element(name, attrs, self_closing, self._current_parent())
+                return pos
+            if name == "table":
                 return pos
             if name == "caption":
                 if self._close_to_fragment_context():
@@ -4050,6 +4101,9 @@ class DefaultSafeEngine:
         children = self._body.children
         if children is not None:
             children.clear()
+        if self._html is not None and isinstance(self._body, Element):
+            self._remove_child(self._html, self._body)
+            self._stack = [self._doc, self._html]
         self._frameset_seen = True
         self._mark_active_formatting_dirty()
         return True

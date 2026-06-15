@@ -395,10 +395,10 @@ That fallback-era public API routing pass verified:
 The current replacement-path checkpoint removes the constructor fallback to
 `Tokenizer`/`TreeBuilder` and routes raw/tokenizer-option test harness cases
 through `DefaultSafeEngine` as well. The raw tree-construction score is now
-`1637/1791` (`91.4%`) excluding the `script-on` cases that require JavaScript
+`1658/1791` (`92.5%`) excluding the `script-on` cases that require JavaScript
 execution. The default-safe differential remains exact at `1783/1783`, excluding
-the same `8` script-on cases, and the web100k gate is `0.567029s` median over
-`15` iterations, a `1.894x` speedup against the recorded `1.073689s` baseline.
+the same `8` script-on cases, and the web100k gate is `0.582832s` median over
+`15` iterations, a `1.842x` speedup against the recorded `1.073689s` baseline.
 
 This pass promoted several formerly PoC behaviors into explicit parser state:
 real template insertion-mode stack entries, fragment-context-aware foreign
@@ -406,12 +406,13 @@ content, XML coercion, head-noscript handling, frameset eligibility, colgroup
 text handling, foreign self-closing tags, table end tags crossing foreign
 content, and menuitem compatibility behavior.
 
-The latest incremental compliance batch keeps the same architecture and raises
-raw tree-construction compliance to `1637/1791` (`91.4%`) with a `0.567029s`
-median over `15` web100k iterations, a `1.894x` speedup. It adds raw foreign
+The latest incremental compliance batches keep the same architecture and raise
+raw tree-construction compliance to `1658/1791` (`92.5%`) with a `0.582832s`
+median over `15` web100k iterations, a `1.842x` speedup. They add raw foreign
 self-closing insertion, hidden-input table handling, select/input repair,
-head-only `basefont`/`bgsound` handling, and active-formatting reconstruction
-for `menuitem`.
+head-only `basefont`/`bgsound` handling, active-formatting reconstruction for
+`menuitem`, and explicit fragment-context state for `html`, `body`, `div`,
+`colgroup`, `select`, and `frameset`.
 
 ## Current Conclusion
 
@@ -424,7 +425,7 @@ html5lib tree-construction case in the default-safe differential runner with no
 scorecard exceptions, while the raw replacement path has crossed 90% upstream
 tree-suite compliance. The remaining work is parser compliance margin and
 performance margin: the raw path is not complete yet, and the latest broad
-replacement pass is below the original `2x` gate at `1.894x`.
+replacement pass is below the original `2x` gate at `1.842x`.
 
 The next engineering step is to keep `DefaultSafeEngine` as the productionizing
 target: define state boundaries, add focused golden tests for each promoted
