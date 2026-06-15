@@ -128,6 +128,7 @@ _P_CLOSING_START_TAGS = {
 } | HEADING_ELEMENTS
 _HEAD_NOSCRIPT_ALLOWED_START_TAGS = {"basefont", "bgsound", "link", "meta", "noframes", "style"}
 _HEAD_NOSCRIPT_VOID_START_TAGS = {"basefont", "bgsound"}
+_HEAD_ONLY_VOID_START_TAGS = {"basefont", "bgsound"}
 _DEFINITION_SCOPE_BOUNDARIES = frozenset(DEFINITION_SCOPE_TERMINATORS)
 _LIST_ITEM_SCOPE_BOUNDARIES = frozenset(LIST_ITEM_SCOPE_TERMINATORS)
 _PRE_LINEFEED_IGNORING_TAGS = {"listing", "pre"}
@@ -186,6 +187,11 @@ def _coerce_text_for_xml(text: str) -> str:
 
 def _coerce_comment_for_xml(text: str) -> str:
     return text.replace("--", "- -") if "--" in text else text
+
+
+def _is_hidden_input(name: str, attrs: dict[str, str | None]) -> bool:
+    input_type = attrs.get("type") if name == "input" else None
+    return isinstance(input_type, str) and input_type.lower() == "hidden"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1901,6 +1907,8 @@ class DefaultSafeEngine:
         if html_text_parsing and name == "select" and self._find_open_index("select") is not None:
             self._close_until("select")
             return pos
+        if html_text_parsing and name == "input" and self._find_open_index("select") is not None:
+            self._close_until("select")
 
         if raw_mode and html_text_parsing and name in self._rawtext_element_tags:
             return self._parse_rawtext_element(name, attrs, self_closing, pos, end, tag_start, tag_end)
@@ -2044,6 +2052,9 @@ class DefaultSafeEngine:
             parent = self._current_parent()
 
         self._insert_sanitized_element(name, attrs, self_closing, parent, tag_start=tag_start, tag_end=tag_end)
+        if name in _HEAD_ONLY_VOID_START_TAGS and parent is self._head:
+            if len(self._stack) > 1 and getattr(self._stack[-1], "name", None) == name:
+                self._stack.pop()
         if self._in_head_noscript and name in _HEAD_NOSCRIPT_VOID_START_TAGS:
             if len(self._stack) > 1 and getattr(self._stack[-1], "name", None) == name:
                 self._stack.pop()
@@ -2091,7 +2102,9 @@ class DefaultSafeEngine:
         node._self_closing = self_closing and name in self._void_elements
         foster = (
             self._foster_parent_for(parent, for_tag=name)
-            if parent.name in self._table_foster_targets and name not in self._table_allowed_children
+            if parent.name in self._table_foster_targets
+            and name not in self._table_allowed_children
+            and not _is_hidden_input(name, attrs)
             else None
         )
         if foster is None:
@@ -2140,11 +2153,13 @@ class DefaultSafeEngine:
             node._start_tag_end = tag_end
         if name == "selectedcontent":
             self._has_selectedcontent = True
-        is_void = name in self._void_elements
-        node._self_closing = self_closing and is_void
+        is_void = name in self._void_elements or (namespace not in {None, "html"} and self_closing)
+        node._self_closing = self_closing and name in self._void_elements
         foster = (
             self._foster_parent_for(parent, for_tag=name)
-            if parent.name in self._table_foster_targets and name not in self._table_allowed_children
+            if parent.name in self._table_foster_targets
+            and name not in self._table_allowed_children
+            and not _is_hidden_input(name, attrs)
             else None
         )
         if foster is None:
