@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any, TypeAlias, cast
 from justhtml.serializer import to_html
 
 if TYPE_CHECKING:
+    from justhtml.core.types import Doctype
     from justhtml.serializer import HTMLContext
-    from justhtml.tokenizer.tokens import Doctype
 
 
 def _to_text_collect(node: NodeType, parts: list[str], strip: bool) -> None:

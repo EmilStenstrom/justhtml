@@ -24,10 +24,12 @@ from .default_safe_engine import (
 from .encoding import decode_html
 
 if TYPE_CHECKING:
+    from justhtml.core.types import ParseError
     from justhtml.sanitizer import SanitizationPolicy
     from justhtml.serializer import HTMLContext
-    from justhtml.tokenizer.tokens import ParseError
     from justhtml.transforms import TransformSpec
+
+    from .options import ParserOptions
 
 
 class StrictModeError(SyntaxError):
@@ -54,15 +56,13 @@ class StrictModeError(SyntaxError):
 
 
 class JustHTML:
-    __slots__ = ("debug", "encoding", "errors", "fragment_context", "root", "tokenizer", "tree_builder")
+    __slots__ = ("debug", "encoding", "errors", "fragment_context", "root")
 
     debug: bool
     encoding: str | None
     errors: list[ParseError]
     fragment_context: FragmentContext | None
     root: Document | DocumentFragment
-    tokenizer: Any | None
-    tree_builder: Any | None
 
     def __init__(
         self,
@@ -79,7 +79,7 @@ class JustHTML:
         iframe_srcdoc: bool = False,
         scripting_enabled: bool = True,
         strict: bool = False,
-        _tokenizer_opts: Any | None = None,
+        _parser_opts: ParserOptions | None = None,
         transforms: list[TransformSpec] | None = None,
     ) -> None:
         sanitize_enabled = True if sanitize is None else bool(sanitize)
@@ -169,15 +169,13 @@ class JustHTML:
                 engine_policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
 
         xml_coercion = False
-        if _tokenizer_opts is not None:
-            if bool(getattr(_tokenizer_opts, "discard_bom", True)) and html_str.startswith("\ufeff"):
+        if _parser_opts is not None:
+            if bool(getattr(_parser_opts, "discard_bom", True)) and html_str.startswith("\ufeff"):
                 html_str = html_str[1:]
-            xml_coercion = bool(getattr(_tokenizer_opts, "xml_coercion", False))
-            if bool(getattr(_tokenizer_opts, "emit_bogus_markup_as_text", False)):
+            xml_coercion = bool(getattr(_parser_opts, "xml_coercion", False))
+            if bool(getattr(_parser_opts, "emit_bogus_markup_as_text", False)):
                 track_tag_spans = True
 
-        self.tree_builder = None
-        self.tokenizer = None
         use_compiled_safe_engine = (
             engine_policy is not None and not transforms and can_compile_engine_plan(engine_policy, fragment=fragment)
         )

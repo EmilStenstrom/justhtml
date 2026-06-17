@@ -1,7 +1,7 @@
 """Centralized error message definitions and helpers for JustHTML errors.
 
 This module provides human-readable error messages for parse error codes
-emitted by the tokenizer and tree builder during HTML parsing, plus selected
+emitted by the parser during scanning and tree construction, plus selected
 security findings emitted by the sanitizer.
 """
 
@@ -20,7 +20,7 @@ def generate_error_message(code: str, tag_name: str | None = None) -> str:
     """
     messages = {
         # ================================================================
-        # TOKENIZER ERRORS
+        # SCANNER ERRORS
         # ================================================================
         # DOCTYPE errors
         "eof-in-doctype": "Unexpected end of file in DOCTYPE declaration",

@@ -230,22 +230,22 @@ def compare_outputs(expected, actual):
 
 def run_test_justhtml(html, fragment_context, expected, xml_coercion=False, iframe_srcdoc=False):
     """Run a single test with JustHTML."""
-    from justhtml.tokenizer import TokenizerOpts
+    from justhtml.parser.options import ParserOptions
 
     try:
-        opts = TokenizerOpts(xml_coercion=xml_coercion)
+        opts = ParserOptions(xml_coercion=xml_coercion)
         if fragment_context:
             namespace, tag_name = fragment_context
             ctx = FragmentContext(tag_name, namespace)
             parser = JustHTML(
                 html,
                 fragment_context=ctx,
-                _tokenizer_opts=opts,
+                _parser_opts=opts,
                 iframe_srcdoc=iframe_srcdoc,
                 sanitize=False,
             )
         else:
-            parser = JustHTML(html, _tokenizer_opts=opts, iframe_srcdoc=iframe_srcdoc, sanitize=False)
+            parser = JustHTML(html, _parser_opts=opts, iframe_srcdoc=iframe_srcdoc, sanitize=False)
         actual = to_test_format(parser.root)
         return _compare_result(expected, actual)
     except Exception as e:

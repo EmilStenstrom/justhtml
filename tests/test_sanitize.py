@@ -4,6 +4,7 @@ import unittest
 
 import justhtml
 from justhtml import JustHTML, Sanitize, SetAttrs
+from justhtml.core.types import ParseError
 from justhtml.dom import Comment, DocumentFragment, Element, Node, Template, Text
 from justhtml.sanitizer import (
     CSS_PRESET_TEXT,
@@ -39,7 +40,6 @@ from justhtml.sanitizer import _sanitize as sanitize
 from justhtml.sanitizer import policy_defaults as sanitize_policy_defaults
 from justhtml.sanitizer.url import _url_sink_kind_for_attr
 from justhtml.serializer import to_html
-from justhtml.tokenizer.tokens import ParseError
 
 
 class _CoverageSentinel:

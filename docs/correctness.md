@@ -10,7 +10,6 @@ The [html5lib-tests](https://github.com/html5lib/html5lib-tests) repository is t
 
 The suite contains:
 - **56 tree-construction test files** - Testing how the parser builds the DOM tree
-- **14 tokenizer test files** - Testing lexical analysis of HTML
 - **5 serializer fixture files** - Testing how token streams are serialized back to HTML
 - **Encoding sniffing tests** - Testing BOM/meta charset/transport overrides and legacy fallbacks
 - **9k+ individual test cases** - Covering edge cases, error recovery, and spec compliance
@@ -85,7 +84,6 @@ To run only a single suite (useful for faster iteration), use `--suite`:
 ```bash
 python run_tests.py --suite tree
 python run_tests.py --suite justhtml
-python run_tests.py --suite tokenizer
 python run_tests.py --suite serializer
 python run_tests.py --suite encoding
 python run_tests.py --suite unit
@@ -98,7 +96,7 @@ PASSED: 9k+ tests (100%), a few skipped
 
 The skipped tests are scripted (`#script-on`) cases that require JavaScript execution during parsing.
 
-Per-file results are also written to `test-summary.txt`, with suite prefixes like `html5lib-tests-tree/...`, `html5lib-tests-tokenizer/...`, `html5lib-tests-serializer/...`, `html5lib-tests-encoding/...`, and `justhtml-tests/...`.
+Per-file results are also written to `test-summary.txt`, with suite prefixes like `html5lib-tests-tree/...`, `html5lib-tests-serializer/...`, `html5lib-tests-encoding/...`, and `justhtml-tests/...`.
 
 The encoding coverage comes from both:
 
@@ -166,7 +164,6 @@ cd justhtml
 
 # Create symlinks
 cd tests
-ln -s ../../html5lib-tests/tokenizer html5lib-tests-tokenizer
 ln -s ../../html5lib-tests/tree-construction html5lib-tests-tree
 ln -s ../../html5lib-tests/serializer html5lib-tests-serializer
 ln -s ../../html5lib-tests/encoding html5lib-tests-encoding
@@ -202,9 +199,9 @@ python benchmarks/correctness.py
 
 ## Why 100% Matters
 
-HTML5 parsing is notoriously complex. The spec describes an intricate state machine with:
-- 80+ tokenizer states
-- 23 tree builder insertion modes
+HTML5 parsing is notoriously complex. The spec describes intricate parsing behavior with:
+- Rawtext/RCDATA/script scanning states
+- 23 tree construction insertion modes
 - The "adoption agency algorithm" (called "the most complicated part of the tree builder" by Firefox's HTML5 parser author)
 - Foster parenting for misplaced table content
 - "Noah's Ark" clause limiting identical elements to 3

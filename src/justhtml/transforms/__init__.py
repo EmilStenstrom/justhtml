@@ -18,6 +18,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Literal, cast
 
 from justhtml.core.constants import HTML_FORMATTING_SPACE_CHARACTERS, HTML_SPACE_CHARACTERS
+from justhtml.core.types import ParseError
 from justhtml.sanitizer import (
     SanitizationPolicy,
 )
@@ -25,7 +26,6 @@ from justhtml.sanitizer import (
     UrlPolicy as _UrlPolicy,
 )
 from justhtml.selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits
-from justhtml.tokenizer.tokens import ParseError
 
 from .linkify import CompiledLinkifyTransform
 from .spec import (

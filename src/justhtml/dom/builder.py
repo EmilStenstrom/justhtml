@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal, overload
 
+from justhtml.core.types import Doctype
 from justhtml.serializer import _validate_serializable_attr_name, _validate_serializable_tag_name
-from justhtml.tokenizer.tokens import Doctype
 
 from . import Comment, Element, Node, Template, Text
 

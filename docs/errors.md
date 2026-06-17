@@ -22,8 +22,8 @@ for error in doc.errors:
 
 Each error has a `category` field:
 
-- `tokenizer`: lexical/tokenization errors
-- `treebuilder`: tree construction (structure) errors
+- `tokenizer`: lexical/scanning errors
+- `treebuilder`: tree construction structure errors
 - `security`: sanitizer findings (only when you opt in via `unsafe_handling="collect"`)
 
 ## Strict Mode
@@ -46,13 +46,13 @@ In strict mode, JustHTML raises on the earliest error by source position.
 JustHTML reports a source location for each parse error as a best-effort pointer to where the parser detected the problem in the input stream.
 
 - Coordinates are 1-based: the first character in the input is `(line=1, column=1)`.
-- Tokenizer-detected character errors (for example `unexpected-null-character`) should point at the exact offending character within the input, even if that character is emitted as part of a larger run of text.
-- Tree-builder (structure) errors are associated with the token that triggered the error.
-    - In practice this usually means the error points at (or near) the triggering token location, because the tree builder operates on tokens rather than individual characters.
+- Scanner-detected character errors (for example `unexpected-null-character`) should point at the exact offending character within the input, even if that character is emitted as part of a larger run of text.
+- Tree construction errors are associated with the markup that triggered the structure repair.
+    - In practice this usually means the error points at (or near) the triggering tag location.
     - When available, JustHTML will highlight the full triggering tag range.
 - EOF-related errors point to the end-of-input position where the parser realized it could not continue.
 
-This means error locations are not universally “at the beginning” or “at the end” of a token: character-level errors point at the character, while token-level (tree builder) errors generally point at the triggering token’s start.
+This means error locations are not universally “at the beginning” or “at the end” of a tag: character-level errors point at the character, while structure errors generally point at the triggering tag’s start.
 
 ## Node Locations (Optional)
 
@@ -107,7 +107,7 @@ for include_node in doc.query("x-include"):
 
 ---
 
-## Tokenizer Errors
+## Scanner Errors
 
 Errors detected during tokenization (lexical analysis).
 
@@ -191,7 +191,7 @@ Errors detected during tokenization (lexical analysis).
 | `named-entity-without-semicolon` | Named entity used without semicolon |
 | `noncharacter-character-reference` | Noncharacter in character reference |
 
-### Other Tokenizer Errors
+### Other Scanner Errors
 
 | Code | Description |
 |------|-------------|

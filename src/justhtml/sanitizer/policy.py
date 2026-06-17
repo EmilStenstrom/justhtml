@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from importlib import import_module
 from typing import TYPE_CHECKING, Any, cast
 
+from justhtml.core.types import ParseError
 from justhtml.selector import DEFAULT_SELECTOR_LIMITS, SelectorLimits
-from justhtml.tokenizer.tokens import ParseError
 
 from .url import (
     DisallowedTagHandling,

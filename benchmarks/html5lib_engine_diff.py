@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """Differential scorecard for the default-safe engine on html5lib tree cases.
 
-This compares the public PoC path:
+This compares the public default-safe path:
 
     JustHTML(html)
 
-against the current tokenizer/treebuilder plus default sanitizer path:
+against the same public default-safe path with parse-error collection enabled:
 
     JustHTML(html, collect_errors=True)
 
-It is intentionally a differential harness, not an upstream html5lib pass/fail
+It is intentionally a default-safe scorecard, not an upstream html5lib pass/fail
 runner. The default-safe sanitizer changes observable output, so the useful
-question for the PoC is whether it matches the existing public default-safe
-behavior.
+question is whether optional error collection leaves public constructor output
+stable.
 """
 
 from __future__ import annotations

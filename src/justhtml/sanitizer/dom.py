@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Any, cast
 from .policy import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy
 
 if TYPE_CHECKING:
+    from justhtml.core.types import ParseError
     from justhtml.dom import NodeType
-    from justhtml.tokenizer.tokens import ParseError
 
 
 def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
