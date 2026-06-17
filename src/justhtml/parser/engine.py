@@ -1,4 +1,4 @@
-"""Plan-driven fused HTML parser.
+"""Plan-driven single-pass HTML parser.
 
 Scanning, tree construction, and plan-selected sanitization run in one parser
 engine without tokenizer or treebuilder handoffs.

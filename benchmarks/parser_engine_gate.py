@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Performance gate for the fused parse-engine effort.
+"""Performance gate for the plan-driven parser engine.
 
 This benchmark intentionally measures the public default-safe constructor:
 

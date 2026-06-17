@@ -1,4 +1,4 @@
-# Fused Engine Findings
+# Parser Engine Findings
 
 This branch has tested two increasingly aggressive approaches to default-safe
 parsing:
@@ -224,7 +224,7 @@ paths now emit safe `<!DOCTYPE>` output instead of raising.
 Command:
 
 ```bash
-PYTHONPATH=src python benchmarks/fused_engine_gate.py \
+PYTHONPATH=src python benchmarks/parser_engine_gate.py \
   --iterations 9 \
   --limit 100 \
   --baseline-seconds 1.073689 \
@@ -437,9 +437,9 @@ Deletion-pass verification:
 - Default-safe web100k gate: `0.569468s` median over `15` iterations for 100
   files, `1.885x` against the recorded `1.073689s` baseline.
 
-The performance regression started in `8f1bc1d` (`Route public parser modes
-through fused engine`). That change generalized the default-safe start-tag hot
-path with raw-mode, foreign-content, source-span, and malformed-markup branches.
+The performance regression started in `8f1bc1d`. That change generalized the
+default-safe start-tag hot path with raw-mode, foreign-content, source-span, and
+malformed-markup branches.
 The preceding `efbe7a5` revision measures `0.528162s` (`2.033x`) on the same
 machine and corpus, while the generalized path measures about `0.570s`
 (`1.88x`).
@@ -453,9 +453,9 @@ default-safe html5lib differential matches and `1239/1239` unit-test passes.
 
 ## Current Conclusion
 
-The viable path is not a lightly fused version of the existing html5ever-shaped
-pipeline. It is a new default-safe parser with its own small set of direct
-handlers, then incremental parity work driven by differential fixtures.
+The viable path is a purpose-built replacement for the existing
+html5ever-shaped pipeline: a default-safe parser with direct handlers, followed
+by incremental parity work driven by differential fixtures.
 
 The strongest signal so far is that the parser can now match every scored
 html5lib tree-construction case in the default-safe differential runner with no
