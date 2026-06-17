@@ -437,6 +437,20 @@ Deletion-pass verification:
 - Default-safe web100k gate: `0.569468s` median over `15` iterations for 100
   files, `1.885x` against the recorded `1.073689s` baseline.
 
+The performance regression started in `8f1bc1d` (`Route public parser modes
+through fused engine`). That change generalized the default-safe start-tag hot
+path with raw-mode, foreign-content, source-span, and malformed-markup branches.
+The preceding `efbe7a5` revision measures `0.528162s` (`2.033x`) on the same
+machine and corpus, while the generalized path measures about `0.570s`
+(`1.88x`).
+
+The engine now selects compiled default-safe start-tag and end-tag executors
+once per document scan when raw parsing, location tracking, tag-span tracking,
+and XML coercion are all disabled. Raw and diagnostic plans continue through
+the general executors. This restores the default-safe web100k gate to
+`0.518598s` over `31` iterations (`2.070x`) while retaining `1783/1783` exact
+default-safe html5lib differential matches and `1239/1239` unit-test passes.
+
 ## Current Conclusion
 
 The viable path is not a lightly fused version of the existing html5ever-shaped
