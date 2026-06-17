@@ -1,3 +1,4 @@
+from .core.types import ParseError
 from .dom import Comment, Document, DocumentFragment, Element, Node, NodeType, QueryMatch, Template, Text
 from .parser import JustHTML, StrictModeError
 from .parser.stream import stream
@@ -14,7 +15,6 @@ from .sanitizer import (
 )
 from .selector import SelectorError, matches, query
 from .serializer import HTMLContext, to_html
-from .tokenizer.tokens import ParseError
 from .transforms import (
     AllowlistAttrs,
     AllowStyleAttrs,

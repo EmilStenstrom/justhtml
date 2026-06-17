@@ -8,8 +8,8 @@ from pathlib import Path
 
 from justhtml import JustHTML
 from justhtml.parser.context import FragmentContext
+from justhtml.parser.options import ParserOptions
 from justhtml.serializer import to_test_format
-from justhtml.tokenizer import TokenizerOpts
 
 from .reporter import TestReporter
 
@@ -326,7 +326,7 @@ class TestRunner:
         verbosity = self.config["verbosity"]
         capture_debug = verbosity >= 2
         debug_output = ""
-        opts = TokenizerOpts(xml_coercion=xml_coercion)
+        opts = ParserOptions(xml_coercion=xml_coercion)
         if test.script_directive in {"script-on", "script-off"}:
             opts.scripting_enabled = test.script_directive == "script-on"
         if capture_debug:
@@ -336,7 +336,7 @@ class TestRunner:
                     test.data,
                     debug=True,
                     fragment_context=test.fragment_context,
-                    _tokenizer_opts=opts,
+                    _parser_opts=opts,
                     iframe_srcdoc=test.iframe_srcdoc,
                     scripting_enabled=opts.scripting_enabled,
                     collect_errors=True,
@@ -348,7 +348,7 @@ class TestRunner:
             parser = JustHTML(
                 test.data,
                 fragment_context=test.fragment_context,
-                _tokenizer_opts=opts,
+                _parser_opts=opts,
                 iframe_srcdoc=test.iframe_srcdoc,
                 scripting_enabled=opts.scripting_enabled,
                 collect_errors=True,

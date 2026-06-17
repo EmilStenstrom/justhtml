@@ -416,6 +416,27 @@ head-only `basefont`/`bgsound` handling, active-formatting reconstruction for
 handling for trailing-space and trailing-solidus cases, keep head rawtext parsing
 in head mode, and run p-closing repair before rawtext element insertion.
 
+The legacy-deletion pass removes the old `src/justhtml/tokenizer` and
+`src/justhtml/treebuilder` packages entirely. Shared public data types now live
+in `justhtml.core.types`, doctype quirks handling lives in
+`justhtml.core.doctype`, and the streaming API uses a direct event scanner
+instead of the old tokenizer. The html5lib tree harness now uses neutral
+`ParserOptions`, and tokenizer/treebuilder-internal tests were replaced by
+public parser, scanner, stream, and default-safe gates.
+
+Deletion-pass verification:
+
+- Unit suite: `1239/1239` passed.
+- Serializer suite: `229/229` passed, `1` skipped.
+- Encoding suite: `82/82` passed, `1` skipped.
+- Default-safe html5lib scorecard: `1783/1783` exact matches, excluding `8`
+  script-on cases.
+- Full `run_tests.py --no-write-summary`: `3272/3395` passed (`96.3%`), `6`
+  skipped. Remaining failures are the known raw tree-construction/custom raw
+  parser gap, not a second legacy path.
+- Default-safe web100k gate: `0.569468s` median over `15` iterations for 100
+  files, `1.885x` against the recorded `1.073689s` baseline.
+
 ## Current Conclusion
 
 The viable path is not a lightly fused version of the existing html5ever-shaped

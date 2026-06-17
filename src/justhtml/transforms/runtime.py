@@ -43,7 +43,7 @@ from .linkify import CompiledLinkifyTransform, apply_linkify_transform
 from .spec import DecideAction
 
 if TYPE_CHECKING:
-    from justhtml.tokenizer.tokens import ParseError
+    from justhtml.core.types import ParseError
 
 
 def apply_compiled_transforms(

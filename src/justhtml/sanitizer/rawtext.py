@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from justhtml.core.rawtext import neutralize_rawtext_end_tag_sequences
-from justhtml.tokenizer.tokens import ParseError
+from justhtml.core.types import ParseError
 
 from .css import _css_value_may_load_external_resource
 

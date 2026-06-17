@@ -1,7 +1,7 @@
 """Project test harness entrypoint.
 
 This script orchestrates:
-- html5lib fixture suites (tree/tokenizer/serializer/encoding)
+- html5lib fixture suites (tree/serializer/encoding)
 - JustHTML custom fixtures
 - Python unit tests in tests/test_*.py
 
@@ -19,7 +19,6 @@ from tests.harness.encoding import _run_encoding_tests as harness_run_encoding_t
 from tests.harness.regressions import run_regression_check as harness_run_regression_check
 from tests.harness.reporter import TestReporter
 from tests.harness.serializer import _run_serializer_tests as harness_run_serializer_tests
-from tests.harness.tokenizer import _run_tokenizer_tests as harness_run_tokenizer_tests
 from tests.harness.tree import TestRunner
 
 # Minimal Unix-friendly fix: if stdout is a pipe and the reader (e.g. `head`) closes early,
@@ -99,11 +98,11 @@ def parse_args():
     )
     parser.add_argument(
         "--suite",
-        choices=["all", "tree", "justhtml", "tokenizer", "serializer", "encoding", "unit"],
+        choices=["all", "tree", "justhtml", "serializer", "encoding", "unit"],
         default="all",
         help=(
             "Run a single suite instead of the full test run. "
-            "Choices: all, tree, justhtml, tokenizer, serializer, encoding, unit (default: all)."
+            "Choices: all, tree, justhtml, serializer, encoding, unit (default: all)."
         ),
     )
     parser.add_argument(
@@ -117,7 +116,7 @@ def parse_args():
         help=(
             "Enable additional error validation. For html5lib tree-construction .dat tests, "
             "validates the number of parse errors; for tests/justhtml-tests, validates the exact "
-            "ordered list of error codes; for html5lib tokenizer .test tests, validates tokenizer "
+            "ordered list of error codes."
             "parse errors (code+line+col) when provided by the fixture."
         ),
     )
@@ -292,21 +291,17 @@ def main():
     suite = config.get("suite", "all")
     run_tree = suite in {"all", "tree"}
     run_justhtml_tree = suite in {"all", "justhtml"}
-    run_tokenizer = suite in {"all", "tokenizer"}
     run_serializer = suite in {"all", "serializer"}
     run_encoding = suite in {"all", "encoding"}
     run_unit = suite in {"all", "unit"}
 
     # Check that html5lib-tests symlinks exist (only for the selected suites)
     tree_tests = test_dir / "html5lib-tests-tree"
-    tokenizer_tests = test_dir / "html5lib-tests-tokenizer"
     serializer_tests = test_dir / "html5lib-tests-serializer"
     encoding_tests = test_dir / "html5lib-tests-encoding"
     missing = []
     if run_tree and not tree_tests.exists():
         missing.append(str(tree_tests))
-    if run_tokenizer and not tokenizer_tests.exists():
-        missing.append(str(tokenizer_tests))
     if run_serializer and not serializer_tests.exists():
         missing.append(str(serializer_tests))
     if run_encoding and not encoding_tests.exists():
@@ -319,8 +314,6 @@ def main():
         print("  git clone https://github.com/html5lib/html5lib-tests.git ../html5lib-tests", file=sys.stderr)
         if run_tree:
             print("  ln -s ../../html5lib-tests/tree-construction tests/html5lib-tests-tree", file=sys.stderr)
-        if run_tokenizer:
-            print("  ln -s ../../html5lib-tests/tokenizer tests/html5lib-tests-tokenizer", file=sys.stderr)
         if run_serializer:
             print("  ln -s ../../html5lib-tests/serializer tests/html5lib-tests-serializer", file=sys.stderr)
         if run_encoding:
@@ -363,15 +356,6 @@ def main():
             sys.exit(1)
 
         combined_results.update(justhtml_runner.file_results)
-
-    if run_tokenizer:
-        tok_passed, tok_total, tok_file_results = harness_run_tokenizer_tests(config)
-        total_passed += tok_passed
-        total_failed += tok_total - tok_passed
-        combined_results.update(tok_file_results)
-
-        if config.get("fail_fast") and (tok_total - tok_passed):
-            sys.exit(1)
 
     if run_serializer:
         ser_passed, ser_total, ser_skipped, ser_file_results = harness_run_serializer_tests(config)

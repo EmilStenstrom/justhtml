@@ -110,7 +110,7 @@ justhtml index.html --selector "article" --format markdown
 
 ## Correctness
 
-JustHTML is tested against the official html5lib tokenizer, tree-construction, serializer, and encoding fixtures, plus project-specific sanitizer, selector, transform, CLI, and regression tests.
+JustHTML is tested against the official html5lib tree-construction, serializer, and encoding fixtures, plus project-specific sanitizer, selector, transform, CLI, and regression tests.
 
 The current test summary is 10,257 passing tests with 100% line and branch coverage. See [Correctness Testing](docs/correctness.md) for details.
 

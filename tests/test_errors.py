@@ -3,9 +3,6 @@
 import unittest
 
 from justhtml import JustHTML, ParseError, StrictModeError
-from justhtml.tokenizer import Tokenizer
-from justhtml.tokenizer.tokens import CharacterTokens, Tag
-from justhtml.treebuilder import TreeBuilder
 
 
 class TestErrorCollection(unittest.TestCase):
@@ -266,93 +263,8 @@ class TestTokenBasedErrorHighlighting(unittest.TestCase):
         assert any(e.code == "unexpected-end-tag" for e in parser.errors)
 
 
-class TestTreeBuilderParseErrorWithTokens(unittest.TestCase):
-    """Test TreeBuilder._parse_error with different token types."""
-
-    def setUp(self):
-        """Create a TreeBuilder with a mocked tokenizer."""
-        self.builder = TreeBuilder(collect_errors=True)
-        # Create a minimal tokenizer with buffer
-        self.builder.tokenizer = Tokenizer(None, None, collect_errors=False)
-        self.builder.tokenizer.buffer = "<html><body>text</body></html>"
-        self.builder.tokenizer.last_token_line = 1
-
-    def test_parse_error_with_tag_token(self):
-        """_parse_error with Tag token calculates correct positions."""
-        token = Tag(Tag.START, "div", {"class": "test"}, False)
-        # Simulate tokenizer pointing after <div class="test">
-        self.builder.tokenizer.last_token_column = 18  # After '>' of <div class="test">
-
-        self.builder._parse_error("test-error", tag_name="div", token=token)
-
-        assert len(self.builder.errors) == 1
-        error = self.builder.errors[0]
-        # Tag length: <div class="test"> = 18 chars
-        # Start = 18 - 18 + 1 = 1
-        assert error.column == 1
-        assert error._end_column == 19
-
-    def test_parse_error_with_tag_token_empty_attr_value(self):
-        """_parse_error handles boolean/empty-value attributes without adding value length."""
-        token = Tag(Tag.START, "div", {"disabled": ""}, False)
-        # <div disabled> is 14 characters long
-        self.builder.tokenizer.last_token_column = 14
-
-        self.builder._parse_error("test-error", tag_name="div", token=token)
-
-        assert len(self.builder.errors) == 1
-        error = self.builder.errors[0]
-        assert error.column == 1
-        assert error._end_column == 15
-
-    def test_parse_error_with_end_tag_token(self):
-        """_parse_error with end Tag token calculates correct positions."""
-        token = Tag(Tag.END, "div", {}, False)
-        # Simulate tokenizer pointing after </div>
-        self.builder.tokenizer.last_token_column = 6  # After '>' of </div>
-
-        self.builder._parse_error("test-error", tag_name="div", token=token)
-
-        assert len(self.builder.errors) == 1
-        error = self.builder.errors[0]
-        # Tag length: </div> = 6 chars
-        # Start = 6 - 6 + 1 = 1
-        assert error.column == 1
-        assert error._end_column == 7
-
-    def test_parse_error_with_self_closing_tag(self):
-        """_parse_error with self-closing tag includes / in length."""
-        token = Tag(Tag.START, "img", {"src": "test.jpg"}, True)
-        # <img src="test.jpg"/> (no space before /)
-        # Tag length: 3(img) + 2(<>) + 1(space) + 3(src) + 1(=) + 2(quotes) + 8(test.jpg) + 1(/) = 21
-        # Simulate tokenizer pointing after the tag
-        tag_len = 21
-        self.builder.tokenizer.last_token_column = tag_len
-
-        self.builder._parse_error("test-error", tag_name="img", token=token)
-
-        assert len(self.builder.errors) == 1
-        error = self.builder.errors[0]
-        assert error.column == 1
-        assert error._end_column == tag_len + 1
-
-    def test_parse_error_with_non_tag_token(self):
-        """_parse_error with non-Tag token uses fallback highlighting."""
-        token = CharacterTokens("hello")
-        # Non-Tag tokens don't get special position calculation
-        self.builder.tokenizer.last_token_column = 11
-
-        self.builder._parse_error("test-error", token=token)
-
-        assert len(self.builder.errors) == 1
-        error = self.builder.errors[0]
-        # Should use original column without adjustment
-        assert error.column == 11
-        assert error._end_column is None
-
-
-class TestTokenizerErrors(unittest.TestCase):
-    """Test tokenizer-specific errors are collected."""
+class TestScannerErrors(unittest.TestCase):
+    """Test scanner-level errors are collected."""
 
     def test_null_character_error(self):
         """Null characters in data trigger errors."""
@@ -371,8 +283,8 @@ class TestTokenizerErrors(unittest.TestCase):
         assert len(doc.errors) > 0
 
 
-class TestTreeBuilderErrors(unittest.TestCase):
-    """Test tree builder errors are collected."""
+class TestTreeConstructionErrors(unittest.TestCase):
+    """Test tree construction errors are collected."""
 
     def test_unexpected_end_tag(self):
         """Unexpected end tag triggers error."""
@@ -380,8 +292,8 @@ class TestTreeBuilderErrors(unittest.TestCase):
         # Closing tag without opening tag
         assert len(doc.errors) > 0
 
-    def test_treebuilder_error_after_newline(self):
-        """Tree builder error column is calculated after newlines."""
+    def test_tree_construction_error_after_newline(self):
+        """Tree construction error column is calculated after newlines."""
         # Put an unexpected end tag after a newline
         html = "<!DOCTYPE html>\n<html>\n<body>\n</span>"
         doc = JustHTML(html, collect_errors=True)

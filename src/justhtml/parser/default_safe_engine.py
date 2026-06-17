@@ -31,8 +31,10 @@ from justhtml.core.constants import (
     TABLE_ALLOWED_CHILDREN,
     VOID_ELEMENTS,
 )
+from justhtml.core.doctype import doctype_error_and_quirks
 from justhtml.core.entities import decode_entities_in_text
 from justhtml.core.errors import generate_error_message
+from justhtml.core.types import Doctype, ParseError
 from justhtml.dom import Comment, Document, DocumentFragment, Element, Node, Template, Text
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, _strip_invisible_unicode
 from justhtml.sanitizer.url import (
@@ -41,8 +43,8 @@ from justhtml.sanitizer.url import (
     _url_sink_kind_for_attr,
 )
 from justhtml.sanitizer.url.runtime import _URL_CONTROL_CHAR_REGEX, _get_scheme, _normalize_url_for_checking
-from justhtml.tokenizer.tokens import Doctype, ParseError
-from justhtml.treebuilder.utils import doctype_error_and_quirks
+
+from . import scanner as _scanner
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
@@ -56,11 +58,10 @@ _DOCTYPE_RE = re.compile(
     r"""\s*([^\s>]+)(?:\s*(PUBLIC|SYSTEM)\s*(?:(?:"([^"]*)"|'([^']*)')\s*(?:"([^"]*)"|'([^']*)')?)?)?""",
     re.IGNORECASE,
 )
-_SPACE = " \t\n\f\r"
-_TAG_NAME_STOP = "\t\n\f />"
-_ATTR_NAME_STOP = "\t\n\f />=\0\"'<"
-_ATTR_VALUE_STOP = _SPACE + ">"
-_TAG_END_NAME_STOP = _SPACE + "/>"
+_SPACE = _scanner.SPACE
+_TAG_NAME_STOP = _scanner.TAG_NAME_STOP
+_ATTR_NAME_STOP = _scanner.ATTR_NAME_STOP
+_ATTR_VALUE_STOP = _scanner.ATTR_VALUE_STOP
 _XML_INVALID_SINGLE_CHARS = []
 for _plane in range(17):
     _base = _plane * 0x10000
@@ -1270,7 +1271,9 @@ class DefaultSafeEngine:
                     continue
                 gt = html.find(">", pos + 1, end)
                 comment_end = end if gt == -1 else gt
-                if not self._drop_comments:
+                if self._raw_mode and self._track_tag_spans:
+                    self._append_text(html[lt:end] if gt == -1 else html[lt : gt + 1], lt)
+                elif not self._drop_comments:
                     self._append_comment(html[pos + 1 : comment_end].replace("\0", "\ufffd"), lt)
                 pos = end if gt == -1 else gt + 1
                 continue
@@ -1279,6 +1282,10 @@ class DefaultSafeEngine:
                 continue
             if ch == "?":
                 gt = html.find(">", pos + 1, end)
+                if self._raw_mode and self._track_tag_spans:
+                    self._append_text(html[lt:end] if gt == -1 else html[lt : gt + 1], lt)
+                    pos = end if gt == -1 else gt + 1
+                    continue
                 if self._raw_mode:
                     comment_end = end if gt == -1 else gt
                     if not self._drop_comments:
@@ -2540,6 +2547,9 @@ class DefaultSafeEngine:
             return pos
 
         if mode == _TEMPLATE_MODE_INITIAL:
+            if name == "table":
+                self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
+                return None
             if name in {"tbody", "tfoot", "thead"}:
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
                 self._insert_template_mode_element(name, attrs, self_closing)
@@ -2572,6 +2582,11 @@ class DefaultSafeEngine:
             return None
 
         if mode == _TEMPLATE_MODE_TABLE:
+            if name == "form":
+                node = self._insert_template_mode_element(name, attrs, self_closing)
+                if node is not None and self._stack and self._stack[-1] is node:
+                    self._stack.pop()
+                return pos
             if name in {"tbody", "tfoot", "thead"}:
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
                 self._insert_template_mode_element(name, attrs, self_closing)
@@ -2917,96 +2932,16 @@ class DefaultSafeEngine:
         return html[pos:close], next_pos
 
     def _find_rawtext_end_tag(self, name: str, pos: int, end: int) -> tuple[int | None, int]:
-        html = self._html_input
-        lower = self._lower_input
-        needle = f"</{name}"
-        needle_len = len(needle)
-        search = pos
-        while True:
-            close = lower.find(needle, search, end)
-            if close == -1:
-                return None, end
-            after_name = close + needle_len
-            if after_name < end and html[after_name] not in _TAG_END_NAME_STOP:
-                search = after_name
-                continue
-            tag_end = self._find_tag_end(after_name, end)
-            if tag_end == -1:
-                if after_name < end and not html[after_name:end].strip(_SPACE + "/"):
-                    return close, end
-                search = after_name
-                continue
-            next_pos = tag_end + 1
-            return close, next_pos
+        return _scanner.find_rawtext_end_tag(self._html_input, self._lower_input, name, pos, end)
 
     def _find_script_end_tag(self, pos: int, end: int) -> tuple[int | None, int]:
-        lower = self._lower_input
-        search = pos
-        escaped = False
-        double_escaped = False
-
-        while True:
-            close, next_pos = self._find_rawtext_end_tag("script", search, end)
-            if close is None:
-                return None, end
-            if not escaped:
-                comment_start = lower.find("<!--", search, close)
-                if comment_start == -1 or close < comment_start:
-                    return close, next_pos
-                escaped = True
-                search = comment_start + 4
-                continue
-
-            script_start = self._find_script_start_marker(search, close) if not double_escaped else -1
-            comment_end = lower.find("-->", search, close)
-            if (
-                comment_end != -1
-                and comment_end < close
-                and (double_escaped or script_start == -1 or comment_end < script_start)
-            ):
-                escaped = False
-                double_escaped = False
-                search = comment_end + 3
-                continue
-            if script_start != -1 and script_start < close:
-                double_escaped = True
-                search = script_start + 7
-                continue
-            if double_escaped:
-                double_escaped = False
-                search = next_pos
-                continue
-            return close, next_pos
+        return _scanner.find_script_end_tag(self._html_input, self._lower_input, pos, end)
 
     def _find_script_start_marker(self, pos: int, end: int) -> int:
-        html = self._html_input
-        lower = self._lower_input
-        search = pos
-        needle = "<script"
-        needle_len = len(needle)
-        while True:
-            start = lower.find(needle, search, end)
-            if start == -1:
-                return -1
-            after_name = start + needle_len
-            if after_name >= end or html[after_name] in _TAG_END_NAME_STOP:
-                return start
-            search = after_name
+        return _scanner.find_script_start_marker(self._html_input, self._lower_input, pos, end)
 
     def _find_tag_end(self, pos: int, end: int) -> int:
-        html = self._html_input
-        quote: str | None = None
-        while pos < end:
-            ch = html[pos]
-            if quote is not None:
-                if ch == quote:
-                    quote = None
-            elif ch == '"' or ch == "'":
-                quote = ch
-            elif ch == ">":
-                return pos
-            pos += 1
-        return -1
+        return _scanner.find_tag_end(self._html_input, pos, end)
 
     def _parse_rawtext_as_text(self, name: str, pos: int, end: int) -> int:
         text_start = pos

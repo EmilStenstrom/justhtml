@@ -4,7 +4,7 @@
 
 JustHTML supports optional **transforms** to modify the parsed DOM tree right after parsing.
 
-This is intended as a migration path for Bleach/html5lib filter pipelines, but implemented as DOM transforms (tree-aware and HTML5-treebuilder-correct).
+This is intended as a migration path for Bleach/html5lib filter pipelines, but implemented as DOM transforms over the parsed HTML5 tree.
 
 Transforms are the recommended way to mutate the DOM. Direct node edits are supported,
 but transforms provide clearer ordering guarantees and make it explicit when sanitization
@@ -163,7 +163,7 @@ Output:
 
 ## Tree shape
 
-Transforms operate on the HTML5 treebuilder result, not the original token stream.
+Transforms operate on the parsed HTML5 tree, not the original source stream.
 
 This means elements may already be inserted, moved, or normalized according to HTML parsing rules (for example, `<template>` elements end up in `<head>` in a full document).
 

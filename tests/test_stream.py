@@ -36,13 +36,13 @@ class TestStream(unittest.TestCase):
         events = list(stream(html))
         expected = [
             ("start", ("br", {})),
-            # Tokenizer does not emit end tags for void elements automatically
+            # The event stream does not synthesize end tags for void elements.
             ("start", ("hr", {})),
         ]
         assert events == expected
 
     def test_text_coalescing(self):
-        # Tokenizer might emit multiple character tokens. Stream should coalesce.
+        # The scanner may find adjacent text spans. Stream should coalesce.
         html = "abc"
         events = list(stream(html))
         expected = [("text", "abc")]

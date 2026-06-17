@@ -16,7 +16,6 @@ JustHTML uses the official [html5lib-tests](https://github.com/html5lib/html5lib
 
     ```bash
     cd tests
-    ln -s ../../html5lib-tests/tokenizer html5lib-tests-tokenizer
     ln -s ../../html5lib-tests/tree-construction html5lib-tests-tree
     ln -s ../../html5lib-tests/serializer html5lib-tests-serializer
     ln -s ../../html5lib-tests/encoding html5lib-tests-encoding
@@ -35,7 +34,6 @@ To run only one suite:
 ```bash
 python run_tests.py --suite tree
 python run_tests.py --suite justhtml
-python run_tests.py --suite tokenizer
 python run_tests.py --suite serializer
 python run_tests.py --suite encoding
 python run_tests.py --suite unit

@@ -3,6 +3,7 @@ import unittest
 
 from justhtml import HTMLContext, UrlRule
 from justhtml import JustHTML as _JustHTML
+from justhtml.core.types import Doctype
 from justhtml.dom import Comment, DocumentFragment, Node, Template, Text
 from justhtml.parser.context import FragmentContext
 from justhtml.serializer import (
@@ -23,7 +24,6 @@ from justhtml.serializer import (
     to_html,
     to_test_format,
 )
-from justhtml.tokenizer.tokens import Doctype
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802
