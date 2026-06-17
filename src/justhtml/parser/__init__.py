@@ -14,14 +14,14 @@ from justhtml.serializer import to_html as serialize_html
 from justhtml.transforms import apply_compiled_transforms, compile_transforms
 
 from .context import FragmentContext
-from .default_safe_engine import (
-    DefaultSafeEngine,
+from .encoding import decode_html
+from .engine import (
+    ParseEngine,
     can_compile_engine_plan,
     compile_default_engine_plan,
     compile_engine_plan,
     compile_raw_engine_plan,
 )
-from .encoding import decode_html
 
 if TYPE_CHECKING:
     from justhtml.core.types import ParseError
@@ -191,7 +191,7 @@ class JustHTML:
         else:
             engine_plan = compile_raw_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
 
-        engine = DefaultSafeEngine(
+        engine = ParseEngine(
             html_str,
             fragment=fragment,
             fragment_context=fragment_context,

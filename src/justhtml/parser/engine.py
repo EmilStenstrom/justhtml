@@ -1,8 +1,7 @@
-"""Specialized default-safe parser.
+"""Plan-driven fused HTML parser.
 
-This engine targets the narrow ``JustHTML(str)`` default-safe path. It does not
-reuse the tokenizer or treebuilder; scanning, tree construction, and default
-sanitizer work are fused into one parser hot path.
+Scanning, tree construction, and plan-selected sanitization run in one parser
+engine without tokenizer or treebuilder handoffs.
 """
 
 from __future__ import annotations
@@ -350,7 +349,7 @@ def _compile_tag_actions(
 
 
 def can_compile_engine_plan(policy: SanitizationPolicy, *, fragment: bool) -> bool:
-    """Return True when a policy can run entirely inside DefaultSafeEngine."""
+    """Return True when a policy can run entirely inside ParseEngine."""
     if policy.unsafe_handling != "strip":
         return False
     if policy.disallowed_tag_handling != "unwrap":
@@ -389,7 +388,7 @@ def compile_engine_plan(
     fragment: bool,
     scripting_enabled: bool = True,
 ) -> EnginePlan:
-    """Compile a sanitizer-aware execution plan for DefaultSafeEngine."""
+    """Compile a sanitizer-aware execution plan for ParseEngine."""
     allowed_attrs = policy.allowed_attributes
     allowed_global = allowed_attrs.get("*", ())
     allowed_by_tag = {
@@ -561,7 +560,7 @@ class _FormattingMarker:
 _ACTIVE_FORMATTING_MARKER = _FormattingMarker()
 
 
-class DefaultSafeEngine:
+class ParseEngine:
     __slots__ = (
         "_active_formatting",
         "_active_formatting_dirty",

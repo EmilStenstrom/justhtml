@@ -5,7 +5,7 @@ parsing:
 
 1. `FusedDefaultTreeBuilder`, which keeps the existing tokenizer and
    treebuilder but moves default sanitizer work into tree construction.
-2. `DefaultSafeEngine`, a proof-of-concept one-pass parser for the narrow
+2. `ParseEngine`, initially a proof-of-concept one-pass parser for the narrow
    `JustHTML(str)` default-safe path. This path does not use the existing
    tokenizer or treebuilder.
 
@@ -35,9 +35,9 @@ fused tokenizer/treebuilder path, and the legacy tokenizer/treebuilder path.
 The release direction is one production parser path, so the intermediate fused
 builder should not survive.
 
-## DefaultSafeEngine PoC
+## ParseEngine PoC
 
-`DefaultSafeEngine` is intentionally narrower and less compatible. It is routed
+`ParseEngine` was initially narrower and less compatible. It was routed
 only for plain-string `JustHTML(html)` with default sanitization, no custom
 policy, no explicit transforms, no strict/error collection, no location
 tracking, and no iframe `srcdoc` mode.
@@ -78,7 +78,7 @@ sanitized serialization.
 
 A third pass introduced an explicit `EnginePlan`/executor split. The default
 document and fragment plans are compiled once and cached, then `JustHTML` passes
-the selected plan into `DefaultSafeEngine`.
+the selected plan into `ParseEngine`.
 
 The current plan contains the policy-derived sanitizer data and the recovery
 sets the executor needs in the hot path:
@@ -134,7 +134,7 @@ PYTHONPATH=src python benchmarks/html5lib_engine_diff.py \
   --worst-files 12
 ```
 
-This compares `JustHTML(html)` through `DefaultSafeEngine` against the current
+This compares `JustHTML(html)` through `ParseEngine` against the current
 tokenizer/treebuilder path forced with `JustHTML(html, collect_errors=True)`.
 It is not the upstream html5lib pass/fail result because default-safe
 sanitization changes observable output. The official tree harness still passes
@@ -183,7 +183,7 @@ Incremental progress in this pass:
   tags, script escaped-state scanning, and disallowed rawtext-as-text handling:
   `1461/1783` scored (`81.94%`), `1.986x` speedup.
 - Fragment contexts and `script-off` cases included in the differential
-  runner, all fragment contexts routed through `DefaultSafeEngine`, and
+  runner, all fragment contexts routed through `ParseEngine`, and
   script-disabled `noscript` behavior compiled into the plan:
   `1669/1783` scored (`93.61%`), `1.917x` speedup.
 - Compiled `TagAction` records, direct start-tag scanning, and direct
@@ -234,7 +234,7 @@ PYTHONPATH=src python benchmarks/fused_engine_gate.py \
 Result:
 
 - Baseline median: `1.073689s` for 100 `web100k` files.
-- Raw `DefaultSafeEngine` median before recovery: `0.382541s`.
+- Raw `ParseEngine` median before recovery: `0.382541s`.
 - Recovery-enabled median before `EnginePlan`: `0.471169s`.
 - EnginePlan-enabled median: `0.467711s`.
 - Compliance-pass median: `0.470205s`.
@@ -287,7 +287,7 @@ parsing, location tracking, and broader application-level compatibility still
 need promotion work.
 
 The latest deletion pass removes the obsolete fused treebuilder path and starts
-moving custom policies into the engine planner. `DefaultSafeEngine` can now
+moving custom policies into the engine planner. `ParseEngine` can now
 compile conservative safe-policy subsets: strip-mode unsafe handling,
 unwrap-mode disallowed tags, dropped comments, no forced link-rel merge, no
 allowed style/SVG/MathML surface, default-policy tag/attribute subsets, and URL
@@ -300,7 +300,7 @@ force the tokenizer/treebuilder path for compilable engine plans. Error
 collection currently uses a separate lightweight pre-scan for null characters,
 EOF-in-tag/comment cases, missing initial doctype, and obvious unexpected end
 tags. That keeps diagnostic work out of the normal parse hot path while moving
-the public constructor route onto `DefaultSafeEngine`; full html5lib parse-error
+the public constructor route onto `ParseEngine`; full html5lib parse-error
 parity is still separate work.
 
 All normalized text inputs now follow the same default-safe engine route when
@@ -316,7 +316,7 @@ serialized-output mismatches, `0` unmatched current exceptions, and `0`
 unmatched reference exceptions in that suite. The two formerly exceptional
 malformed-doctype cases now serialize safely on both parser paths. The excluded
 tree-construction fixtures are the `script-on` cases that require JavaScript
-execution semantics; `script-off` cases now exercise `DefaultSafeEngine`.
+execution semantics; `script-off` cases now exercise `ParseEngine`.
 
 ## Productionization Pivot
 
@@ -375,7 +375,7 @@ formatting clones also retain the existing parser's compatibility behavior for
 disallowed formatting tags and their state-only attributes.
 
 The public API routing pass moves the remaining ordinary constructor cases onto
-`DefaultSafeEngine`. `JustHTML(...)` now uses a compiled safe plan for
+`ParseEngine`. `JustHTML(...)` now uses a compiled safe plan for
 compilable sanitization policies and a compiled raw plan for `sanitize=False`,
 explicit transform pipelines, and policies that still need the generic
 post-parse transform runtime. Raw plans preserve comments, doctypes, attributes,
@@ -394,7 +394,7 @@ That fallback-era public API routing pass verified:
 
 The current replacement-path checkpoint removes the constructor fallback to
 `Tokenizer`/`TreeBuilder` and routes raw/tokenizer-option test harness cases
-through `DefaultSafeEngine` as well. The raw tree-construction score is now
+through `ParseEngine` as well. The raw tree-construction score is now
 `1680/1791` (`93.8%`) excluding the `script-on` cases that require JavaScript
 execution. The default-safe differential remains exact at `1783/1783`, excluding
 the same `8` script-on cases, and the web100k gate is `0.575725s` median over
@@ -464,7 +464,7 @@ tree-suite compliance. The remaining work is parser compliance margin and
 performance margin: the raw path is not complete yet, and the latest broad
 replacement pass is below the original `2x` gate at `1.865x`.
 
-The next engineering step is to keep `DefaultSafeEngine` as the productionizing
+The next engineering step is to keep `ParseEngine` as the productionizing
 target: define state boundaries, add focused golden tests for each promoted
 rule, preserve the benchmark gate above `2x`, and move the remaining public API
 surface from fallback behavior onto explicit engine plans.
