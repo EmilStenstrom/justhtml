@@ -58,6 +58,7 @@ Pre-commit runs automatically on every commit and checks:
 - **Ruff check** - linting with auto-fix
 - **Ruff format** - code formatting
 - **Tests & Coverage** - full test suite with 100% coverage requirement
+- **Parser Differential** - exact agreement with the reference parser path across scored html5lib tree cases
 
 Run manually:
 ```bash
@@ -92,15 +93,16 @@ python benchmarks/profile.py
 
 ## Architecture Notes
 
-- **Tokenizer** (`tokenizer.py`): HTML5 spec state machine
-- **Tree builder** (`treebuilder.py`): Constructs DOM tree following HTML5 rules
-- **Node tree** (`node.py`): DOM-like structure, use `append_child()` / `insert_before()`
-- **Selector** (`selector.py`): CSS selector matching
+- **Parser engine** (`src/justhtml/parser/engine.py`): Plan-driven tokenization, tree construction, and sanitizer projection
+- **Parser scanner** (`src/justhtml/parser/scanner.py`): Shared low-level tag and rawtext scanning helpers
+- **DOM** (`src/justhtml/dom/`): DOM-like node tree; use `append_child()` / `insert_before()` for public tree operations
+- **Selectors** (`src/justhtml/selector/`): CSS selector parsing and matching
+- **Transforms** (`src/justhtml/transforms/`): Compiled post-parse tree transformations
 
 Golden rules:
 1. Follow WHATWG HTML5 spec exactly
 2. No exceptions in hot paths
-3. Minimal allocations in tokenizer
+3. Minimal allocations in parser hot paths
 4. No `hasattr`/`getattr`/`delattr` - all structures are deterministic
 
 ## Submitting Changes

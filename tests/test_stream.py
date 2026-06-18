@@ -1,6 +1,8 @@
 import unittest
 
 from justhtml import stream
+from justhtml.parser.scanner import find_script_end_tag
+from justhtml.parser.stream import _StreamScanner
 
 
 class TestStream(unittest.TestCase):
@@ -271,3 +273,100 @@ class TestStream(unittest.TestCase):
         events = list(stream(html))
         expected = [("end", "div")]
         assert events == expected
+
+    def test_trailing_less_than_and_non_tag_openers_are_text(self):
+        assert list(stream("abc<")) == [("text", "abc<")]
+        assert list(stream("<1x")) == [("text", "<1x")]
+
+    def test_bogus_end_tags_and_processing_instructions_are_comments(self):
+        assert list(stream("</>")) == []
+        assert list(stream("</!x>")) == [("comment", "!x")]
+        assert list(stream("</!x")) == [("comment", "!x")]
+        assert list(stream("<?x>")) == [("comment", "?x")]
+        assert list(stream("<?x")) == [("comment", "?x")]
+
+    def test_unclosed_tags_are_ignored(self):
+        assert list(stream("<div")) == []
+        assert list(stream("</div")) == []
+        assert list(stream("<x q='unterminated")) == []
+
+    def test_plaintext_and_unclosed_rawtext(self):
+        assert list(stream("<plaintext>a<b>")) == [
+            ("start", ("plaintext", {})),
+            ("text", "a<b>"),
+        ]
+        assert list(stream("<style>x")) == [
+            ("start", ("style", {})),
+            ("text", "x"),
+        ]
+        assert list(stream("<style>x</style")) == [
+            ("start", ("style", {})),
+            ("text", "x</style"),
+        ]
+
+    def test_comment_edge_cases(self):
+        assert list(stream("<!-->")) == [("comment", "")]
+        assert list(stream("<!--->")) == [("comment", "")]
+        assert list(stream("<!--x--!>")) == [("comment", "x")]
+        assert list(stream("<!--x--")) == [("comment", "x")]
+        assert list(stream("<!--x\0-->")) == [("comment", "x\ufffd")]
+
+    def test_doctype_edge_cases(self):
+        assert list(stream("<!DOCTYPE")) == [("doctype", (None, None, None))]
+        assert list(stream("<!DOCTYPE >")) == [("doctype", (None, None, None))]
+        assert list(stream("<!DoCtYpE HTML>")) == [("doctype", ("html", None, None))]
+
+    def test_unclosed_cdata_and_bogus_declarations(self):
+        assert list(stream("<svg><![CDATA[x")) == [
+            ("start", ("svg", {})),
+            ("text", "x"),
+        ]
+        assert list(stream("<!foo")) == [("comment", "foo")]
+        assert list(stream("<!foo>")) == [("comment", "foo")]
+
+    def test_attribute_edge_cases(self):
+        assert list(stream("<DIV A\0B=x\0&amp; A=dup>")) == [
+            ("start", ("div", {"a\ufffdb": "x\ufffd&", "a": "dup"})),
+        ]
+        assert list(stream('<x a = unquoted b="v&amp;">')) == [
+            ("start", ("x", {"a": "unquoted", "b": "v&"})),
+        ]
+        assert list(stream("<x / >")) == [("start", ("x", {}))]
+        assert list(stream("<x/>")) == [("start", ("x", {}))]
+        assert list(stream("<x a=first a=second>")) == [
+            ("start", ("x", {"a": "first"})),
+        ]
+
+    def test_bytes_input(self):
+        assert list(stream(b"<p>x</p>")) == [
+            ("start", ("p", {})),
+            ("text", "x"),
+            ("end", "p"),
+        ]
+
+    def test_scanner_defensive_helpers(self):
+        empty = _StreamScanner("")
+        assert empty._parse_start_tag(0, 0) is None
+        assert empty._parse_end_tag(0, 0) is None
+        assert empty._in_foreign_context() is False
+
+        spaces = _StreamScanner(" ")
+        assert spaces._parse_attrs(0, 1) == ({}, False, 1, False)
+        bare_attribute = _StreamScanner("a")
+        assert bare_attribute._parse_attrs(0, 1) == ({"a": ""}, False, 1, False)
+
+        text_buffer: list[str] = []
+        empty._append_text(text_buffer, "")
+        empty._append_text(text_buffer, "\r\n\0&amp;")
+        assert text_buffer == ["\n\ufffd&"]
+        assert list(empty._flush_text([""])) == []
+
+    def test_script_scanner_rejects_nested_invalid_end_markers(self):
+        invalid_inner = "<!--<script X </scriptx </script>"
+        assert find_script_end_tag(invalid_inner, invalid_inner.lower(), 0, len(invalid_inner)) == (
+            None,
+            len(invalid_inner),
+        )
+
+        invalid_quoted = '<!--<script X </script foo="</scriptx">tail</script>'
+        assert find_script_end_tag(invalid_quoted, invalid_quoted.lower(), 0, len(invalid_quoted)) == (43, 52)

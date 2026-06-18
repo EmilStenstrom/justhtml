@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Replace the legacy tokenizer/tree-builder implementation with one plan-driven parser engine shared by sanitized, unsanitized, fragment, streaming, diagnostic, and source-location modes.
+
+### Fixed
+- Preserve HTML5 tree-construction behavior across foreign-content integration points, select/table recovery, framesets, plaintext formatting reconstruction, form-pointer handling, malformed comments, and foreign attribute parsing.
+- Stabilize sanitization of malformed foreign-namespace rawtext structures so trailing HTML cannot be exposed by mutation-XSS reparsing.
+
+### Performance
+- Compile default sanitizer decisions into parser tag actions and scan projected attributes directly in the parser hot path.
+- Bypass document-mode recovery checks for ordinary text insertion when the current parser state cannot require them.
+
 ## [2.4.1] - 2026-06-21
 
 ### Fixed

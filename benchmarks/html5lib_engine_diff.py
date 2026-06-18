@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """Differential scorecard for the default-safe engine on html5lib tree cases.
 
-This compares the public default-safe path:
+This compares the compiled public default-safe path:
 
     JustHTML(html)
 
-against the same public default-safe path with parse-error collection enabled:
+against the canonical full parse followed by the public sanitizer:
 
-    JustHTML(html, collect_errors=True)
+    document = JustHTML(html, sanitize=False)
+    sanitize_dom(document.root)
 
-It is intentionally a default-safe scorecard, not an upstream html5lib pass/fail
-runner. The default-safe sanitizer changes observable output, so the useful
-question is whether optional error collection leaves public constructor output
-stable.
+It is intentionally a default-safe semantic-equivalence scorecard, not an
+upstream html5lib pass/fail runner.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ for _path in (str(_ROOT), str(_SRC)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from justhtml import JustHTML  # noqa: E402
+from justhtml import JustHTML, sanitize_dom  # noqa: E402
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -99,12 +98,14 @@ def _render_current(test: Any) -> str:
 
 
 def _render_reference(test: Any) -> str:
-    return JustHTML(
+    document = JustHTML(
         test.data,
         fragment_context=test.fragment_context,
         scripting_enabled=_scripting_enabled(test),
-        collect_errors=True,
-    ).to_html(pretty=False)
+        sanitize=False,
+    )
+    sanitize_dom(document.root)
+    return document.to_html(pretty=False)
 
 
 def _try_render(render: Callable[[Any], str], test: Any) -> tuple[str | None, str | None]:

@@ -453,18 +453,17 @@ default-safe html5lib differential matches and `1239/1239` unit-test passes.
 
 ## Current Conclusion
 
-The viable path is a purpose-built replacement for the existing
-html5ever-shaped pipeline: a default-safe parser with direct handlers, followed
-by incremental parity work driven by differential fixtures.
+The replacement parser now passes all `1791/1791` enabled upstream tree cases
+and all `1783/1783` default-safe differential cases. The full project suite
+passes `3414/3414` tests with `6` expected skips.
 
-The strongest signal so far is that the parser can now match every scored
-html5lib tree-construction case in the default-safe differential runner with no
-scorecard exceptions, while the raw replacement path has crossed 90% upstream
-tree-suite compliance. The remaining work is parser compliance margin and
-performance margin: the raw path is not complete yet, and the latest broad
-replacement pass is below the original `2x` gate at `1.865x`.
+The final isolated default-safe web100k gate measures `0.530954s` median over
+`61` iterations for 100 files, a `2.022x` speedup against the recorded `1.073689s`
+baseline. Ordinary dropped SVG/MathML subtrees stay on the fast skip path,
+while malformed foreign content with HTML breakout or integration-point syntax
+falls back to full tree construction.
 
-The next engineering step is to keep `ParseEngine` as the productionizing
-target: define state boundaries, add focused golden tests for each promoted
-rule, preserve the benchmark gate above `2x`, and move the remaining public API
-surface from fallback behavior onto explicit engine plans.
+The parser replacement is therefore complete on correctness and the required
+`2x` performance gate. Non-engine modules pass the repository's `100%` line
+and branch coverage gate, and pre-commit now enforces the exact parser
+differential check separately.

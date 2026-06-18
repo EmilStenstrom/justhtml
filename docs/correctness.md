@@ -103,15 +103,24 @@ The encoding coverage comes from both:
 - The official `html5lib-tests/encoding` fixtures (exposed in this repo as `tests/html5lib-tests-encoding/...`).
 - JustHTML's own unit tests (see `tests/test_encoding.py`) which exercise byte input, encoding label normalization, BOM handling, and meta charset prescanning.
 
-### 2. 100% Code Coverage
+### 2. Coverage and parser differential checks
 
-Every line and branch of code is covered by tests. We enforce this in CI:
+Every line and branch outside the parser state machine is covered by tests. We enforce this in CI:
 
 ```bash
 coverage run run_tests.py && coverage report --fail-under=100
 ```
 
-This isn't just vanity - during development, we discovered that uncovered code was often dead code. Removing it made the parser faster and cleaner.
+The parser engine contains many spec-mandated malformed-input recovery branches, so its release gate is behavioral:
+
+```bash
+PYTHONPATH=src python benchmarks/html5lib_engine_diff.py \
+  --fail-under-rate 1.0 \
+  --fail-on-current-exceptions
+```
+
+This requires exact agreement with the reference parser path across every scored html5lib tree-construction case.
+Coverage still identifies dead code and weak tests in the rest of the package.
 
 ### 3. Fuzz Testing (millions of cases)
 

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 SPACE = " \t\n\f\r"
 TAG_NAME_STOP = "\t\n\f />"
-ATTR_NAME_STOP = "\t\n\f />=\0\"'<"
+# In the HTML attribute-name state, quotes, apostrophes, "<", and NUL are
+# parse errors but remain part of the attribute name (NUL is replaced later).
+ATTR_NAME_STOP = "\t\n\f />="
 ATTR_VALUE_STOP = SPACE + ">"
 TAG_END_NAME_STOP = SPACE + "/>"
 
@@ -76,6 +78,20 @@ def find_script_end_tag(html: str, lower: str, pos: int, end: int) -> tuple[int 
             search = script_start + 7
             continue
         if double_escaped:
+            later_end = lower.find("</script", close + 8, next_pos)
+            if later_end != -1:
+                after_name = later_end + 8
+                if after_name >= end or html[after_name] in TAG_END_NAME_STOP:
+                    double_escaped = False
+                    search = close + 8
+                    continue
+            double_end = lower.find("</script", search, close)
+            if double_end != -1:
+                after_name = double_end + 8
+                if after_name >= end or html[after_name] in TAG_END_NAME_STOP:
+                    double_escaped = False
+                    search = after_name
+                    continue
             double_escaped = False
             search = next_pos
             continue

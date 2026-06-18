@@ -37,3 +37,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: parser-differential
+        name: Parser Differential
+        entry: bash -c 'PYTHONPATH=src python benchmarks/html5lib_engine_diff.py --fail-under-rate 1.0 --fail-on-current-exceptions'
+        language: system
+        pass_filenames: false
+        always_run: true

@@ -307,8 +307,29 @@ def apply_compiled_transforms(
                             if t.report is not None:
                                 tag = str(name).lower()
                                 t.report(f"Unsafe tag '{tag}' (foreign namespace)", node=node)
-                            children.pop(i)
-                            node.parent = None
+                            pending_foreign = [node]
+                            drop_trailing_siblings = False
+                            while pending_foreign:
+                                foreign_node = pending_foreign.pop()
+                                if (
+                                    foreign_node.namespace not in (None, "html")
+                                    and foreign_node.name in {"script", "style"}
+                                    and not foreign_node._end_tag_present
+                                ):
+                                    drop_trailing_siblings = True
+                                    break
+                                foreign_children = foreign_node.children
+                                if foreign_children:
+                                    pending_foreign.extend(
+                                        child for child in foreign_children if isinstance(child, Node)
+                                    )
+                            if drop_trailing_siblings:
+                                for dropped in children[i:]:
+                                    dropped.parent = None
+                                del children[i:]
+                            else:
+                                children.pop(i)
+                                node.parent = None
                             changed = True
                             break
 

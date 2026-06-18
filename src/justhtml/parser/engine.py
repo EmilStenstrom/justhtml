@@ -107,6 +107,7 @@ _P_CLOSING_START_TAGS = {
     "figcaption",
     "figure",
     "footer",
+    "form",
     "header",
     "hgroup",
     "hr",
@@ -130,7 +131,7 @@ _P_CLOSING_START_TAGS = {
 _HEAD_NOSCRIPT_ALLOWED_START_TAGS = {"basefont", "bgsound", "link", "meta", "noframes", "style"}
 _HEAD_NOSCRIPT_VOID_START_TAGS = {"basefont", "bgsound"}
 _HEAD_ONLY_VOID_START_TAGS = {"basefont", "bgsound"}
-_HTML_VOID_COMPAT_TAGS = {"keygen"}
+_HTML_VOID_COMPAT_TAGS = {"basefont", "bgsound", "frame", "keygen"}
 _DEFINITION_SCOPE_BOUNDARIES = frozenset(DEFINITION_SCOPE_TERMINATORS)
 _LIST_ITEM_SCOPE_BOUNDARIES = frozenset(LIST_ITEM_SCOPE_TERMINATORS)
 _PRE_LINEFEED_IGNORING_TAGS = {"listing", "pre"}
@@ -152,7 +153,7 @@ _TEMPLATE_MODE_COLGROUP = "colgroup"
 _TEMPLATE_TABLE_CONTEXT_START_TAGS = {"caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr"}
 _TEMPLATE_TABLE_BODY_IGNORED_START_TAGS = {"caption", "col", "colgroup", "table"}
 _TEMPLATE_ROW_STRUCTURE_START_TAGS = {"caption", "col", "colgroup", "tbody", "tfoot", "thead", "tr", "table"}
-_FRAMESET_BODY_OK_TAGS = {"div", "p"}
+_FRAMESET_BODY_OK_TAGS = {"div", "figure", "p", "param", "source", "track"}
 _FRAMESET_BLOCKING_START_TAGS = {
     "applet",
     "area",
@@ -172,6 +173,7 @@ _FRAMESET_BLOCKING_START_TAGS = {
     "xmp",
 }
 _UNWRAP_CONSTRUCTION_SKIP_TAGS = {"col", "colgroup", "form", "menuitem"}
+_FOREIGN_FULL_PARSE_TAGS = FOREIGN_BREAKOUT_ELEMENTS | {"annotation-xml", "desc", "font", "foreignobject", "title"}
 _URL_FAST_FALLBACK = object()
 
 
@@ -565,7 +567,10 @@ class ParseEngine:
         "_active_formatting",
         "_active_formatting_dirty",
         "_active_formatting_tags",
+        "_after_body",
+        "_after_document",
         "_after_head",
+        "_after_html",
         "_allowed_tags",
         "_body",
         "_body_explicit",
@@ -582,6 +587,8 @@ class ParseEngine:
         "_errors",
         "_explicit_head",
         "_explicit_html",
+        "_foreign_context_seen",
+        "_form_element",
         "_foster_next_table_whitespace",
         "_fragment",
         "_fragment_context_name",
@@ -591,9 +598,13 @@ class ParseEngine:
         "_frameset_blocking_start_tags",
         "_frameset_body_ok_tags",
         "_frameset_seen",
+        "_has_carriage_return",
+        "_has_form_feed",
+        "_has_null",
         "_has_selectedcontent",
         "_head",
         "_head_content_tags",
+        "_head_reentry",
         "_html",
         "_html_input",
         "_iframe_srcdoc",
@@ -607,6 +618,7 @@ class ParseEngine:
         "_line_starts",
         "_list_item_scope_boundaries",
         "_lower_input",
+        "_nodes_to_drop",
         "_nodes_to_unwrap",
         "_p_closing_start_tags",
         "_parser_only_template_depth",
@@ -705,15 +717,24 @@ class ParseEngine:
         self._tag_actions = self._plan.tag_actions
         self._void_elements = self._plan.void_elements
         self._doc: Document | DocumentFragment
+        self._after_body = False
+        self._after_document = False
         self._after_head = False
+        self._after_html = False
         self._dropped_to_eof = False
         self._doctype_seen = False
         self._explicit_head = False
         self._explicit_html = False
         self._foster_next_table_whitespace = False
+        self._form_element: Element | None = None
         self._frameset_blocked = False
         self._frameset_seen = False
+        self._has_carriage_return = "\r" in html
+        self._has_form_feed = "\f" in html
+        self._has_null = "\0" in html
+        self._foreign_context_seen = False
         self._has_selectedcontent = False
+        self._head_reentry = False
         self._ignore_lf = False
         self._in_colgroup = False
         self._in_head_noscript = False
@@ -728,6 +749,7 @@ class ParseEngine:
         self._body: Element | DocumentFragment
         self._active_formatting: list[_FormattingEntry | _FormattingMarker] = []
         self._active_formatting_dirty = False
+        self._nodes_to_drop: list[Element] = []
         self._nodes_to_unwrap: list[Element] = []
         self._template_modes: list[str] = []
         self._stack: list[Node] = []
@@ -795,23 +817,28 @@ class ParseEngine:
         if not stack:
             return False
         current = stack[-1]
-        if current.namespace in {None, "html"}:
+        if current.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
             return False
         if name in {"br", "p"}:
             return False
         if name in _TABLE_SCOPED_END_TAGS:
             return False
 
+        crossed_integration_point = False
         for idx in range(len(stack) - 1, 0, -1):
             node = stack[idx]
-            if node.namespace in {None, "html"}:
-                return True
             if self._node_matches_end_name(node, name):
+                if node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE} and crossed_integration_point:
+                    return True
                 if self._fragment_context_node is not None and node is self._fragment_context_node:
                     return True
                 if self._track_tag_spans:
                     self._set_end_span(node, name, tag_start, tag_end)
                 del stack[idx:]
+                return True
+            if self._is_html_integration_point(node) or self._is_mathml_text_integration_point(node):
+                crossed_integration_point = True
+            if node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
                 return True
         return True
 
@@ -996,6 +1023,11 @@ class ParseEngine:
                 self._head = head
                 self._body = body
                 self._stack = [root, context, body]
+                if not self._raw_mode:
+                    if "head" not in self._allowed_tags:
+                        self._nodes_to_unwrap.append(head)
+                    if "body" not in self._allowed_tags:
+                        self._nodes_to_unwrap.append(body)
             elif context_name and context_name != "div":
                 context = Element(context_name, {}, self._fragment_context_namespace or "html")
                 self._append(root, context)
@@ -1024,6 +1056,7 @@ class ParseEngine:
         self._parse_range(0, self._length)
         self._finish_document_shell()
         self._project_selectedcontent()
+        self._drop_recorded_nodes()
         self._unwrap_recorded_nodes()
         self._finish_fragment_context()
         return self._doc
@@ -1049,10 +1082,35 @@ class ParseEngine:
     def _append_comment(self, data: str, source_pos: int | None = None) -> None:
         if self._xml_coercion:
             data = _coerce_comment_for_xml(data)
+        if self._after_document and source_pos is not None:
+            marker = "</html" if self._after_html else "</body"
+            close_start = self._lower_input.rfind(marker, 0, source_pos)
+            close_end = self._html_input.find(">", close_start, source_pos) if close_start != -1 else -1
+            trailing = self._html_input[close_end + 1 : source_pos] if close_end != -1 else ""
+            if trailing and "<" not in trailing and trailing.strip(_SPACE):
+                self._after_body = False
+                self._after_document = False
+                self._after_html = False
+                self._body_mode_seen = True
         node = Comment(data=data)
         self._set_origin(node, source_pos)
         parent: Node
-        if not self._fragment and not self._initial_mode_done:
+        if not self._fragment and self._after_html:
+            self._append(self._doc, node)
+            return
+        if not self._fragment and self._after_body and self._html is not None:
+            self._append(self._html, node)
+            return
+        if not self._fragment and (
+            not self._initial_mode_done
+            or (
+                not self._explicit_html
+                and not self._explicit_head
+                and not self._body_mode_seen
+                and not self._body_has_content()
+                and self._current_parent() is self._body
+            )
+        ):
             children = self._doc.children
             if children is not None:
                 insert_at = 0
@@ -1066,15 +1124,15 @@ class ParseEngine:
             not self._fragment
             and self._html is not None
             and self._head is not None
-            and not self._explicit_head
             and not self._body_mode_seen
             and not self._body_has_content()
-            and self._current_parent() is self._body
+            and self._current_parent() in {self._body, self._html}
         ):
             children = self._html.children
             if children is not None:
+                anchor = self._body if self._after_head or self._explicit_head else self._head
                 try:
-                    insert_at = children.index(self._head)
+                    insert_at = children.index(anchor)
                 except ValueError:
                     insert_at = len(children)
                 children.insert(insert_at, node)
@@ -1199,12 +1257,14 @@ class ParseEngine:
         return True
 
     def _mark_initial_content(self) -> None:
-        if not self._fragment and not self._initial_mode_done:
+        if not self._initial_mode_done:
             self._quirks_mode = "quirks"
             self._initial_mode_done = True
 
     def _parse_range(self, pos: int, end: int) -> int:
         html = self._html_input
+        append_text = self._append_text
+        find = html.find
         parse_start_tag = (
             self._parse_compiled_safe_start_tag
             if not self._raw_mode
@@ -1228,15 +1288,15 @@ class ParseEngine:
                     pos += 1
                     if pos >= end:
                         return end
-            lt = html.find("<", pos, end)
+            lt = find("<", pos, end)
             if lt == -1:
-                self._append_text(html[pos:end], pos)
+                append_text(html[pos:end], pos)
                 return end
             if lt > pos:
-                self._append_text(html[pos:lt], pos)
+                append_text(html[pos:lt], pos)
             pos = lt + 1
             if pos >= end:
-                self._append_text("<", lt)
+                append_text("<", lt)
                 return end
 
             ch = html[pos]
@@ -1245,9 +1305,11 @@ class ParseEngine:
                     close = self._find_comment_end(pos + 1, end)
                     if close == -1:
                         if self._raw_mode and self._track_tag_spans:
-                            self._append_text(html[lt:end], lt)
+                            append_text(html[lt:end], lt)
                         elif not self._drop_comments:
-                            self._append_comment(html[pos + 3 : end], lt)
+                            data = html[pos + 3 : end]
+                            data = data.removesuffix("--")
+                            self._append_comment(data, lt)
                         pos = end
                     else:
                         if not self._drop_comments:
@@ -1276,10 +1338,10 @@ class ParseEngine:
                     if self._raw_mode and self._track_tag_spans:
                         gt = html.find(">", pos + 8, end)
                         if gt == -1:
-                            self._append_text(html[lt:end], lt)
+                            append_text(html[lt:end], lt)
                             pos = end
                         else:
-                            self._append_text(html[lt : gt + 1], lt)
+                            append_text(html[lt : gt + 1], lt)
                             pos = gt + 1
                         continue
                     pos = self._parse_doctype(pos + 8, end)
@@ -1287,7 +1349,7 @@ class ParseEngine:
                 gt = html.find(">", pos + 1, end)
                 comment_end = end if gt == -1 else gt
                 if self._raw_mode and self._track_tag_spans:
-                    self._append_text(html[lt:end] if gt == -1 else html[lt : gt + 1], lt)
+                    append_text(html[lt:end] if gt == -1 else html[lt : gt + 1], lt)
                 elif not self._drop_comments:
                     self._append_comment(html[pos + 1 : comment_end].replace("\0", "\ufffd"), lt)
                 pos = end if gt == -1 else gt + 1
@@ -1298,7 +1360,7 @@ class ParseEngine:
             if ch == "?":
                 gt = html.find(">", pos + 1, end)
                 if self._raw_mode and self._track_tag_spans:
-                    self._append_text(html[lt:end] if gt == -1 else html[lt : gt + 1], lt)
+                    append_text(html[lt:end] if gt == -1 else html[lt : gt + 1], lt)
                     pos = end if gt == -1 else gt + 1
                     continue
                 if self._raw_mode:
@@ -1310,7 +1372,7 @@ class ParseEngine:
                 pos = end if gt == -1 else gt + 1
                 continue
             if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
-                self._append_text("<", lt)
+                append_text("<", lt)
                 continue
             pos = parse_start_tag(pos, end)
         return pos
@@ -1332,9 +1394,11 @@ class ParseEngine:
 
     def _clean_text(self, raw: str, *, replace_null: bool = False) -> str:
         text = raw
-        if "\r" in text:
+        if self._has_carriage_return and "\r" in text:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
-        if "\0" in text:
+        if self._has_form_feed and "\f" in text:
+            text = text.replace("\f", " ")
+        if self._has_null and "\0" in text:
             text = text.replace("\0", "\ufffd" if replace_null else "")
         if "&" in text:
             text = decode_entities_in_text(text)
@@ -1347,20 +1411,63 @@ class ParseEngine:
     def _append_text(self, raw: str, source_pos: int | None = None) -> None:
         if not raw:
             return
+        stack = self._stack
+        parent = stack[-1]
+        if (
+            self._initial_mode_done
+            and not self._frameset_seen
+            and self._fragment_context_name is None
+            and not self._template_modes
+            and not self._active_formatting_dirty
+            and not self._foster_next_table_whitespace
+            and not self._in_colgroup
+            and not self._in_head_noscript
+            and not self._ignore_lf
+            and not self._track_node_locations
+            and not self._xml_coercion
+            and parent.namespace in {None, "html"}
+            and type(parent) is not Template
+            and parent is not self._head
+            and parent is not self._html
+            and parent.name not in self._table_foster_targets
+            and (parent is not self._body or self._body_explicit or self._body_mode_seen or self._body_has_content())
+        ):
+            text = raw
+            if self._has_carriage_return and "\r" in text:
+                text = text.replace("\r\n", "\n").replace("\r", "\n")
+            if self._has_form_feed and "\f" in text:
+                text = text.replace("\f", " ")
+            if self._has_null and "\0" in text:
+                text = text.replace("\0", "")
+            if "&" in text:
+                text = decode_entities_in_text(text)
+            if self._strip_invisible_unicode and text and not text.isascii():
+                text = _strip_invisible_unicode(text)
+            if text:
+                children = parent.children
+                if children is not None:
+                    if children and type(children[-1]) is Text:
+                        children[-1].data = (children[-1].data or "") + text
+                    else:
+                        node = Text(text)
+                        children.append(node)
+                        node.parent = parent
+            return
         raw_is_space: bool | None = None
         foster_table_whitespace = False
         if self._foster_next_table_whitespace:
             foster_table_whitespace = True
             self._foster_next_table_whitespace = False
-        if not self._fragment and not self._initial_mode_done:
+        if not self._initial_mode_done:
             raw_is_space = raw.replace("\0", "").strip(_SPACE) == ""
             if not raw_is_space:
                 self._mark_initial_content()
-        if not self._fragment and self._frameset_seen and not self._body_explicit:
-            self._append_frameset_text(raw)
-            return
-        if self._fragment and self._frameset_seen:
-            return
+        if self._frameset_seen:
+            if self._fragment:
+                return
+            if not self._body_explicit:
+                self._append_frameset_text(raw)
+                return
         if self._fragment_context_name == "colgroup":
             return
         if self._template_modes and self._template_modes[-1] == _TEMPLATE_MODE_COLGROUP:
@@ -1372,7 +1479,7 @@ class ParseEngine:
             parent = self._current_parent()
         parent_name = getattr(parent, "name", None)
         if self._active_formatting_dirty:
-            reconstruct = parent_name not in self._table_cell_tags and parent_name != "caption"
+            reconstruct = parent_name != "caption"
             if reconstruct and parent_name in self._table_foster_targets:
                 if raw_is_space is None:
                     raw_is_space = raw.strip(_SPACE) == ""
@@ -1457,9 +1564,11 @@ class ParseEngine:
                 self._stack.pop()
             parent = self._current_parent()
         text = raw
-        if "\r" in text:
+        if self._has_carriage_return and "\r" in text:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
-        if "\0" in text:
+        if self._has_form_feed and "\f" in text:
+            text = text.replace("\f", " ")
+        if self._has_null and "\0" in text:
             parent_namespace = getattr(parent, "namespace", None)
             null_replacement = (
                 "\ufffd"
@@ -1569,6 +1678,9 @@ class ParseEngine:
         self._initial_mode_done = True
 
     def _parse_compiled_safe_end_tag(self, pos: int, end: int) -> int:
+        if self._foreign_context_seen:
+            if any(node.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} for node in self._stack[1:]):
+                return self._parse_end_tag(pos, end)
         html = self._html_input
         if pos >= end:
             self._append_text("</")
@@ -1637,10 +1749,6 @@ class ParseEngine:
             and self._stack[-1] is self._head
             and name not in {"br", "body", "head", "html", "template"}
         ):
-            if self._html is not None:
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
-                self._after_head = False
-                self._body_mode_seen = True
             return pos
         if (
             not self._fragment
@@ -1711,8 +1819,6 @@ class ParseEngine:
                     return pos
                 self._insert_compiled_safe_element("p", {}, False, self._current_parent())
                 self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
-            elif name in self._p_closing_start_tags:
-                self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
             return pos
         if self._fragment_context_node is not None and stack[idx] is self._fragment_context_node:
             return pos
@@ -1735,16 +1841,14 @@ class ParseEngine:
             return end
         ch = html[pos]
         if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
-            if pos >= end:
-                self._append_text("</", pos - 2)
-                return end
             gt = html.find(">", pos, end)
             if raw_mode:
-                if gt == -1:
-                    self._append_text(html[tag_start:end], tag_start)
-                    return end
-                self._append_text(html[tag_start : gt + 1], tag_start)
-                return gt + 1
+                if self._track_tag_spans:
+                    self._append_text(html[tag_start:end] if gt == -1 else html[tag_start : gt + 1], tag_start)
+                    return end if gt == -1 else gt + 1
+                comment_end = end if gt == -1 else gt
+                if not self._drop_comments:
+                    self._append_comment(html[pos:comment_end].replace("\0", "\ufffd"), tag_start)
             return end if gt == -1 else gt + 1
         name_start = pos
         pos += 1
@@ -1761,15 +1865,23 @@ class ParseEngine:
         pos = end if gt == -1 else gt + 1
         tag_end = pos
 
-        if raw_mode and gt == -1 and html[after_name:end].strip(_SPACE):
-            self._append_text(html[tag_start:end], tag_start)
+        if raw_mode and gt == -1:
+            if self._track_tag_spans and html[after_name:end].strip(_SPACE):
+                self._append_text(html[tag_start:end], tag_start)
             return end
 
-        if raw_mode and gt != -1 and html[after_name:gt].strip(_SPACE) and self._find_open_index(name) is None:
+        if (
+            raw_mode
+            and self._track_tag_spans
+            and name != "br"
+            and gt != -1
+            and html[after_name:gt].strip(_SPACE)
+            and self._find_open_index(name) is None
+        ):
             self._append_text(html[tag_start:tag_end], tag_start)
             return pos
 
-        if raw_mode and self._end_tag_stays_in_foreign_context(name, tag_start, tag_end):
+        if self._end_tag_stays_in_foreign_context(name, tag_start, tag_end):
             return pos
 
         if not self._fragment and name in {"html", "body"}:
@@ -1777,16 +1889,15 @@ class ParseEngine:
             if self._find_open_index("table") is not None and parent_name not in {"body", "html"}:
                 return pos
             self._in_colgroup = False
-            if parent_name not in {"body", "html"} and self._find_open_index("body") is not None:
-                self._after_head = False
-                self._body_mode_seen = True
-                return pos
+            if self._head is not None and self._stack[-1] is self._head:
+                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
             if self._frameset_seen and not self._body_explicit:
                 self._stack = [self._doc, self._html]  # type: ignore[list-item]
-            else:
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
             self._after_head = False
             self._body_mode_seen = True
+            self._after_body = name == "body"
+            self._after_document = True
+            self._after_html = name == "html"
             if name == "body" and isinstance(self._body, Element):
                 if self._track_tag_spans:
                     self._set_end_span(self._body, name, tag_start, tag_end)
@@ -1818,6 +1929,25 @@ class ParseEngine:
         if name == "template":
             self._close_open_template(tag_start, tag_end)
             return pos
+        if name == "form" and not self._template_modes:
+            form_node = self._form_element
+            self._form_element = None
+            if form_node is None:
+                return pos
+            self._generate_implied_end_tags()
+            try:
+                self._stack.remove(form_node)
+            except ValueError:
+                pass
+            return pos
+        select_idx = self._find_open_html_index("select")
+        if select_idx is not None and name not in {"optgroup", "option", "select", "selectedcontent", "template"}:
+            target_idx = self._find_open_index(name)
+            if target_idx is not None and target_idx < select_idx:
+                if name in _TABLE_SCOPED_END_TAGS:
+                    self._close_html_until("select")
+                else:
+                    return pos
         if name == "menuitem":
             for node in reversed(self._stack):
                 node_name = getattr(node, "name", None)
@@ -1828,6 +1958,15 @@ class ParseEngine:
         if self._template_modes and self._handle_template_mode_end(name):
             return pos
         if self._frameset_seen and not self._body_explicit:
+            if name == "frameset":
+                if len(self._stack) > 1 and self._stack[-1].name == "frameset":
+                    self._stack.pop()
+                if self._find_open_index("frameset") is None:
+                    self._after_body = True
+                    self._after_document = True
+            elif name == "html" and self._after_body:
+                self._after_document = True
+                self._after_html = True
             return pos
         if (
             not self._fragment
@@ -1835,10 +1974,6 @@ class ParseEngine:
             and self._stack[-1] is self._head
             and name not in {"br", "body", "head", "html", "template"}
         ):
-            if self._html is not None:
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
-                self._after_head = False
-                self._body_mode_seen = True
             return pos
         if (
             not self._fragment
@@ -1875,6 +2010,16 @@ class ParseEngine:
             del stack[idx:]
             return pos
         if action is not None and action.active_formatting:
+            select_idx = self._find_open_html_index("select")
+            formatting_idx = self._find_active_formatting_index(name)
+            if select_idx is not None and formatting_idx is not None:
+                entry = self._active_formatting[formatting_idx]
+                if isinstance(entry, _FormattingEntry):
+                    try:
+                        if self._stack.index(entry.node) < select_idx:
+                            return pos
+                    except ValueError:
+                        pass
             self._adoption_agency(name, tag_start=tag_start, tag_end=tag_end)
             return pos
 
@@ -1917,8 +2062,6 @@ class ParseEngine:
                     return pos
                 self._insert_sanitized_element("p", {}, False, self._current_parent())
                 self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
-            elif name in self._p_closing_start_tags:
-                self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
             return pos
         if self._fragment_context_node is not None and stack[idx] is self._fragment_context_node:
             return pos
@@ -1950,10 +2093,12 @@ class ParseEngine:
         name = raw_name if raw_name.islower() else raw_name.lower()
         if name == "image":
             name = "img"
+        action = self._tag_actions.get(name)
+        if self._foreign_context_seen and self._stack[-1].namespace not in {None, "html", _PARSER_ONLY_NAMESPACE}:
+            return self._parse_start_tag(name_start, end)
         if not self._initial_mode_done:
             self._mark_initial_content()
 
-        action = self._tag_actions.get(name)
         attrs, self_closing, pos, tag_closed = self._parse_attrs_for_action(action, pos, end)
         if not tag_closed:
             return pos
@@ -1972,6 +2117,9 @@ class ParseEngine:
             current_top = self._stack[-1]
             if name == "html":
                 self._in_colgroup = False
+                if self._frameset_seen:
+                    self._after_document = True
+                    self._after_html = True
                 self._explicit_html = True
                 if self._html is not None:
                     self._html.attrs.update(attrs)
@@ -2065,9 +2213,16 @@ class ParseEngine:
             return pos
 
         if action is not None and action.drop_content:
+            if self._raw_head_text_parent(name) and self._head is not None:
+                self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
             return self._skip_rawtext(name, pos, end)
         if action is not None and action.drop_subtree:
-            return self._skip_subtree(name, pos, end)
+            if action.allowed:
+                return self._parse_start_tag(name_start, end)
+            next_pos = self._skip_subtree(name, pos, end, detect_foreign_breakout=True)
+            if next_pos == -1:
+                return self._parse_start_tag(name_start, end)
+            return next_pos
         if action is not None and action.rawtext_as_text:
             return self._parse_rawtext_as_text(name, pos, end)
         if (
@@ -2105,7 +2260,7 @@ class ParseEngine:
             return pos
 
         if action is not None and action.active_formatting:
-            return self._parse_formatting_start(name, attrs, pos)
+            return self._parse_formatting_start(name, attrs, pos, compiled_safe=True)
 
         parent: Node
         if (
@@ -2120,7 +2275,11 @@ class ParseEngine:
             parent = self._head
         else:
             self._repair_stack_for_start(name)
-            parent = self._current_parent()
+            parent = self._stack[-1]
+            if parent.namespace == _PARSER_ONLY_NAMESPACE or (
+                type(parent) is Template and parent.template_content is not None
+            ):
+                parent = self._current_parent()
 
         if not in_parser_only_template and name == "table":
             table_idx = self._find_open_index("table")
@@ -2201,24 +2360,41 @@ class ParseEngine:
             self._mark_initial_content()
 
         action = self._tag_actions.get(name)
-        if raw_mode:
+        foreign_state_parse = not raw_mode and (
+            name in {"math", "svg"} or self._stack[-1].namespace not in {None, "html", _PARSER_ONLY_NAMESPACE}
+        )
+        if raw_mode or foreign_state_parse:
             attrs, self_closing, pos, tag_closed = self._parse_all_attrs(pos, end)
         else:
             attrs, self_closing, pos, tag_closed = self._parse_attrs_for_action(action, pos, end)
         if not tag_closed:
-            if raw_mode:
+            if raw_mode and self._track_tag_spans:
                 self._append_text(html[tag_start:end], tag_start)
             return pos
         tag_end = pos
         allowed = raw_mode or (action is not None and action.allowed)
         in_template_content = bool(self._template_modes)
+        if (
+            not self._fragment
+            and self._after_document
+            and name != "html"
+            and not (self._frameset_seen and name in {"frameset", "noframes"})
+        ):
+            self._after_body = False
+            self._after_document = False
+            self._after_html = False
+            self._body_mode_seen = True
         if raw_mode and self._fragment and name == "html" and not in_template_content:
             return pos
         if not in_template_content:
             if name == "colgroup":
+                if self._in_colgroup and len(self._stack) > 1 and self._stack[-1].name == "colgroup":
+                    self._stack.pop()
                 self._in_colgroup = True
             elif self._in_colgroup and name not in {"col", "template"}:
                 self._in_colgroup = False
+                if len(self._stack) > 1 and self._stack[-1].name == "colgroup":
+                    self._stack.pop()
         if self._in_head_noscript:
             if name in {"head", "noscript"}:
                 return pos
@@ -2228,9 +2404,13 @@ class ParseEngine:
             current_top = self._stack[-1]
             if name == "html":
                 self._in_colgroup = False
+                if self._frameset_seen:
+                    self._after_document = True
+                    self._after_html = True
                 self._explicit_html = True
                 if self._html is not None:
-                    self._html.attrs.update(attrs)
+                    for attr_name, attr_value in attrs.items():
+                        self._html.attrs.setdefault(attr_name, attr_value)
                     self._set_origin(self._html, tag_start)
                     self._set_source_span(self._html, tag_start, tag_end)
                 return pos
@@ -2238,7 +2418,8 @@ class ParseEngine:
                 self._in_colgroup = False
                 self._explicit_head = True
                 if self._head is not None:
-                    self._head.attrs.update(attrs)
+                    for attr_name, attr_value in attrs.items():
+                        self._head.attrs.setdefault(attr_name, attr_value)
                     self._set_origin(self._head, tag_start)
                     self._set_source_span(self._head, tag_start, tag_end)
                     self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
@@ -2247,7 +2428,8 @@ class ParseEngine:
             if name == "body":
                 self._in_colgroup = False
                 if isinstance(self._body, Element):
-                    self._body.attrs.update(attrs)
+                    for attr_name, attr_value in attrs.items():
+                        self._body.attrs.setdefault(attr_name, attr_value)
                     self._set_origin(self._body, tag_start)
                     self._set_source_span(self._body, tag_start, tag_end)
                 self._body_explicit = True
@@ -2288,7 +2470,7 @@ class ParseEngine:
                 and not self._body_has_content()
             ):
                 self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
-                self._after_head = False
+                self._head_reentry = True
                 current_top = self._head
             else:
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
@@ -2310,7 +2492,7 @@ class ParseEngine:
             else:
                 self._frameset_blocked = True
 
-        html_text_parsing = not raw_mode or self._raw_start_uses_html_text_parsing(name)
+        html_text_parsing = self._raw_start_uses_html_text_parsing(name)
 
         if html_text_parsing and self._fragment_context_name == "select" and name == "input":
             return pos
@@ -2347,6 +2529,8 @@ class ParseEngine:
             if name == "noframes":
                 return self._parse_rawtext_element(name, attrs, self_closing, pos, end, tag_start, tag_end)
             if html_text_parsing and name in {"frame", "frameset"}:
+                if name == "frameset" and self._after_html:
+                    return pos
                 if allowed:
                     self._insert_sanitized_element(
                         name, attrs, self_closing, self._current_parent(), tag_start=tag_start, tag_end=tag_end
@@ -2357,27 +2541,67 @@ class ParseEngine:
         if html_text_parsing and name in {"frame", "frameset"}:
             return pos
 
-        if html_text_parsing and name == "select" and self._find_open_index("select") is not None:
-            self._close_until("select")
+        if html_text_parsing and name == "select" and self._find_open_html_index("select") is not None:
+            self._close_html_until("select")
             return pos
-        if html_text_parsing and name == "input" and self._find_open_index("select") is not None:
-            self._close_until("select")
+        if html_text_parsing and name == "input" and self._find_open_html_index("select") is not None:
+            self._close_html_until("select")
+
+        select_idx = self._find_open_html_index("select") if html_text_parsing else None
+        if select_idx is not None and name == "hr":
+            if len(self._stack) > select_idx + 1 and self._stack[-1].name == "option":
+                self._stack.pop()
+            if len(self._stack) > select_idx + 1 and self._stack[-1].name == "optgroup":
+                self._stack.pop()
+            self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
+            self._insert_sanitized_element(
+                name,
+                attrs,
+                self_closing,
+                self._current_parent(),
+                tag_start=tag_start,
+                tag_end=tag_end,
+            )
+            return pos
+
+        if html_text_parsing and name == "form" and not self._template_modes:
+            if self._form_element is not None:
+                return pos
+            self._repair_stack_for_start(name)
+            node = self._insert_sanitized_element(
+                name,
+                attrs,
+                self_closing,
+                self._current_parent(),
+                tag_start=tag_start,
+                tag_end=tag_end,
+            )
+            self._form_element = node
+            if node.parent is not None and node.parent.name in self._table_foster_targets:
+                if self._stack and self._stack[-1] is node:
+                    self._stack.pop()
+            return pos
 
         if raw_mode and html_text_parsing and name in self._rawtext_element_tags:
             return self._parse_rawtext_element(name, attrs, self_closing, pos, end, tag_start, tag_end)
         if action is not None and not raw_mode and action.drop_content:
+            if self._raw_head_text_parent(name) and self._head is not None:
+                self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
             return self._skip_rawtext(name, pos, end)
-        if action is not None and not raw_mode and action.drop_subtree:
-            return self._skip_subtree(name, pos, end)
         if action is not None and action.rawtext_as_text:
             return self._parse_rawtext_as_text(name, pos, end)
         if (
             name == "noscript"
+            and name not in self._rawtext_element_tags
             and not self._fragment
             and self._head is not None
             and not in_template_content
-            and self._stack[-1] is self._head
+            and (
+                self._stack[-1] is self._head
+                or (not self._body_explicit and not self._body_mode_seen and not self._body_has_content())
+            )
         ):
+            self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
             if raw_mode:
                 self._insert_sanitized_element(
                     name, attrs, self_closing, self._head, tag_start=tag_start, tag_end=tag_end
@@ -2396,7 +2620,7 @@ class ParseEngine:
             if fragment_pos is not None:
                 return fragment_pos
 
-        if name == "template" and not allowed:
+        if name == "template" and not allowed and html_text_parsing:
             self._start_parser_only_template()
             return pos
 
@@ -2405,13 +2629,15 @@ class ParseEngine:
             if template_pos is not None:
                 return template_pos
 
-        if html_text_parsing and name == "button" and not allowed:
+        if html_text_parsing and name == "button":
             if self._find_open_index_in_current_scope("button") is not None:
+                self._generate_implied_end_tags()
                 self._close_until_before_boundary("button", frozenset({"template"}))
-            self._insert_sanitized_element(
-                name, attrs, self_closing, self._current_parent(), tag_start=tag_start, tag_end=tag_end
-            )
-            return pos
+            if not allowed:
+                self._insert_sanitized_element(
+                    name, attrs, self_closing, self._current_parent(), tag_start=tag_start, tag_end=tag_end
+                )
+                return pos
 
         if html_text_parsing and action is not None and action.active_formatting:
             return self._parse_formatting_start(name, attrs, pos, tag_start=tag_start, tag_end=tag_end)
@@ -2423,6 +2649,34 @@ class ParseEngine:
             if len(self._stack) > 1 and self._stack[-1].name == "p":
                 self._mark_active_formatting_dirty()
                 self._stack.pop()
+
+        if html_text_parsing and name in {"option", "optgroup"} and self._active_formatting_dirty:
+            self._reconstruct_active_formatting()
+
+        if (
+            html_text_parsing
+            and name in {"td", "th", "tr"}
+            and self._find_open_index("table") is None
+            and self._stack[-1].namespace in {None, "html", _PARSER_ONLY_NAMESPACE}
+            and any(node.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} for node in self._stack[1:])
+        ):
+            self._mark_active_formatting_dirty()
+            if not self._fragment and self._html is not None:
+                self._stack = [self._doc, self._html]
+            else:
+                for idx, stack_node in enumerate(self._stack[1:], start=1):
+                    if stack_node.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE}:
+                        del self._stack[idx:]
+                        break
+            self._insert_sanitized_element(
+                name,
+                attrs,
+                self_closing,
+                self._current_parent(),
+                tag_start=tag_start,
+                tag_end=tag_end,
+            )
+            return pos
 
         if html_text_parsing:
             if name in {"rb", "rtc"}:
@@ -2483,10 +2737,25 @@ class ParseEngine:
             elif parent_name != "tr":
                 return pos
 
+        reconstruct_before_insert = (
+            name in {"br", "img"}
+            or name in _ACTIVE_FORMATTING_MARKER_TAGS
+            or (
+                name == "span"
+                and (
+                    self._find_open_index_before_boundary("td", _TABLE_CONTEXT_BOUNDARIES) is not None
+                    or self._find_open_index_before_boundary("th", _TABLE_CONTEXT_BOUNDARIES) is not None
+                )
+            )
+        )
+        if html_text_parsing and self._active_formatting_dirty and reconstruct_before_insert:
+            self._reconstruct_active_formatting()
+            parent = self._current_parent()
+
         if not allowed:
             if action is not None and action.pre_linefeed:
                 self._ignore_lf = True
-            if self._should_insert_unwrapped_element(name, action):
+            if not html_text_parsing or self._should_insert_unwrapped_element(name, action):
                 if self._active_formatting_dirty:
                     self._reconstruct_active_formatting()
                     parent = self._current_parent()
@@ -2513,6 +2782,7 @@ class ParseEngine:
                 self._stack.pop()
         if action is not None and action.pre_linefeed:
             self._ignore_lf = True
+        self._finish_head_reentry()
         return pos
 
     def _insert_compiled_safe_element(
@@ -2573,8 +2843,12 @@ class ParseEngine:
                 tag_end=tag_end,
             )
 
+        name, attrs, namespace = self._prepare_raw_element(name, attrs)
+        if namespace == "html":
+            attrs = self._sanitize_parsed_attrs(self._tag_actions.get(name), attrs)
+        if parent not in self._stack and getattr(parent, "namespace", None) not in {None, "html"}:
+            parent = self._current_parent()
         node: Element
-        namespace = "html"
         if name == "template" and namespace == "html":
             node = Template(name, attrs, namespace=namespace)
         else:
@@ -2610,7 +2884,16 @@ class ParseEngine:
         else:
             foster_parent, position = foster
             self._insert_at(foster_parent, position, node)
-        if name not in self._allowed_tags:
+        if namespace not in {None, "html"}:
+            self._foreign_context_seen = True
+            self._nodes_to_unwrap.append(node)
+            parent_namespace = getattr(parent, "namespace", None)
+            if parent is self._fragment_context_node or parent_namespace in {None, "html"}:
+                if not self._has_open_parser_only_template() and (
+                    parent is self._fragment_context_node or parent.name in self._allowed_tags
+                ):
+                    self._nodes_to_drop.append(node)
+        elif name not in self._allowed_tags:
             self._nodes_to_unwrap.append(node)
         if not is_void:
             self._stack.append(node)
@@ -2694,7 +2977,7 @@ class ParseEngine:
     def _namespace_for_raw_start(self, name: str, attrs: dict[str, str | None]) -> str:
         current = self._stack[-1] if self._stack else None
         current_ns = getattr(current, "namespace", None)
-        if current is not None and current_ns not in {None, "html"}:
+        if current is not None and current_ns not in {None, "html", _PARSER_ONLY_NAMESPACE}:
             if self._is_html_integration_point(current):
                 return "svg" if name == "svg" else "math" if name == "math" else "html"
             if self._is_mathml_text_integration_point(current) and name not in {"mglyph", "malignmark"}:
@@ -2708,8 +2991,10 @@ class ParseEngine:
                 return current_ns or "html"
             while (
                 len(self._stack) > 1
-                and self._stack[-1].namespace not in {None, "html"}
+                and self._stack[-1].namespace not in {None, "html", _PARSER_ONLY_NAMESPACE}
                 and self._stack[-1] is not self._fragment_context_node
+                and not self._is_html_integration_point(self._stack[-1])
+                and not self._is_mathml_text_integration_point(self._stack[-1])
             ):
                 self._stack.pop()
 
@@ -2722,7 +3007,7 @@ class ParseEngine:
     def _raw_start_uses_html_text_parsing(self, name: str) -> bool:
         current = self._stack[-1] if self._stack else None
         current_ns = getattr(current, "namespace", None)
-        if current is None or current_ns in {None, "html"}:
+        if current is None or current_ns in {None, "html", _PARSER_ONLY_NAMESPACE}:
             return True
         if self._is_html_integration_point(current):
             return True
@@ -2809,13 +3094,25 @@ class ParseEngine:
                 return idx
         return None
 
+    def _find_open_html_index(self, name: str) -> int | None:
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            node = stack[idx]
+            if node.name == name and node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
+                return idx
+        return None
+
     def _find_open_index_before_boundary(self, name: str, boundaries: frozenset[str]) -> int | None:
         stack = self._stack
         for idx in range(len(stack) - 1, 0, -1):
-            node_name = stack[idx].name
+            node = stack[idx]
+            node_name = node.name
             if node_name == name:
                 return idx
-            if node_name in boundaries:
+            if node.namespace in {None, "html"}:
+                if node_name in boundaries:
+                    return None
+            elif self._is_html_integration_point(node) or self._is_mathml_text_integration_point(node):
                 return None
         return None
 
@@ -2866,6 +3163,13 @@ class ParseEngine:
         self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
         self._after_head = False
         self._body_mode_seen = True
+
+    def _finish_head_reentry(self) -> None:
+        if not self._head_reentry or self._html is None:
+            return
+        self._head_reentry = False
+        self._stack = [self._doc, self._html]
+        self._after_head = True
 
     def _close_to_fragment_context(self) -> bool:
         context = self._fragment_context_node
@@ -3193,6 +3497,12 @@ class ParseEngine:
             self._mark_active_formatting_dirty()
             del self._stack[idx:]
 
+    def _close_html_until(self, name: str) -> None:
+        idx = self._find_open_html_index(name)
+        if idx is not None:
+            self._mark_active_formatting_dirty()
+            del self._stack[idx:]
+
     def _close_until_before_boundary(self, name: str, boundaries: frozenset[str]) -> bool:
         stack = self._stack
         for idx in range(len(stack) - 1, 0, -1):
@@ -3235,12 +3545,18 @@ class ParseEngine:
             return
 
         if name == "option":
-            self._close_until("option")
+            if len(self._stack) > 1 and self._stack[-1].name == "option":
+                self._mark_active_formatting_dirty()
+                self._stack.pop()
             return
 
         if name == "optgroup":
-            self._close_until("option")
-            self._close_until("optgroup")
+            if len(self._stack) > 1 and self._stack[-1].name == "option":
+                self._mark_active_formatting_dirty()
+                self._stack.pop()
+            if len(self._stack) > 1 and self._stack[-1].name == "optgroup":
+                self._mark_active_formatting_dirty()
+                self._stack.pop()
             return
 
         if name in HEADING_ELEMENTS and getattr(self._stack[-1], "name", None) in HEADING_ELEMENTS:
@@ -3261,6 +3577,7 @@ class ParseEngine:
                 self._close_until_before_boundary(section, _TABLE_CONTEXT_BOUNDARIES)
             if name == "col" and getattr(self._current_parent(), "name", None) == "table":
                 self._insert_sanitized_element("colgroup", {}, False, self._current_parent())
+                self._in_colgroup = True
             return
 
         if name == "caption":
@@ -3404,8 +3721,10 @@ class ParseEngine:
         raw_text, pos = self._consume_until_end_tag(name, pos, end)
         if not raw_text:
             return pos
-        if "\r" in raw_text:
+        if self._has_carriage_return and "\r" in raw_text:
             raw_text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+        if self._has_form_feed and "\f" in raw_text:
+            raw_text = raw_text.replace("\f", " ")
         text = (
             raw_text if raw_text.isascii() or not self._strip_invisible_unicode else _strip_invisible_unicode(raw_text)
         )
@@ -3483,6 +3802,7 @@ class ParseEngine:
             self._stack.pop()
         if parsed_in_initial_head and self._html is not None and self._head is not None:
             self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+        self._finish_head_reentry()
         return pos
 
     def _parse_rawtext_element(
@@ -3520,9 +3840,11 @@ class ParseEngine:
             pos = next_pos
             if self._track_tag_spans:
                 self._set_end_span(node, name, close, pos)
-        if "\r" in raw_text:
+        if self._has_carriage_return and "\r" in raw_text:
             raw_text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
-        if "\0" in raw_text:
+        if self._has_form_feed and "\f" in raw_text:
+            raw_text = raw_text.replace("\f", " ")
+        if self._has_null and "\0" in raw_text:
             raw_text = raw_text.replace("\0", "\ufffd")
         if self._xml_coercion and raw_text:
             raw_text = _coerce_text_for_xml(raw_text)
@@ -3532,6 +3854,7 @@ class ParseEngine:
             self._stack.pop()
         if parsed_in_initial_head and self._html is not None and self._head is not None:
             self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+        self._finish_head_reentry()
         return pos
 
     def _raw_head_text_parent(self, name: str) -> bool:
@@ -3541,6 +3864,7 @@ class ParseEngine:
             and self._head is not None
             and not self._template_modes
             and not self._in_head_noscript
+            and not self._frameset_seen
             and not self._body_explicit
             and not self._body_has_content()
         )
@@ -3557,20 +3881,22 @@ class ParseEngine:
     ) -> int:
         if self._find_open_index_before_boundary("p", _P_SCOPE_BOUNDARIES) is not None:
             self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
-        if self._active_formatting_dirty:
-            self._reconstruct_active_formatting()
-        node = self._insert_sanitized_element(
+        self._insert_sanitized_element(
             name, attrs, self_closing, self._current_parent(), tag_start=tag_start, tag_end=tag_end
         )
+        if self._active_formatting_dirty:
+            self._reconstruct_active_formatting()
         text = self._html_input[pos:end]
-        if "\r" in text:
+        if self._has_carriage_return and "\r" in text:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
-        if "\0" in text:
+        if self._has_form_feed and "\f" in text:
+            text = text.replace("\f", " ")
+        if self._has_null and "\0" in text:
             text = text.replace("\0", "\ufffd")
         if self._xml_coercion and text:
             text = _coerce_text_for_xml(text)
         if text:
-            self._append(node, self._new_text(text, pos))
+            self._append(self._current_parent(), self._new_text(text, pos))
         return end
 
     def _parse_plaintext_as_text(self, pos: int, end: int) -> int:
@@ -3588,9 +3914,11 @@ class ParseEngine:
         return pos
 
     def _append_raw_literal_text(self, text: str, source_pos: int | None = None) -> None:
-        if "\r" in text:
+        if self._has_carriage_return and "\r" in text:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
-        if "\0" in text:
+        if self._has_form_feed and "\f" in text:
+            text = text.replace("\f", " ")
+        if self._has_null and "\0" in text:
             text = text.replace("\0", "\ufffd")
         if self._strip_invisible_unicode and text and not text.isascii():
             text = _strip_invisible_unicode(text)
@@ -3621,6 +3949,7 @@ class ParseEngine:
         *,
         tag_start: int | None = None,
         tag_end: int | None = None,
+        compiled_safe: bool = False,
     ) -> int:
         if name == "a" and self._find_active_formatting_index("a") is not None:
             self._adoption_agency("a")
@@ -3628,6 +3957,8 @@ class ParseEngine:
             self._remove_last_open_element_by_name("a")
         elif name == "nobr" and self._find_open_index("nobr") is not None:
             self._adoption_agency("nobr")
+            self._remove_last_active_formatting_by_name("nobr")
+            self._remove_last_open_element_by_name("nobr")
 
         if self._active_formatting_dirty:
             self._reconstruct_active_formatting()
@@ -3637,9 +3968,12 @@ class ParseEngine:
             if duplicate_index is not None:
                 del self._active_formatting[duplicate_index]
 
-        node = self._insert_sanitized_element(
-            name, attrs, False, self._current_parent(), tag_start=tag_start, tag_end=tag_end
-        )
+        if compiled_safe:
+            node = self._insert_compiled_safe_element(name, attrs, False, self._current_parent())
+        else:
+            node = self._insert_sanitized_element(
+                name, attrs, False, self._current_parent(), tag_start=tag_start, tag_end=tag_end
+            )
         self._append_active_formatting_entry(name, node.attrs, node, signature)
         return pos
 
@@ -3928,7 +4262,7 @@ class ParseEngine:
         node._origin_col = entry.node._origin_col
         node._start_tag_start = entry.node._start_tag_start
         node._start_tag_end = entry.node._start_tag_end
-        if not self._raw_mode and entry.name not in self._allowed_tags and self._find_open_index("select") is not None:
+        if not self._raw_mode and entry.name not in self._allowed_tags:
             self._nodes_to_unwrap.append(node)
         return node
 
@@ -3977,6 +4311,14 @@ class ParseEngine:
         for node in reversed(nodes):
             if node.parent is not None:
                 self._unwrap_node(node)
+        nodes.clear()
+
+    def _drop_recorded_nodes(self) -> None:
+        nodes = self._nodes_to_drop
+        for node in reversed(nodes):
+            parent = node.parent
+            if parent is not None:
+                self._remove_child(parent, node)
         nodes.clear()
 
     def _project_selectedcontent(self) -> None:
@@ -4142,6 +4484,8 @@ class ParseEngine:
                 continue
             raw_key = html[name_start:pos]
             key = raw_key if raw_key.islower() else raw_key.lower()
+            if "\0" in key:
+                key = key.replace("\0", "\ufffd")
 
             while pos < end and html[pos] in space:
                 pos += 1
@@ -4173,6 +4517,48 @@ class ParseEngine:
             if key not in attrs:
                 attrs[key] = value
         return attrs, False, pos, False
+
+    def _sanitize_parsed_attrs(
+        self,
+        action: TagAction | None,
+        attrs: dict[str, str | None],
+    ) -> dict[str, str | None]:
+        if not attrs or action is None or not action.allowed:
+            return attrs
+
+        sanitized: dict[str, str | None] = {}
+        allowed_attrs = action.allowed_attrs
+        for key, raw_value in attrs.items():
+            if key not in allowed_attrs:
+                continue
+            value = raw_value or ""
+            if self._strip_invisible_unicode and value and not value.isascii():
+                value = _strip_invisible_unicode(value)
+            kind = action.url_attr_kinds.get(key)
+            if kind is not None:
+                rule = action.url_attr_rules.get(key)
+                if rule is None:
+                    continue
+                if kind == "url":
+                    sanitized_fast = self._sanitize_simple_url_fast(value, rule)
+                    if sanitized_fast is None:
+                        continue
+                    if sanitized_fast is not _URL_FAST_FALLBACK:
+                        sanitized[key] = sanitized_fast  # type: ignore[assignment]
+                        continue
+                sanitized_value = _sanitize_url_sink_value(
+                    url_policy=self._url_policy,
+                    rule=rule,
+                    tag=action.name,
+                    attr=key,
+                    kind=kind,
+                    value=value,
+                )
+                if sanitized_value is None:
+                    continue
+                value = sanitized_value
+            sanitized[key] = value
+        return sanitized
 
     def _sanitize_simple_url_fast(self, value: str, rule: UrlRule) -> str | None | object:
         url_policy = self._url_policy
@@ -4279,6 +4665,8 @@ class ParseEngine:
                 continue
             raw_key = html[name_start:pos]
             key = raw_key if raw_key.islower() else raw_key.lower()
+            if "\0" in key:
+                key = key.replace("\0", "\ufffd")
             keep_output = key in allowed_attrs
             keep_state = preserve_state_attrs or key in state_attrs
 
@@ -4364,16 +4752,18 @@ class ParseEngine:
             return end
         self._append_text_boundary(self._current_parent())
         if name in {"script", "style"}:
-            self._skip_escaped_comment_space = True
-            self._foster_next_table_whitespace = self._table_has_preceding_foster_text(self._current_parent())
+            self._skip_escaped_comment_space = False
+            self._foster_next_table_whitespace = False
         return next_pos
 
-    def _skip_subtree(self, name: str, pos: int, end: int) -> int:
+    def _skip_subtree(self, name: str, pos: int, end: int, *, detect_foreign_breakout: bool = False) -> int:
         html = self._html_input
         depth = 1
         while pos < end and depth:
             lt = html.find("<", pos, end)
             if lt == -1:
+                if detect_foreign_breakout:
+                    return -1
                 self._dropped_to_eof = True
                 return end
             p = lt + 1
@@ -4396,7 +4786,16 @@ class ParseEngine:
                 tag = tag.lower()
             gt = html.find(">", match.end(), end)
             pos = end if gt == -1 else gt + 1
+            if (
+                detect_foreign_breakout
+                and is_end
+                and tag != name
+                and (tag in FOREIGN_BREAKOUT_ELEMENTS or tag in _TABLE_SCOPED_END_TAGS)
+            ):
+                return -1
             if not is_end and tag != name:
+                if detect_foreign_breakout and tag in _FOREIGN_FULL_PARSE_TAGS:
+                    return -1
                 if tag in self._plaintext_tags:
                     self._dropped_to_eof = True
                     return end
@@ -4407,6 +4806,8 @@ class ParseEngine:
                         else self._find_rawtext_end_tag(tag, pos, end)
                     )
                     if rawtext_close is None:
+                        if detect_foreign_breakout:
+                            return -1
                         self._dropped_to_eof = True
                         return end
                     pos = rawtext_pos
@@ -4414,7 +4815,15 @@ class ParseEngine:
             if tag == name:
                 depth += -1 if is_end else 1
         if depth:
+            if detect_foreign_breakout:
+                return -1
             self._dropped_to_eof = True
+        elif detect_foreign_breakout:
+            next_markup = pos
+            while next_markup < end and html[next_markup] in _SPACE:
+                next_markup += 1
+            if self._lower_input.startswith("<frameset", next_markup, end):
+                return -1
         return pos
 
     def _table_has_preceding_foster_text(self, parent: Node) -> bool:
@@ -4430,6 +4839,8 @@ class ParseEngine:
 
     def _finish_document_shell(self) -> None:
         if self._fragment or (not self._dropped_to_eof and not self._frameset_seen):
+            return
+        if not self._raw_mode and self._dropped_to_eof and not self._frameset_seen:
             return
         html = self._html
         head = self._head
@@ -4484,7 +4895,13 @@ class ParseEngine:
         child.parent = None
 
     def _accept_frameset(self) -> bool:
-        if self._fragment or self._frameset_blocked or self._body_explicit or not isinstance(self._body, Element):
+        if (
+            self._fragment
+            or self._frameset_seen
+            or self._frameset_blocked
+            or self._body_explicit
+            or not isinstance(self._body, Element)
+        ):
             return False
         if not self._body_allows_frameset(self._body):
             return False
@@ -4557,7 +4974,7 @@ class ParseEngine:
         return True
 
     def _append_frameset_text(self, raw: str) -> None:
-        if "\r" in raw:
+        if self._has_carriage_return and "\r" in raw:
             raw = raw.replace("\r\n", "\n").replace("\r", "\n")
         if self._html is None:
             return
@@ -4565,4 +4982,7 @@ class ParseEngine:
         if self._xml_coercion and text:
             text = _coerce_text_for_xml(text)
         if text:
-            self._append(self._html, self._new_text(text))
+            parent = self._current_parent()
+            if parent.name != "frameset":
+                parent = self._html
+            self._append(parent, self._new_text(text))

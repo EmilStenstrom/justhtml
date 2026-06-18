@@ -350,6 +350,27 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertIn("hi", out)
         self.assertIn("&lt;/div&gt;", out)
 
+    def test_decide_escape_inherits_source_from_ancestor(self):
+        t = Decide("div", lambda node: DecideAction.ESCAPE)
+        compiled = compile_transforms([t])
+
+        src = "<div>hi</div>"
+        root = Element("root", {}, "html")
+        root._source_html = src
+        div = Element("div", {}, "html")
+        div._start_tag_start = 0
+        div._start_tag_end = 5
+        div._end_tag_start = 7
+        div._end_tag_end = len(src)
+        div._end_tag_present = True
+        div.append_child(Text("hi"))
+        root.append_child(div)
+
+        apply_compiled_transforms(root, compiled)
+
+        self.assertEqual(div._source_html, src)
+        self.assertIn("&lt;div&gt;hi&lt;/div&gt;", to_html(root))
+
     def test_sanitize_fused_comment_doctype(self):
         """Cover fused sanitize dropping/keeping comments/doctypes."""
         policy = SanitizationPolicy(allowed_tags=set(), allowed_attributes={}, drop_comments=True, drop_doctype=True)

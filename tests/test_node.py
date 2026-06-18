@@ -40,6 +40,17 @@ class TestNode(unittest.TestCase):
         parent.append_child(child)
         assert child.parent is None
 
+    def test_append_child_repairs_stale_parent_reference(self):
+        old_parent = Node("old")
+        new_parent = Node("new")
+        child = Node("span")
+        child.parent = old_parent
+
+        new_parent.append_child(child)
+
+        assert child.parent is new_parent
+        assert child in new_parent.children
+
     def test_remove_child_noop_for_comment_node(self):
         parent = Comment(data="comment")
         child = Node("span")

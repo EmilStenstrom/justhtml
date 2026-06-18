@@ -6,19 +6,20 @@
 - Keep preambles to a single declarative sentence ("I'm scanning the repo and then drafting a minimal fix.") — no approval requests.
 
 ### Architecture Snapshot
-- Tokenizer (`tokenizer.py`): HTML5 spec state machine (~60 states). Handles RCDATA, RAWTEXT, CDATA, script escaping, comments, DOCTYPE, etc.
-- Tree builder (`treebuilder.py`): Token sink that constructs DOM tree following HTML5 construction rules.
-- Node tree (`node.py`): DOM-like structure. Always use `append_child()` / `insert_before()` for tree operations.
-- Entities (`entities.py`): HTML5 character reference decoding (named & numeric entities).
-- Constants (`constants.py`): HTML5 element categories, void elements, formatting elements, etc.
+- Parser engine (`src/justhtml/parser/engine.py`): Plan-driven tokenization, tree construction, sanitizer projection, and HTML5 recovery behavior.
+- Parser scanner (`src/justhtml/parser/scanner.py`): Shared low-level scanning for tags, rawtext, and script end markers.
+- DOM (`src/justhtml/dom/`): DOM-like node tree. Use `append_child()` / `insert_before()` for public tree operations.
+- Entities (`src/justhtml/core/entities.py`): HTML5 named and numeric character-reference decoding.
+- Constants (`src/justhtml/core/constants.py`): HTML5 element categories, void elements, formatting elements, and namespaces.
+- Transforms (`src/justhtml/transforms/`): Compiled post-parse tree transformations.
 
 ### Golden Rules
 1. **Spec compliance first**: Follow WHATWG HTML5 spec exactly. No heuristics, no shortcuts.
 2. **No exceptions in hot paths**: Use deterministic control flow, not try/except for branching.
 3. **No reflective probing**: No `hasattr`, `getattr`, or `delattr` - all data structures used are deterministic.
-4. **Minimal allocations**: Reuse buffers, avoid per-token object creation in tokenizer.
-5. **Token reuse**: Create new token objects when emitting (don't reuse references).
-6. **State machine purity**: Tokenizer state transitions follow spec state machine exactly.
+4. **Minimal allocations**: Reuse buffers and avoid transient objects in parser hot paths.
+5. **Node ownership**: Move nodes through DOM helpers and keep parent/child links consistent.
+6. **State-machine clarity**: Keep parser recovery and insertion-mode transitions explicit.
 7. **No test-specific code**: No references to test files in comments or code.
 
 ### Testing Workflow
@@ -75,7 +76,7 @@
 - Debug calls: `self.debug()` / `parser.debug()` - no gating needed
 
 ### Performance Mindset
-- Tokenizer is hot path: minimize allocations, avoid string slicing
+- Parser scanning and tree construction are hot paths: minimize allocations and avoid unnecessary string slicing
 - Use `str.find()` for scanning, not regex when possible
 - Reuse buffers: `text_buffer`, `current_tag_name`, etc.
 - Infer state from structure (stacks, tree) instead of storing flags

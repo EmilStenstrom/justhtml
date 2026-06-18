@@ -87,36 +87,63 @@ class _StreamScanner:
                 handled, event, new_pos, text = self._parse_markup_declaration(pos + 1, end)
                 if handled:
                     if text is not None:
+                        yield from self._flush_text(text_buffer)
                         self._append_text(text_buffer, text, raw=True)
-                    elif event is not None:
+                        yield from self._flush_text(text_buffer)
+                    elif event is not None:  # pragma: no branch - declarations always produce event or text
                         yield from self._flush_text(text_buffer)
                         yield event
                     pos = new_pos
                     continue
-                self._append_text(text_buffer, "<")
-                continue
+                # All markup declarations, including bogus declarations, are
+                # consumed by _parse_markup_declaration.
+                raise AssertionError("unhandled markup declaration")  # pragma: no cover
 
             if ch == "/":
+                next_pos = pos + 1
+                if next_pos < end and not _is_ascii_alpha(html[next_pos]):
+                    if html[next_pos] == ">":
+                        pos = next_pos + 1
+                        continue
+                    comment_end = html.find(">", next_pos, end)
+                    data_end = end if comment_end == -1 else comment_end
+                    yield from self._flush_text(text_buffer)
+                    yield ("comment", html[next_pos:data_end].replace("\0", "\ufffd"))
+                    pos = end if comment_end == -1 else comment_end + 1
+                    continue
                 parsed = self._parse_end_tag(pos + 1, end)
-                if parsed is None:
+                if parsed is None:  # pragma: no cover - guarded by ASCII-alpha check
+                    # The caller only reaches this point for an ASCII letter.
                     self._append_text(text_buffer, "</")
                     pos += 1
                     continue
                 name, new_pos = parsed
+                if new_pos == end and html[-1] != ">":
+                    pos = end
+                    continue
                 yield from self._flush_text(text_buffer)
                 yield ("end", name)
                 self._pop_for_end_tag(name)
                 pos = new_pos
                 continue
 
+            if ch == "?":
+                comment_end = html.find(">", pos + 1, end)
+                data_end = end if comment_end == -1 else comment_end
+                yield from self._flush_text(text_buffer)
+                yield ("comment", html[pos:data_end].replace("\0", "\ufffd"))
+                pos = end if comment_end == -1 else comment_end + 1
+                continue
+
             if not _is_ascii_alpha(ch):
+                yield from self._flush_text(text_buffer)
                 self._append_text(text_buffer, "<")
                 continue
 
             parsed_start = self._parse_start_tag(pos, end)
             if parsed_start is None:
-                self._append_text(text_buffer, "<")
-                continue
+                pos = end
+                break
 
             name, attrs, self_closing, new_pos = parsed_start
             yield from self._flush_text(text_buffer)
@@ -140,6 +167,10 @@ class _StreamScanner:
                         pos = end
                         continue
                     yield from self._flush_text(text_buffer)
+                    if after_close == end and html[-1] != ">":  # pragma: no cover
+                        # Scanner helpers report an unclosed end tag as no match.
+                        pos = end
+                        continue
                     yield ("end", name)
                     self._pop_for_end_tag(name)
                     pos = after_close
@@ -157,10 +188,21 @@ class _StreamScanner:
 
         if html.startswith("--", pos):
             comment_start = pos + 2
-            comment_end = html.find("-->", comment_start, end)
-            if comment_end == -1:
-                return True, ("comment", html[comment_start:end].replace("\0", "\ufffd")), end, None
-            return True, ("comment", html[comment_start:comment_end].replace("\0", "\ufffd")), comment_end + 3, None
+            if comment_start < end and html[comment_start] == ">":
+                return True, ("comment", ""), comment_start + 1, None
+            if html.startswith("->", comment_start):
+                return True, ("comment", ""), comment_start + 2, None
+            normal_end = html.find("-->", comment_start, end)
+            bang_end = html.find("--!>", comment_start, end)
+            candidates = [candidate for candidate in (normal_end, bang_end) if candidate != -1]
+            if candidates:
+                comment_end = min(candidates)
+                closing_len = 4 if comment_end == bang_end else 3
+                data = html[comment_start:comment_end].replace("\0", "\ufffd")
+                return True, ("comment", data), comment_end + closing_len, None
+            data = html[comment_start:end]
+            data = data.removesuffix("--")
+            return True, ("comment", data.replace("\0", "\ufffd")), end, None
 
         if lower.startswith("doctype", pos):
             tag_end = self._find_tag_end(pos + 7, end)
@@ -215,7 +257,7 @@ class _StreamScanner:
         while pos < end and html[pos] not in _TAG_END_NAME_STOP:
             pos += 1
         if pos == name_start:
-            return None
+            return None  # pragma: no cover - the ASCII-alpha guard advances pos
         name = html[name_start:pos]
         if not name.islower():
             name = name.lower()
@@ -245,6 +287,8 @@ class _StreamScanner:
                 continue
             raw_key = html[name_start:pos]
             key = raw_key if raw_key.islower() else raw_key.lower()
+            if "\0" in key:
+                key = key.replace("\0", "\ufffd")
 
             while pos < end and html[pos] in _SPACE:
                 pos += 1
@@ -284,9 +328,6 @@ class _StreamScanner:
             return _scanner.find_script_end_tag(self._html, self._lower, pos, end)
         return _scanner.find_rawtext_end_tag(self._html, self._lower, name, pos, end)
 
-    def _find_script_end_tag(self, pos: int, end: int) -> tuple[int | None, int]:
-        return _scanner.find_script_end_tag(self._html, self._lower, pos, end)
-
     def _find_tag_end(self, pos: int, end: int) -> int:
         return _scanner.find_tag_end(self._html, pos, end)
 
@@ -299,7 +340,7 @@ class _StreamScanner:
             data = data.replace("\0", "\ufffd")
         if not raw and "&" in data:
             data = decode_entities_in_text(data, in_attribute=False)
-        if data:
+        if data:  # pragma: no branch - decoding cannot empty non-empty input
             text_buffer.append(data)
 
     def _flush_text(self, text_buffer: list[str]) -> Generator[TextEvent, None, None]:
@@ -307,7 +348,7 @@ class _StreamScanner:
             return
         text = "".join(text_buffer)
         text_buffer.clear()
-        if text:
+        if text:  # pragma: no branch - joining a non-empty buffer is non-empty
             yield ("text", text)
 
     def _font_breaks_out_of_foreign_content(self, attrs: dict[str, str | None]) -> bool:

@@ -2,10 +2,28 @@ import unittest
 
 from justhtml import JustHTML, SanitizationPolicy
 from justhtml.parser.context import FragmentContext
+from justhtml.parser.options import ParserOptions
 from justhtml.sanitizer import UrlPolicy
 
 
 class TestParserTreeConstruction(unittest.TestCase):
+    def test_parser_options_copy_is_independent(self) -> None:
+        options = ParserOptions(
+            discard_bom=False,
+            emit_bogus_markup_as_text=True,
+            scripting_enabled=False,
+            xml_coercion=True,
+        )
+
+        copied = options.copy()
+        copied.discard_bom = True
+
+        self.assertFalse(options.discard_bom)
+        self.assertTrue(copied.discard_bom)
+        self.assertTrue(copied.emit_bogus_markup_as_text)
+        self.assertFalse(copied.scripting_enabled)
+        self.assertTrue(copied.xml_coercion)
+
     def test_finish_handles_deeply_nested_html_without_recursion(self) -> None:
         html = "<div>" * 1200 + "x" + "</div>" * 1200
 
