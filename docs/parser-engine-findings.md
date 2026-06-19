@@ -464,6 +464,6 @@ while malformed foreign content with HTML breakout or integration-point syntax
 falls back to full tree construction.
 
 The parser replacement is therefore complete on correctness and the required
-`2x` performance gate. Non-engine modules pass the repository's `100%` line
-and branch coverage gate, and pre-commit now enforces the exact parser
-differential check separately.
+`2x` performance gate. Pre-commit includes the engine in the repository-wide
+`97%` line and branch coverage gate and separately enforces the exact parser
+differential check.

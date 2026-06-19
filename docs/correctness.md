@@ -105,13 +105,13 @@ The encoding coverage comes from both:
 
 ### 2. Coverage and parser differential checks
 
-Every line and branch outside the parser state machine is covered by tests. We enforce this in CI:
+The test suite enforces at least 97% combined line and branch coverage, including the parser engine:
 
 ```bash
-coverage run run_tests.py && coverage report --fail-under=100
+coverage run run_tests.py && coverage report --fail-under=97
 ```
 
-The parser engine contains many spec-mandated malformed-input recovery branches, so its release gate is behavioral:
+The parser engine is additionally checked behaviorally:
 
 ```bash
 PYTHONPATH=src python benchmarks/html5lib_engine_diff.py \
@@ -120,7 +120,6 @@ PYTHONPATH=src python benchmarks/html5lib_engine_diff.py \
 ```
 
 This requires exact agreement with the reference parser path across every scored html5lib tree-construction case.
-Coverage still identifies dead code and weak tests in the rest of the package.
 
 ### 3. Fuzz Testing (millions of cases)
 
