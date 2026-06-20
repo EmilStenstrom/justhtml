@@ -8,11 +8,12 @@ JustHTML is the only pure-Python HTML5 parser that passes 100% of the official h
 
 The [html5lib-tests](https://github.com/html5lib/html5lib-tests) repository is the gold standard for HTML5 parsing compliance. It's used by browser vendors to verify their implementations against the [WHATWG HTML5 specification](https://html.spec.whatwg.org/).
 
-The suite contains:
+Our checked-in test inputs contain:
+
 - **56 tree-construction test files** - Testing how the parser builds the DOM tree
 - **5 serializer fixture files** - Testing how token streams are serialized back to HTML
 - **Encoding sniffing tests** - Testing BOM/meta charset/transport overrides and legacy fallbacks
-- **9k+ individual test cases** - Covering edge cases, error recovery, and spec compliance
+- **1,791 enabled tree-construction cases** - Covering edge cases, error recovery, and spec compliance
 
 ### What the Tests Cover
 
@@ -52,11 +53,13 @@ This tests the adoption agency algorithm - when `</b>` is encountered inside `<p
 
 ## Compliance Comparison
 
-We run the same test suite against other Python parsers to compare compliance:
+We run the same test suite against other Python parsers to compare compliance.
+The cross-parser snapshot below used the 1,743 cases available when it was
+recorded; the current JustHTML gate covers 1,791 enabled cases.
 
 | Parser | Tests Passed | Compliance | Notes |
 |--------|-------------|------------|-------|
-| **JustHTML** | 1743/1743 | **100%** | Full spec compliance |
+| **JustHTML** | 1743/1743 | **100%** | Full spec compliance in this comparison snapshot; current gate: 1791/1791 |
 | selectolax | 1743/1743 | 100% | C-based (Lexbor), fast and spec-compliant with dev `html5test` output API |
 | markupever | 1545/1743 | 89% | Rust-based (html5ever), mostly correct |
 | html5lib | 1496/1743 | 86% | Reference implementation, but incomplete |
@@ -71,7 +74,7 @@ These numbers come from a strict tree comparison against the expected output in 
 
 ## Our Testing Strategy
 
-### 1. Official Test Suite (9k+ tests)
+### 1. Official and project test suite
 
 We run the complete html5lib test suite on every commit:
 
@@ -91,10 +94,11 @@ python run_tests.py --suite unit
 
 Output:
 ```
-PASSED: 9k+ tests (100%), a few skipped
+PASSED: 3440/3440 passed (100.0%)
 ```
 
-The skipped tests are scripted (`#script-on`) cases that require JavaScript execution during parsing.
+There are also 6 expected skips, including scripted (`#script-on`) cases that
+require JavaScript execution during parsing.
 
 Per-file results are also written to `test-summary.txt`, with suite prefixes like `html5lib-tests-tree/...`, `html5lib-tests-serializer/...`, `html5lib-tests-encoding/...`, and `justhtml-tests/...`.
 

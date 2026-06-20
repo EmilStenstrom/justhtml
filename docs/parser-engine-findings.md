@@ -455,10 +455,10 @@ default-safe html5lib differential matches and `1239/1239` unit-test passes.
 
 The replacement parser now passes all `1791/1791` enabled upstream tree cases
 and all `1783/1783` default-safe differential cases. The full project suite
-passes `3414/3414` tests with `6` expected skips.
+passes `3440/3440` tests with `6` expected skips.
 
-The final isolated default-safe web100k gate measures `0.530954s` median over
-`61` iterations for 100 files, a `2.022x` speedup against the recorded `1.073689s`
+The latest isolated default-safe web100k gate measures `0.525490s` median over
+`31` iterations for 100 files, a `2.043x` speedup against the recorded `1.073689s`
 baseline. Ordinary dropped SVG/MathML subtrees stay on the fast skip path,
 while malformed foreign content with HTML breakout or integration-point syntax
 falls back to full tree construction.

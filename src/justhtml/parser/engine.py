@@ -859,7 +859,7 @@ class ParseEngine:
         end_column = None
         if end_pos is not None:
             end_line, end_col = self._source_location(end_pos)
-            if end_line == line:  # pragma: no branch - opposite edge requires invalid parser state
+            if end_line == line:
                 end_column = end_col + 1
         self._errors.append(
             ParseError(
@@ -995,7 +995,7 @@ class ParseEngine:
                 text = self._clean_text(self._html_input, replace_null=True)
                 if context_name == "textarea" and text.startswith("\n"):
                     text = text[1:]
-                if text:  # pragma: no branch - opposite edge requires invalid parser state
+                if text:
                     self._append(root, self._new_text(text, 1 if text != self._html_input else 0))
                 return root
 
@@ -1699,9 +1699,6 @@ class ParseEngine:
             return end
         ch = html[pos]
         if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
-            if pos >= end:  # pragma: no branch - opposite edge requires invalid parser state
-                self._append_text("</")  # pragma: no cover - unreachable after parser-state guards
-                return end  # pragma: no cover - unreachable after parser-state guards
             gt = html.find(">", pos, end)
             return end if gt == -1 else gt + 1
         name_start = pos
@@ -2102,16 +2099,10 @@ class ParseEngine:
     def _parse_compiled_safe_start_tag(self, pos: int, end: int) -> int:
         html = self._html_input
         name_start = pos
-        if pos >= end:  # pragma: no branch - opposite edge requires invalid parser state
-            self._append_text("<")  # pragma: no cover - unreachable after parser-state guards
-            return pos  # pragma: no cover - unreachable after parser-state guards
         pos += 1
         while pos < end and html[pos] not in _TAG_NAME_STOP:
             pos += 1
         raw_name = html[name_start:pos]
-        if not raw_name:  # pragma: no branch - opposite edge requires invalid parser state
-            self._append_text("<")  # pragma: no cover - unreachable after parser-state guards
-            return pos  # pragma: no cover - unreachable after parser-state guards
         name = raw_name if raw_name.islower() else raw_name.lower()
         if name == "image":
             name = "img"
@@ -2371,16 +2362,10 @@ class ParseEngine:
         raw_mode = self._raw_mode
         name_start = pos
         tag_start = pos - 1
-        if pos >= end:  # pragma: no branch - opposite edge requires invalid parser state
-            self._append_text("<", name_start - 1)  # pragma: no cover - unreachable after parser-state guards
-            return pos  # pragma: no cover - unreachable after parser-state guards
         pos += 1
         while pos < end and html[pos] not in _TAG_NAME_STOP:
             pos += 1
         raw_name = html[name_start:pos]
-        if not raw_name:  # pragma: no branch - opposite edge requires invalid parser state
-            self._append_text("<", name_start - 1)  # pragma: no cover - unreachable after parser-state guards
-            return pos  # pragma: no cover - unreachable after parser-state guards
         name = raw_name if raw_name.islower() else raw_name.lower()
         if name == "image":
             name = "img"
@@ -4607,7 +4592,7 @@ class ParseEngine:
                 value = decode_entities_in_text(value, in_attribute=True)
             if "\0" in value:
                 value = value.replace("\0", "\ufffd")
-            if key not in attrs:  # pragma: no branch - opposite edge requires invalid parser state
+            if key not in attrs:
                 attrs[key] = value
         return attrs, False, pos, False
 
@@ -4931,19 +4916,6 @@ class ParseEngine:
                 return -1
         return pos
 
-    def _table_has_preceding_foster_text(self, parent: Node) -> bool:
-        foster = self._foster_parent_for(parent)  # pragma: no cover - unreachable after parser-state guards
-        if foster is None:  # pragma: no cover - unreachable after parser-state guards
-            return False  # pragma: no cover - unreachable after parser-state guards
-        foster_parent, position = foster  # pragma: no cover - unreachable after parser-state guards
-        children = foster_parent.children  # pragma: no cover - unreachable after parser-state guards
-        if children is None or position <= 0:  # pragma: no cover - unreachable after parser-state guards
-            return False  # pragma: no cover - unreachable after parser-state guards
-        previous = children[position - 1]  # pragma: no cover - unreachable after parser-state guards
-        return type(previous) is Text and bool(
-            previous.data
-        )  # pragma: no cover - unreachable after parser-state guards
-
     def _finish_document_shell(self) -> None:
         if self._fragment or (not self._dropped_to_eof and not self._frameset_seen):
             return
@@ -5045,18 +5017,6 @@ class ParseEngine:
         self._frameset_seen = True
         self._mark_active_formatting_dirty()
         return True
-
-    def _blocks_frameset_action(self, action: TagAction | None, attrs: dict[str, str | None]) -> bool:
-        if (
-            self._fragment or self._frameset_seen or action is None or not action.blocks_frameset
-        ):  # pragma: no cover - unreachable after parser-state guards
-            return False  # pragma: no cover - unreachable after parser-state guards
-        if action.name == "input":  # pragma: no cover - unreachable after parser-state guards
-            input_type = attrs.get("type")  # pragma: no cover - unreachable after parser-state guards
-            return not (
-                isinstance(input_type, str) and input_type.lower() == "hidden"
-            )  # pragma: no cover - unreachable after parser-state guards
-        return True  # pragma: no cover - unreachable after parser-state guards
 
     def _body_allows_frameset(self, node: Node) -> bool:
         children = node.children

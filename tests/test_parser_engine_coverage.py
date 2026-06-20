@@ -431,6 +431,57 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             with self.subTest(html=html):
                 self.assert_parses_to(html, expected, sanitize=False, _parser_opts=options)
 
+    def test_untracked_raw_parser_modes(self) -> None:
+        cases = [
+            ("<?x>", "<!--?x--><html><head></head><body></body></html>"),
+            ("<?x", "<!--?x--><html><head></head><body></body></html>"),
+            ("</!x>", "<!--!x--><html><head></head><body></body></html>"),
+            ("</!x", "<!--!x--><html><head></head><body></body></html>"),
+            ("<!x>", "<!--x--><html><head></head><body></body></html>"),
+            ("<!x", "<!--x--><html><head></head><body></body></html>"),
+            ("<!--x", "<!--x--><html><head></head><body></body></html>"),
+            ("<!--x--!>", "<!--x--><html><head></head><body></body></html>"),
+            ("<script>x", "<html><head><script>x</script></head><body></body></html>"),
+            ("<style>x", "<html><head><style>x</style></head><body></body></html>"),
+            ("<body><script>x", "<html><head></head><body><script>x</script></body></html>"),
+            ("<body><style>x", "<html><head></head><body><style>x</style></body></html>"),
+            ("<xmp>x", "<html><head></head><body><xmp>x</xmp></body></html>"),
+            ("<iframe>x", "<html><head></head><body><iframe>x</iframe></body></html>"),
+            ("<noembed>x", "<html><head></head><body><noembed>x</noembed></body></html>"),
+            ("<noframes>x", "<html><head><noframes>x</noframes></head><body></body></html>"),
+            (
+                "<table><form><input>x",
+                "<html><head></head><body><input>x<table><form></form></table></body></html>",
+            ),
+            ("<select><b>x</b></select>", "<html><head></head><body><select><b>x</b></select></body></html>"),
+            ('<div a="unterminated', "<html><head></head><body></body></html>"),
+            ("<DIV A=1 a=2>x</DIV>", '<html><head></head><body><div a="1">x</div></body></html>'),
+            ("<svg><g/>x</svg>", "<html><head></head><body><svg><g></g>x</svg></body></html>"),
+            ("<math><mi>x</mi></math>", "<html><head></head><body><math><mi>x</mi></math></body></html>"),
+            ("<p><b>x</p>y</b>", "<html><head></head><body><p><b>x</b></p><b>y</b></body></html>"),
+            (
+                "<frameset><frame></frameset><frameset>",
+                "<html><head></head><frameset><frame></frame></frameset><frameset></frameset></html>",
+            ),
+            ("<frameset>x", "<html><head></head><frameset></frameset></html>"),
+            ("<frameset> \r\n", "<html><head></head><frameset> \n</frameset></html>"),
+        ]
+        for html, expected in cases:
+            with self.subTest(html=html):
+                self.assert_parses_to(html, expected, sanitize=False)
+
+    def test_empty_fragment_and_multiline_error_paths(self) -> None:
+        self.assert_parses_to("\n", "", fragment_context=FragmentContext("textarea"))
+        self.assert_parses_to("", "", fragment_context=FragmentContext("style"), sanitize=False)
+        self.assert_parses_to(
+            "<head></head> \n",
+            "<html><head></head> \n<body></body></html>",
+            sanitize=False,
+        )
+
+        document = JustHTML("<!doctype html><div></span\n>", sanitize=False, collect_errors=True)
+        assert [error.code for error in document.errors] == ["unexpected-end-tag"]
+
     def test_template_insertion_modes(self) -> None:
         cases = [
             ("<template><colgroup><col><col></colgroup></template>", "<html><head></head><body></body></html>"),
