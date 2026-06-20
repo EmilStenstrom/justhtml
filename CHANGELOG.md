@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-06-20
+
+### Fixed
+- Handle `<hr>` using the HTML in-body void-element rules in delegated insertion modes, preserving following content in table cells and captions, closing open paragraphs, and acknowledging self-closing syntax.
+
 ## [2.3.0] - 2026-06-12
 
 ### Fixed
