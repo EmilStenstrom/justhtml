@@ -954,6 +954,12 @@ class TreeBuilderModesMixin:
         self._insert_element(token, push=False)
         return
 
+    def _handle_body_start_hr(self, token: Tag) -> None:
+        self._close_p_element()
+        self._insert_element(token, push=False)
+        self.frameset_ok = False
+        return
+
     def _handle_body_start_input(self, token: Tag) -> None:
         if (
             self.fragment_context is not None
@@ -2054,6 +2060,7 @@ class TreeBuilderModesMixin:
         "head": _handle_body_start_head,
         "header": _handle_body_start_block_with_p,
         "hgroup": _handle_body_start_block_with_p,
+        "hr": _handle_body_start_hr,
         "html": _handle_body_start_html,
         "i": _handle_body_start_formatting,
         "image": _handle_body_start_image,

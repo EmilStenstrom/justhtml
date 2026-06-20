@@ -220,6 +220,36 @@ class TestTreeBuilder(unittest.TestCase):
                 doc = JustHTML(html, fragment=True, sanitize=False)
                 self.assertEqual(doc.to_html(pretty=False), expected)
 
+    def test_hr_in_table_context_uses_in_body_void_element_rules(self) -> None:
+        cases = {
+            "<table><tr><td>before<hr>after</td></tr></table>": (
+                "<table><tbody><tr><td>before<hr>after</td></tr></tbody></table>"
+            ),
+            "<table><tr><th>a<hr>b</th></tr></table>": ("<table><tbody><tr><th>a<hr>b</th></tr></tbody></table>"),
+            "<table><caption>a<hr>b</caption></table>": "<table><caption>a<hr>b</caption></table>",
+            "<table><tr><td><p>a<hr>b</td></tr></table>": (
+                "<table><tbody><tr><td><p>a</p><hr>b</td></tr></tbody></table>"
+            ),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_self_closing_hr_in_table_context_is_acknowledged(self) -> None:
+        doc = JustHTML(
+            "<table><tr><td><hr/></td></tr></table>",
+            fragment=True,
+            sanitize=False,
+            collect_errors=True,
+        )
+
+        self.assertNotIn(
+            "non-void-html-element-start-tag-with-trailing-solidus",
+            [error.code for error in doc.errors],
+        )
+
     def test_select_end_tags_create_p_and_close_custom_children_like_chromium(self) -> None:
         cases = {
             "<select>x</p>": "<select>x<p></p></select>",
