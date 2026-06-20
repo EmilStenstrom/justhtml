@@ -465,5 +465,5 @@ falls back to full tree construction.
 
 The parser replacement is therefore complete on correctness and the required
 `2x` performance gate. Pre-commit includes the engine in the repository-wide
-`97%` line and branch coverage gate and separately enforces the exact parser
+`100%` line and branch coverage gate and separately enforces the exact parser
 differential check.

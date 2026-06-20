@@ -105,10 +105,10 @@ The encoding coverage comes from both:
 
 ### 2. Coverage and parser differential checks
 
-The test suite enforces at least 97% combined line and branch coverage, including the parser engine:
+The test suite enforces 100% combined line and branch coverage, including the parser engine:
 
 ```bash
-coverage run run_tests.py && coverage report --fail-under=97
+coverage run run_tests.py && coverage report --fail-under=100
 ```
 
 The parser engine is additionally checked behaviorally:

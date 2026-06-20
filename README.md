@@ -112,7 +112,7 @@ justhtml index.html --selector "article" --format markdown
 
 JustHTML is tested against the official html5lib tree-construction, serializer, and encoding fixtures, plus project-specific sanitizer, selector, transform, CLI, and regression tests.
 
-The current test suite enforces at least 97% combined line and branch coverage, including the parser engine.
+The current test suite enforces 100% combined line and branch coverage, including the parser engine.
 The parser engine additionally requires exact agreement with the reference path across the html5lib tree suite.
 See [Correctness Testing](docs/correctness.md) for details.
 

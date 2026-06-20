@@ -94,7 +94,7 @@ branch = true
 source = ["src/justhtml"]
 
 [tool.coverage.report]
-fail_under = 97
+fail_under = 100
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",
