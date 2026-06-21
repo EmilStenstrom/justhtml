@@ -164,6 +164,25 @@ class TestParserTreeConstruction(unittest.TestCase):
         body = document.query("body")[0]
         assert [child.name for child in body.children] == ["svg"]
 
+        cases = {
+            "<!><template></template><?": (
+                "<!----><html><head><template></template><!--?--></head><body></body></html>"
+            ),
+            "<template><d><table><tr>": (
+                "<html><head><template><d><table><tbody><tr></tr></tbody></table></d></template>"
+                "</head><body></body></html>"
+            ),
+            "<table><c><col>": (
+                "<html><head></head><body><c></c><table><colgroup><col></colgroup></table></body></html>"
+            ),
+            "<optgroup><optgroup>": (
+                "<html><head></head><body><optgroup><optgroup></optgroup></optgroup></body></html>"
+            ),
+        }
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                assert JustHTML(html, sanitize=False).to_html(pretty=False) == expected
+
         document = JustHTML("</head></html>2</t></-", sanitize=False)
         body = document.query("body")[0]
         assert body.to_text(strip=False) == "2"
@@ -173,6 +192,87 @@ class TestParserTreeConstruction(unittest.TestCase):
         document = JustHTML("<f><frameset>", sanitize=False)
 
         assert document.to_html(pretty=False) == "<html><head></head><body><f></f></body></html>"
+
+    def test_chromium_nested_template_and_recovery_regressions(self) -> None:
+        cases = {
+            "<template><table><tr><table>": (
+                "<html><head><template><table><tbody><tr></tr></tbody></table><table></table>"
+                "</template></head><body></body></html>"
+            ),
+            "<template><table><col>": (
+                "<html><head><template><table><colgroup><col></colgroup></table></template></head><body></body></html>"
+            ),
+            "<template><colgroup>X": (
+                "<html><head><template><colgroup></colgroup>X</template></head><body></body></html>"
+            ),
+            "<template><colgroup><v>": (
+                "<html><head><template><colgroup></colgroup><v></v></template></head><body></body></html>"
+            ),
+            "<template><col><": "<html><head><template><col></template></head><body></body></html>",
+            "<template><table><table><": (
+                "<html><head><template><table></table>&lt;<table></table></template></head><body></body></html>"
+            ),
+            "<template><td><table><tr>": (
+                "<html><head><template><td><table><tbody><tr></tr></tbody></table></td></template>"
+                "</head><body></body></html>"
+            ),
+            "<template><table><body><td>": (
+                "<html><head><template><table><tbody><tr><td></td></tr></tbody></table></template>"
+                "</head><body></body></html>"
+            ),
+            "<template><tr><form>V": (
+                "<html><head><template><tr><form></form></tr>V</template></head><body></body></html>"
+            ),
+            "<template><tbody><e><tr>": (
+                "<html><head><template><tbody><tr></tr></tbody><e></e></template></head><body></body></html>"
+            ),
+            "<template><tr><u><td>": (
+                "<html><head><template><tr><td></td></tr><u></u></template></head><body></body></html>"
+            ),
+            "<table><template><n><form><": (
+                "<html><head></head><body><table><template><n><form>&lt;</form></n></template></table></body></html>"
+            ),
+            "<a><dialog><a>": ("<html><head></head><body><a><dialog></dialog></a><a></a></body></html>"),
+            "<table><a><th></th></br>": (
+                "<html><head></head><body><a></a><a><br></a><table><tbody><tr><th></th></tr>"
+                "</tbody></table></body></html>"
+            ),
+            '</r\n=="><': "<html><head></head><body></body></html>",
+            "<table></> </l>\n<": ("<html><head></head><body>\n&lt;<table> </table></body></html>"),
+            "<table></>\n<": "<html><head></head><body>\n&lt;<table></table></body></html>",
+            "<table><template><tr>s": (
+                "<html><head></head><body><table><template><tr></tr>s</template></table></body></html>"
+            ),
+            "<template><tr><script>": (
+                "<html><head><template><tr><script></script></tr></template></head><body></body></html>"
+            ),
+            "<h3><svg><title><d></h3><": (
+                "<html><head></head><body><h3><svg><title><d>&lt;</d></title></svg></h3></body></html>"
+            ),
+            "<p><a><xmp>": ("<html><head></head><body><p><a></a></p><a><xmp></xmp></a></body></html>"),
+            "<div><strong></div><table><colgroup>H": (
+                "<html><head></head><body><div><strong></strong></div><strong>H</strong>"
+                "<table><colgroup></colgroup></table></body></html>"
+            ),
+        }
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                assert JustHTML(html, sanitize=False).to_html(pretty=False) == expected
+
+        document = JustHTML("<noscript><script>", sanitize=False, scripting_enabled=False)
+        assert document.to_html(pretty=False) == (
+            "<html><head><noscript></noscript><script></script></head><body></body></html>"
+        )
+
+        assert JustHTML("<!doctype html><summary><p>foo</summary>bar").to_html(pretty=False) == (
+            "<!DOCTYPE html><html><head></head><body><p>foo</p>bar</body></html>"
+        )
+        assert JustHTML("<summary><span></summary>").to_html(pretty=False) == (
+            "<html><head></head><body><span></span></body></html>"
+        )
+        assert JustHTML("<table><a><th></th></br>").to_html(pretty=False) == (
+            "<html><head></head><body><a></a><a><br></a><table><tbody><tr><th></th></tr></tbody></table></body></html>"
+        )
 
     def test_chromium_duplicate_body_and_nested_caption_table_regressions(self) -> None:
         document = JustHTML("<body id='a'><div><body id='b'>x</div>", sanitize=False)

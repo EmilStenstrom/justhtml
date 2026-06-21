@@ -196,6 +196,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             ),
             ("</h1>x", "<html><head></head><body>x</body></html>"),
             ("x</p>y", "<html><head></head><body>x<p></p>y</body></html>"),
+            ("<audio><span></audio>x", "<html><head></head><body><span></span>x</body></html>"),
             ("<head></br>x", "<html><head></head><body><br>x</body></html>"),
             ("<head></div><title>x</title>", "<html><head><title>x</title></head><body></body></html>"),
             ("<image src=x>", '<html><head></head><body><img src="x"></body></html>'),
@@ -528,12 +529,12 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             ),
             (
                 "<template><table><caption>x<tbody><tr><td>y</table></template>",
-                "<html><head><table><caption>x<tbody><tr><td>y</td></tr></tbody></caption></table>"
+                "<html><head><table><caption>x</caption><tbody><tr><td>y</td></tr></tbody></table>"
                 "</head><body></body></html>",
             ),
             (
                 "<template><table><col><tbody><tr><td>x</table></template>",
-                "<html><head><table></table></head><body></body></html>",
+                "<html><head><table><tbody><tr><td>x</td></tr></tbody></table></head><body></body></html>",
             ),
             (
                 "<template><tbody><td>x<tfoot><tr><td>y</template>",
@@ -760,8 +761,8 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
         self.assert_parses_to(
             "<th class=x><template class=x id=y></th>x<caption class=x id=y>x"
             "<tr selected><address>&amp;<span href=x><ul type=hidden> ",
-            '<tbody><tr><th class="x">x</th></tr></tbody><caption class="x" id="y">'
-            "x<tr></tr>&amp;<span><ul> </ul></span></caption>",
+            '&amp;<span><ul> </ul></span><tbody><tr><th class="x">x</th></tr></tbody>'
+            '<caption class="x" id="y">x<tr></tr></caption>',
             fragment_context=FragmentContext("table"),
         )
         self.assert_parses_to(

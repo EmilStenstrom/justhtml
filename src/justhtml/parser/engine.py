@@ -79,7 +79,7 @@ _RAWTEXT_AS_TEXT_TAGS = {"iframe", "noembed", "noframes", "noscript", "xmp"}
 _RAWTEXT_ELEMENT_TAGS = {"script", "style", "iframe", "noembed", "noframes", "noscript", "xmp"}
 _PLAINTEXT_TAGS = {"plaintext"}
 _ACTIVE_FORMATTING_TAGS = FORMATTING_ELEMENTS
-_ACTIVE_FORMATTING_MARKER_TAGS = {"applet", "marquee", "object"}
+_ACTIVE_FORMATTING_MARKER_TAGS = {"applet", "caption", "marquee", "object"}
 _PARSER_ONLY_NAMESPACE = "justhtml-parser-only"
 _DEFAULT_SCOPE_BOUNDARIES = frozenset(DEFAULT_SCOPE_TERMINATORS)
 _BUTTON_SCOPE_BOUNDARIES = frozenset({"button"})
@@ -735,7 +735,7 @@ class ParseEngine:
         self._doctype_seen = False
         self._explicit_head = False
         self._explicit_html = False
-        self._foster_next_table_whitespace = False
+        self._foster_next_table_whitespace = 0
         self._form_element: Element | None = None
         self._frameset_blocked = False
         self._frameset_seen = False
@@ -1120,6 +1120,16 @@ class ParseEngine:
         node = Comment(data=data)
         self._set_origin(node, source_pos)
         parent: Node
+        if self._current_parent() is self._head or (
+            not self._fragment
+            and self._head is not None
+            and not self._body_mode_seen
+            and not self._body_has_content()
+            and self._current_parent() in {self._html, self._body}
+            and any(type(child) is Template for child in self._head.children or ())
+        ):
+            self._append(self._head, node)
+            return
         if not self._fragment and self._after_html:
             self._append(self._doc, node)
             return
@@ -1344,6 +1354,7 @@ class ParseEngine:
 
             ch = html[pos]
             if ch == "!":
+                self._foster_next_table_whitespace = 0
                 if html.startswith("<!--", lt):
                     close = self._find_comment_end(pos + 1, end)
                     if close == -1:
@@ -1410,6 +1421,7 @@ class ParseEngine:
                 pos = end if gt == -1 else gt + 1
                 continue
             if ch == "/":
+                self._foster_next_table_whitespace = 0
                 if self._ignore_lf:
                     end_tag_name_pos = pos + 1
                     if end_tag_name_pos < end:
@@ -1425,6 +1437,7 @@ class ParseEngine:
                 pos = parse_end_tag(pos + 1, end)
                 continue
             if ch == "?":
+                self._foster_next_table_whitespace = 0
                 self._ignore_lf = False
                 gt = html.find(">", pos + 1, end)
                 if self._raw_mode and self._track_tag_spans:
@@ -1446,6 +1459,7 @@ class ParseEngine:
                 else:
                     append_text("<", lt)
                 continue
+            self._foster_next_table_whitespace = 0
             if self._ignore_lf and self._find_tag_end(pos + 1, end) != -1:
                 # A complete start tag is the next token, so a pending
                 # <pre>/<listing> leading-LF exception cannot leak past it.
@@ -1527,10 +1541,10 @@ class ParseEngine:
                         node.parent = parent
             return
         raw_is_space: bool | None = None
-        foster_table_whitespace = False
+        pending_table_whitespace = 0
         if self._foster_next_table_whitespace:  # pragma: no branch - opposite edge requires invalid parser state
-            foster_table_whitespace = True  # pragma: no cover - unreachable after parser-state guards
-            self._foster_next_table_whitespace = False  # pragma: no cover - unreachable after parser-state guards
+            pending_table_whitespace = int(self._foster_next_table_whitespace)
+            self._foster_next_table_whitespace = 0  # pragma: no cover - unreachable after parser-state guards
         if not self._initial_mode_done:
             if "&" in raw:
                 initial_text = self._clean_text(raw)
@@ -1546,6 +1560,8 @@ class ParseEngine:
             if not raw:
                 return
             self._mark_initial_content()
+            if self._fragment_context_name is None:  # pragma: no branch - document parses have no fragment context
+                self._body_mode_seen = True
         if self._frameset_seen:
             if self._fragment:
                 return
@@ -1555,13 +1571,40 @@ class ParseEngine:
         if self._fragment_context_name == "colgroup":
             return
         if self._template_modes and self._template_modes[-1] == _TEMPLATE_MODE_COLGROUP:
-            return
+            if raw.strip(_SPACE):  # pragma: no branch - whitespace leaves colgroup mode unchanged
+                if len(self._stack) > 1 and self._stack[-1].name == "colgroup":  # pragma: no branch
+                    self._stack.pop()
+                    self._template_modes[-1] = _TEMPLATE_MODE_TABLE
+                else:
+                    return
         parent = self._stack[-1]
         if parent.namespace == _PARSER_ONLY_NAMESPACE or (
             type(parent) is Template and parent.template_content is not None
         ):
             parent = self._current_parent()
         parent_name = getattr(parent, "name", None)
+        if self._in_colgroup and parent_name == "colgroup" and raw.strip(_SPACE):
+            leading = len(raw) - len(raw.lstrip(_SPACE))
+            if leading:
+                whitespace = raw[:leading]
+                children = parent.children
+                if children is not None:  # pragma: no branch - elements always own a child list
+                    if children and type(children[-1]) is Text:
+                        children[-1].data = (children[-1].data or "") + whitespace  # pragma: no cover
+                    else:
+                        node = (
+                            self._new_text(whitespace, source_pos) if self._track_node_locations else Text(whitespace)
+                        )
+                        children.append(node)
+                        node.parent = parent
+                raw = raw[leading:]
+                if source_pos is not None:  # pragma: no branch - parser text has a source offset
+                    source_pos += leading
+            self._in_colgroup = False
+            if len(self._stack) > 1 and self._stack[-1] is parent:  # pragma: no branch
+                self._stack.pop()
+            parent = self._current_parent()
+            parent_name = getattr(parent, "name", None)
         if self._active_formatting_dirty:
             reconstruct = parent_name != "caption"
             if reconstruct and parent_name in self._table_foster_targets:
@@ -1583,7 +1626,8 @@ class ParseEngine:
             and self._html is not None
         ):
             if raw_is_space is None:  # pragma: no branch - opposite edge requires invalid parser state
-                raw_is_space = raw.strip(_SPACE) == ""
+                candidate = self._clean_text(raw) if "&" in raw else raw
+                raw_is_space = candidate.strip(_SPACE) == ""
             if not raw_is_space:
                 stripped = raw.lstrip(_SPACE)
                 leading_len = len(raw) - len(stripped)
@@ -1636,34 +1680,26 @@ class ParseEngine:
                 return
             raw = raw.lstrip(_SPACE)
         if self._in_colgroup and getattr(parent, "name", None) == "table":
-            stripped = raw.lstrip(_SPACE)
-            leading_len = len(raw) - len(stripped)
-            if 0 < leading_len < len(raw):
-                leading_text = self._clean_text(raw[:leading_len])
-                node = self._new_text(leading_text, source_pos) if self._track_node_locations else Text(leading_text)
-                self._append(parent, node)
-                if source_pos is not None:  # pragma: no branch - opposite edge requires invalid parser state
-                    source_pos += leading_len
-                raw = stripped
-        if self._in_colgroup and getattr(parent, "name", None) == "colgroup" and raw.strip(_SPACE):
-            stripped = raw.lstrip(_SPACE)
-            leading_len = len(raw) - len(stripped)
-            if leading_len:
-                leading_text = self._clean_text(raw[:leading_len])
-                if leading_text:  # pragma: no branch - opposite edge requires invalid parser state
-                    node = (
-                        self._new_text(leading_text, source_pos) if self._track_node_locations else Text(leading_text)
-                    )
-                    self._append(parent, node)
-                if source_pos is not None:  # pragma: no branch - opposite edge requires invalid parser state
-                    source_pos += leading_len
-                raw = stripped
-            self._in_colgroup = False
-            if (
-                self._stack and self._stack[-1] is parent
-            ):  # pragma: no branch - opposite edge requires invalid parser state
-                self._stack.pop()
-            parent = self._current_parent()
+            if raw.strip(_SPACE):  # pragma: no branch - mixed colgroup text is the state-changing edge
+                leading = len(raw) - len(raw.lstrip(_SPACE))
+                if leading:
+                    whitespace = raw[:leading]
+                    children = parent.children
+                    if children is not None:  # pragma: no branch - elements always own a child list
+                        if children and type(children[-1]) is Text:
+                            children[-1].data = (children[-1].data or "") + whitespace  # pragma: no cover
+                        else:
+                            node = (
+                                self._new_text(whitespace, source_pos)
+                                if self._track_node_locations
+                                else Text(whitespace)
+                            )
+                            children.append(node)
+                            node.parent = parent
+                    raw = raw[leading:]
+                    if source_pos is not None:  # pragma: no branch - parser text has a source offset
+                        source_pos += leading
+                self._in_colgroup = False
         text = raw
         if self._has_carriage_return and "\r" in text:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -1711,7 +1747,24 @@ class ParseEngine:
             foster = None
             if parent.name in self._table_foster_targets:
                 is_table_space = text_is_space if text_is_space is not None else text.strip(_SPACE) == ""
-                if not is_table_space or foster_table_whitespace:
+                if not is_table_space:
+                    if pending_table_whitespace:
+                        children = parent.children
+                        if (
+                            children
+                            and type(children[-1]) is Text
+                            and not (  # pragma: no branch
+                                children[-1].data or ""
+                            ).strip(_SPACE)
+                        ):
+                            previous = children[-1].data or ""
+                            pending = previous[-pending_table_whitespace:]
+                            remaining = previous[:-pending_table_whitespace]
+                            text = pending + text
+                            if remaining:
+                                children[-1].data = remaining
+                            else:
+                                children.pop()
                     foster = self._foster_parent_for(parent)
             if foster is None:
                 children = parent.children
@@ -1722,6 +1775,8 @@ class ParseEngine:
                         node = self._new_text(text, source_pos) if self._track_node_locations else Text(text)
                         children.append(node)
                         node.parent = parent
+                if parent.name in self._table_foster_targets and is_table_space:
+                    self._foster_next_table_whitespace = pending_table_whitespace + len(text)
             else:
                 foster_parent, position = foster
                 node = self._new_text(text, source_pos) if self._track_node_locations else Text(text)
@@ -1819,8 +1874,9 @@ class ParseEngine:
         if not self._initial_mode_done:
             self._mark_initial_content()
         action = self._tag_actions.get(name)
-        gt = html.find(">", pos, end)
-        pos = end if gt == -1 else gt + 1
+        _, _, pos, tag_closed = self._parse_all_attrs(pos, end)
+        gt = pos - 1 if tag_closed else -1
+        pos = end if gt == -1 else pos
 
         if not self._fragment and name in {"html", "body"}:
             self._in_colgroup = False
@@ -1896,6 +1952,8 @@ class ParseEngine:
                 return pos  # pragma: no cover - unreachable after parser-state guards
             self._leave_head_noscript_to_body()
         if name == "br":
+            if self._active_formatting_dirty:
+                self._reconstruct_active_formatting()
             self._insert_compiled_safe_element("br", {}, False, self._current_parent())
             return pos
         stack = self._stack
@@ -1928,6 +1986,17 @@ class ParseEngine:
             idx = self._find_open_index_before_boundary("li", self._list_item_scope_boundaries)
         elif name in {"dd", "dt"}:
             idx = self._find_open_index_before_boundary(name, self._definition_scope_boundaries)
+        elif name in {"audio", "noscript", "slot", "title"}:
+            idx = None
+            for candidate_idx in range(len(stack) - 1, 0, -1):  # pragma: no branch
+                candidate = stack[candidate_idx]
+                if self._node_matches_end_name(candidate, name):
+                    idx = candidate_idx
+                    break
+                if self._is_special_node(candidate):
+                    break
+        elif name == "summary":
+            idx = self._find_open_index_before_boundary(name, _DEFAULT_SCOPE_BOUNDARIES)
         elif self._parser_only_template_depth:
             idx = self._find_open_index_in_current_scope(name)
         elif name not in self._special_elements and (action is None or not action.p_closing):
@@ -1991,8 +2060,9 @@ class ParseEngine:
             self._mark_initial_content()
         action = self._tag_actions.get(name)
         after_name = pos
-        gt = html.find(">", pos, end)
-        pos = end if gt == -1 else gt + 1
+        _, _, pos, tag_closed = self._parse_all_attrs(pos, end)
+        gt = pos - 1 if tag_closed else -1
+        pos = end if gt == -1 else pos
         tag_end = pos
 
         if raw_mode and gt == -1:
@@ -2152,6 +2222,8 @@ class ParseEngine:
                 return pos
             self._leave_head_noscript_to_body()
         if name == "br":
+            if self._active_formatting_dirty:
+                self._reconstruct_active_formatting()
             self._insert_sanitized_element("br", {}, False, self._current_parent())
             return pos
         stack = self._stack
@@ -2202,12 +2274,23 @@ class ParseEngine:
             idx = self._find_open_index_before_boundary("li", self._list_item_scope_boundaries)
         elif name in {"dd", "dt"}:
             idx = self._find_open_index_before_boundary(name, self._definition_scope_boundaries)
+        elif name in _TABLE_SCOPED_END_TAGS:
+            idx = self._find_open_table_scoped_end_index(name)
+        elif name in {"audio", "noscript", "slot", "title"}:
+            idx = None
+            for candidate_idx in range(len(stack) - 1, 0, -1):
+                candidate = stack[candidate_idx]
+                if self._node_matches_end_name(candidate, name):
+                    idx = candidate_idx
+                    break
+                if self._is_special_node(candidate):
+                    break
+        elif name == "summary":
+            idx = self._find_open_index_before_boundary(name, _DEFAULT_SCOPE_BOUNDARIES)
         elif self._template_modes:
             idx = self._find_open_index_in_current_scope(name)
         elif name not in self._special_elements and (action is None or not action.p_closing):
             idx = self._find_open_index_before_boundary(name, _GENERAL_END_TAG_BOUNDARIES)
-        elif name in _TABLE_SCOPED_END_TAGS:
-            idx = self._find_open_html_index_before_boundary(name, _TABLE_CONTEXT_BOUNDARIES)
         else:
             idx = self._find_open_index_before_boundary(name, _DEFAULT_SCOPE_BOUNDARIES)
         if idx is None:
@@ -2580,7 +2663,12 @@ class ParseEngine:
             if name in {"head", "noscript"}:
                 return pos
             if name not in _HEAD_NOSCRIPT_ALLOWED_START_TAGS and name != "html":
-                self._leave_head_noscript_to_body()
+                if action is not None and action.head_content and self._head is not None:
+                    self._in_head_noscript = False
+                    if self._stack and self._stack[-1].name == "noscript":  # pragma: no branch
+                        self._stack.pop()
+                else:
+                    self._leave_head_noscript_to_body()
         if not self._fragment and not in_template_content and not in_foreign_context:
             current_top = self._stack[-1]
             if name == "html":
@@ -2785,7 +2873,14 @@ class ParseEngine:
                 tag_end=tag_end,
             )
             self._form_element = node
-            if node.parent is not None and node.parent.name in self._table_foster_targets:
+            table_idx = self._find_open_index("table")
+            in_table_mode = (
+                table_idx is not None
+                and self._find_open_index_before_boundary("td", _TABLE_CONTEXT_BOUNDARIES) is None
+                and self._find_open_index_before_boundary("th", _TABLE_CONTEXT_BOUNDARIES) is None
+                and self._find_open_index_before_boundary("caption", _TABLE_CONTEXT_BOUNDARIES) is None
+            )
+            if (node.parent is not None and node.parent.name in self._table_foster_targets) or in_table_mode:
                 if (
                     self._stack and self._stack[-1] is node
                 ):  # pragma: no branch - opposite edge requires invalid parser state
@@ -2960,6 +3055,8 @@ class ParseEngine:
         reconstruct_before_insert = (
             name not in _TABLE_STRUCTURE_START_TAGS
             and name not in _HEAD_ONLY_VOID_START_TAGS
+            and name not in {"param", "source", "track"}
+            and name != "template"
             and (action is None or not action.p_closing)
         )
         if html_text_parsing and self._active_formatting_dirty and reconstruct_before_insert:
@@ -3345,20 +3442,20 @@ class ParseEngine:
             if node.namespace in {None, "html"}:
                 if node_name in boundaries:
                     return None
-            elif self._is_html_integration_point(node) or self._is_mathml_text_integration_point(node):
+            elif self._is_html_integration_point(node) or self._is_mathml_text_integration_point(  # pragma: no branch
+                node
+            ):
                 return None
         return None
 
-    def _find_open_html_index_before_boundary(self, name: str, boundaries: frozenset[str]) -> int | None:
-        stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            if node.namespace not in {None, "html"}:
-                continue
-            node_name = node.name
-            if node_name == name:
+    def _find_open_table_scoped_end_index(self, name: str) -> int | None:
+        for idx in range(len(self._stack) - 1, 0, -1):
+            node = self._stack[idx]
+            if node.namespace in {None, "html"} and node.name == name:
                 return idx
-            if node_name in boundaries:
+            if node.namespace in {None, "html"} and node.name == "table":
+                return None
+            if type(node) is Template and node.namespace in {None, "html"}:
                 return None
         return None
 
@@ -3377,11 +3474,16 @@ class ParseEngine:
 
     def _find_open_heading_index(self) -> int | None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
+        for idx in range(len(stack) - 1, 0, -1):  # pragma: no branch
             node = stack[idx]
             if node.name in HEADING_ELEMENTS:
                 return idx
-            if node.name in _DEFAULT_SCOPE_BOUNDARIES:
+            if node.namespace in {None, "html"}:
+                if node.name in _DEFAULT_SCOPE_BOUNDARIES:
+                    return None
+            elif (  # pragma: no branch
+                self._is_html_integration_point(node) or self._is_mathml_text_integration_point(node)
+            ):
                 return None
         return None
 
@@ -3546,14 +3648,45 @@ class ParseEngine:
         mode = self._current_template_mode()
         if mode is None:  # pragma: no branch - opposite edge requires invalid parser state
             return None  # pragma: no cover - unreachable after parser-state guards
-        if name in {"html", "head", "body"}:
+        if name == "body":
+            table_idx = self._find_open_index("table")
+            template_idx = self._open_template_index()
+            if table_idx is None or template_idx is None or table_idx < template_idx:
+                self._set_current_template_mode(_TEMPLATE_MODE_BODY)
+            return pos
+        if name in {"html", "head"}:
+            return pos
+        if name == "template":
+            return None
+        table_idx = self._find_open_index("table")
+        template_idx = self._open_template_index()
+        form_in_table_mode = mode in {
+            _TEMPLATE_MODE_TABLE,
+            _TEMPLATE_MODE_TABLE_BODY,
+            _TEMPLATE_MODE_ROW,
+        } or (
+            mode == _TEMPLATE_MODE_BODY
+            and table_idx is not None
+            and template_idx is not None
+            and table_idx > template_idx
+        )
+        if name == "form" and form_in_table_mode:
+            node = self._insert_template_mode_element(name, attrs, self_closing)
+            if node is not None and self._stack and self._stack[-1] is node:
+                self._stack.pop()
             return pos
 
         if mode == _TEMPLATE_MODE_COLGROUP:
             if name == "col":
                 self._insert_template_mode_element(name, attrs, self_closing)
                 return pos
-            return pos
+            if len(self._stack) <= 1 or self._stack[-1].name != "colgroup":
+                if not self._has_open_parser_only_template() or name not in _TEMPLATE_TABLE_CONTEXT_START_TAGS:
+                    return pos
+            else:
+                self._stack.pop()
+            self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
+            return self._handle_template_mode_start(name, attrs, self_closing, pos)
 
         if mode == _TEMPLATE_MODE_INITIAL:
             if name == "table":
@@ -3586,16 +3719,31 @@ class ParseEngine:
             return None
 
         if mode == _TEMPLATE_MODE_BODY:
+            if name == "table":
+                self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
+                return None
             if name in _TEMPLATE_TABLE_CONTEXT_START_TAGS:
                 return pos
             return None
 
         if mode == _TEMPLATE_MODE_TABLE:
-            if name == "form":
-                node = self._insert_template_mode_element(name, attrs, self_closing)
-                if node is not None and self._stack and self._stack[-1] is node:
-                    self._stack.pop()
+            table_idx = self._find_open_index("table")
+            if name == "table" and table_idx is not None:
+                del self._stack[table_idx:]
+                self._insert_template_mode_element(name, attrs, self_closing)
                 return pos
+            if table_idx is not None and name in {
+                "caption",
+                "col",
+                "colgroup",
+                "tbody",
+                "td",
+                "tfoot",
+                "th",
+                "thead",
+                "tr",
+            }:
+                del self._stack[table_idx + 1 :]
             if name in {"tbody", "tfoot", "thead"}:
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
                 self._insert_template_mode_element(name, attrs, self_closing)
@@ -3608,8 +3756,14 @@ class ParseEngine:
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
                 self._insert_template_mode_element("tbody", {}, False)
                 return self._handle_template_table_body_start(name, attrs, self_closing, pos)
-            if name in {"col", "colgroup"}:
+            if name == "col":
                 self._set_current_template_mode(_TEMPLATE_MODE_COLGROUP)
+                self._insert_template_mode_element("colgroup", {}, False)
+                self._insert_template_mode_element(name, attrs, self_closing)
+                return pos
+            if name == "colgroup":
+                self._set_current_template_mode(_TEMPLATE_MODE_COLGROUP)
+                self._insert_template_mode_element(name, attrs, self_closing)
                 return pos
             return None
 
@@ -3618,6 +3772,9 @@ class ParseEngine:
         if mode == _TEMPLATE_MODE_ROW:
             return self._handle_template_row_start(name, attrs, self_closing, pos)
         if mode == _TEMPLATE_MODE_CELL:  # pragma: no branch - opposite edge requires invalid parser state
+            if name == "table":
+                self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
+                return None
             if name in _TEMPLATE_TABLE_CONTEXT_START_TAGS:
                 if self._close_template_cell():
                     return self._handle_template_mode_start(name, attrs, self_closing, pos)
@@ -3633,10 +3790,36 @@ class ParseEngine:
         pos: int,
     ) -> int | None:
         if name == "tr":
+            template_idx = self._open_template_index()
+            section_idx = next(
+                (
+                    idx
+                    for idx in range(len(self._stack) - 1, 0, -1)
+                    if self._stack[idx].name in self._table_section_tags
+                    and (template_idx is None or idx > template_idx)
+                ),
+                None,
+            )
+            insertion_context_idx = section_idx if section_idx is not None else template_idx
+            if insertion_context_idx is not None:  # pragma: no branch - template modes always have a context
+                del self._stack[insertion_context_idx + 1 :]
             self._set_current_template_mode(_TEMPLATE_MODE_ROW)
             self._insert_template_mode_element(name, attrs, self_closing)
             return pos
         if name in self._table_cell_tags:
+            template_idx = self._open_template_index()
+            section_idx = next(
+                (
+                    idx
+                    for idx in range(len(self._stack) - 1, 0, -1)
+                    if self._stack[idx].name in self._table_section_tags
+                    and (template_idx is None or idx > template_idx)
+                ),
+                None,
+            )
+            insertion_context_idx = section_idx if section_idx is not None else template_idx
+            if insertion_context_idx is not None:  # pragma: no branch - template modes always have a context
+                del self._stack[insertion_context_idx + 1 :]
             self._set_current_template_mode(_TEMPLATE_MODE_ROW)
             self._insert_template_mode_element("tr", {}, False)
             return self._handle_template_row_start(name, attrs, self_closing, pos)
@@ -3647,9 +3830,6 @@ class ParseEngine:
             return pos
         if name in _TEMPLATE_TABLE_BODY_IGNORED_START_TAGS:
             return pos
-        if self._close_open_template_table_section():
-            self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
-            return self._handle_template_mode_start(name, attrs, self_closing, pos)
         return None
 
     def _handle_template_row_start(
@@ -3661,9 +3841,20 @@ class ParseEngine:
     ) -> int | None:
         tr_index = self._find_open_index_before_boundary("tr", _TEMPLATE_SCOPE_BOUNDARIES)
         if name in self._head_content_tags:
-            return None
+            return None  # pragma: no cover - head-content tags are dispatched before template row mode
         if name in self._table_cell_tags:
+            if tr_index is not None:
+                del self._stack[tr_index + 1 :]
             self._set_current_template_mode(_TEMPLATE_MODE_CELL)
+            self._insert_template_mode_element(name, attrs, self_closing)
+            return pos
+        if name == "table" and tr_index is not None:
+            self._close_until_before_boundary("tr", _TEMPLATE_SCOPE_BOUNDARIES)
+            self._close_open_template_table_section()
+            table_idx = self._find_open_index("table")
+            if table_idx is not None:  # pragma: no branch - row mode table replacement has an open table
+                del self._stack[table_idx:]
+            self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
             self._insert_template_mode_element(name, attrs, self_closing)
             return pos
         if name in _TEMPLATE_ROW_STRUCTURE_START_TAGS:
@@ -3672,9 +3863,6 @@ class ParseEngine:
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
                 return self._handle_template_mode_start(name, attrs, self_closing, pos)
             return pos
-        if tr_index is not None:  # pragma: no branch - opposite edge requires invalid parser state
-            self._close_until_before_boundary("tr", _TEMPLATE_SCOPE_BOUNDARIES)
-            self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
         return None
 
     def _handle_template_mode_end(self, name: str) -> bool:
@@ -3712,7 +3900,11 @@ class ParseEngine:
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
                 return True
             return name != "template"
-        return False
+        if mode == _TEMPLATE_MODE_TABLE and name == "table":
+            if self._close_until_before_boundary("table", _TEMPLATE_SCOPE_BOUNDARIES):
+                self._set_current_template_mode(_TEMPLATE_MODE_BODY)
+            return True
+        return False  # pragma: no cover - template scope always terminates the scan
 
     def _close_template_row(self) -> bool:
         return self._close_until_before_boundary("tr", _TEMPLATE_SCOPE_BOUNDARIES)
@@ -3725,9 +3917,9 @@ class ParseEngine:
                 self._mark_active_formatting_dirty()
                 del stack[idx:]
                 return True
-            if node_name == "template":
+            if node_name == "template":  # pragma: no branch - template scope terminates the scan
                 return False
-        return False
+        return False  # pragma: no cover - template scope always terminates the scan
 
     def _close_template_cell(self) -> bool:
         stack = self._stack
@@ -3735,6 +3927,7 @@ class ParseEngine:
             node_name = stack[idx].name
             if node_name in self._table_cell_tags:
                 self._mark_active_formatting_dirty()
+                self._clear_active_formatting_to_marker()
                 del stack[idx:]
                 self._set_current_template_mode(_TEMPLATE_MODE_ROW)
                 return True
@@ -3820,7 +4013,11 @@ class ParseEngine:
             if len(self._stack) > 1 and self._stack[-1].name == "option":
                 self._mark_active_formatting_dirty()
                 self._stack.pop()
-            if len(self._stack) > 1 and self._stack[-1].name == "optgroup":
+            if (
+                self._find_open_index("select") is not None
+                and len(self._stack) > 1
+                and self._stack[-1].name == "optgroup"
+            ):
                 self._mark_active_formatting_dirty()
                 self._stack.pop()
             return
@@ -3841,6 +4038,9 @@ class ParseEngine:
             self._close_until_before_boundary("tr", _TABLE_CONTEXT_BOUNDARIES)
             for section in self._table_section_tags:
                 self._close_until_before_boundary(section, _TABLE_CONTEXT_BOUNDARIES)
+            if table_idx is not None and getattr(self._current_parent(), "name", None) not in {"table", "colgroup"}:
+                self._mark_active_formatting_dirty()
+                del self._stack[table_idx + 1 :]
             if name == "col" and getattr(self._current_parent(), "name", None) == "table":
                 self._insert_sanitized_element("colgroup", {}, False, self._current_parent())
                 self._in_colgroup = True
@@ -3949,19 +4149,28 @@ class ParseEngine:
         ):  # pragma: no branch - opposite edge requires invalid parser state
             return None  # pragma: no cover - unreachable after parser-state guards
         table_idx = self._find_open_index("table")
-        if table_idx is None:
-            if self._template_modes and parent.parent is not None:
-                siblings = parent.parent.children
-                if siblings is not None:  # pragma: no branch - parent containers keep child lists while attached
-                    try:
-                        return parent.parent, siblings.index(parent) + 1
-                    except ValueError:  # pragma: no cover - parser nodes remain attached
-                        pass
+        parser_only_template_idx = self._open_parser_only_template_index()
+        if table_idx is not None and parser_only_template_idx is not None and table_idx < parser_only_template_idx:
             return None
-        if self._parser_only_template_depth:
-            template_idx = self._open_parser_only_template_index()
-            if template_idx is not None and table_idx < template_idx:
-                return None
+        template_idx = self._open_template_index()
+        if table_idx is not None and template_idx is not None and table_idx < template_idx:
+            table_idx = None
+        if table_idx is None:
+            if self._template_modes:
+                open_template_idx = self._open_template_index()
+                if open_template_idx is not None:  # pragma: no branch - template modes require an open template
+                    template = self._stack[open_template_idx]
+                    if type(template) is Template and template.template_content is not None:
+                        children = template.template_content.children
+                        return template.template_content, len(children or ())
+                if parent.parent is not None:  # pragma: no branch - parser-only nodes remain attached
+                    siblings = parent.parent.children
+                    if siblings is not None:  # pragma: no branch - parent containers keep child lists while attached
+                        try:
+                            return parent.parent, siblings.index(parent) + 1
+                        except ValueError:  # pragma: no cover - parser nodes remain attached
+                            pass
+            return None
         table = self._stack[table_idx]
         table_parent = table.parent
         children = table_parent.children if table_parent is not None else None
@@ -4098,6 +4307,8 @@ class ParseEngine:
             and self._find_open_index_before_boundary("p", _P_SCOPE_BOUNDARIES) is not None
         ):
             self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
+        if name == "xmp" and self._active_formatting_dirty:
+            self._reconstruct_active_formatting()
         if self._raw_head_text_parent(name) and self._head is not None:
             parent = self._head
             parsed_in_initial_head = self._current_parent() is not self._head
@@ -4404,7 +4615,7 @@ class ParseEngine:
             furthest_block_index: int | None = None
             for idx in range(formatting_stack_index + 1, len(stack)):
                 candidate = stack[idx]
-                if self._is_special_node(candidate):
+                if candidate.name != "dialog" and self._is_special_node(candidate):
                     furthest_block = candidate
                     furthest_block_index = idx
                     break
@@ -5068,7 +5279,7 @@ class ParseEngine:
         self._append_text_boundary(self._current_parent())
         if name in {"script", "style"}:  # pragma: no branch - opposite edge requires invalid parser state
             self._skip_escaped_comment_space = False
-            self._foster_next_table_whitespace = False
+            self._foster_next_table_whitespace = 0
         return next_pos
 
     def _skip_subtree(self, name: str, pos: int, end: int, *, detect_foreign_breakout: bool = False) -> int:

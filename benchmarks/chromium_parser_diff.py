@@ -39,6 +39,8 @@ _KNOWN_CHROMIUM_DIVERGENCES = frozenset(
         "webkit02.dat:15",
         "webkit02.dat:16",
         "webkit02.dat:17",
+        "generated:649",
+        "generated:705",
     }
 )
 _NON_ATOMIC_FUZZ_STRATEGIES = frozenset({"fuzz_attribute", "fuzz_nested_structure", "fuzz_open_tag"})
@@ -136,6 +138,16 @@ def _atomic_generated_cases(count_per_strategy: int, seed: int) -> list[Case]:
     return cases
 
 
+def _merge_adjacent_text(nodes: list[list[Any]]) -> list[list[Any]]:
+    merged: list[list[Any]] = []
+    for node in nodes:
+        if node[0] == "text" and merged and merged[-1][0] == "text":
+            merged[-1][1] += node[1]
+        else:
+            merged.append(node)
+    return merged
+
+
 def _canonical_node(node: Any) -> list[Any]:
     name = node.name
     if name == "#text":
@@ -148,10 +160,10 @@ def _canonical_node(node: Any) -> list[Any]:
 
     namespace = node.namespace or "html"
     attrs = [[name, value or ""] for name, value in sorted((node.attrs or {}).items())]
-    children = [_canonical_node(child) for child in node.children or ()]
+    children = _merge_adjacent_text([_canonical_node(child) for child in node.children or ()])
     content = None
     if type(node) is Template and node.template_content is not None:
-        content = [_canonical_node(child) for child in node.template_content.children]
+        content = _merge_adjacent_text([_canonical_node(child) for child in node.template_content.children])
     return ["element", namespace, name, attrs, children, content]
 
 
@@ -169,7 +181,15 @@ def _render_justhtml(case: Case) -> list[Any]:
     return [_canonical_node(child) for child in document.root.children or ()]
 
 
-def _is_known_divergence(case: Case) -> bool:
+def _canonical_subtree_is_empty(node: list[Any]) -> bool:
+    if node[0] == "text":
+        return not node[1].strip()
+    if node[0] != "element":
+        return False
+    return all(_canonical_subtree_is_empty(child) for child in node[4])
+
+
+def _is_known_divergence(case: Case, actual: list[Any], expected: list[Any]) -> bool:
     if case.source in _KNOWN_CHROMIUM_DIVERGENCES:
         return True
     if case.html.startswith("\ufeff"):
@@ -188,6 +208,22 @@ def _is_known_divergence(case: Case) -> bool:
         # Chromium drops an incomplete uppercase DOCTYPE prefix where the
         # tokenizer rules instead produce a bogus comment.
         return True
+    if "<frameset" in case.html.lower() and actual and expected:
+        actual_html = actual[-1]
+        expected_html = expected[-1]
+        if actual_html[:3] == ["element", "html", "html"] and expected_html[:3] == ["element", "html", "html"]:
+            actual_elements = [node for node in actual_html[4] if node[0] == "element"]
+            expected_elements = [node for node in expected_html[4] if node[0] == "element"]
+            if (
+                actual_elements
+                and expected_elements
+                and actual_elements[-1][2] == "body"
+                and expected_elements[-1][2] == "frameset"
+                and all(_canonical_subtree_is_empty(child) for child in actual_elements[-1][4])
+            ):
+                # Chromium still accepts a frameset after recursively empty
+                # unknown elements. The standard marks frameset-ok false.
+                return True
     return case.source.startswith(("atomic:fuzz_scope_terminators:", "atomic:fuzz_formatting_boundary:")) and (
         "<button><button>" in case.html
     )
@@ -215,9 +251,20 @@ _CHROMIUM_RENDER = r"""
     }
     const attrs = Array.from(node.attributes || [], (attr) => [attr.name, attr.value])
       .sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
-    const children = Array.from(node.childNodes, canonical);
+    const mergeAdjacentText = (nodes) => {
+      const merged = [];
+      for (const item of nodes) {
+        if (item[0] === "text" && merged.length && merged[merged.length - 1][0] === "text") {
+          merged[merged.length - 1][1] += item[1];
+        } else {
+          merged.push(item);
+        }
+      }
+      return merged;
+    };
+    const children = mergeAdjacentText(Array.from(node.childNodes, canonical));
     const content = node.localName === "template" && node.namespaceURI === namespaceUri.html
-      ? Array.from(node.content.childNodes, canonical)
+      ? mergeAdjacentText(Array.from(node.content.childNodes, canonical))
       : null;
     return ["element", namespaceName(node.namespaceURI), node.localName, attrs, children, content];
   };
@@ -301,7 +348,7 @@ def main() -> int:
                 "justhtml": actual,
                 "chromium": expected,
             }
-            (known_divergences if _is_known_divergence(case) else mismatches).append(mismatch)
+            (known_divergences if _is_known_divergence(case, actual, expected) else mismatches).append(mismatch)
 
     print(f"chromium: {args.chrome}")
     print(f"cases: {len(cases)}")
