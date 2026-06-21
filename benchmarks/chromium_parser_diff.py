@@ -30,6 +30,8 @@ from justhtml.dom import Template  # noqa: E402
 _KNOWN_CHROMIUM_DIVERGENCES = frozenset(
     {
         "adoption01.dat:17",
+        "generated:4",
+        "generated:65",
         "noscript01.dat:12",
         "tests25.dat:7",
         "tests_innerHTML_1.dat:75",
@@ -177,6 +179,10 @@ def _is_known_divergence(case: Case) -> bool:
     if case.html in {"&#x;", "&#X;"}:
         # The HTML Standard requires an absent-digit numeric reference to be
         # flushed unchanged. Chromium currently emits U+FFFD for this input.
+        return True
+    if case.html == "&#9;":
+        # Chromium DOMParser preserves this as a body text node even though the
+        # tree builder ignores the leading character before the html element.
         return True
     if case.html.startswith("<!D") and not case.html.lower().startswith("<!doctype"):
         # Chromium drops an incomplete uppercase DOCTYPE prefix where the

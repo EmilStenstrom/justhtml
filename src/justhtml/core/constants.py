@@ -270,7 +270,6 @@ SPECIAL_ELEMENTS = {
     "main",
     "marquee",
     "menu",
-    "menuitem",
     "meta",
     "nav",
     "noembed",

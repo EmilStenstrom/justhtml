@@ -487,6 +487,35 @@ class TestParserTreeConstruction(unittest.TestCase):
                 doc = JustHTML(html, fragment=True, sanitize=False)
                 self.assertEqual(doc.to_html(pretty=False), expected)
 
+    def test_li_start_tag_stops_before_special_listing_per_standard_and_chromium(self) -> None:
+        doc = JustHTML(
+            "<listing>a<li><slot></slot><nextid><article></article></nextid><listing><li><audio><select>x<th><pre><th>&#-1;</li></pre>y</select>",
+            fragment=True,
+            sanitize=False,
+        )
+
+        outer_listing = doc.query("listing")[0]
+        outer_li = outer_listing.children[1]
+
+        self.assertEqual(outer_li.name, "li")
+        self.assertEqual(outer_li.children[2].name, "listing")
+        self.assertEqual(outer_li.children[2].children[0].name, "li")
+
+    def test_menuitem_is_not_special_for_li_start_tag_scanning(self) -> None:
+        doc = JustHTML("<!DOCTYPE html><li><menuitem><li>", sanitize=False)
+
+        body_children = doc.query("body")[0].children
+        self.assertEqual([child.name for child in body_children], ["li", "li"])
+        self.assertEqual(body_children[0].children[0].name, "menuitem")
+
+    def test_heading_end_tag_closes_across_button_scope_like_chromium(self) -> None:
+        doc = JustHTML("<object><h2><button><ul></ul></h2><iframe>x", sanitize=False)
+
+        obj = doc.query("object")[0]
+        self.assertEqual(obj.children[0].name, "h2")
+        self.assertEqual(obj.children[0].children[0].name, "button")
+        self.assertEqual(obj.children[1].name, "iframe")
+
     def test_hr_in_table_context_uses_in_body_void_element_rules(self) -> None:
         cases = {
             "<table><tr><td>before<hr>after</td></tr></table>": (

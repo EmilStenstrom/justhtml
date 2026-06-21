@@ -3381,7 +3381,7 @@ class ParseEngine:
             node = stack[idx]
             if node.name in HEADING_ELEMENTS:
                 return idx
-            if node.name in _P_SCOPE_BOUNDARIES:
+            if node.name in _DEFAULT_SCOPE_BOUNDARIES:
                 return None
         return None
 
@@ -3780,6 +3780,19 @@ class ParseEngine:
                 continue
             break
 
+    def _close_open_li_for_start(self) -> None:
+        stack = self._stack
+        for idx in range(len(stack) - 1, 0, -1):
+            node = stack[idx]
+            node_name = getattr(node, "name", None)
+            if node_name == "li":
+                self._generate_implied_end_tags("li")
+                self._mark_active_formatting_dirty()
+                del stack[idx:]
+                return
+            if self._is_special_node(node) and node_name not in {"address", "div", "p"}:
+                return
+
     def _repair_stack_for_start(self, name: str) -> None:
         if (
             name in self._p_closing_start_tags
@@ -3789,7 +3802,7 @@ class ParseEngine:
             self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
 
         if name == "li":
-            self._close_until_before_boundary("li", self._list_item_scope_boundaries)
+            self._close_open_li_for_start()
             return
 
         if name in {"dd", "dt"}:
