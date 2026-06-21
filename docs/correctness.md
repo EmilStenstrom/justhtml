@@ -220,27 +220,20 @@ HTML5 parsing is notoriously complex. The spec describes intricate parsing behav
 
 Getting 99% compliance means you're still breaking on real-world edge cases. Browsers pass 100% because they have to - and now JustHTML does too.
 
-## Standardizing Error Codes
+## Error Diagnostics
 
-Beyond tree construction, we're working to standardize parse error reporting. The HTML5 spec defines specific error codes for malformed input, but:
-
-- The html5lib test suite focuses on tree output, not error codes
-- Different parsers report errors inconsistently (or not at all)
-- Error messages vary wildly between implementations
-
-JustHTML uses **kebab-case error codes** matching the WHATWG spec where possible:
+The html5lib suite verifies tree output, not a standardized diagnostic stream.
+JustHTML therefore reports a small set of high-value errors instead of
+duplicating the parser to reproduce every detailed recovery diagnostic:
 
 ```python
-doc = JustHTML("<p>Hello", collect_errors=True)
+doc = JustHTML("<!doctype html><!--", collect_errors=True)
 for error in doc.errors:
     print(f"{error.line}:{error.column} {error.code}")
-# Output: 1:9 expected-closing-tag-but-got-eof
+# Output: 1:19 eof-in-comment
 ```
 
-Our error codes are centralized in `src/justhtml/errors.py` with human-readable messages. This makes it possible to:
+Error collection is optional and adds work. Strict mode raises on the earliest
+supported diagnostic, but is not a complete HTML conformance validator.
 
-1. **Lint HTML** - Report all parse errors with source locations
-2. **Strict mode** - Reject malformed HTML entirely
-3. **Compare implementations** - Verify error detection matches the spec
-
-See [Error Codes](errors.md) for the complete list.
+See [Error Codes](errors.md) for the supported set and stability contract.

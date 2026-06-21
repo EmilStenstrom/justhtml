@@ -1,8 +1,59 @@
 """Tests for error collection and strict mode."""
 
+import ast
+import re
 import unittest
+from pathlib import Path
 
 from justhtml import JustHTML, ParseError, StrictModeError
+from justhtml.core.errors import PARSER_ERROR_CODES, SECURITY_ERROR_CODES
+
+
+class TestDocumentedErrorCodes(unittest.TestCase):
+    """Keep the supported error contract aligned with the implementation."""
+
+    def test_every_declared_parser_error_is_reachable(self) -> None:
+        cases = {
+            "eof-in-comment": "<!doctype html><!--",
+            "eof-in-tag": "<!doctype html><div",
+            "expected-doctype-but-got-chars": "text",
+            "expected-doctype-but-got-start-tag": "<html>",
+            "unexpected-end-tag": "<!doctype html></span>",
+            "unexpected-null-character": "<!doctype html>\0",
+            "unknown-doctype": "<!doctype svg>",
+        }
+        emitted = set()
+        for expected, html in cases.items():
+            with self.subTest(code=expected):
+                document = JustHTML(html, collect_errors=True, sanitize=False)
+                codes = {error.code for error in document.errors}
+                assert expected in codes
+                emitted.update(codes)
+
+        assert emitted == PARSER_ERROR_CODES
+
+    def test_declared_parser_errors_match_engine_emissions(self) -> None:
+        engine_path = Path(__file__).parents[1] / "src/justhtml/parser/engine.py"
+        tree = ast.parse(engine_path.read_text())
+        emitted = {
+            call.args[0].value
+            for call in ast.walk(tree)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "_emit_error"
+            and call.args
+            and isinstance(call.args[0], ast.Constant)
+            and isinstance(call.args[0].value, str)
+        }
+
+        assert emitted == PARSER_ERROR_CODES
+
+    def test_documentation_lists_every_builtin_error_once(self) -> None:
+        docs_path = Path(__file__).parents[1] / "docs/errors.md"
+        documented = re.findall(r"^\| `([^`]+)` \|", docs_path.read_text(), re.MULTILINE)
+
+        assert len(documented) == len(set(documented))
+        assert set(documented) == PARSER_ERROR_CODES | SECURITY_ERROR_CODES
 
 
 class TestErrorCollection(unittest.TestCase):

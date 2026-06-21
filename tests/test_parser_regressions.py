@@ -1,76 +1,14 @@
-"""Compatibility tests for parser diagnostics and malformed raw markup."""
+"""Regression tests for the unified parser."""
 
 import unittest
 from dataclasses import replace
 
-from justhtml import JustHTML, StrictModeError
-from justhtml.parser.context import FragmentContext
+from justhtml import JustHTML
 from justhtml.sanitizer import DEFAULT_POLICY
 from justhtml.transforms import Escape
 
 
-class TestV240ErrorCompatibility(unittest.TestCase):
-    def test_unclosed_div_is_strict_error_at_eof(self) -> None:
-        html = "<!doctype html><div>"
-
-        with self.assertRaises(StrictModeError) as ctx:
-            JustHTML(html, strict=True)
-
-        error = ctx.exception.error
-        assert (error.code, error.line, error.column, error.category) == (
-            "expected-closing-tag-but-got-eof",
-            1,
-            20,
-            "treebuilder",
-        )
-
-    def test_rawtext_eof_uses_named_closing_tag_error(self) -> None:
-        document = JustHTML("<!doctype html><title>x", collect_errors=True, sanitize=False)
-
-        assert [(error.code, error.line, error.column) for error in document.errors] == [
-            ("expected-named-closing-tag-but-got-eof", 1, 23)
-        ]
-
-    def test_malformed_doctype_spacing_matches_v240(self) -> None:
-        document = JustHTML("<!DOCTYPEhtml>Hello", collect_errors=True, sanitize=False)
-
-        assert [(error.code, error.line, error.column) for error in document.errors] == [
-            ("missing-whitespace-before-doctype-name", 1, 10)
-        ]
-
-    def test_public_and_system_ids_require_separating_whitespace(self) -> None:
-        html = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN""http://www.w3.org/TR/html4/strict.dtd">'
-        document = JustHTML(html, collect_errors=True, sanitize=False)
-
-        assert [(error.code, error.line, error.column) for error in document.errors] == [
-            ("missing-whitespace-between-doctype-public-and-system-identifiers", 1, 50)
-        ]
-
-    def test_diagnostic_scanner_edge_states(self) -> None:
-        cases = [
-            "<!doctype html></span\n>",
-            "<div/'quoted'>",
-            "<div 'quoted'>",
-            "<div a=   >",
-            "<?x>   ",
-            "<?x><div>",
-            "<frameset></frameset>x<noframes>",
-            "<frameset></frameset></html>x<p>",
-        ]
-        for html in cases:
-            with self.subTest(html=html):
-                assert JustHTML(html, sanitize=False, collect_errors=True).root is not None
-
-        colgroup = JustHTML(
-            "x",
-            fragment_context=FragmentContext("colgroup"),
-            sanitize=False,
-            collect_errors=True,
-        )
-        assert any(error.code == "unexpected-characters-in-column-group" for error in colgroup.errors)
-
-
-class TestMalformedRawTagCompatibility(unittest.TestCase):
+class TestMalformedRawTagRegressions(unittest.TestCase):
     def test_carriage_returns_delimit_tag_and_attribute_names(self) -> None:
         html = "<!doctype html><div\rclass\r=\r'a'\r>w</div>"
 
@@ -102,7 +40,7 @@ class TestMalformedRawTagCompatibility(unittest.TestCase):
         assert document.to_html(pretty=False) == "<html><head></head><frameset></frameset></html>"
 
 
-class TestEngineBehaviorCompatibility(unittest.TestCase):
+class TestEngineBehaviorRegressions(unittest.TestCase):
     def test_fragment_template_unwrap_preserves_text_boundaries(self) -> None:
         document = JustHTML("<div>a<template>b</template>c</div>", fragment=True)
 

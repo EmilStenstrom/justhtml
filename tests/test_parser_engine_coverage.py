@@ -492,10 +492,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
         )
 
         document = JustHTML("<!doctype html><div></span\n>", sanitize=False, collect_errors=True)
-        assert [error.code for error in document.errors] == [
-            "unexpected-end-tag",
-            "expected-closing-tag-but-got-eof",
-        ]
+        assert [error.code for error in document.errors] == ["unexpected-end-tag"]
 
     def test_template_insertion_modes(self) -> None:
         cases = [
