@@ -1461,8 +1461,6 @@ class ParseEngine:
         text = raw
         if self._has_carriage_return and "\r" in text:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
-        if self._has_form_feed and "\f" in text:
-            text = text.replace("\f", " ")
         if self._has_null and "\0" in text:
             text = text.replace("\0", "\ufffd" if replace_null else "")
         if "&" in text:
@@ -1500,8 +1498,6 @@ class ParseEngine:
             text = raw
             if self._has_carriage_return and "\r" in text:
                 text = text.replace("\r\n", "\n").replace("\r", "\n")
-            if self._has_form_feed and "\f" in text:
-                text = text.replace("\f", " ")
             if self._has_null and "\0" in text:
                 text = text.replace("\0", "")
             if "&" in text:
@@ -1633,8 +1629,6 @@ class ParseEngine:
         text = raw
         if self._has_carriage_return and "\r" in text:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
-        if self._has_form_feed and "\f" in text:
-            text = text.replace("\f", " ")
         if self._has_null and "\0" in text:
             parent_namespace = getattr(parent, "namespace", None)
             null_replacement = (
@@ -3875,8 +3869,6 @@ class ParseEngine:
             return pos
         if self._has_carriage_return and "\r" in raw_text:
             raw_text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
-        if self._has_form_feed and "\f" in raw_text:
-            raw_text = raw_text.replace("\f", " ")
         text = (
             raw_text if raw_text.isascii() or not self._strip_invisible_unicode else _strip_invisible_unicode(raw_text)
         )
@@ -3994,8 +3986,6 @@ class ParseEngine:
                 self._set_end_span(node, name, close, pos)
         if self._has_carriage_return and "\r" in raw_text:
             raw_text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
-        if self._has_form_feed and "\f" in raw_text:
-            raw_text = raw_text.replace("\f", " ")
         if self._has_null and "\0" in raw_text:
             raw_text = raw_text.replace("\0", "\ufffd")
         if self._xml_coercion and raw_text:
@@ -4041,8 +4031,6 @@ class ParseEngine:
         text = self._html_input[pos:end]
         if self._has_carriage_return and "\r" in text:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
-        if self._has_form_feed and "\f" in text:
-            text = text.replace("\f", " ")
         if self._has_null and "\0" in text:
             text = text.replace("\0", "\ufffd")
         if self._xml_coercion and text:
@@ -4068,8 +4056,6 @@ class ParseEngine:
     def _append_raw_literal_text(self, text: str, source_pos: int | None = None) -> None:
         if self._has_carriage_return and "\r" in text:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
-        if self._has_form_feed and "\f" in text:
-            text = text.replace("\f", " ")
         if self._has_null and "\0" in text:
             text = text.replace("\0", "\ufffd")
         if self._strip_invisible_unicode and text and not text.isascii():

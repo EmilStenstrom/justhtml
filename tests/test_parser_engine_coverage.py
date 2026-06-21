@@ -391,11 +391,11 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             ("<div", "<html><head></head><body>&lt;div</body></html>"),
             (
                 "<style>a\r\nb\fc\0</style>",
-                "<html><head><style>a\nb c�</style></head><body></body></html>",
+                "<html><head><style>a\nb\fc�</style></head><body></body></html>",
             ),
             (
                 "<plaintext>a\r\nb\fc\0<q>",
-                "<html><head></head><body><plaintext>a\nb c�<q></plaintext></body></html>",
+                "<html><head></head><body><plaintext>a\nb\fc�<q></plaintext></body></html>",
             ),
             (
                 "<script><!--<script>x</script>--></script>",
@@ -608,9 +608,9 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
                 "<table><a><caption>x</table></a></caption>",
                 "<html><head></head><body><a></a><table><caption>x</caption></table></body></html>",
             ),
-            ("<xmp>\r\f\0</xmp>", "<html><head></head><body>\n \0</body></html>"),
+            ("<xmp>\r\f\0</xmp>", "<html><head></head><body>\n\f\0</body></html>"),
             ('<nobr a\0b="unterminated>x</nobr>', "<html><head></head><body></body></html>"),
-            ("<plaintext>\r\f\0", "<html><head></head><body>\n �</body></html>"),
+            ("<plaintext>\r\f\0", "<html><head></head><body>\n\f�</body></html>"),
             ("<x =x>", "<html><head></head><body></body></html>"),
             ('<form a\0b="unterminated>x</form>', "<html><head></head><body></body></html>"),
             ("<x a = >", "<html><head></head><body></body></html>"),
@@ -805,7 +805,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
 
         self.assert_parses_to(
             "\n a\r\fb\0&amp;",
-            " a\n b�&amp;",
+            " a\n\fb�&amp;",
             fragment_context=FragmentContext("textarea"),
         )
         self.assert_parses_to(

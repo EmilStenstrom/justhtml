@@ -308,7 +308,7 @@ class TestParserTreeConstruction(unittest.TestCase):
             "<div>A\fB</div>",
             fragment=True,
             sanitize=False,
-            _tokenizer_opts=TokenizerOpts(xml_coercion=True),
+            _parser_opts=ParserOptions(xml_coercion=True),
         )
 
         self.assertEqual(doc.to_html(pretty=False), "<div>A B</div>")
