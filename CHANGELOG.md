@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-06-21
+
+### Fixed
+- Prevent the leading-line-feed exception for `<pre>`, `<listing>`, and `<textarea>` from leaking past intervening non-character tokens and removing a later newline.
+- Apply paragraph closing and leading-line-feed handling to `<pre>` and `<listing>` inside customizable `<select>` content.
+- Preserve U+000C FORM FEED in HTML text like browsers do, while retaining its intentional conversion to a space in XML-coercion mode.
+
 ## [2.4.0] - 2026-06-20
 
 ### Fixed
