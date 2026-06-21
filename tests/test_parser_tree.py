@@ -64,6 +64,20 @@ class TestParserTreeConstruction(unittest.TestCase):
         document = JustHTML("<source\0 '='<script>alert(1)</script>'>", sanitize=False)
         assert document.query("source�")[0].attrs == {"'": "<script>alert(1)</script>"}
 
+        attribute_cases = {
+            "<h\n=>": {"=": ""},
+            "<h\n=9>": {"=9": ""},
+            "<h\n==>": {"=": ""},
+            "<p ==>": {"=": ""},
+            "<m\fi=''=\">": {"i": "", '="': ""},
+            "<r/Y>": {"y": ""},
+            '<x/">': {'"': ""},
+        }
+        for html, expected in attribute_cases.items():
+            with self.subTest(html=html):
+                element = JustHTML(html, sanitize=False).query("body")[0].children[0]
+                assert element.attrs == expected
+
     def test_chromium_foreign_template_table_and_frameset_regressions(self) -> None:
         cases = {
             "<svg><image href='x'></svg>": (
@@ -79,12 +93,86 @@ class TestParserTreeConstruction(unittest.TestCase):
             "<frameset></frameset></html><!--a--><script><!--b--></script>": (
                 "<html><head></head><frameset></frameset></html><!--a--><!--b-->"
             ),
+            "<frameset></frameset><frame>": "<html><head></head><frameset></frameset></html>",
+            "<frameset></frameset><frameset>": "<html><head></head><frameset></frameset></html>",
+            "<frameset></body><!": "<html><head></head><frameset><!----></frameset></html>",
+            "<template></html><//": ("<html><head><template><!--/--></template></head><body></body></html>"),
         }
 
         for html, expected in cases.items():
             with self.subTest(html=html):
                 document = JustHTML(html, sanitize=False)
                 assert document.to_html(pretty=False) == expected
+
+        document = JustHTML("<math><html>", sanitize=False)
+        math = document.query("math")[0]
+        assert math.children[0].name == "html"
+        assert math.children[0].namespace == "math"
+
+        document = JustHTML("<rt><rt>", sanitize=False)
+        first_rt = document.query("rt")[0]
+        assert first_rt.children[0].name == "rt"
+
+        document = JustHTML("<select><table><input><select>", sanitize=False)
+        select = document.query("select")[0]
+        assert [child.name for child in select.children] == ["input", "select", "table"]
+
+        document = JustHTML("<select><table><d><select>", sanitize=False)
+        select = document.query("select")[0]
+        assert [child.name for child in select.children] == ["d", "table"]
+        assert select.children[0].children[0].name == "select"
+
+        cases = {
+            "</html><script>": "<html><head></head><body><script></script></body></html>",
+            "</head></html><y>": "<html><head></head><body><y></y></body></html>",
+            "</html><</ ": "<html><head></head><body>&lt;<!-- --></body></html>",
+            "<button><p><math></button>>": (
+                "<html><head></head><body><button><p><math></math></p></button>&gt;</body></html>"
+            ),
+            "<i></body></f><": "<html><head></head><body><i>&lt;</i></body></html>",
+            "</>&#9": "<html><head></head><body></body></html>",
+            "<!>&#xD": "<!----><html><head></head><body></body></html>",
+            "<!DOCTYPE>&#xD": "<!DOCTYPE><html><head></head><body></body></html>",
+            "</e>&#9": "<html><head></head><body></body></html>",
+            "<template><tr>d": "<html><head><template><tr></tr>d</template></head><body></body></html>",
+        }
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                assert JustHTML(html, sanitize=False).to_html(pretty=False) == expected
+
+        for html, element_name, text in (
+            ("<math><source>>", "source", ">"),
+            ("<svg><input>x", "input", "x"),
+            ("<math><frame><", "frame", "<"),
+        ):
+            with self.subTest(html=html):
+                element = JustHTML(html, sanitize=False).query(element_name)[0]
+                assert element.to_text(strip=False) == text
+
+        for html in ('<o\fe="\r">', '<d 2="\r">'):
+            with self.subTest(html=html):
+                element = JustHTML(html, sanitize=False).query("body")[0].children[0]
+                assert next(iter(element.attrs.values())) == "\n"
+
+        document = JustHTML("<a 8=&#13\r>", sanitize=False)
+        assert document.query("a")[0].attrs == {"8": "\r"}
+
+        document = JustHTML("<frameset>&#9", sanitize=False)
+        assert document.query("frameset")[0].to_text(strip=False) == "\t"
+
+        document = JustHTML("<svg><body>", sanitize=False)
+        body = document.query("body")[0]
+        assert [child.name for child in body.children] == ["svg"]
+
+        document = JustHTML("</head></html>2</t></-", sanitize=False)
+        body = document.query("body")[0]
+        assert body.to_text(strip=False) == "2"
+        assert body.children[-1].name == "#comment"
+
+    def test_unknown_body_element_blocks_frameset_per_standard_despite_chromium(self) -> None:
+        document = JustHTML("<f><frameset>", sanitize=False)
+
+        assert document.to_html(pretty=False) == "<html><head></head><body><f></f></body></html>"
 
     def test_chromium_duplicate_body_and_nested_caption_table_regressions(self) -> None:
         document = JustHTML("<body id='a'><div><body id='b'>x</div>", sanitize=False)

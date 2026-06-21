@@ -3,7 +3,9 @@ from dataclasses import replace
 from pathlib import Path
 
 from justhtml import JustHTML
+from justhtml.dom import Element
 from justhtml.parser.context import FragmentContext
+from justhtml.parser.engine import ParseEngine, compile_default_engine_plan, compile_raw_engine_plan
 from justhtml.parser.options import ParserOptions
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, UrlPolicy
 from tests.harness.tree import TestRunner
@@ -474,7 +476,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             ("<p><b>x</p>y</b>", "<html><head></head><body><p><b>x</b></p><b>y</b></body></html>"),
             (
                 "<frameset><frame></frameset><frameset>",
-                "<html><head></head><frameset><frame></frame></frameset><frameset></frameset></html>",
+                "<html><head></head><frameset><frame></frame></frameset></html>",
             ),
             ("<frameset>x", "<html><head></head><frameset></frameset></html>"),
             ("<frameset> \r\n", "<html><head></head><frameset> \n</frameset></html>"),
@@ -739,8 +741,8 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
         )
         self.assert_parses_to(
             "<a href=x><rb a=1> <rtc><table class=x id=y><select href=x>x</table><ruby class=x id=y>&amp;",
-            '<html><head></head><body><a href="x"><rb a="1"> </rb><rtc><select href="x">x</select>'
-            '<table class="x" id="y"></table><ruby class="x" id="y">&amp;</ruby></rtc></a></body></html>',
+            '<html><head></head><body><a href="x"><rb a="1"> <rtc><select href="x">x</select>'
+            '<table class="x" id="y"></table><ruby class="x" id="y">&amp;</ruby></rtc></rb></a></body></html>',
             sanitize=False,
             track_node_locations=True,
         )
@@ -815,6 +817,208 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             sanitize=False,
             _parser_opts=ParserOptions(xml_coercion=True),
         )
+
+    def test_coverage_guided_frameset_and_attr_recovery(self) -> None:
+        self.assert_parses_to(
+            "</body>x",
+            "<html><head></head><body>x</body></html>",
+            sanitize=False,
+        )
+        self.assert_parses_to(
+            "</body>x<!--c-->",
+            "<html><head></head><body>x<!--c--></body></html>",
+            sanitize=False,
+        )
+        self.assert_parses_to(
+            "<frameset></frameset></body>",
+            "<html><head></head><frameset></frameset></html>",
+            sanitize=False,
+        )
+        self.assert_parses_to(
+            "<frameset><frame><frame>",
+            "<html><head></head><frameset><frame></frame><frame></frame></frameset></html>",
+            sanitize=False,
+        )
+        self.assert_parses_to(
+            "x<frameset>",
+            "<head></head><body>x</body>",
+            fragment_context=FragmentContext("html"),
+            sanitize=False,
+        )
+        self.assert_parses_to(
+            "<input><frameset>",
+            "<html><head></head><body><input></body></html>",
+            sanitize=False,
+        )
+        self.assert_parses_to(
+            "<button><frameset>",
+            "<html><head></head><body></body></html>",
+        )
+
+        self.assert_parses_to(
+            '<x/"><p>',
+            "<html><head></head><body><p></p></body></html>",
+        )
+        self.assert_parses_to(
+            "<x ?=y>",
+            "<html><head></head><body></body></html>",
+        )
+        self.assert_parses_to(
+            '<x/"><p>',
+            '<html><head></head><body><x "><p></p></x></body></html>',
+            sanitize=False,
+            track_node_locations=True,
+        )
+
+    def test_direct_engine_branch_coverage(self) -> None:
+        raw_plan = compile_raw_engine_plan(fragment=False)
+        raw_fragment_plan = compile_raw_engine_plan(fragment=True)
+        default_plan = compile_default_engine_plan(fragment=False)
+
+        cases = [
+            (
+                ParseEngine("</body>x<!--c-->", fragment=False, plan=raw_plan),
+                "<html><head></head><body>x<!--c--></body></html>",
+            ),
+            (
+                ParseEngine("</body>x", fragment=False, plan=raw_plan),
+                "<html><head></head><body>x</body></html>",
+            ),
+            (
+                ParseEngine("<frameset></frameset></body>", fragment=False, plan=raw_plan),
+                "<html><head></head><frameset></frameset></html>",
+            ),
+            (
+                ParseEngine("<frameset><frame><frame>", fragment=False, plan=raw_plan),
+                "<html><head></head><frameset><frame></frame><frame></frame></frameset></html>",
+            ),
+            (
+                ParseEngine(
+                    "x<frameset>",
+                    fragment=True,
+                    fragment_context=FragmentContext("html"),
+                    plan=raw_fragment_plan,
+                ),
+                "<head></head><body>x</body>",
+            ),
+            (
+                ParseEngine("<input><frameset>", fragment=False, plan=raw_plan),
+                "<html><head></head><body><input></body></html>",
+            ),
+            (
+                ParseEngine("<button><frameset>", fragment=False, plan=default_plan),
+                "<html><head></head><body></body></html>",
+            ),
+            (
+                ParseEngine('<x/"><p>', fragment=False, plan=default_plan),
+                "<html><head></head><body><p></p></body></html>",
+            ),
+            (
+                ParseEngine("<x ?=y>", fragment=False, plan=raw_plan, track_node_locations=True),
+                '<html><head></head><body><x ?="y"></x></body></html>',
+            ),
+        ]
+
+        for engine, expected in cases:
+            with self.subTest(html=engine._html_input, fragment=engine._fragment):
+                assert engine.parse().to_html(pretty=False) == expected
+        self.assert_parses_to(
+            "<x ?=y>",
+            '<html><head></head><body><x ?="y"></x></body></html>',
+            sanitize=False,
+            track_node_locations=True,
+        )
+
+    def test_direct_engine_private_helper_coverage(self) -> None:
+        raw_plan = compile_raw_engine_plan(fragment=False)
+        raw_fragment_plan = compile_raw_engine_plan(fragment=True)
+        default_plan = compile_default_engine_plan(fragment=False)
+
+        comment_engine = ParseEngine("</body>x<!--c-->", fragment=False, plan=raw_plan)
+        comment_engine.parse()
+        comment_engine._after_body = True
+        comment_engine._after_document = True
+        comment_engine._after_html = False
+        comment_engine._body_mode_seen = False
+        comment_engine._append_comment("c", source_pos=8)
+        self.assertFalse(comment_engine._after_body)
+        self.assertFalse(comment_engine._after_document)
+        self.assertFalse(comment_engine._after_html)
+        self.assertTrue(comment_engine._body_mode_seen)
+
+        text_engine = ParseEngine("</body>x", fragment=False, plan=raw_plan)
+        text_engine.parse()
+        text_engine._after_body = True
+        text_engine._after_document = True
+        text_engine._after_html = False
+        text_engine._body_mode_seen = False
+        text_engine._stack = [text_engine._doc, text_engine._html]  # type: ignore[list-item]
+        text_engine._append_text("x", source_pos=7)
+        self.assertFalse(text_engine._after_body)
+        self.assertFalse(text_engine._after_document)
+        self.assertFalse(text_engine._after_html)
+        self.assertTrue(text_engine._body_mode_seen)
+
+        end_tag_engine = ParseEngine("</body>", fragment=False, plan=raw_plan)
+        end_tag_engine.parse()
+        end_tag_engine._frameset_seen = True
+        end_tag_engine._body_explicit = False
+        end_tag_engine._stack = [end_tag_engine._doc, end_tag_engine._html, end_tag_engine._head]  # type: ignore[list-item]
+        end_tag_engine._parse_end_tag(2, len(end_tag_engine._html_input))
+        self.assertTrue(end_tag_engine._after_document)
+        self.assertFalse(end_tag_engine._after_html)
+
+        frame_engine = ParseEngine("<frame>", fragment=False, plan=raw_plan)
+        frame_engine.parse()
+        frameset = Element("frameset", {}, "html")
+        frame_engine._append(frame_engine._html, frameset)
+        frame_engine._frameset_seen = True
+        frame_engine._body_explicit = False
+        frame_engine._stack = [frame_engine._doc, frame_engine._html, frameset]  # type: ignore[list-item]
+        frame_engine._parse_start_tag(1, len(frame_engine._html_input))
+        self.assertEqual([child.name for child in frameset.children], ["frame"])
+
+        blocked_frame_engine = ParseEngine("<frame>", fragment=False, plan=default_plan)
+        blocked_frame_engine.parse()
+        blocked_frameset = Element("frameset", {}, "html")
+        blocked_frame_engine._append(blocked_frame_engine._html, blocked_frameset)
+        blocked_frame_engine._frameset_seen = True
+        blocked_frame_engine._body_explicit = False
+        blocked_frame_engine._stack = [blocked_frame_engine._doc, blocked_frame_engine._html, blocked_frameset]  # type: ignore[list-item]
+        blocked_frame_engine._parse_start_tag(1, len(blocked_frame_engine._html_input))
+        self.assertEqual(blocked_frameset.children, [])
+
+        skip_attrs_engine = ParseEngine('/">', fragment=False, plan=default_plan)
+        assert skip_attrs_engine._skip_attrs(0, len(skip_attrs_engine._html_input)) == ({}, False, 3, True)
+
+        parse_attrs_engine = ParseEngine('/">', fragment=False, plan=default_plan)
+        action = default_plan.tag_actions["a"]
+        assert parse_attrs_engine._parse_attrs_for_action(action, 0, len(parse_attrs_engine._html_input)) == (
+            {},
+            False,
+            3,
+            True,
+        )
+
+        fragment_engine = ParseEngine(
+            "",
+            fragment=True,
+            fragment_context=FragmentContext("html"),
+            plan=raw_fragment_plan,
+        )
+        fragment_engine.parse()
+        fragment_engine._append(fragment_engine._body, Element("input", {}, "html"))
+        self.assertFalse(fragment_engine._accept_fragment_frameset())
+
+        parser_only_engine = ParseEngine("", fragment=False, plan=raw_plan)
+        parser_only_engine.parse()
+        parser_only_engine._append(parser_only_engine._body, Element("button", {}, "justhtml-parser-only"))
+        self.assertFalse(parser_only_engine._body_allows_frameset(parser_only_engine._body))
+
+        visible_input_engine = ParseEngine("", fragment=False, plan=raw_plan)
+        visible_input_engine.parse()
+        visible_input_engine._append(visible_input_engine._body, Element("input", {}, "html"))
+        self.assertFalse(visible_input_engine._body_allows_frameset(visible_input_engine._body))
 
     def test_upstream_inputs_across_diagnostic_modes(self) -> None:
         config = {

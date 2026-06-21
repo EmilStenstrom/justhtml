@@ -178,6 +178,10 @@ def _is_known_divergence(case: Case) -> bool:
         # The HTML Standard requires an absent-digit numeric reference to be
         # flushed unchanged. Chromium currently emits U+FFFD for this input.
         return True
+    if case.html.startswith("<!D") and not case.html.lower().startswith("<!doctype"):
+        # Chromium drops an incomplete uppercase DOCTYPE prefix where the
+        # tokenizer rules instead produce a bogus comment.
+        return True
     return case.source.startswith(("atomic:fuzz_scope_terminators:", "atomic:fuzz_formatting_boundary:")) and (
         "<button><button>" in case.html
     )

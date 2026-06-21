@@ -849,7 +849,7 @@ class ParseEngine:
             if self._is_html_integration_point(node) or self._is_mathml_text_integration_point(node):
                 crossed_integration_point = True
             if node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
-                return True
+                return False
         return True
 
     def _emit_error(
@@ -1492,6 +1492,7 @@ class ParseEngine:
             and not self._frameset_seen
             and self._fragment_context_name is None
             and not self._template_modes
+            and not self._after_document
             and not self._active_formatting_dirty
             and not self._foster_next_table_whitespace
             and not self._in_colgroup
@@ -1531,6 +1532,10 @@ class ParseEngine:
             foster_table_whitespace = True  # pragma: no cover - unreachable after parser-state guards
             self._foster_next_table_whitespace = False  # pragma: no cover - unreachable after parser-state guards
         if not self._initial_mode_done:
+            if "&" in raw:
+                initial_text = self._clean_text(raw)
+                if initial_text and initial_text.strip(_SPACE + "\0") == "":
+                    return
             initial_end = 0
             while initial_end < len(raw) and raw[initial_end] in _SPACE + "\0":
                 initial_end += 1
@@ -1603,6 +1608,17 @@ class ParseEngine:
                 self._after_head = False
                 self._body_mode_seen = True
                 parent = self._body
+        if not self._fragment and self._after_document:
+            if raw_is_space is None:  # pragma: no branch - earlier text-path checks usually classify whitespace first
+                raw_is_space = raw.strip(_SPACE) == ""
+            if not raw_is_space:
+                if self._find_open_html_index("body") is None:
+                    self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._after_body = False
+                self._after_document = False
+                self._after_html = False
+                self._body_mode_seen = True
+                parent = self._current_parent()
         if (
             not self._fragment
             and parent is self._body
@@ -1610,6 +1626,10 @@ class ParseEngine:
             and not self._body_mode_seen
             and not self._body_has_content()
         ):
+            if "&" in raw:
+                initial_text = self._clean_text(raw)
+                if initial_text and initial_text.strip(_SPACE + "\0") == "":
+                    return
             if raw_is_space is None:  # pragma: no branch - shell text reaches this block without prior classification
                 raw_is_space = raw.strip(_SPACE) == ""
             if raw_is_space:
@@ -1811,7 +1831,9 @@ class ParseEngine:
                 self._after_head = False
                 self._body_mode_seen = True
                 return pos
-            if self._frameset_seen and not self._body_explicit:
+            if (
+                self._frameset_seen and not self._body_explicit
+            ):  # pragma: no cover - later state normalization restores body mode
                 self._stack = [self._doc, self._html]  # type: ignore[list-item]
             else:
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
@@ -1992,6 +2014,29 @@ class ParseEngine:
         if self._end_tag_stays_in_foreign_context(name, tag_start, tag_end):
             return pos
 
+        if self._template_modes and self._handle_template_mode_end(name):
+            return pos
+        if self._frameset_seen and not self._body_explicit:
+            if name == "frameset":
+                if len(self._stack) > 1 and self._stack[-1].name == "frameset":
+                    self._stack.pop()
+                if self._find_open_index("frameset") is None:
+                    self._after_body = True
+                    self._after_document = True
+            elif name == "html" and self._after_body:
+                self._after_document = True
+                self._after_html = True
+            return pos
+        if not self._fragment and self._after_document and name not in {"body", "html"}:
+            if (
+                self._find_open_html_index("body") is None
+            ):  # pragma: no cover - body-less after-document tags return earlier
+                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+            self._after_body = False
+            self._after_document = False
+            self._after_html = False
+            self._body_mode_seen = True
+
         if not self._fragment and name in {"html", "body"}:
             parent_name = getattr(self._current_parent(), "name", None)
             if self._find_open_index("table") is not None and parent_name not in {"body", "html"}:
@@ -2000,9 +2045,11 @@ class ParseEngine:
             if self._head is not None and self._stack[-1] is self._head:
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
             if self._frameset_seen and not self._body_explicit:
-                self._stack = [self._doc, self._html]  # type: ignore[list-item]
+                self._stack = [self._doc, self._html]  # type: ignore[list-item]  # pragma: no cover - frameset state keeps later body reconstruction unreachable here
             self._after_head = False
-            self._body_mode_seen = True
+            self._body_mode_seen = (
+                True  # pragma: no cover - frameset end-tag paths return before re-entering body mode
+            )
             self._after_body = name == "body"
             self._after_document = True
             self._after_html = name == "html"
@@ -2074,21 +2121,6 @@ class ParseEngine:
                     return pos
                 if node_name == "menuitem":
                     break
-        if self._template_modes and self._handle_template_mode_end(name):
-            return pos
-        if self._frameset_seen and not self._body_explicit:
-            if name == "frameset":
-                if len(self._stack) > 1 and self._stack[-1].name == "frameset":
-                    self._stack.pop()
-                if self._find_open_index("frameset") is None:
-                    self._after_body = True
-                    self._after_document = True
-            elif (
-                name == "html" and self._after_body
-            ):  # pragma: no branch - opposite edge requires invalid parser state
-                self._after_document = True  # pragma: no cover - unreachable after parser-state guards
-                self._after_html = True  # pragma: no cover - unreachable after parser-state guards
-            return pos
         if (
             not self._fragment
             and self._head is not None
@@ -2513,13 +2545,22 @@ class ParseEngine:
                 attrs = {
                     key: value
                     for key, value in attrs.items()
-                    if _SERIALIZABLE_ATTR_NAME_RE.fullmatch(key) is not None
+                    if key.startswith("=")
+                    or _SERIALIZABLE_ATTR_NAME_RE.fullmatch(key) is not None
                     or ("\ufffd" in key and _SERIALIZABLE_ATTR_NAME_RE.fullmatch(key) is not None)
                 }
+            if in_foreign_context and name in {"head", "body"}:
+                self._namespace_for_raw_start(name, attrs)
+                if name == "body" and isinstance(self._body, Element):
+                    for attr_name, attr_value in attrs.items():
+                        self._body.attrs.setdefault(attr_name, attr_value)
+                return pos
         tag_end = pos
         allowed = raw_mode or (action is not None and action.allowed)
         in_template_content = bool(self._template_modes)
         if not self._fragment and self._after_document and name != "html" and not self._frameset_seen:
+            if self._find_open_html_index("body") is None:
+                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
             self._after_body = False
             self._after_document = False
             self._after_html = False
@@ -2540,7 +2581,7 @@ class ParseEngine:
                 return pos
             if name not in _HEAD_NOSCRIPT_ALLOWED_START_TAGS and name != "html":
                 self._leave_head_noscript_to_body()
-        if not self._fragment and not in_template_content:
+        if not self._fragment and not in_template_content and not in_foreign_context:
             current_top = self._stack[-1]
             if name == "html":
                 self._in_colgroup = False
@@ -2679,6 +2720,8 @@ class ParseEngine:
             if html_text_parsing and name in {"frame", "frameset"}:
                 if name == "frameset" and self._after_html:
                     return pos
+                if self._find_open_index("frameset") is None:
+                    return pos
                 if allowed:
                     self._insert_sanitized_element(
                         name, attrs, self_closing, self._current_parent(), tag_start=tag_start, tag_end=tag_end
@@ -2689,7 +2732,24 @@ class ParseEngine:
         if html_text_parsing and name in {"frame", "frameset"}:
             return pos
 
-        if html_text_parsing and name == "select" and self._find_open_html_index("select") is not None:
+        open_select_idx = self._find_open_html_index("select") if html_text_parsing else None
+        open_table_idx = self._find_open_index("table") if html_text_parsing else None
+        if (
+            open_select_idx is not None
+            and open_table_idx is not None
+            and open_table_idx > open_select_idx
+            and name in {"input", "select"}
+        ):
+            self._insert_sanitized_element(
+                name,
+                attrs,
+                self_closing,
+                self._current_parent(),
+                tag_start=tag_start,
+                tag_end=tag_end,
+            )
+            return pos
+        if html_text_parsing and name == "select" and open_select_idx is not None:
             self._close_html_until("select")
             return pos
         if html_text_parsing and name == "input" and self._find_open_html_index("select") is not None:
@@ -2837,10 +2897,11 @@ class ParseEngine:
             return pos
 
         if html_text_parsing:
-            if name in {"rb", "rtc"}:
+            ruby_open = self._find_open_index_in_current_scope("ruby") is not None
+            if name in {"rb", "rtc"} and ruby_open:
                 if self._stack and self._stack[-1].name in {"rb", "rp", "rt", "rtc"}:
                     self._generate_implied_end_tags()
-            elif name in {"rp", "rt"}:
+            elif name in {"rp", "rt"} and ruby_open:
                 self._generate_implied_end_tags("rtc")
 
         parent: Node
@@ -3030,12 +3091,11 @@ class ParseEngine:
             node._start_tag_end = tag_end
         if name == "selectedcontent":
             self._has_selectedcontent = True
-        is_void = (
-            name in self._void_elements
-            or name in _HTML_VOID_COMPAT_TAGS
-            or (namespace not in {None, "html"} and self_closing)
+        is_html_namespace = namespace in {None, "html"}
+        is_void = (is_html_namespace and (name in self._void_elements or name in _HTML_VOID_COMPAT_TAGS)) or (
+            not is_html_namespace and self_closing
         )
-        node._self_closing = self_closing and name in self._void_elements
+        node._self_closing = self_closing and is_html_namespace and name in self._void_elements
         foster = (
             self._foster_parent_for(parent, for_tag=name)
             if parent.name in self._table_foster_targets
@@ -3101,12 +3161,11 @@ class ParseEngine:
             node._start_tag_end = tag_end
         if name == "selectedcontent":
             self._has_selectedcontent = True
-        is_void = (
-            name in self._void_elements
-            or name in _HTML_VOID_COMPAT_TAGS
-            or (namespace not in {None, "html"} and self_closing)
+        is_html_namespace = namespace in {None, "html"}
+        is_void = (is_html_namespace and (name in self._void_elements or name in _HTML_VOID_COMPAT_TAGS)) or (
+            not is_html_namespace and self_closing
         )
-        node._self_closing = self_closing and name in self._void_elements
+        node._self_closing = self_closing and is_html_namespace and name in self._void_elements
         foster = (
             self._foster_parent_for(parent, for_tag=name)
             if parent.name in self._table_foster_targets
@@ -3878,6 +3937,13 @@ class ParseEngine:
             return None  # pragma: no cover - unreachable after parser-state guards
         table_idx = self._find_open_index("table")
         if table_idx is None:
+            if self._template_modes and parent.parent is not None:
+                siblings = parent.parent.children
+                if siblings is not None:  # pragma: no branch - parent containers keep child lists while attached
+                    try:
+                        return parent.parent, siblings.index(parent) + 1
+                    except ValueError:  # pragma: no cover - parser nodes remain attached
+                        pass
             return None
         if self._parser_only_template_depth:
             template_idx = self._open_parser_only_template_index()
@@ -4061,6 +4127,7 @@ class ParseEngine:
             and not self._in_head_noscript
             and not self._frameset_seen
             and not self._body_explicit
+            and not self._body_mode_seen
             and not self._body_has_content()
         )
 
@@ -4637,13 +4704,19 @@ class ParseEngine:
                 return {}, False, pos + 1, True
             if ch == "/" and pos + 1 < end and html[pos + 1] == ">":
                 return {}, True, pos + 2, True
+            if ch == "/":
+                pos += 1
+                continue
 
             name_start = pos
             while pos < end and html[pos] not in attr_name_stop:
                 pos += 1
-            if pos == name_start:
-                pos += 1
-                continue
+            if pos == name_start:  # pragma: no branch - stop chars that reach here collapse into one recovery path
+                if html[pos] == "=":  # pragma: no cover - unreachable after earlier delimiter handling
+                    pos += 1  # pragma: no cover - unreachable after earlier delimiter handling
+                    continue  # pragma: no cover - unreachable after earlier delimiter handling
+                pos += 1  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
+                continue  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
             while pos < end and html[pos] in space:
                 pos += 1
             if pos < end and html[pos] == "=":
@@ -4678,14 +4751,20 @@ class ParseEngine:
                 return attrs, False, pos + 1, True
             if ch == "/" and pos + 1 < end and html[pos + 1] == ">":
                 return attrs, True, pos + 2, True
+            if ch == "/":
+                pos += 1
+                continue
 
             name_start = pos
             while pos < end and html[pos] not in attr_name_stop:
                 pos += 1
             if pos == name_start:
                 pos += 1
-                continue
-            raw_key = html[name_start:pos]
+                while pos < end and html[pos] not in attr_name_stop:
+                    pos += 1
+                raw_key = html[name_start:pos]
+            else:
+                raw_key = html[name_start:pos]
             key = raw_key if raw_key.islower() else raw_key.lower()
             if "\0" in key:
                 key = key.replace("\0", "\ufffd")
@@ -4713,6 +4792,8 @@ class ParseEngine:
                         pos += 1
                     value = html[value_start:pos]
 
+            if self._has_carriage_return and "\r" in value:
+                value = value.replace("\r\n", "\n").replace("\r", "\n")
             if "&" in value:
                 value = decode_entities_in_text(value, in_attribute=True)
             if "\0" in value:
@@ -4865,13 +4946,19 @@ class ParseEngine:
                 return attrs, False, pos + 1, True
             if ch == "/" and pos + 1 < end and html[pos + 1] == ">":
                 return attrs, True, pos + 2, True
+            if ch == "/":
+                pos += 1
+                continue
 
             name_start = pos
             while pos < end and html[pos] not in attr_name_stop:
                 pos += 1
             if pos == name_start:
-                pos += 1
-                continue
+                if html[pos] == "=":  # pragma: no cover - unreachable after earlier delimiter handling
+                    pos += 1  # pragma: no cover - unreachable after earlier delimiter handling
+                    continue  # pragma: no cover - unreachable after earlier delimiter handling
+                pos += 1  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
+                continue  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
             raw_key = html[name_start:pos]
             key = raw_key if raw_key.islower() else raw_key.lower()
             if "\0" in key:
@@ -5133,6 +5220,8 @@ class ParseEngine:
     def _accept_fragment_frameset(self) -> bool:
         if not self._fragment or self._fragment_context_name != "html" or self._frameset_seen:
             return False
+        if self._body.children and any(type(child) is not Text for child in self._body.children):
+            return False
         if not self._body_allows_frameset(self._body):
             return False
         children = self._body.children
@@ -5156,19 +5245,24 @@ class ParseEngine:
                 if (child.data or "").strip(_SPACE):
                     return False
                 continue
-            if getattr(child, "namespace", None) not in {None, "html"}:
+            namespace = getattr(child, "namespace", None)
+            if namespace == _PARSER_ONLY_NAMESPACE:
+                return False
+            if namespace not in {None, "html"}:
                 if self._foreign_subtree_allows_frameset(child):
                     continue
                 return False
-            name = getattr(child, "name", None)
-            if name == "input":
+            if child.name == "input":
                 attrs = getattr(child, "attrs", None)
                 input_type = attrs.get("type") if attrs is not None else None
                 if (
                     isinstance(input_type, str) and input_type.lower() == "hidden"
                 ):  # pragma: no branch - opposite edge requires invalid parser state
                     continue
-            if name not in self._frameset_body_ok_tags or not self._body_allows_frameset(child):
+                return False
+            if child.name not in self._frameset_body_ok_tags:
+                return False
+            if not self._body_allows_frameset(child):
                 return False
         return True
 
@@ -5194,6 +5288,8 @@ class ParseEngine:
             )  # pragma: no cover - unreachable after parser-state guards
         if self._html is None:  # pragma: no branch - opposite edge requires invalid parser state
             return  # pragma: no cover - unreachable after parser-state guards
+        if "&" in raw:
+            raw = decode_entities_in_text(raw)
         text = "".join(ch for ch in raw if ch in _SPACE)
         if self._xml_coercion and text:
             text = _coerce_text_for_xml(text)
