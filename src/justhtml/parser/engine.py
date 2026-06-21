@@ -53,8 +53,8 @@ if TYPE_CHECKING:
     from justhtml.sanitizer.url.spec import UrlSinkKind
 
 _TAG_NAME_RE = re.compile(r"[A-Za-z][^\t\n\f\r />]*")
-_SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_-]*$")
-_SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[A-Za-z_:][A-Za-z0-9:._-]*$")
+_SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_\ufffd-]*$")
+_SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[A-Za-z0-9_:\ufffd][A-Za-z0-9:._\ufffd-]*$")
 _DOCTYPE_RE = re.compile(
     r"""\s*([^\s>]+)(?:\s*(PUBLIC|SYSTEM)\s*(?:(?:"([^"]*)"|'([^']*)')\s*(?:"([^"]*)"|'([^']*)')?)?)?""",
     re.IGNORECASE,
@@ -1098,6 +1098,10 @@ class ParseEngine:
         children.append(node)
 
     def _append_comment(self, data: str, source_pos: int | None = None) -> None:
+        if self._has_carriage_return and "\r" in data:
+            data = data.replace("\r\n", "\n").replace("\r", "\n")
+        if self._has_null and "\0" in data:
+            data = data.replace("\0", "\ufffd")
         if self._xml_coercion:
             data = _coerce_comment_for_xml(data)
         if self._after_document and source_pos is not None:
@@ -1132,7 +1136,7 @@ class ParseEngine:
             children = self._doc.children
             if children is not None:
                 insert_at = 0
-                while insert_at < len(children) and children[insert_at].name == "!doctype":
+                while insert_at < len(children) and children[insert_at].name != "html":
                     insert_at += 1
                 children.insert(insert_at, node)
                 node.parent = self._doc
@@ -1344,7 +1348,7 @@ class ParseEngine:
                             append_text(html[lt:end], lt)
                         elif not self._drop_comments:
                             data = html[pos + 3 : end]
-                            data = data.removesuffix("--")
+                            data = data.removesuffix("-").removesuffix("-")
                             self._append_comment(data, lt)
                         pos = end
                     else:
@@ -1433,7 +1437,11 @@ class ParseEngine:
                 pos = end if gt == -1 else gt + 1
                 continue
             if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
-                append_text("<", lt)
+                if ch == "\0":
+                    append_text("<\ufffd", lt)
+                    pos += 1
+                else:
+                    append_text("<", lt)
                 continue
             if self._ignore_lf and self._find_tag_end(pos + 1, end) != -1:
                 # A complete start tag is the next token, so a pending
@@ -1520,13 +1528,20 @@ class ParseEngine:
             foster_table_whitespace = True  # pragma: no cover - unreachable after parser-state guards
             self._foster_next_table_whitespace = False  # pragma: no cover - unreachable after parser-state guards
         if not self._initial_mode_done:
-            raw_is_space = raw.replace("\0", "").strip(_SPACE) == ""
-            if not raw_is_space:
-                self._mark_initial_content()
+            initial_end = 0
+            while initial_end < len(raw) and raw[initial_end] in _SPACE + "\0":
+                initial_end += 1
+            if initial_end:
+                raw = raw[initial_end:]
+                if source_pos is not None:  # pragma: no branch - parser text always has a source offset
+                    source_pos += initial_end
+            if not raw:
+                return
+            self._mark_initial_content()
         if self._frameset_seen:
             if self._fragment:
                 return
-            if not self._body_explicit:
+            if not self._body_explicit:  # pragma: no branch - framesets cannot follow an explicit body
                 self._append_frameset_text(raw)
                 return
         if self._fragment_context_name == "colgroup":
@@ -1592,7 +1607,7 @@ class ParseEngine:
             and not self._body_mode_seen
             and not self._body_has_content()
         ):
-            if raw_is_space is None:
+            if raw_is_space is None:  # pragma: no branch - shell text reaches this block without prior classification
                 raw_is_space = raw.strip(_SPACE) == ""
             if raw_is_space:
                 return
@@ -1704,6 +1719,10 @@ class ParseEngine:
             and not self._body_has_content()
         ):
             raw = html[pos:doctype_end]
+            if self._has_carriage_return and "\r" in raw:
+                raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+            if self._has_null and "\0" in raw:
+                raw = raw.replace("\0", "\ufffd")
             match = _DOCTYPE_RE.match(raw)
             if match:
                 name = match.group(1).lower()
@@ -1747,7 +1766,10 @@ class ParseEngine:
         if children is None:  # pragma: no branch - opposite edge requires invalid parser state
             return  # pragma: no cover - unreachable after parser-state guards
         node = Node("!doctype", data=doctype)
-        children.insert(0, node)
+        insert_at = 0
+        while insert_at < len(children) and children[insert_at].name != "html":
+            insert_at += 1
+        children.insert(insert_at, node)
         node.parent = self._doc
         self._doctype_seen = True
         self._initial_mode_done = True
@@ -1800,6 +1822,12 @@ class ParseEngine:
             return pos
         if name == "colgroup" and not self._parser_only_template_depth:
             self._in_colgroup = False
+            if (
+                len(self._stack) > 1
+                and self._stack[-1].name == "colgroup"
+                and self._stack[-1] is not self._fragment_context_node
+            ):  # pragma: no branch - compiled sanitizer never retains colgroup nodes
+                self._stack.pop()  # pragma: no cover - defensive parser-state cleanup
             return pos
         if name == "table":
             self._in_colgroup = False
@@ -1810,6 +1838,7 @@ class ParseEngine:
             self._close_table_cell()
         if name == "template":
             self._close_parser_only_template()
+            self._finish_head_reentry()
             return pos
         if self._parser_only_template_depth and self._handle_template_mode_end(name):
             return pos
@@ -1992,6 +2021,12 @@ class ParseEngine:
             return pos
         if name == "colgroup" and not self._parser_only_template_depth:
             self._in_colgroup = False
+            if (
+                len(self._stack) > 1
+                and self._stack[-1].name == "colgroup"
+                and self._stack[-1] is not self._fragment_context_node
+            ):
+                self._stack.pop()
             return pos
         if name == "table":
             self._in_colgroup = False
@@ -2002,6 +2037,7 @@ class ParseEngine:
             self._close_table_cell()
         if name == "template":
             self._close_open_template(tag_start, tag_end)
+            self._finish_head_reentry()
             return pos
         if name == "form" and not self._template_modes:
             form_node = self._form_element
@@ -2181,6 +2217,10 @@ class ParseEngine:
         in_parser_only_template = self._parser_only_template_depth > 0
         if not in_parser_only_template:
             if name == "colgroup":
+                if (
+                    len(self._stack) > 1 and self._stack[-1].name == "colgroup"
+                ):  # pragma: no branch - compiled sanitizer never retains colgroup nodes
+                    self._stack.pop()  # pragma: no cover - defensive parser-state cleanup
                 self._in_colgroup = True
             elif self._in_colgroup and name not in {"col", "template"}:
                 self._in_colgroup = False
@@ -2198,7 +2238,8 @@ class ParseEngine:
                     self._after_html = True
                 self._explicit_html = True
                 if self._html is not None:  # pragma: no branch - opposite edge requires invalid parser state
-                    self._html.attrs.update(attrs)
+                    for attr_name, attr_value in attrs.items():
+                        self._html.attrs.setdefault(attr_name, attr_value)
                 return pos
             if name == "head":
                 self._in_colgroup = False
@@ -2209,8 +2250,13 @@ class ParseEngine:
                 return pos
             if name == "body":
                 self._in_colgroup = False
+                if self._frameset_seen:
+                    return pos
                 if isinstance(self._body, Element):  # pragma: no branch - opposite edge requires invalid parser state
-                    self._body.attrs.update(attrs)
+                    for attr_name, attr_value in attrs.items():
+                        self._body.attrs.setdefault(attr_name, attr_value)
+                if self._body_explicit:
+                    return pos
                 self._body_explicit = True
                 self._body_mode_seen = True
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
@@ -2363,7 +2409,8 @@ class ParseEngine:
             table_idx = self._find_open_index("table")
             td_idx = self._find_open_index_before_boundary("td", _TABLE_CONTEXT_BOUNDARIES)
             th_idx = self._find_open_index_before_boundary("th", _TABLE_CONTEXT_BOUNDARIES)
-            if table_idx is not None and td_idx is None and th_idx is None:
+            caption_idx = self._find_open_index_before_boundary("caption", _TABLE_CONTEXT_BOUNDARIES)
+            if table_idx is not None and td_idx is None and th_idx is None and caption_idx is None:
                 self._mark_active_formatting_dirty()
                 del self._stack[table_idx:]
                 parent = self._current_parent()
@@ -2429,17 +2476,18 @@ class ParseEngine:
         while pos < end and html[pos] not in _TAG_NAME_STOP:
             pos += 1
         raw_name = html[name_start:pos]
+        if self._has_null and "\0" in raw_name:
+            raw_name = raw_name.replace("\0", "\ufffd")
         name_end = pos
         name = raw_name if raw_name.islower() else raw_name.lower()
-        if name == "image":
-            name = "img"
         if not self._initial_mode_done:
             self._mark_initial_content()
 
+        in_foreign_context = self._stack[-1].namespace not in {None, "html", _PARSER_ONLY_NAMESPACE}
+        if name == "image" and not in_foreign_context:
+            name = "img"
         action = self._tag_actions.get(name)
-        foreign_state_parse = not raw_mode and (
-            name in {"math", "svg"} or self._stack[-1].namespace not in {None, "html", _PARSER_ONLY_NAMESPACE}
-        )
+        foreign_state_parse = not raw_mode and (name in {"math", "svg"} or in_foreign_context)
         if raw_mode or foreign_state_parse:
             attrs, self_closing, pos, tag_closed = self._parse_all_attrs(pos, end)
         else:
@@ -2458,11 +2506,7 @@ class ParseEngine:
                     key: value
                     for key, value in attrs.items()
                     if _SERIALIZABLE_ATTR_NAME_RE.fullmatch(key) is not None
-                    or (
-                        "\ufffd" in key
-                        and not key.startswith("\ufffd")
-                        and _SERIALIZABLE_ATTR_NAME_RE.fullmatch(key.replace("\ufffd", "")) is not None
-                    )
+                    or ("\ufffd" in key and _SERIALIZABLE_ATTR_NAME_RE.fullmatch(key) is not None)
                 }
         tag_end = pos
         allowed = raw_mode or (action is not None and action.allowed)
@@ -2481,7 +2525,7 @@ class ParseEngine:
             return pos
         if not in_template_content:
             if name == "colgroup":
-                if self._in_colgroup and len(self._stack) > 1 and self._stack[-1].name == "colgroup":
+                if len(self._stack) > 1 and self._stack[-1].name == "colgroup":
                     self._stack.pop()
                 self._in_colgroup = True
             elif self._in_colgroup and name not in {"col", "template"}:
@@ -2520,11 +2564,15 @@ class ParseEngine:
                 return pos
             if name == "body":
                 self._in_colgroup = False
+                if self._frameset_seen:
+                    return pos
                 if isinstance(self._body, Element):  # pragma: no branch - opposite edge requires invalid parser state
                     for attr_name, attr_value in attrs.items():
                         self._body.attrs.setdefault(attr_name, attr_value)
                     self._set_origin(self._body, tag_start)
                     self._set_source_span(self._body, tag_start, tag_end)
+                if self._body_explicit:
+                    return pos
                 self._body_explicit = True
                 self._body_mode_seen = True
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
@@ -2809,7 +2857,8 @@ class ParseEngine:
             table_idx = self._find_open_index("table")
             td_idx = self._find_open_index_before_boundary("td", _TABLE_CONTEXT_BOUNDARIES)
             th_idx = self._find_open_index_before_boundary("th", _TABLE_CONTEXT_BOUNDARIES)
-            if table_idx is not None and td_idx is None and th_idx is None:
+            caption_idx = self._find_open_index_before_boundary("caption", _TABLE_CONTEXT_BOUNDARIES)
+            if table_idx is not None and td_idx is None and th_idx is None and caption_idx is None:
                 self._mark_active_formatting_dirty()
                 del self._stack[table_idx:]
                 parent = self._current_parent()
@@ -3291,6 +3340,8 @@ class ParseEngine:
     def _finish_head_reentry(self) -> None:
         if not self._head_reentry or self._html is None:
             return
+        if self._open_template_index() is not None:  # pragma: no branch - reentry finishes after templates close
+            return  # pragma: no cover - guarded by template close ordering
         self._head_reentry = False
         self._stack = [self._doc, self._html]
         self._after_head = True
@@ -3917,6 +3968,7 @@ class ParseEngine:
         if (
             name == "title"
             and not self._fragment
+            and not self._template_modes
             and self._head is not None
             and (
                 current_parent is self._head
@@ -5001,7 +5053,9 @@ class ParseEngine:
         ):  # pragma: no branch - opposite edge requires invalid parser state
             return  # pragma: no cover - unreachable after parser-state guards
         if self._frameset_seen:  # pragma: no branch - opposite edge requires invalid parser state
-            if self._node_is_empty(body) and not self._body_explicit:
+            if (
+                self._node_is_empty(body) and not self._body_explicit
+            ):  # pragma: no branch - guaranteed by frameset mode
                 self._remove_child(html, body)
             return
         if (
@@ -5028,7 +5082,9 @@ class ParseEngine:
         children = node.children
         if not children:
             return True
-        return all(type(child) is Text and not child.data for child in children)
+        return all(  # pragma: no cover - parser-created empty shell nodes have no children
+            type(child) is Text and not child.data for child in children
+        )
 
     def _script_eof_keeps_shell(self, pos: int, end: int) -> bool:
         raw = self._lower_input[pos:end].rstrip(_SPACE)

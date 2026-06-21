@@ -7,6 +7,139 @@ from justhtml.sanitizer import UrlPolicy
 
 
 class TestParserTreeConstruction(unittest.TestCase):
+    def test_chromium_null_and_line_end_preprocessing_in_markup_states(self) -> None:
+        cases = {
+            "<!--a\0b-->": "<!--a�b--><html><head></head><body></body></html>",
+            "<!--a-": "<!--a--><html><head></head><body></body></html>",
+            "<!x\r\ny>": "<!--x\ny--><html><head></head><body></body></html>",
+            "<\0div>": "<html><head></head><body>&lt;�div&gt;</body></html>",
+            "\0\fA": "<html><head></head><body>A</body></html>",
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                assert JustHTML(html, sanitize=False).to_html(pretty=False) == expected
+
+        document = JustHTML("<!DOCTYPE\0html>", sanitize=False)
+        doctype = document.root.children[0]
+        assert doctype.name == "!doctype"
+        assert doctype.data.name == "�html"
+
+    def test_chromium_preserves_preamble_order_and_replacement_attribute_names(self) -> None:
+        document = JustHTML("<! first><?second", sanitize=False)
+        assert [(node.name, node.data) for node in document.root.children[:2]] == [
+            ("#comment", " first"),
+            ("#comment", "?second"),
+        ]
+
+        document = JustHTML("<!--first--><!DOCTYPE\r\nhtml>", sanitize=False)
+        assert [node.name for node in document.root.children[:3]] == ["#comment", "!doctype", "html"]
+        assert document.root.children[1].data.name == "html"
+
+        document = JustHTML("<div \0name=value>", sanitize=False)
+        div = document.query("div")[0]
+        assert div.attrs == {"�name": "value"}
+        assert document.to_html(pretty=False) == ('<html><head></head><body><div �name="value"></div></body></html>')
+
+        document = JustHTML("<source\0 x=y>", sanitize=False)
+        source = document.query("source�")[0]
+        assert source.attrs == {"x": "y"}
+        assert document.to_html(pretty=False) == ('<html><head></head><body><source� x="y"></source�></body></html>')
+
+        document = JustHTML("<html 1name='\0'>", sanitize=False)
+        assert document.root.children[-1].attrs == {"1name": "�"}
+
+    def test_chromium_foreign_template_table_and_frameset_regressions(self) -> None:
+        cases = {
+            "<svg><image href='x'></svg>": (
+                '<html><head></head><body><svg><image href="x"></image></svg></body></html>'
+            ),
+            "<table><colgroup></colgroup><colgroup></colgroup></table>": (
+                "<html><head></head><body><table><colgroup></colgroup><colgroup></colgroup></table></body></html>"
+            ),
+            "<template><title>x</title><base><link></template>": (
+                "<html><head><template><title>x</title><base><link></template></head><body></body></html>"
+            ),
+            "<frameset><body>x</body></frameset>": ("<html><head></head><frameset></frameset></html>"),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                document = JustHTML(html, sanitize=False)
+                assert document.to_html(pretty=False) == expected
+
+    def test_chromium_duplicate_body_and_nested_caption_table_regressions(self) -> None:
+        document = JustHTML("<body id='a'><div><body id='b'>x</div>", sanitize=False)
+        assert document.to_html(pretty=False) == ('<html><head></head><body id="a"><div>x</div></body></html>')
+
+        document = JustHTML(
+            "<table><caption>x<table><tr><td>nested</td></tr></table></caption></table>",
+            sanitize=False,
+        )
+        assert document.to_html(pretty=False) == (
+            "<html><head></head><body><table><caption>x"
+            "<table><tbody><tr><td>nested</td></tr></tbody></table>"
+            "</caption></table></body></html>"
+        )
+
+    def test_compiled_safe_path_merges_duplicate_shell_attributes_and_colgroups(self) -> None:
+        document = JustHTML("<html id='first'><html id='second'>")
+        assert document.query("html")[0].attrs == {"id": "first"}
+
+        document = JustHTML("<body id='first'><div><body id='second'>x</div>")
+        assert document.query("body")[0].attrs == {"id": "first"}
+        assert document.query("div")[0].to_text() == "x"
+
+        policy = SanitizationPolicy(
+            allowed_tags={"html", "head", "body", "table", "colgroup"},
+            allowed_attributes={"*": set()},
+        )
+        document = JustHTML(
+            "<table><colgroup></colgroup><colgroup></colgroup></table>",
+            sanitize=policy,
+        )
+        assert document.to_html(pretty=False) == "<html><head></head><body><table></table></body></html>"
+
+    def test_deep_adoption_agency_keeps_the_standard_three_node_limit(self) -> None:
+        cases = [
+            "<b><em><foo><foob><fooc><aside></b></em>",
+            "<b><em><foo><foo><foo><aside></b></em>",
+            "<b><em><foo><foo><foo><foo><foo><aside></b></em>",
+        ]
+
+        for html in cases:
+            with self.subTest(html=html):
+                document = JustHTML(html, fragment=True, sanitize=False)
+                aside = document.query("aside")[0]
+                assert aside.to_html(pretty=False) == "<aside><b></b></aside>"
+
+    def test_head_noscript_comment_follows_the_standard_despite_chromium(self) -> None:
+        document = JustHTML(
+            '<head><noscript><head class="foo"><!--foo--></noscript>',
+            sanitize=False,
+            scripting_enabled=False,
+        )
+
+        assert (
+            document.to_html(pretty=False) == "<html><head><noscript><!--foo--></noscript></head><body></body></html>"
+        )
+
+    def test_command_remains_an_ordinary_element_despite_chromium(self) -> None:
+        document = JustHTML("<!DOCTYPE html><body><command>A", sanitize=False)
+
+        assert document.to_html(pretty=False) == (
+            "<!DOCTYPE html><html><head></head><body><command>A</command></body></html>"
+        )
+
+    def test_select_fragment_ignores_input_per_standard_despite_chromium(self) -> None:
+        document = JustHTML(
+            "<input><option>",
+            fragment_context=FragmentContext("select"),
+            sanitize=False,
+        )
+
+        assert document.to_html(pretty=False) == "<option></option>"
+
     def test_parser_options_copy_is_independent(self) -> None:
         options = ParserOptions(
             discard_bom=False,

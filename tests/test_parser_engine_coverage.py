@@ -51,8 +51,9 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             ),
             (
                 "<table><caption>x<table><tr><td>y</table>z",
-                "<html><head></head><body><table><caption>x</caption></table>"
-                "<table><tbody><tr><td>y</td></tr></tbody></table>z</body></html>",
+                "<html><head></head><body><table><caption>x"
+                "<table><tbody><tr><td>y</td></tr></tbody></table>z"
+                "</caption></table></body></html>",
             ),
             (
                 "<table><form><input type=hidden><tr><td>x</form></table>",
@@ -574,7 +575,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             ("<dd><dd>x</dd></dd>", "<html><head></head><body>x</body></html>"),
             ("<head><svg>x</head></svg>", "<html><head></head><body></body></html>"),
             ("<nobr><p>x</nobr></p>", "<html><head></head><body><p>x</p></body></html>"),
-            ("<frameset><body>x</frameset></body>", "<html><head></head><body>x</body></html>"),
+            ("<frameset><body>x</frameset></body>", "<html><head></head></html>"),
         ]
         for html, expected in default_cases:
             with self.subTest(html=html):
