@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from bisect import bisect_right
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING
 
 from justhtml.core.constants import (
@@ -52,14 +53,16 @@ if TYPE_CHECKING:
     from justhtml.sanitizer.url import UrlPolicy, UrlRule
     from justhtml.sanitizer.url.spec import UrlSinkKind
 
-_TAG_NAME_RE = re.compile(r"[A-Za-z][^\t\n\f />]*")
+_TAG_NAME_RE = re.compile(r"[A-Za-z][^\t\n\f\r />]*")
+_SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_-]*$")
+_SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[A-Za-z_:][A-Za-z0-9:._-]*$")
 _DOCTYPE_RE = re.compile(
     r"""\s*([^\s>]+)(?:\s*(PUBLIC|SYSTEM)\s*(?:(?:"([^"]*)"|'([^']*)')\s*(?:"([^"]*)"|'([^']*)')?)?)?""",
     re.IGNORECASE,
 )
 _SPACE = _scanner.SPACE
-_TAG_NAME_STOP = _scanner.TAG_NAME_STOP
-_ATTR_NAME_STOP = _scanner.ATTR_NAME_STOP
+_TAG_NAME_STOP = _scanner.TAG_NAME_STOP + "\r"
+_ATTR_NAME_STOP = _scanner.ATTR_NAME_STOP + "\r"
 _ATTR_VALUE_STOP = _scanner.ATTR_VALUE_STOP
 _XML_INVALID_SINGLE_CHARS = []
 for _plane in range(17):
@@ -175,6 +178,29 @@ _FRAMESET_BLOCKING_START_TAGS = {
 _UNWRAP_CONSTRUCTION_SKIP_TAGS = {"col", "colgroup", "form", "menuitem"}
 _FOREIGN_FULL_PARSE_TAGS = FOREIGN_BREAKOUT_ELEMENTS | {"annotation-xml", "desc", "font", "foreignobject", "title"}
 _URL_FAST_FALLBACK = object()
+_EOF_IMPLICITLY_CLOSABLE = frozenset(
+    {
+        "body",
+        "dd",
+        "dt",
+        "head",
+        "html",
+        "li",
+        "optgroup",
+        "option",
+        "p",
+        "rb",
+        "rp",
+        "rt",
+        "rtc",
+        "tbody",
+        "td",
+        "tfoot",
+        "th",
+        "thead",
+        "tr",
+    }
+)
 
 
 def _xml_coercion_callback(match: re.Match[str]) -> str:
@@ -586,6 +612,7 @@ class ParseEngine:
         "_drop_doctype",
         "_drop_subtree_tags",
         "_dropped_to_eof",
+        "_emit_bogus_markup_as_text",
         "_errors",
         "_explicit_head",
         "_explicit_html",
@@ -661,6 +688,7 @@ class ParseEngine:
         iframe_srcdoc: bool = False,
         track_node_locations: bool = False,
         track_tag_spans: bool = False,
+        emit_bogus_markup_as_text: bool = False,
         xml_coercion: bool = False,
     ) -> None:
         self._html_input = html
@@ -672,6 +700,7 @@ class ParseEngine:
         self._iframe_srcdoc = bool(iframe_srcdoc)
         self._track_node_locations = bool(track_node_locations)
         self._track_tag_spans = bool(track_tag_spans)
+        self._emit_bogus_markup_as_text = bool(emit_bogus_markup_as_text)
         self._xml_coercion = bool(xml_coercion)
         self._line_starts: list[int] | None = None
         self._fragment_context_namespace = (
@@ -859,7 +888,7 @@ class ParseEngine:
         end_column = None
         if end_pos is not None:
             end_line, end_col = self._source_location(end_pos)
-            if end_line == line:
+            if end_line == line:  # pragma: no branch - compatibility diagnostics normalize multiline tag spans
                 end_column = end_col + 1
         self._errors.append(
             ParseError(
@@ -882,17 +911,108 @@ class ParseEngine:
             self._emit_error("unexpected-null-character", pos)
             pos = html.find("\0", pos + 1, end)
 
+    def _emit_start_tag_solidus_errors(self, pos: int, tag_end: int) -> None:
+        html = self._html_input
+        if pos >= tag_end or html[pos] != "/":
+            return
+        quote: str | None = None
+        while pos < tag_end:
+            ch = html[pos]
+            if quote is not None:
+                if ch == quote:
+                    quote = None
+            elif ch in "\"'":
+                quote = ch
+            elif ch == "/" and pos + 1 < tag_end:
+                self._emit_error("unexpected-character-after-solidus-in-tag", pos + 1)
+            pos += 1
+
+    def _emit_attribute_entity_errors(self, pos: int, tag_end: int) -> None:
+        html = self._html_input
+        while pos < tag_end:
+            while pos < tag_end and html[pos] in _SPACE:
+                pos += 1
+            if pos >= tag_end or html[pos] == "/":
+                break
+            while pos < tag_end and html[pos] not in _ATTR_NAME_STOP:
+                pos += 1
+            while pos < tag_end and html[pos] in _SPACE:
+                pos += 1
+            if pos >= tag_end or html[pos] != "=":
+                if pos < tag_end:
+                    pos += 1
+                continue
+            pos += 1
+            while pos < tag_end and html[pos] in _SPACE:
+                pos += 1
+            if pos >= tag_end:
+                break
+            if html[pos] in "\"'":
+                quote = html[pos]
+                value_start = pos + 1
+                value_end = html.find(quote, value_start, tag_end)
+                if value_end == -1:  # pragma: no cover - tag-end scanning rejects unclosed quoted attributes
+                    value_end = tag_end
+                    pos = tag_end
+                else:
+                    pos = value_end + 1
+            else:
+                value_start = pos
+                while pos < tag_end and html[pos] not in _ATTR_VALUE_STOP:
+                    pos += 1
+                value_end = pos
+            value = html[value_start:value_end]
+            if "&" in value:
+                decode_entities_in_text(
+                    value,
+                    in_attribute=True,
+                    report_error=lambda code: self._emit_error(code, tag_end),
+                )
+
     def _collect_basic_errors(self) -> None:
         html = self._html_input
         lower = self._lower_input
         end = self._length
         self._emit_null_errors(0, end)
+        if (
+            self._fragment
+            and self._fragment_context_namespace in {None, "html"}
+            and self._fragment_context_name in (self._rcdata_tags | self._rawtext_element_tags | self._plaintext_tags)
+        ):
+            return
 
+        initial_doctype = False
         if not self._fragment:
             first = 0
-            while first < end and html[first] in _SPACE:
-                first += 1
-            if first < end and not lower.startswith("<!doctype", first):
+            while True:
+                while first < end and html[first] in _SPACE:
+                    first += 1
+                if html.startswith("<!--", first):
+                    comment_end = self._find_comment_end(first + 4, end)
+                    if comment_end == -1:
+                        break
+                    first = comment_end + 3
+                    continue
+                break
+            if first >= end:
+                if end:
+                    self._emit_error("expected-doctype-but-got-eof", end - 1, category="treebuilder")
+                else:
+                    self._errors.append(
+                        ParseError(
+                            "expected-doctype-but-got-eof",
+                            line=1,
+                            column=0,
+                            category="treebuilder",
+                            message=generate_error_message("expected-doctype-but-got-eof"),
+                            source_html=html,
+                        )
+                    )
+            elif lower.startswith("<!doctype", first):
+                initial_doctype = True
+            elif html.startswith("<?", first):
+                pass
+            else:
                 if html[first] == "<" and first + 1 < end and html[first + 1].isalpha():
                     tag_end = self._find_tag_end(first + 2, end)
                     self._emit_error(
@@ -902,20 +1022,191 @@ class ParseEngine:
                         category="treebuilder",
                         end_pos=tag_end if tag_end != -1 else None,
                     )
+                elif html.startswith("</", first) and first + 2 < end and html[first + 2].isalpha():
+                    tag_end = self._find_tag_end(first + 3, end)
+                    self._emit_error(
+                        "expected-doctype-but-got-end-tag",
+                        tag_end if tag_end != -1 else end - 1,
+                        tag_name=self._read_tag_name(first + 2, end),
+                        category="treebuilder",
+                        end_pos=tag_end if tag_end != -1 else None,
+                    )
                 else:
-                    self._emit_error("expected-doctype-but-got-chars", first, category="treebuilder")
+                    next_markup = html.find("<", first + 1, end)
+                    chars_end = end - 1 if next_markup == -1 else next_markup - 1
+                    self._emit_error(
+                        "expected-doctype-but-got-chars",
+                        max(first, chars_end),
+                        category="treebuilder",
+                    )
 
         open_tags: list[str] = []
+        doctype_count = 0 if initial_doctype else 1
+        html_seen = False
+        head_seen = False
+        body_seen = False
+        frameset_seen = False
+        frameset_blocked = False
+        after_body = False
+        after_html = False
+        after_frameset = False
+        body_end_seen = False
+        template_table_mode = False
         pos = 0
         while pos < end:
+            data_start = pos
             lt = html.find("<", pos, end)
             if lt == -1:
-                return
+                data = html[data_start:end]
+                if "&" in data:
+                    decode_entities_in_text(
+                        data,
+                        report_error=lambda code: self._emit_error(code, max(0, end - 1)),
+                    )
+                if data.strip(_SPACE):
+                    if not frameset_seen:
+                        frameset_blocked = True
+                    data_pos = end - 1
+                    if after_html and frameset_seen:
+                        self._emit_error(
+                            "unexpected-token-after-after-frameset",
+                            data_pos,
+                            category="treebuilder",
+                        )
+                    elif after_html or after_body:
+                        self._emit_error("unexpected-char-after-body", data_pos, category="treebuilder")
+                    elif after_frameset:
+                        self._emit_error("unexpected-token-after-frameset", data_pos, category="treebuilder")
+                    elif self._fragment and self._fragment_context_name == "colgroup":
+                        self._emit_error(
+                            "unexpected-characters-in-column-group",
+                            data_pos,
+                            category="treebuilder",
+                        )
+                break
+            data = html[data_start:lt]
+            if "&" in data:
+                decode_entities_in_text(
+                    data,
+                    report_error=partial(self._emit_error, pos=lt),
+                )
+            if data.strip(_SPACE):
+                if not frameset_seen:
+                    frameset_blocked = True
+                next_end = self._find_tag_end(lt + 1, end)
+                error_pos = next_end if next_end != -1 else lt - 1
+                if after_html and frameset_seen:
+                    self._emit_error(
+                        "unexpected-token-after-after-frameset",
+                        max(data_start, lt - 1),
+                        category="treebuilder",
+                    )
+                elif after_html or after_body:
+                    self._emit_error(
+                        "unexpected-char-after-body",
+                        max(data_start, lt - 1),
+                        category="treebuilder",
+                    )
+                elif after_frameset:
+                    self._emit_error(
+                        "unexpected-token-after-frameset",
+                        max(data_start, lt - 1),
+                        category="treebuilder",
+                    )
+                elif self._fragment and self._fragment_context_name == "colgroup":
+                    self._emit_error(
+                        "unexpected-characters-in-column-group",
+                        max(data_start, lt - 1),
+                        category="treebuilder",
+                    )
+                elif (open_tags and open_tags[-1] in self._table_foster_targets) or template_table_mode:
+                    self._emit_error(
+                        "foster-parenting-character",
+                        error_pos,
+                        category="treebuilder",
+                    )
             pos = lt + 1
             if pos >= end:
-                return
+                break
             ch = html[pos]
+            if ch == "?":
+                self._emit_error("unexpected-question-mark-instead-of-tag-name", pos)
+                tag_end = self._find_tag_end(pos + 1, end)
+                next_pos = end if tag_end == -1 else tag_end + 1
+                first_after = next_pos
+                while first_after < end and html[first_after] in _SPACE:
+                    first_after += 1
+                if first_after >= end:
+                    self._emit_error(
+                        "expected-doctype-but-got-eof",
+                        max(0, end - 1),
+                        category="treebuilder",
+                    )
+                elif html[first_after] == "<" and first_after + 1 < end and html[first_after + 1].isalpha():
+                    next_end = self._find_tag_end(first_after + 2, end)
+                    self._emit_error(
+                        "expected-doctype-but-got-start-tag",
+                        next_end if next_end != -1 else end - 1,
+                        tag_name=self._read_tag_name(first_after + 1, end),
+                        category="treebuilder",
+                        end_pos=next_end if next_end != -1 else None,
+                    )
+                else:
+                    self._emit_error(
+                        "expected-doctype-but-got-chars",
+                        end - 1,
+                        category="treebuilder",
+                    )
+                return
             if ch == "!":
+                if html.startswith("<![CDATA[", lt) and not any(tag in {"math", "svg"} for tag in open_tags):
+                    cdata_end = html.find("]]>", pos + 8, end)
+                    self._emit_error(
+                        "cdata-in-html-content",
+                        cdata_end + 2 if cdata_end != -1 else end - 1,
+                    )
+                    pos = end if cdata_end == -1 else cdata_end + 3
+                    continue
+                if lower.startswith("<!doctype", lt):
+                    tag_end = self._find_tag_end(pos + 8, end)
+                    if tag_end == -1:
+                        self._emit_error("eof-in-doctype", end - 1)
+                        return
+                    doctype_count += 1
+                    if doctype_count > 1:
+                        self._emit_error("unexpected-doctype", tag_end, category="treebuilder", end_pos=tag_end)
+                    after_keyword = pos + 8
+                    if after_keyword < end and html[after_keyword] not in _SPACE + ">":
+                        self._emit_error("missing-whitespace-before-doctype-name", after_keyword)
+                    raw_doctype = html[after_keyword:tag_end]
+                    name_match = re.match(r"\s*[^\s>]+", raw_doctype)
+                    if name_match is not None:
+                        remainder_start = name_match.end()
+                        while remainder_start < len(raw_doctype) and raw_doctype[remainder_start] in _SPACE:
+                            remainder_start += 1
+                        remainder = raw_doctype[remainder_start:]
+                        if remainder and not re.match(r"(?:PUBLIC|SYSTEM)(?:\s|[\"'])", remainder, re.IGNORECASE):
+                            self._emit_error(
+                                "missing-whitespace-after-doctype-name",
+                                after_keyword + remainder_start,
+                            )
+                    public_match = re.search(r"\bPUBLIC(?P<quote>[\"'])", raw_doctype, re.IGNORECASE)
+                    if public_match is not None:
+                        quote_pos = after_keyword + public_match.start("quote")
+                        self._emit_error("missing-whitespace-before-doctype-public-identifier", quote_pos)
+                    public_ids = re.search(
+                        r"\bPUBLIC\s*[\"'][^\"']*[\"'](?P<quote>[\"'])",
+                        raw_doctype,
+                        re.IGNORECASE,
+                    )
+                    if public_ids is not None:
+                        quote_pos = after_keyword + public_ids.start("quote")
+                        self._emit_error(
+                            "missing-whitespace-between-doctype-public-and-system-identifiers",
+                            quote_pos,
+                        )
+                    pos = tag_end + 1
+                    continue
                 if html.startswith("<!--", lt):
                     close = self._find_comment_end(pos + 1, end)
                     if close == -1:
@@ -940,15 +1231,109 @@ class ParseEngine:
                 if tag_end == -1:
                     self._emit_error("eof-in-tag", end - 1)
                     return
-                if name == "br" or name not in open_tags:
-                    self._emit_error("unexpected-end-tag", lt, tag_name=name, category="treebuilder", end_pos=tag_end)
+                if "select" in open_tags and name not in {
+                    "math",
+                    "optgroup",
+                    "option",
+                    "select",
+                    "svg",
+                    "template",
+                }:
+                    self._emit_error(
+                        "unexpected-end-tag-in-select",
+                        tag_end,
+                        tag_name=name,
+                        category="treebuilder",
+                        end_pos=tag_end,
+                    )
+                if name in {"body", "html"}:
+                    if name == "html" and any(tag in {"math", "svg"} for tag in open_tags):
+                        self._emit_error(
+                            "unexpected-end-tag",
+                            tag_end,
+                            tag_name=name,
+                            category="treebuilder",
+                            end_pos=tag_end,
+                        )
+                    if not self._fragment and "object" not in open_tags:
+                        open_tags.clear()
+                    if name == "body":
+                        body_end_seen = True
+                        after_body = body_seen
+                    else:
+                        after_html = True
+                elif name == "head":
+                    head_seen = True
+                    if not self._fragment and name in open_tags:
+                        del open_tags[len(open_tags) - 1 - open_tags[::-1].index(name) :]
+                elif name == "frameset":
+                    after_frameset = True
+                    if name in open_tags:
+                        del open_tags[len(open_tags) - 1 - open_tags[::-1].index(name) :]
+                elif name == "br" or name not in open_tags:
+                    code = (
+                        "unexpected-end-tag-in-fragment-context"
+                        if self._fragment_context_namespace not in {None, "html"}
+                        and name == self._fragment_context_name
+                        else "unexpected-end-tag"
+                    )
+                    self._emit_error(
+                        code,
+                        tag_end,
+                        tag_name=name,
+                        category="treebuilder",
+                        end_pos=tag_end,
+                    )
                 else:
+                    open_idx = len(open_tags) - 1 - open_tags[::-1].index(name)
+                    intervening = [tag for tag in open_tags[open_idx + 1 :] if tag not in _EOF_IMPLICITLY_CLOSABLE]
+                    if name in FORMATTING_ELEMENTS and intervening:
+                        self._emit_error(
+                            "adoption-agency-1.3",
+                            tag_end,
+                            tag_name=name,
+                            category="treebuilder",
+                            end_pos=tag_end,
+                        )
+                    elif (
+                        intervening
+                        or (name == "menuitem" and open_tags[-1] == "p")
+                        or (name == "datalist" and open_tags[-1] == "option")
+                        or (
+                            name == "ruby"
+                            and any(tag in {"rb", "rp", "rt", "rtc"} for tag in open_tags[open_idx + 1 :])
+                        )
+                    ):
+                        code = (
+                            "end-tag-too-early"
+                            if name
+                            in {
+                                "address",
+                                "datalist",
+                                "div",
+                                "figcaption",
+                                "menuitem",
+                                "pre",
+                                "ruby",
+                                "summary",
+                            }
+                            else "unexpected-end-tag"
+                        )
+                        self._emit_error(
+                            code,
+                            tag_end,
+                            tag_name=name,
+                            category="treebuilder",
+                            end_pos=tag_end,
+                        )
                     for idx in range(
                         len(open_tags) - 1, -1, -1
                     ):  # pragma: no branch - opposite edge requires invalid parser state
                         if open_tags[idx] == name:
                             del open_tags[idx:]
                             break
+                if name == "template":
+                    template_table_mode = False
                 pos = tag_end + 1
                 continue
             if not ch.isalpha():
@@ -959,9 +1344,310 @@ class ParseEngine:
             if tag_end == -1:
                 self._emit_error("eof-in-tag", end - 1)
                 return
-            if name not in self._void_elements and not self._is_self_closing_source_tag(pos + len(name), tag_end):
+            self._emit_start_tag_solidus_errors(pos + len(name), tag_end)
+            self._emit_attribute_entity_errors(pos + len(name), tag_end)
+            if after_html and not (frameset_seen and name == "noframes"):
+                self._emit_error(
+                    "unexpected-token-after-after-frameset" if frameset_seen else "unexpected-token-after-body",
+                    tag_end,
+                    tag_name=name,
+                    category="treebuilder",
+                    end_pos=tag_end,
+                )
+            elif after_body:
+                self._emit_error(
+                    "unexpected-token-after-body",
+                    tag_end,
+                    tag_name=name,
+                    category="treebuilder",
+                    end_pos=tag_end,
+                )
+            elif after_frameset and name != "noframes":
+                self._emit_error(
+                    "unexpected-token-after-frameset",
+                    tag_end,
+                    tag_name=name,
+                    category="treebuilder",
+                    end_pos=tag_end,
+                )
+            if not self._fragment:
+                ignored_start = False
+                if name == "html":
+                    if (html_seen and (head_seen or body_seen or body_end_seen or after_html)) or (
+                        not html_seen and (head_seen or body_seen or body_end_seen)
+                    ):
+                        self._emit_error(
+                            "unexpected-start-tag",
+                            tag_end,
+                            tag_name=name,
+                            category="treebuilder",
+                            end_pos=tag_end,
+                        )
+                    html_seen = True
+                elif name == "head":
+                    if head_seen:
+                        self._emit_error(
+                            "unexpected-start-tag",
+                            tag_end,
+                            tag_name=name,
+                            category="treebuilder",
+                            end_pos=tag_end,
+                        )
+                    head_seen = True
+                elif name == "body":
+                    if body_seen:
+                        self._emit_error(
+                            "unexpected-start-tag",
+                            tag_end,
+                            tag_name=name,
+                            category="treebuilder",
+                            end_pos=tag_end,
+                        )
+                    body_seen = True
+                elif name == "frameset":
+                    if body_seen or frameset_blocked:
+                        self._emit_error(
+                            "unexpected-start-tag-ignored",
+                            tag_end,
+                            tag_name=name,
+                            category="treebuilder",
+                            end_pos=tag_end,
+                        )
+                        ignored_start = True
+                    else:
+                        frameset_seen = True
+                elif name in self._head_content_tags:
+                    head_seen = True
+                if name in self._frameset_blocking_start_tags:
+                    hidden_input = name == "input" and re.search(
+                        r"\btype\s*=\s*([\"'])?hidden(?:\1|\s|/?>)",
+                        html[pos + len(name) : tag_end + 1],
+                        re.IGNORECASE,
+                    )
+                    if not hidden_input:
+                        frameset_blocked = True
+            else:
+                ignored_start = name == "frameset" and self._fragment_context_name != "html"
+                if ignored_start:
+                    self._emit_error(
+                        "unexpected-start-tag-ignored",
+                        tag_end,
+                        tag_name=name,
+                        category="treebuilder",
+                        end_pos=tag_end,
+                    )
+            if name in {"col", "frame"} and not any(tag in {"colgroup", "frameset"} for tag in open_tags):
+                self._emit_error(
+                    "unexpected-start-tag-ignored",
+                    tag_end,
+                    tag_name=name,
+                    category="treebuilder",
+                    end_pos=tag_end,
+                )
+            if (
+                "select" in open_tags or (self._fragment_context_name == "select" and name != "keygen")
+            ) and name not in {
+                "math",
+                "option",
+                "optgroup",
+                "script",
+                "select",
+                "selectedcontent",
+                "svg",
+                "template",
+            }:
+                self._emit_error(
+                    "unexpected-start-tag-in-select",
+                    tag_end,
+                    tag_name=name,
+                    category="treebuilder",
+                    end_pos=tag_end,
+                )
+            foreign_idx = max(
+                (idx for idx, tag in enumerate(open_tags) if tag in {"math", "svg"}),
+                default=-1,
+            )
+            if foreign_idx != -1:
+                in_nonintegrated_foreign = not any(
+                    tag in {"desc", "foreignobject", "mtext", "title"} for tag in open_tags[foreign_idx + 1 :]
+                )
+            else:
+                in_nonintegrated_foreign = self._fragment_context_namespace not in {
+                    None,
+                    "html",
+                } and self._fragment_context_name not in {"desc", "foreignobject", "mtext", "title"}
+            foreign_breakout = name in FOREIGN_BREAKOUT_ELEMENTS or (
+                name == "font"
+                and re.search(
+                    r"\b(?:color|face|size)\b",
+                    html[pos + len(name) : tag_end],
+                    re.IGNORECASE,
+                )
+            )
+            if in_nonintegrated_foreign and foreign_breakout:
+                self._emit_error(
+                    "unexpected-html-element-in-foreign-content",
+                    tag_end,
+                    tag_name=name,
+                    category="treebuilder",
+                    end_pos=tag_end,
+                )
+            if self._fragment_context_name == "caption" and name in _TABLE_STRUCTURE_START_TAGS:
+                self._emit_error(
+                    "unexpected-start-tag-implies-end-tag",
+                    tag_end,
+                    tag_name=name,
+                    category="treebuilder",
+                    end_pos=tag_end,
+                )
+            elif self._fragment_context_name == "tr" and name in {
+                "caption",
+                "col",
+                "colgroup",
+                "tbody",
+                "tfoot",
+                "thead",
+                "tr",
+            }:
+                self._emit_error(
+                    "unexpected-start-tag-implies-end-tag",
+                    tag_end,
+                    tag_name=name,
+                    category="treebuilder",
+                    end_pos=tag_end,
+                )
+            if name == "template":
+                template_table_mode = False
+            elif "template" in open_tags and name in _TEMPLATE_TABLE_CONTEXT_START_TAGS:
+                template_table_mode = True
+            table_parent = open_tags[-1] if open_tags else None
+            if (
+                table_parent in {"colgroup", "table", "tbody", "tfoot", "thead", "tr"}
+                and not (table_parent == "tr" and name in {"math", "svg"})
+                and name
+                not in {
+                    "caption",
+                    "col",
+                    "colgroup",
+                    "script",
+                    "style",
+                    "table",
+                    "tbody",
+                    "td",
+                    "template",
+                    "tfoot",
+                    "th",
+                    "thead",
+                    "tr",
+                }
+            ):
+                self._emit_error(
+                    "foster-parenting-start-tag",
+                    tag_end,
+                    tag_name=name,
+                    category="treebuilder",
+                    end_pos=tag_end,
+                )
+            if name in self._rawtext_element_tags | self._rcdata_tags:
+                diagnostic_close, diagnostic_next_pos = (
+                    self._find_script_end_tag(tag_end + 1, end)
+                    if name == "script"
+                    else self._find_rawtext_end_tag(name, tag_end + 1, end)
+                )
+                if diagnostic_close is None:
+                    self._emit_error(
+                        "expected-named-closing-tag-but-got-eof",
+                        end - 1,
+                        tag_name=name,
+                        category="treebuilder",
+                    )
+                    return
+                if diagnostic_next_pos == end and html.find(">", diagnostic_close, end) == -1:
+                    self._emit_error("eof-in-tag", end - 1)
+                    self._emit_error(
+                        "expected-named-closing-tag-but-got-eof",
+                        end - 1,
+                        tag_name=name,
+                        category="treebuilder",
+                    )
+                    return
+                pos = diagnostic_next_pos
+                continue
+            if name in self._plaintext_tags:
+                self._emit_error(
+                    "expected-closing-tag-but-got-eof",
+                    end - 1,
+                    tag_name=name,
+                    category="treebuilder",
+                )
+                return
+            if name in self._p_closing_start_tags and "p" in open_tags:
+                open_tags.pop(len(open_tags) - 1 - open_tags[::-1].index("p"))
+            if name == "li" and "li" in open_tags:
+                li_idx = len(open_tags) - 1 - open_tags[::-1].index("li")
+                list_boundary = max(
+                    (idx for idx, tag in enumerate(open_tags) if tag in {"ol", "ul"}),
+                    default=-1,
+                )
+                if li_idx > list_boundary:
+                    del open_tags[li_idx:]
+            elif name in {"dd", "dt"}:
+                for idx in range(len(open_tags) - 1, -1, -1):
+                    if open_tags[idx] in {"dd", "dt"}:
+                        del open_tags[idx:]
+                        break
+            elif name in HEADING_ELEMENTS:
+                for idx in range(len(open_tags) - 1, -1, -1):
+                    if open_tags[idx] in HEADING_ELEMENTS:
+                        del open_tags[idx:]
+                        break
+            self_closing = self._is_self_closing_source_tag(pos + len(name), tag_end)
+            in_foreign = any(tag in {"math", "svg"} for tag in open_tags)
+            if (
+                self_closing
+                and not in_foreign
+                and name not in self._void_elements
+                and name not in _HTML_VOID_COMPAT_TAGS
+            ):
+                self._emit_error(
+                    "non-void-html-element-start-tag-with-trailing-solidus",
+                    tag_end,
+                    tag_name=name,
+                    category="treebuilder",
+                    end_pos=tag_end,
+                )
+            if (
+                not ignored_start
+                and name not in self._void_elements
+                and name not in _HTML_VOID_COMPAT_TAGS
+                and not self_closing
+            ):
                 open_tags.append(name)
             pos = tag_end + 1
+
+        if self._fragment and self._fragment_context_namespace not in {None, "html"}:
+            self._emit_error(
+                "expected-closing-tag-but-got-eof",
+                max(0, end - 1),
+                tag_name=self._fragment_context_name,
+                category="treebuilder",
+            )
+            return
+        if not open_tags:
+            return
+        eof_pos = max(0, end - 1)
+        if "table" in open_tags:
+            self._emit_error("eof-in-table", eof_pos, category="treebuilder")
+            return
+        for name in open_tags:
+            if name not in _EOF_IMPLICITLY_CLOSABLE:
+                self._emit_error(
+                    "expected-closing-tag-but-got-eof",
+                    eof_pos,
+                    tag_name=name,
+                    category="treebuilder",
+                )
+                return
 
     def _read_tag_name(self, pos: int, end: int) -> str:
         html = self._html_input
@@ -981,6 +1667,13 @@ class ParseEngine:
     def parse(self) -> Document | DocumentFragment:
         if self._collect_errors:
             self._collect_basic_errors()
+            self._errors.sort(
+                key=lambda error: (
+                    error.line if error.line is not None else 1_000_000_000,
+                    error.column if error.column is not None else 1_000_000_000,
+                    0 if error.category == "tokenizer" else 1,
+                )
+            )
 
         if self._fragment:
             root = DocumentFragment()
@@ -1236,6 +1929,7 @@ class ParseEngine:
             self._explicit_head = True
         else:
             self._repair_stack_for_start("template")
+        self._append_text_boundary(self._current_parent())
         self._push_parser_only_element("template")
         self._parser_only_template_depth += 1
         self._template_modes.append(_TEMPLATE_MODE_INITIAL)
@@ -1255,6 +1949,21 @@ class ParseEngine:
         node = self._stack[idx]
         if self._track_tag_spans and tag_start is not None and tag_end is not None:
             self._set_end_span(node, "template", tag_start, tag_end)
+        if node.namespace == _PARSER_ONLY_NAMESPACE and node.children:
+            parent = self._stack[idx - 1]
+            if (
+                type(parent) is Template and parent.template_content is not None
+            ):  # pragma: no cover - one policy cannot make nested templates both parser-only and real
+                parent = parent.template_content
+            for child in list(node.children):
+                self._append(parent, child)
+        if node.namespace == _PARSER_ONLY_NAMESPACE:
+            parent = self._stack[idx - 1]
+            if (
+                type(parent) is Template and parent.template_content is not None
+            ):  # pragma: no cover - one policy cannot make nested templates both parser-only and real
+                parent = parent.template_content
+            self._append_text_boundary(parent)
         self._mark_active_formatting_dirty()
         del self._stack[idx:]
         if node.namespace == _PARSER_ONLY_NAMESPACE:
@@ -1345,8 +2054,20 @@ class ParseEngine:
                     pos = end if close == -1 else close + 3
                     continue
                 if self._lower_input.startswith("<!doctype", lt):
-                    if self._raw_mode and self._track_tag_spans:
-                        gt = html.find(">", pos + 8, end)
+                    gt = html.find(">", pos + 8, end)
+                    can_insert_doctype = (
+                        not self._fragment
+                        and not self._initial_mode_done
+                        and not self._explicit_html
+                        and not self._body_explicit
+                        and not self._frameset_blocked
+                        and not self._frameset_seen
+                        and not self._body_has_content()
+                    )
+                    if self._raw_mode and (
+                        self._emit_bogus_markup_as_text
+                        or (self._track_tag_spans and (gt == -1 or not can_insert_doctype))
+                    ):
                         if gt == -1:
                             append_text(html[lt:end], lt)
                             pos = end
@@ -1671,11 +2392,25 @@ class ParseEngine:
                     public_id = None
                     system_id = None
                 doctype = Doctype(name, public_id, system_id, force_quirks=name is None)
-                self._quirks_mode = doctype_error_and_quirks(doctype, self._iframe_srcdoc)[1]
+                doctype_error, self._quirks_mode = doctype_error_and_quirks(doctype, self._iframe_srcdoc)
+                if doctype_error and self._collect_errors:
+                    self._emit_error(
+                        "unknown-doctype",
+                        doctype_end if gt != -1 else max(0, end - 1),
+                        category="treebuilder",
+                        end_pos=doctype_end if gt != -1 else None,
+                    )
                 self._prepend_doctype(doctype)
             else:
                 doctype = Doctype(None, force_quirks=True)
                 self._quirks_mode = doctype_error_and_quirks(doctype, self._iframe_srcdoc)[1]
+                if self._collect_errors:
+                    self._emit_error(
+                        "unknown-doctype",
+                        doctype_end if gt != -1 else max(0, end - 1),
+                        category="treebuilder",
+                        end_pos=doctype_end if gt != -1 else None,
+                    )
                 self._prepend_doctype(doctype)
         return end if gt == -1 else gt + 1
 
@@ -2366,6 +3101,7 @@ class ParseEngine:
         while pos < end and html[pos] not in _TAG_NAME_STOP:
             pos += 1
         raw_name = html[name_start:pos]
+        name_end = pos
         name = raw_name if raw_name.islower() else raw_name.lower()
         if name == "image":
             name = "img"
@@ -2384,6 +3120,22 @@ class ParseEngine:
             if raw_mode and self._track_tag_spans:
                 self._append_text(html[tag_start:end], tag_start)
             return pos
+        if raw_mode:
+            if _SERIALIZABLE_TAG_NAME_RE.fullmatch(name) is None and (
+                "<" not in name or (name.endswith("<") and name_end < end and html[name_end] == "/")
+            ):
+                return pos
+            if attrs and (self._has_carriage_return or self._has_form_feed or self._has_null):
+                attrs = {
+                    key: value
+                    for key, value in attrs.items()
+                    if _SERIALIZABLE_ATTR_NAME_RE.fullmatch(key) is not None
+                    or (
+                        "\ufffd" in key
+                        and not key.startswith("\ufffd")
+                        and _SERIALIZABLE_ATTR_NAME_RE.fullmatch(key.replace("\ufffd", "")) is not None
+                    )
+                }
         tag_end = pos
         allowed = raw_mode or (action is not None and action.allowed)
         in_template_content = bool(self._template_modes)
@@ -3258,7 +4010,7 @@ class ParseEngine:
         if context_name == "html":
             return pos if name in {"html", "head", "body"} else None
 
-        if context_name in {"body", "div"} and name in {"body", "frameset"}:
+        if context_name in {"body", "div"} and name in {"html", "head", "body", "frameset"}:
             return pos
 
         if context_name == "colgroup":

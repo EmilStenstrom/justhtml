@@ -65,6 +65,11 @@ def apply_compiled_transforms(
         ) -> None:
             if not walk_transforms:
                 return
+            escape_comments = any(
+                t.kind == "decide_elements_chain"
+                and any("escape" in (callback.__defaults__ or ()) for callback in t.callbacks)
+                for t in walk_transforms
+            )
 
             def _raw_tag_text(node: Node, *, start_tag: bool) -> str | None:
                 if not isinstance(node, Element):
@@ -105,7 +110,9 @@ def apply_compiled_transforms(
                     if node._self_closing:
                         return None
 
-                    if node._end_tag_present is False:
+                    if node._end_tag_present is False and not (
+                        node._start_tag_start is None and node.name in {"body", "html"}
+                    ):
                         return None
 
                 name = str(node.name)
@@ -125,6 +132,7 @@ def apply_compiled_transforms(
             )
 
             created_start_index: dict[int, int] = {}
+            document_comment_insert_count: dict[int, int] = {}
 
             def _mark_start(n: object, start_index: int) -> None:
                 if start_index <= 0:
@@ -417,6 +425,34 @@ def apply_compiled_transforms(
 
                         if k == "drop_comments":
                             if is_comment:
+                                if escape_comments:
+                                    escaped = Text(f"<!--{node.data or ''}-->")
+                                    _mark_start(escaped, idx + 1)
+                                    if parent.name == "#document":
+                                        body = next(
+                                            (
+                                                child
+                                                for html_node in children
+                                                if isinstance(html_node, Element) and html_node.name == "html"
+                                                for child in (html_node.children or ())
+                                                if isinstance(child, Element) and child.name == "body"
+                                            ),
+                                            None,
+                                        )
+                                    else:
+                                        body = None
+                                    if body is not None and body.children is not None:
+                                        insert_at = document_comment_insert_count.get(id(body), 0)
+                                        body.children.insert(insert_at, escaped)
+                                        document_comment_insert_count[id(body)] = insert_at + 1
+                                        escaped.parent = body
+                                        children.pop(i)
+                                    else:
+                                        escaped.parent = parent
+                                        children[i] = escaped
+                                    node.parent = None
+                                    changed = True
+                                    break
                                 if t.callback is not None:
                                     t.callback(node)
                                 if t.report is not None:

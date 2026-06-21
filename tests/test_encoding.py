@@ -3,6 +3,7 @@ import unittest
 from justhtml import JustHTML
 from justhtml.parser import encoding as enc
 from justhtml.parser.encoding import decode_html, normalize_encoding_label, sniff_html_encoding
+from justhtml.parser.options import ParserOptions
 from justhtml.parser.stream import stream
 
 
@@ -117,6 +118,44 @@ class TestEncoding(unittest.TestCase):
     def test_parser_accepts_bytes(self):
         doc = JustHTML(b"<p>hi</p>")
         self.assertEqual(doc.root.children[0].name, "html")
+
+    def test_parser_discards_leading_bom_by_default(self):
+        cases = (
+            ("\ufeff<p>text</p>", {}),
+            (b"\xef\xbb\xbf<p>text</p>", {"encoding": "utf-8"}),
+        )
+        for html, kwargs in cases:
+            with self.subTest(html=html, kwargs=kwargs):
+                doc = JustHTML(html, fragment=True, sanitize=False, **kwargs)
+                self.assertEqual(doc.to_text(separator="", strip=False), "text")
+
+    def test_parser_automatic_bom_sniffing(self):
+        cases = (
+            (b"\xef\xbb\xbf<p>text</p>", "utf-8"),
+            (b"\xff\xfe<\x00p\x00>\x00t\x00e\x00x\x00t\x00<\x00/\x00p\x00>\x00", "utf-16le"),
+            (b"\xfe\xff\x00<\x00p\x00>\x00t\x00e\x00x\x00t\x00<\x00/\x00p\x00>", "utf-16be"),
+        )
+        for html, expected_encoding in cases:
+            with self.subTest(expected_encoding=expected_encoding):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.encoding, expected_encoding)
+                self.assertEqual(doc.to_text(separator="", strip=False), "text")
+
+    def test_parser_preserves_leading_bom_when_discard_disabled(self):
+        input_cases = (
+            ("\ufeff<p>text</p>", {}),
+            (b"\xef\xbb\xbf<p>text</p>", {"encoding": "utf-8"}),
+        )
+        for html, kwargs in input_cases:
+            with self.subTest(html=html):
+                doc = JustHTML(
+                    html,
+                    fragment=True,
+                    sanitize=False,
+                    _parser_opts=ParserOptions(discard_bom=False),
+                    **kwargs,
+                )
+                self.assertEqual(doc.to_text(separator="", strip=False), "\ufefftext")
 
     def test_parser_replaces_undefined_windows_1252_bytes(self):
         doc = JustHTML(b"<p>ok\x81</p>", fragment=True)

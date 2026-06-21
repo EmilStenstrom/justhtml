@@ -156,13 +156,18 @@ class _StreamScanner:
 
             if namespace in {None, "html"}:
                 if name in _PLAINTEXT_TAGS:
-                    self._append_text(text_buffer, html[new_pos:end], raw=True)
+                    self._append_text(text_buffer, html[new_pos:end], raw=True, replace_null=True)
                     pos = end
                     continue
                 if name in _RAWTEXT_TAGS or name in _RCDATA_TAGS:
                     close, after_close = self._find_rawtext_end_tag(name, new_pos, end)
                     text_end = end if close is None else close
-                    self._append_text(text_buffer, html[new_pos:text_end], raw=name not in _RCDATA_TAGS)
+                    self._append_text(
+                        text_buffer,
+                        html[new_pos:text_end],
+                        raw=name not in _RCDATA_TAGS,
+                        replace_null=True,
+                    )
                     if close is None:
                         pos = end
                         continue
@@ -205,7 +210,10 @@ class _StreamScanner:
             return True, ("comment", data.replace("\0", "\ufffd")), end, None
 
         if lower.startswith("doctype", pos):
-            tag_end = self._find_tag_end(pos + 7, end)
+            # A ">" terminates a DOCTYPE even inside a quoted identifier.
+            # Quote-aware tag scanning can otherwise swallow following text
+            # when the declaration is malformed.
+            tag_end = html.find(">", pos + 7, end)
             if tag_end == -1:
                 tag_end = end
                 next_pos = end
@@ -218,8 +226,24 @@ class _StreamScanner:
             name = match.group(1)
             if name and not name.islower():
                 name = name.lower()
-            public_id = match.group(3) if match.group(3) is not None else match.group(4)
-            system_id = match.group(5) if match.group(5) is not None else match.group(6)
+            kind = match.group(2)
+            first_id = match.group(3) if match.group(3) is not None else match.group(4)
+            second_id = match.group(5) if match.group(5) is not None else match.group(6)
+            if kind is not None and kind.lower() == "public":
+                public_id = first_id
+                system_id = second_id
+            elif kind is not None and kind.lower() == "system":
+                public_id = None
+                system_id = first_id
+            else:
+                public_id = None
+                system_id = None
+            if "\0" in name:
+                name = name.replace("\0", "\ufffd")
+            if public_id is not None and "\0" in public_id:
+                public_id = public_id.replace("\0", "\ufffd")
+            if system_id is not None and "\0" in system_id:
+                system_id = system_id.replace("\0", "\ufffd")
             return True, ("doctype", (name, public_id, system_id)), next_pos, None
 
         if lower.startswith("[cdata[", pos) and self._in_foreign_context():
@@ -331,12 +355,19 @@ class _StreamScanner:
     def _find_tag_end(self, pos: int, end: int) -> int:
         return _scanner.find_tag_end(self._html, pos, end)
 
-    def _append_text(self, text_buffer: list[str], data: str, *, raw: bool = False) -> None:
+    def _append_text(
+        self,
+        text_buffer: list[str],
+        data: str,
+        *,
+        raw: bool = False,
+        replace_null: bool = False,
+    ) -> None:
         if not data:
             return
         if "\r" in data:
             data = data.replace("\r\n", "\n").replace("\r", "\n")
-        if "\0" in data:
+        if replace_null and "\0" in data:
             data = data.replace("\0", "\ufffd")
         if not raw and "&" in data:
             data = decode_entities_in_text(data, in_attribute=False)

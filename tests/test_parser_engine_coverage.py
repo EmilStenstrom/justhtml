@@ -128,6 +128,17 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             with self.subTest(html=html, context=context):
                 self.assert_parses_to(html, expected, fragment_context=context)
 
+    def test_fragment_unwraps_disallowed_template_contents(self) -> None:
+        self.assert_parses_to("<template>x</template>", "x", fragment=True)
+
+    def test_raw_div_fragment_ignores_head_wrapper(self) -> None:
+        self.assert_parses_to(
+            "<head><title>x</title></head>",
+            "<title>x</title>",
+            fragment=True,
+            sanitize=False,
+        )
+
     def test_diagnostic_location_and_xml_modes(self) -> None:
         located = self.assert_parses_to(
             "<p a=1>x</p>",
@@ -145,6 +156,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             collect_errors=True,
         )
         assert [error.code for error in diagnosed.errors] == [
+            "unknown-doctype",
             "unexpected-null-character",
             "unexpected-end-tag",
         ]
@@ -295,7 +307,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             (replace(base, unsafe_handling="collect"), "<html><head></head><body><p>x</p></body></html>"),
             (
                 replace(base, disallowed_tag_handling="escape"),
-                "<html><head></head><body>&lt;custom&gt;<p>x</p>&lt;/custom&gt;</body></html>",
+                "<html><head></head><body>&lt;!--c--&gt;&lt;custom&gt;<p>x</p>&lt;/custom&gt;</body></html>",
             ),
             (
                 replace(base, allowed_tags=frozenset(tag for tag in base.allowed_tags if tag != "body")),
@@ -480,7 +492,10 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
         )
 
         document = JustHTML("<!doctype html><div></span\n>", sanitize=False, collect_errors=True)
-        assert [error.code for error in document.errors] == ["unexpected-end-tag"]
+        assert [error.code for error in document.errors] == [
+            "unexpected-end-tag",
+            "expected-closing-tag-but-got-eof",
+        ]
 
     def test_template_insertion_modes(self) -> None:
         cases = [

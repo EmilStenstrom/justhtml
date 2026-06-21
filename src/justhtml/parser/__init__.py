@@ -169,11 +169,14 @@ class JustHTML:
                 engine_policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
 
         xml_coercion = False
+        emit_bogus_markup_as_text = False
+        discard_bom = bool(getattr(_parser_opts, "discard_bom", True))
+        if discard_bom and html_str.startswith("\ufeff"):
+            html_str = html_str[1:]
         if _parser_opts is not None:
-            if bool(getattr(_parser_opts, "discard_bom", True)) and html_str.startswith("\ufeff"):
-                html_str = html_str[1:]
             xml_coercion = bool(getattr(_parser_opts, "xml_coercion", False))
-            if bool(getattr(_parser_opts, "emit_bogus_markup_as_text", False)):
+            emit_bogus_markup_as_text = bool(getattr(_parser_opts, "emit_bogus_markup_as_text", False))
+            if emit_bogus_markup_as_text:
                 track_tag_spans = True
 
         use_compiled_safe_engine = (
@@ -201,6 +204,7 @@ class JustHTML:
             iframe_srcdoc=iframe_srcdoc,
             track_node_locations=bool(track_node_locations),
             track_tag_spans=bool(track_node_locations) or track_tag_spans,
+            emit_bogus_markup_as_text=emit_bogus_markup_as_text,
             xml_coercion=xml_coercion,
         )
         self.root = engine.parse()

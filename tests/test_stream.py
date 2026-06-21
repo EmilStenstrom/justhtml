@@ -316,6 +316,41 @@ class TestStream(unittest.TestCase):
         assert list(stream("<!DOCTYPE >")) == [("doctype", (None, None, None))]
         assert list(stream("<!DoCtYpE HTML>")) == [("doctype", ("html", None, None))]
 
+    def test_doctype_identifiers_and_malformed_quotes(self):
+        assert list(stream('<!DOCTYPE html SYSTEM "x">Hello')) == [
+            ("doctype", ("html", None, "x")),
+            ("text", "Hello"),
+        ]
+        assert list(stream('<!DOCTYPE html PUBLIC "x" "y">Hello')) == [
+            ("doctype", ("html", "x", "y")),
+            ("text", "Hello"),
+        ]
+        assert list(stream('<!DOCTYPE potato taco "ddd>Hello')) == [
+            ("doctype", ("potato", None, None)),
+            ("text", "Hello"),
+        ]
+        assert list(stream("<!DOCTYPE potato PUBLIC 'go'of'>Hello")) == [
+            ("doctype", ("potato", "go", None)),
+            ("text", "Hello"),
+        ]
+        assert list(stream("<!DOCTYPE h\0 PUBLIC 'p\0' 's\0'>")) == [
+            ("doctype", ("h\ufffd", "p\ufffd", "s\ufffd")),
+        ]
+
+    def test_null_handling_matches_stream_compatibility(self):
+        assert list(stream("a\0b")) == [("text", "a\0b")]
+        assert list(stream("<svg><![CDATA[a\0b]]></svg>")) == [
+            ("start", ("svg", {})),
+            ("text", "a\0b"),
+            ("end", "svg"),
+        ]
+        assert list(stream("<style>a\0b</style>")) == [
+            ("start", ("style", {})),
+            ("text", "a\ufffdb"),
+            ("end", "style"),
+        ]
+        assert list(stream("<!--a\0b-->")) == [("comment", "a\ufffdb")]
+
     def test_unclosed_cdata_and_bogus_declarations(self):
         assert list(stream("<svg><![CDATA[x")) == [
             ("start", ("svg", {})),
@@ -358,7 +393,7 @@ class TestStream(unittest.TestCase):
         text_buffer: list[str] = []
         empty._append_text(text_buffer, "")
         empty._append_text(text_buffer, "\r\n\0&amp;")
-        assert text_buffer == ["\n\ufffd&"]
+        assert text_buffer == ["\n\0&"]
         assert list(empty._flush_text([""])) == []
 
     def test_script_scanner_rejects_nested_invalid_end_markers(self):

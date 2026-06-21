@@ -94,7 +94,7 @@ python run_tests.py --suite unit
 
 Output:
 ```
-PASSED: 3440/3440 passed (100.0%)
+PASSED: 3464/3464 passed (100.0%)
 ```
 
 There are also 6 expected skips, including scripted (`#script-on`) cases that

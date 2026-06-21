@@ -232,6 +232,13 @@ class TestTransforms(unittest.TestCase):
         )
         assert doc.to_html(pretty=False) == "<p>Hello &lt;span&gt;world&lt;/span&gt;</p>"
 
+    def test_escape_transform_preserves_valid_doctype(self) -> None:
+        doc = JustHTML(
+            "<!DOCTYPE html><p>x</p>",
+            transforms=[Escape("nosuch")],
+        )
+        assert doc.to_html(pretty=False) == "<!DOCTYPE html><html><head></head><body><p>x</p></body></html>"
+
     def test_empty_removes_children_but_keeps_element(self) -> None:
         doc = JustHTML("<div><b>x</b>y</div>", transforms=[Empty("div")])
         assert doc.to_html(pretty=False) == "<html><head></head><body><div></div></body></html>"

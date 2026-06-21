@@ -73,6 +73,12 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(err, "")
         self.assertEqual(out, "<li>Hi</li>\n")
 
+    def test_fragment_parsing_preserves_unwrapped_template_contents(self):
+        code, out, err = self._run_cli(["-", "--fragment"], stdin_text="<template>x</template>")
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(out, "x\n")
+
     def test_cleanup_unwraps_anchor_and_drops_empty_img(self):
         html = '<a href="javascript:alert(1)">Link</a><img src="">'
         code, out, err = self._run_cli(["-", "--fragment", "--cleanup"], stdin_text=html)
