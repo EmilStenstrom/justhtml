@@ -250,6 +250,23 @@ class TestTreeBuilder(unittest.TestCase):
             [error.code for error in doc.errors],
         )
 
+    def test_leading_lf_skip_does_not_leak_past_non_character_tokens(self) -> None:
+        cases = {
+            "<div><pre></pre>\nX</div>": "<div><pre></pre>\nX</div>",
+            "<div><pre><code></code></pre>\nX</div>": "<div><pre><code></code></pre>\nX</div>",
+            "<div><pre><!--x--></pre>\nX</div>": "<div><pre><!--x--></pre>\nX</div>",
+            "<div><listing></listing>\nX</div>": "<div><listing></listing>\nX</div>",
+            "<div><textarea></textarea>\nX</div>": "<div><textarea></textarea>\nX</div>",
+            "<div><pre>\nX</pre></div>": "<div><pre>X</pre></div>",
+            "<div><listing>\nX</listing></div>": "<div><listing>X</listing></div>",
+            "<div><textarea>\nX</textarea></div>": "<div><textarea>X</textarea></div>",
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
     def test_select_end_tags_create_p_and_close_custom_children_like_chromium(self) -> None:
         cases = {
             "<select>x</p>": "<select>x<p></p></select>",

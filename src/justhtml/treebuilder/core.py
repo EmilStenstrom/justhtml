@@ -411,6 +411,11 @@ class TreeBuilder(TreeBuilderModesMixin):
     def process_token(self, token: Any) -> Any:
         # Optimization: Use type() identity check instead of isinstance
         token_type = type(token)
+        # The leading-LF exception for <pre>, <listing>, and <textarea>
+        # applies only to the immediately following token. Character tokens
+        # consume it in _append_text; any other token cancels it.
+        if self.ignore_lf and token_type is not CharacterTokens:
+            self.ignore_lf = False
         if token_type is DoctypeToken:
             # Check for foreign content first - DOCTYPE in SVG/MathML is a parse error
             if self.open_elements:
