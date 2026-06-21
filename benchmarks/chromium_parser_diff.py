@@ -174,6 +174,10 @@ def _is_known_divergence(case: Case) -> bool:
         # DOMParser receives an already-decoded string and preserves this
         # character. JustHTML applies its byte-stream-compatible BOM policy.
         return True
+    if case.html in {"&#x;", "&#X;"}:
+        # The HTML Standard requires an absent-digit numeric reference to be
+        # flushed unchanged. Chromium currently emits U+FFFD for this input.
+        return True
     return case.source.startswith(("atomic:fuzz_scope_terminators:", "atomic:fuzz_formatting_boundary:")) and (
         "<button><button>" in case.html
     )

@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 # It checks for space characters, quotes, equals sign, and greater-than.
 _UNQUOTED_ATTR_VALUE_INVALID = re.compile(r'[ \t\n\f\r"\'=>]')
 _LITERAL_TEXT_SERIALIZATION_ELEMENTS = frozenset({"plaintext", "script", "style"})
-_SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_\ufffd-]*$")
-_SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[A-Za-z0-9_:\ufffd][A-Za-z0-9:._\ufffd-]*$")
+_SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][^\t\n\f\r />]*$")
+_SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[^\t\n\f\r />=]+$")
 
 
 class HTMLContext(str, Enum):

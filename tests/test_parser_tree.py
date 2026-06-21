@@ -13,6 +13,7 @@ class TestParserTreeConstruction(unittest.TestCase):
             "<!--a-": "<!--a--><html><head></head><body></body></html>",
             "<!x\r\ny>": "<!--x\ny--><html><head></head><body></body></html>",
             "<\0div>": "<html><head></head><body>&lt;�div&gt;</body></html>",
+            "</>": "<html><head></head><body></body></html>",
             "\0\fA": "<html><head></head><body>A</body></html>",
         }
 
@@ -24,6 +25,11 @@ class TestParserTreeConstruction(unittest.TestCase):
         doctype = document.root.children[0]
         assert doctype.name == "!doctype"
         assert doctype.data.name == "�html"
+
+    def test_absent_digit_numeric_reference_follows_the_standard_despite_chromium(self) -> None:
+        document = JustHTML("&#x;", sanitize=False)
+
+        assert document.to_text(strip=False) == "&#x;"
 
     def test_chromium_preserves_preamble_order_and_replacement_attribute_names(self) -> None:
         document = JustHTML("<! first><?second", sanitize=False)
@@ -49,6 +55,15 @@ class TestParserTreeConstruction(unittest.TestCase):
         document = JustHTML("<html 1name='\0'>", sanitize=False)
         assert document.root.children[-1].attrs == {"1name": "�"}
 
+        document = JustHTML("<textarea\v/>x", sanitize=False)
+        textarea = document.query("body")[0].children[0]
+        assert textarea.name == "textarea\v"
+        assert textarea.to_text(strip=False) == "x"
+        assert document.to_html(pretty=False) == ("<html><head></head><body><textarea\v>x</textarea\v></body></html>")
+
+        document = JustHTML("<source\0 '='<script>alert(1)</script>'>", sanitize=False)
+        assert document.query("source�")[0].attrs == {"'": "<script>alert(1)</script>"}
+
     def test_chromium_foreign_template_table_and_frameset_regressions(self) -> None:
         cases = {
             "<svg><image href='x'></svg>": (
@@ -61,6 +76,9 @@ class TestParserTreeConstruction(unittest.TestCase):
                 "<html><head><template><title>x</title><base><link></template></head><body></body></html>"
             ),
             "<frameset><body>x</body></frameset>": ("<html><head></head><frameset></frameset></html>"),
+            "<frameset></frameset></html><!--a--><script><!--b--></script>": (
+                "<html><head></head><frameset></frameset></html><!--a--><!--b-->"
+            ),
         }
 
         for html, expected in cases.items():
@@ -71,6 +89,16 @@ class TestParserTreeConstruction(unittest.TestCase):
     def test_chromium_duplicate_body_and_nested_caption_table_regressions(self) -> None:
         document = JustHTML("<body id='a'><div><body id='b'>x</div>", sanitize=False)
         assert document.to_html(pretty=False) == ('<html><head></head><body id="a"><div>x</div></body></html>')
+
+        document = JustHTML("<div><li>x<body class='late'>y", sanitize=False)
+        assert document.to_html(pretty=False) == (
+            '<html><head></head><body class="late"><div><li>xy</li></div></body></html>'
+        )
+
+        document = JustHTML("<div>x<head><title>ignored</title></head>y", sanitize=False)
+        assert document.to_html(pretty=False) == (
+            "<html><head></head><body><div>x<title>ignored</title>y</div></body></html>"
+        )
 
         document = JustHTML(
             "<table><caption>x<table><tr><td>nested</td></tr></table></caption></table>",
@@ -89,6 +117,13 @@ class TestParserTreeConstruction(unittest.TestCase):
         document = JustHTML("<body id='first'><div><body id='second'>x</div>")
         assert document.query("body")[0].attrs == {"id": "first"}
         assert document.query("div")[0].to_text() == "x"
+
+        document = JustHTML("<div><li>x<body class='late'>y")
+        assert document.query("body")[0].attrs == {"class": "late"}
+        assert document.query("li")[0].to_text() == "xy"
+
+        document = JustHTML("<div>x<head><title>ignored</title></head>y")
+        assert document.query("div")[0].to_text(strip=False) == "x ignored y"
 
         policy = SanitizationPolicy(
             allowed_tags={"html", "head", "body", "table", "colgroup"},
@@ -112,6 +147,13 @@ class TestParserTreeConstruction(unittest.TestCase):
                 document = JustHTML(html, fragment=True, sanitize=False)
                 aside = document.query("aside")[0]
                 assert aside.to_html(pretty=False) == "<aside><b></b></aside>"
+
+    def test_active_formatting_reconstructs_before_ordinary_and_foreign_elements(self) -> None:
+        document = JustHTML("<div><b>x</div><span>y</span><svg>z</svg>", sanitize=False)
+
+        assert document.to_html(pretty=False) == (
+            "<html><head></head><body><div><b>x</b></div><b><span>y</span><svg>z</svg></b></body></html>"
+        )
 
     def test_head_noscript_comment_follows_the_standard_despite_chromium(self) -> None:
         document = JustHTML(

@@ -53,8 +53,11 @@ if TYPE_CHECKING:
     from justhtml.sanitizer.url.spec import UrlSinkKind
 
 _TAG_NAME_RE = re.compile(r"[A-Za-z][^\t\n\f\r />]*")
-_SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_\ufffd-]*$")
-_SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[A-Za-z0-9_:\ufffd][A-Za-z0-9:._\ufffd-]*$")
+# HTML's tokenizer permits any non-delimiter code point in tag and attribute
+# names. Keep the serializer-safe subset broad enough to preserve those names
+# while still rejecting characters that can terminate the surrounding markup.
+_SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][^\t\n\f\r />]*$")
+_SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[^\t\n\f\r />=]+$")
 _DOCTYPE_RE = re.compile(
     r"""\s*([^\s>]+)(?:\s*(PUBLIC|SYSTEM)\s*(?:(?:"([^"]*)"|'([^']*)')\s*(?:"([^"]*)"|'([^']*)')?)?)?""",
     re.IGNORECASE,
@@ -1817,6 +1820,8 @@ class ParseEngine:
             return pos
         if not self._fragment and name == "head":
             self._in_colgroup = False
+            if self._body_mode_seen and self._stack[-1] is not self._head:
+                return pos
             self._stack = [self._doc, self._html]  # type: ignore[list-item]
             self._after_head = True
             return pos
@@ -1943,6 +1948,8 @@ class ParseEngine:
         ch = html[pos]
         if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
             gt = html.find(">", pos, end)
+            if ch == ">" and not (raw_mode and self._track_tag_spans):
+                return pos + 1
             if raw_mode:
                 if self._track_tag_spans:
                     self._append_text(html[tag_start:end] if gt == -1 else html[tag_start : gt + 1], tag_start)
@@ -2013,6 +2020,8 @@ class ParseEngine:
             return pos
         if not self._fragment and name == "head":
             self._in_colgroup = False
+            if self._body_mode_seen and self._stack[-1] is not self._head:
+                return pos
             if self._head is not None:  # pragma: no branch - opposite edge requires invalid parser state
                 if self._track_tag_spans:
                     self._set_end_span(self._head, name, tag_start, tag_end)
@@ -2244,6 +2253,8 @@ class ParseEngine:
             if name == "head":
                 self._in_colgroup = False
                 self._explicit_head = True
+                if self._body_mode_seen:
+                    return pos
                 if self._head is not None:  # pragma: no branch - opposite edge requires invalid parser state
                     self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
                     self._after_head = False
@@ -2258,6 +2269,8 @@ class ParseEngine:
                 if self._body_explicit:
                     return pos
                 self._body_explicit = True
+                if self._body_mode_seen:
+                    return pos
                 self._body_mode_seen = True
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
                 self._after_head = False
@@ -2478,7 +2491,6 @@ class ParseEngine:
         raw_name = html[name_start:pos]
         if self._has_null and "\0" in raw_name:
             raw_name = raw_name.replace("\0", "\ufffd")
-        name_end = pos
         name = raw_name if raw_name.islower() else raw_name.lower()
         if not self._initial_mode_done:
             self._mark_initial_content()
@@ -2497,10 +2509,6 @@ class ParseEngine:
                 self._append_text(html[tag_start:end], tag_start)
             return pos
         if raw_mode:
-            if _SERIALIZABLE_TAG_NAME_RE.fullmatch(name) is None and (
-                "<" not in name or (name.endswith("<") and name_end < end and html[name_end] == "/")
-            ):
-                return pos
             if attrs and (self._has_carriage_return or self._has_form_feed or self._has_null):
                 attrs = {
                     key: value
@@ -2511,12 +2519,7 @@ class ParseEngine:
         tag_end = pos
         allowed = raw_mode or (action is not None and action.allowed)
         in_template_content = bool(self._template_modes)
-        if (
-            not self._fragment
-            and self._after_document
-            and name != "html"
-            and not (self._frameset_seen and name in {"frameset", "noframes"})
-        ):
+        if not self._fragment and self._after_document and name != "html" and not self._frameset_seen:
             self._after_body = False
             self._after_document = False
             self._after_html = False
@@ -2554,6 +2557,8 @@ class ParseEngine:
             if name == "head":
                 self._in_colgroup = False
                 self._explicit_head = True
+                if self._body_mode_seen:
+                    return pos
                 if self._head is not None:  # pragma: no branch - opposite edge requires invalid parser state
                     for attr_name, attr_value in attrs.items():
                         self._head.attrs.setdefault(attr_name, attr_value)
@@ -2574,6 +2579,8 @@ class ParseEngine:
                 if self._body_explicit:
                     return pos
                 self._body_explicit = True
+                if self._body_mode_seen:
+                    return pos
                 self._body_mode_seen = True
                 self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
                 self._after_head = False
@@ -2890,15 +2897,9 @@ class ParseEngine:
                 return pos
 
         reconstruct_before_insert = (
-            name in {"br", "img"}
-            or name in _ACTIVE_FORMATTING_MARKER_TAGS
-            or (
-                name == "span"
-                and (
-                    self._find_open_index_before_boundary("td", _TABLE_CONTEXT_BOUNDARIES) is not None
-                    or self._find_open_index_before_boundary("th", _TABLE_CONTEXT_BOUNDARIES) is not None
-                )
-            )
+            name not in _TABLE_STRUCTURE_START_TAGS
+            and name not in _HEAD_ONLY_VOID_START_TAGS
+            and (action is None or not action.p_closing)
         )
         if html_text_parsing and self._active_formatting_dirty and reconstruct_before_insert:
             self._reconstruct_active_formatting()
@@ -2923,9 +2924,9 @@ class ParseEngine:
             and parent.name in self._table_foster_targets
             and name not in self._table_allowed_children
             and (action is None or not action.p_closing)
-        ):
-            self._reconstruct_active_formatting()
-            parent = self._current_parent()
+        ):  # pragma: no branch - HTML-mode insertions reconstruct above
+            self._reconstruct_active_formatting()  # pragma: no cover - defensive foreign-state fallback
+            parent = self._current_parent()  # pragma: no cover - defensive foreign-state fallback
 
         self._insert_sanitized_element(name, attrs, self_closing, parent, tag_start=tag_start, tag_end=tag_end)
         if name in _HEAD_ONLY_VOID_START_TAGS and parent is self._head:
