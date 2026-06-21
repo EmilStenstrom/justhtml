@@ -1677,6 +1677,10 @@ class TreeBuilderModesMixin:
                     self.ignore_lf = True
                     self.frameset_ok = False
                     return None
+                if name in {"pre", "listing"}:
+                    self._parse_error("unexpected-start-tag-in-select", tag_name=name)
+                    self._handle_body_start_pre_listing(token)
+                    return None
                 # Any other start tag is part of customizable select content.
                 self._parse_error("unexpected-start-tag-in-select", tag_name=name)
                 self._reconstruct_active_formatting_elements()

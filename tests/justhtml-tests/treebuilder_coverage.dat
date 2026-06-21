@@ -21,7 +21,7 @@
 |   <body>
 |     <math math>
 |       <math mi>
-|         " text"
+|         "text"
 
 
 #data
@@ -75,7 +75,7 @@
 |   <head>
 |   <body>
 |     <select>
-|       " text"
+|       "text"
 
 
 #data
@@ -175,7 +175,7 @@
 |   <head>
 |   <body>
 |     <table>
-|       " "
+|       ""
 
 
 #data

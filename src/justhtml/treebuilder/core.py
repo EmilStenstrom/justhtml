@@ -673,9 +673,6 @@ class TreeBuilder(TreeBuilderModesMixin):
                 if not text:
                     return
 
-        if "\f" in text:
-            text = text.replace("\f", " ")
-
         # Guard against empty stack
         if not self.open_elements:  # pragma: no cover
             return

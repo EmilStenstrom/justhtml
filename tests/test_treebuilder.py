@@ -267,6 +267,46 @@ class TestTreeBuilder(unittest.TestCase):
                 doc = JustHTML(html, fragment=True, sanitize=False)
                 self.assertEqual(doc.to_html(pretty=False), expected)
 
+    def test_pre_and_listing_in_select_use_their_in_body_start_rules(self) -> None:
+        cases = {
+            "<select><pre>\nX</pre></select>": "<select><pre>X</pre></select>",
+            "<select><listing>\nX</listing></select>": "<select><listing>X</listing></select>",
+            "<select><p>P<pre>\nX</pre></select>": "<select><p>P</p><pre>X</pre></select>",
+            "<select><p>P<listing>\nX</listing></select>": "<select><p>P</p><listing>X</listing></select>",
+            "<select><pre><code></code>\nX</pre></select>": ("<select><pre><code></code>\nX</pre></select>"),
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_form_feed_is_preserved_in_html_text_like_chromium(self) -> None:
+        cases = {
+            "<div>A\fB</div>": "<div>A\fB</div>",
+            "<pre>A\fB</pre>": "<pre>A\fB</pre>",
+            "<textarea>A\fB</textarea>": "<textarea>A\fB</textarea>",
+            "<style>A\fB</style>": "<style>A\fB</style>",
+            "<script>A\fB</script>": "<script>A\fB</script>",
+            "<table>A\fB<tr><td>C\fD</td></tr></table>": ("A\fB<table><tbody><tr><td>C\fD</td></tr></tbody></table>"),
+            "<svg><text>A\fB</text></svg>": "<svg><text>A\fB</text></svg>",
+        }
+
+        for html, expected in cases.items():
+            with self.subTest(html=html):
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                self.assertEqual(doc.to_html(pretty=False), expected)
+
+    def test_form_feed_is_still_coerced_for_xml_output(self) -> None:
+        doc = JustHTML(
+            "<div>A\fB</div>",
+            fragment=True,
+            sanitize=False,
+            _tokenizer_opts=TokenizerOpts(xml_coercion=True),
+        )
+
+        self.assertEqual(doc.to_html(pretty=False), "<div>A B</div>")
+
     def test_select_end_tags_create_p_and_close_custom_children_like_chromium(self) -> None:
         cases = {
             "<select>x</p>": "<select>x<p></p></select>",
