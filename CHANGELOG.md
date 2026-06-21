@@ -7,16 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Replace the legacy tokenizer/tree-builder implementation with one plan-driven parser engine shared by sanitized, unsanitized, fragment, streaming, diagnostic, and source-location modes.
+## [3.0.0] - 2026-06-21
 
-### Fixed
-- Preserve HTML5 tree-construction behavior across foreign-content integration points, select/table recovery, framesets, plaintext formatting reconstruction, form-pointer handling, malformed comments, and foreign attribute parsing.
-- Stabilize sanitization of malformed foreign-namespace rawtext structures so trailing HTML cannot be exposed by mutation-XSS reparsing.
+JustHTML 3.0.0 ships a new parser core. The old tokenizer and tree-builder are now one integrated system, which makes the parser much faster while keeping browser-style HTML5 recovery and default-safe behavior intact. In practice, this release is mainly about getting materially better performance without asking most users to change how they use the library.
+
+The breaking part is narrow: if you do not depend on `doc.errors` or on the exact diagnostic details raised by `strict=True`, this release should behave like a faster, more robust JustHTML. If you do depend on parser diagnostics, expect different error codes, counts, locations, and ordering from the old implementation.
+
+### Changed
+- Replace the legacy tokenizer/tree-builder split with one plan-driven parser engine shared across sanitized, unsanitized, fragment, streaming, diagnostic, and source-location modes. This is a new parser architecture, not just an optimization pass: scanning, tree construction, and default-safe decisions now run as one coordinated system.
+- BREAKING: Rework parser diagnostics around a smaller, higher-value built-in error set. `collect_errors=True` and `strict=True` still surface parser problems, but callers should expect different error codes, counts, locations, and ordering than the old tokenizer/tree-builder pipeline.
 
 ### Performance
-- Compile default sanitizer decisions into parser tag actions and scan projected attributes directly in the parser hot path.
-- Bypass document-mode recovery checks for ordinary text insertion when the current parser state cannot require them.
+- Deliver roughly a **2x parsing speedup** from the new fused engine while preserving browser-style HTML5 recovery behavior. The hot path now avoids the old tokenizer-to-treebuilder handoff, compiles default sanitizer decisions into parser tag actions, and scans projected attributes directly while parsing.
+
+### Fixed
+- Preserve HTML5 tree-construction behavior across foreign-content integration points, select/table recovery, framesets, plaintext formatting reconstruction, form-pointer handling, malformed comments, foreign attribute parsing, adoption-agency edge cases, and scope-repair bugs found through Chromium and html5lib differentials.
+- Stabilize sanitization of malformed foreign-namespace rawtext structures so trailing HTML cannot be exposed by mutation-XSS reparsing.
+
+### Breaking
+- BREAKING: Error collection is no longer a compatibility surface for the legacy parser internals. Applications that assert on the exact contents of `doc.errors`, or on the specific exception details raised by `strict=True`, must update to the new diagnostic model. Other users should not need API changes for this release.
 
 ## [2.4.1] - 2026-06-21
 
