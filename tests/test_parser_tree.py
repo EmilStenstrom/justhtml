@@ -264,6 +264,8 @@ class TestParserTreeConstruction(unittest.TestCase):
             "<div><pre>\nX</pre></div>": "<div><pre>X</pre></div>",
             "<div><listing>\nX</listing></div>": "<div><listing>X</listing></div>",
             "<div><textarea>\nX</textarea></div>": "<div><textarea>X</textarea></div>",
+            "<div><pre></": "<div><pre>&lt;/</pre></div>",
+            "<div><pre></x": "<div><pre></pre></div>",
         }
 
         for html, expected in cases.items():

@@ -1403,17 +1403,18 @@ class ParseEngine:
                 pos = end if gt == -1 else gt + 1
                 continue
             if ch == "/":
-                end_tag_name_pos = pos + 1
-                if end_tag_name_pos < end:
-                    end_tag_ch = html[end_tag_name_pos]
-                    end_tag_starts_with_letter = ("a" <= end_tag_ch <= "z") or ("A" <= end_tag_ch <= "Z")
-                    if (
-                        end_tag_starts_with_letter and self._find_tag_end(end_tag_name_pos + 1, end) != -1
-                    ) or not end_tag_starts_with_letter:
-                        # A complete end tag, or a bogus-comment token from an
-                        # invalid end-tag opener, intervenes before any later
-                        # character data.
-                        self._ignore_lf = False
+                if self._ignore_lf:
+                    end_tag_name_pos = pos + 1
+                    if end_tag_name_pos < end:
+                        end_tag_ch = html[end_tag_name_pos]
+                        end_tag_starts_with_letter = ("a" <= end_tag_ch <= "z") or ("A" <= end_tag_ch <= "Z")
+                        if (
+                            end_tag_starts_with_letter and self._find_tag_end(end_tag_name_pos + 1, end) != -1
+                        ) or not end_tag_starts_with_letter:
+                            # A complete end tag, or a bogus-comment token from
+                            # an invalid end-tag opener, intervenes before any
+                            # later character data.
+                            self._ignore_lf = False
                 pos = parse_end_tag(pos + 1, end)
                 continue
             if ch == "?":
@@ -1434,7 +1435,7 @@ class ParseEngine:
             if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
                 append_text("<", lt)
                 continue
-            if self._find_tag_end(pos + 1, end) != -1:
+            if self._ignore_lf and self._find_tag_end(pos + 1, end) != -1:
                 # A complete start tag is the next token, so a pending
                 # <pre>/<listing> leading-LF exception cannot leak past it.
                 self._ignore_lf = False
