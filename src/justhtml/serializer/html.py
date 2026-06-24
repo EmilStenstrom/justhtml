@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote as url_quote
 
@@ -63,10 +64,12 @@ def _validate_serializable_name(name: str, pattern: re.Pattern[str], kind: str) 
     return name
 
 
+@lru_cache(maxsize=4096)
 def _validate_serializable_tag_name(name: str) -> str:
     return _validate_serializable_name(name, _SERIALIZABLE_TAG_NAME_RE, "element")
 
 
+@lru_cache(maxsize=8192)
 def _validate_serializable_attr_name(name: str) -> str:
     return _validate_serializable_name(name, _SERIALIZABLE_ATTR_NAME_RE, "attribute")
 
@@ -748,7 +751,11 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                         all_text = False
                         break
                 if all_text:
-                    text_content = "".join(child.data or "" for child in children if child is not None)
+                    text_content = (
+                        children[0].data or ""
+                        if len(children) == 1 and children[0] is not None
+                        else "".join(child.data or "" for child in children if child is not None)
+                    )
                     text_content = _collapse_html_whitespace(text_content)
                     results.append(f"{prefix}{open_tag}{_serialize_text_for_parent(text_content, name)}{close_tag}")
                     continue

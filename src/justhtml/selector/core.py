@@ -603,7 +603,7 @@ class SelectorParser:
             self._expect(TokenType.PAREN_CLOSE)
             parsed_arg = (
                 _parse_selector(arg, limits=self.limits, parse_depth=self.parse_depth + 1)
-                if (name or "").lower() == "not" and arg
+                if name == "not" and arg
                 else None
             )
             return SimpleSelector(SimpleSelector.TYPE_PSEUDO, name=name, arg=arg, parsed_arg=parsed_arg)
