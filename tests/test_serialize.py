@@ -789,6 +789,17 @@ class TestSerialize(unittest.TestCase):
             == '<span disabled="">'
         )
 
+    def test_serialize_start_tag_void_trailing_solidus_with_attrs(self):
+        assert (
+            serialize_start_tag(
+                "input",
+                {"type": "text"},
+                use_trailing_solidus=True,
+                is_void=True,
+            )
+            == '<input type="text" />'
+        )
+
     def test_serialize_start_tag_rejects_unsafe_attribute_names(self):
         with self.assertRaisesRegex(ValueError, "Unsafe attribute name"):
             serialize_start_tag("div", {"x onmouseover=alert(1)": "1"})

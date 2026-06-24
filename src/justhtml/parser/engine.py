@@ -1514,7 +1514,7 @@ class ParseEngine:
             and not self._ignore_lf
             and not self._track_node_locations
             and not self._xml_coercion
-            and parent.namespace in {None, "html"}
+            and (parent.namespace is None or parent.namespace == "html")
             and type(parent) is not Template
             and parent is not self._head
             and parent is not self._html
@@ -2330,8 +2330,10 @@ class ParseEngine:
         if name == "image":
             name = "img"
         action = self._tag_actions.get(name)
-        if self._foreign_context_seen and self._stack[-1].namespace not in {None, "html", _PARSER_ONLY_NAMESPACE}:
-            return self._parse_start_tag(name_start, end)
+        if self._foreign_context_seen:
+            namespace = self._stack[-1].namespace
+            if namespace is not None and namespace != "html" and namespace != _PARSER_ONLY_NAMESPACE:
+                return self._parse_start_tag(name_start, end)
         if not self._initial_mode_done:
             self._mark_initial_content()
 

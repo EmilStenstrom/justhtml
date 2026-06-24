@@ -231,31 +231,33 @@ def serialize_start_tag(
     is_void: bool = False,
 ) -> str:
     name = _validate_serializable_tag_name(name)
+    if not attrs:
+        return f"<{name} />" if use_trailing_solidus and is_void else f"<{name}>"
+
     parts: list[str] = ["<", name]
-    if attrs:
-        parts_extend = parts.extend
-        for raw_key, value in attrs.items():
-            key = _validate_serializable_attr_name(raw_key)
-            if minimize_boolean_attributes:
-                if value is None or value == "" or value == key:
-                    parts_extend((" ", key))
-                    continue
-                if len(value) == len(key) and value.lower() == key:
-                    parts_extend((" ", key))
-                    continue
-
-            if value is None or value == "":
-                parts_extend((" ", key, '=""'))
+    parts_extend = parts.extend
+    for raw_key, value in attrs.items():
+        key = _validate_serializable_attr_name(raw_key)
+        if minimize_boolean_attributes:
+            if value is None or value == "" or value == key:
+                parts_extend((" ", key))
+                continue
+            if len(value) == len(key) and value.lower() == key:
+                parts_extend((" ", key))
                 continue
 
-            if not quote_attr_values and _can_unquote_attr_value(value):
-                escaped = value.replace("&", "&amp;").replace("<", "&lt;")
-                parts_extend((" ", key, "=", escaped))
-                continue
+        if value is None or value == "":
+            parts_extend((" ", key, '=""'))
+            continue
 
-            quote = _choose_attr_quote(value, quote_char)
-            escaped = _escape_attr_value(value, quote)
-            parts_extend((" ", key, "=", quote, escaped, quote))
+        if not quote_attr_values and _can_unquote_attr_value(value):
+            escaped = value.replace("&", "&amp;").replace("<", "&lt;")
+            parts_extend((" ", key, "=", escaped))
+            continue
+
+        quote = _choose_attr_quote(value, quote_char)
+        escaped = _escape_attr_value(value, quote)
+        parts_extend((" ", key, "=", quote, escaped, quote))
 
     if use_trailing_solidus and is_void:
         parts.append(" />")
@@ -726,11 +728,12 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                 continue
 
             open_tag = serialize_start_tag(name, current.attrs)
-            close_tag = serialize_end_tag(name)
 
             if name in VOID_ELEMENTS:
                 results.append(f"{prefix}{open_tag}")
                 continue
+
+            close_tag = f"</{name}>"
 
             children: list[Any] = (
                 current.template_content.children
