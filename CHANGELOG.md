@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+- Speed up pretty HTML serialization for direct text-only elements, reduce repeated selector name normalization during matching, and fix the real-world profiler script when run directly.
+
 ## [3.0.0] - 2026-06-21
 
 JustHTML 3.0.0 ships a new parser core. The old tokenizer and tree-builder are now one integrated system, which makes the parser much faster while keeping browser-style HTML5 recovery and default-safe behavior intact. In practice, this release is mainly about getting materially better performance without asking most users to change how they use the library.

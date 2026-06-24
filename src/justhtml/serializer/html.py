@@ -748,7 +748,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                         all_text = False
                         break
                 if all_text:
-                    text_content = current.to_text(separator="", strip=False)
+                    text_content = "".join(child.data or "" for child in children if child is not None)
                     text_content = _collapse_html_whitespace(text_content)
                     results.append(f"{prefix}{open_tag}{_serialize_text_for_parent(text_content, name)}{close_tag}")
                     continue

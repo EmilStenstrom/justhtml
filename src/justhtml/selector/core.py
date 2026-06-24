@@ -575,6 +575,7 @@ class SelectorParser:
         self._expect(TokenType.ATTR_START)
 
         attr_name = self._expect(TokenType.TAG).value
+        attr_name = attr_name.lower() if attr_name else attr_name
 
         token = self._peek()
         if token.type == TokenType.ATTR_END:
@@ -591,6 +592,7 @@ class SelectorParser:
         """Parse a pseudo-class selector like :first-child or :not(selector)."""
         self._expect(TokenType.COLON)
         name = self._expect(TokenType.TAG).value
+        name = name.lower() if name else name
 
         # Functional pseudo-class
         if self._peek().type == TokenType.PAREN_OPEN:
@@ -773,7 +775,9 @@ class SelectorMatcher:
 
         if sel_type == SimpleSelector.TYPE_TAG:
             # HTML tag names are case-insensitive
-            return bool(node.name.lower() == (selector.name.lower() if selector.name else ""))
+            selector_name = selector.name or ""
+            node_name = node.name
+            return bool(node_name == selector_name or node_name.lower() == selector_name)
 
         if sel_type == SimpleSelector.TYPE_ID:
             node_id = node.attrs.get("id", "") if node.attrs else ""
@@ -803,7 +807,7 @@ class SelectorMatcher:
 
     def _matches_attribute(self, node: Any, selector: SimpleSelector) -> bool:
         """Match an attribute selector."""
-        attr_name = (selector.name or "").lower()  # Attribute names are case-insensitive in HTML
+        attr_name = selector.name or ""  # Attribute names are normalized during parsing.
         attr_value = self._attribute_value(node, attr_name)
 
         if attr_value is None:
@@ -893,7 +897,7 @@ class SelectorMatcher:
 
     def _matches_pseudo(self, node: Any, selector: SimpleSelector, *, depth: int = 0) -> bool:
         """Match a pseudo-class selector."""
-        name = (selector.name or "").lower()
+        name = selector.name or ""
 
         if name == "first-child":
             return self._is_first_child(node)
@@ -1067,7 +1071,7 @@ class SelectorMatcher:
     def _compound_tag_name(self, compound: CompoundSelector) -> str | None:
         for simple in compound.selectors:
             if simple.type == SimpleSelector.TYPE_TAG and simple.name:
-                return simple.name.lower()
+                return simple.name
         return None
 
     def _element_child_names(self, parent: Any) -> frozenset[str]:
@@ -1376,8 +1380,7 @@ def _selector_allows_non_elements(selector: ParsedSelector | CompoundSelector | 
     if isinstance(selector, SimpleSelector):
         if selector.type != SimpleSelector.TYPE_PSEUDO:
             return False
-        name = (selector.name or "").lower()
-        return name == "comment"
+        return selector.name == "comment"
     return False
 
 

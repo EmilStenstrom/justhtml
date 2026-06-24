@@ -2,9 +2,10 @@
 """Profile JustHTML on real-world HTML."""
 
 import argparse
-import cProfile
+import importlib
 import pathlib
 import pstats
+import sys
 import tarfile
 
 import zstandard as zstd
@@ -57,7 +58,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def remove_script_dir_from_import_path() -> None:
+    script_dir = str(pathlib.Path(__file__).resolve().parent)
+    if sys.path and sys.path[0] == script_dir:
+        sys.path.pop(0)
+
+
 def main() -> None:
+    remove_script_dir_from_import_path()
+    cprofile = importlib.import_module("cProfile")
+
     args = parse_args()
 
     dict_bytes = load_dict(pathlib.Path("/home/emilstenstrom/Projects/web100k/html.dict"))
@@ -69,7 +79,7 @@ def main() -> None:
 
     print(f"Loaded {len(html_files)} files")
 
-    profiler = cProfile.Profile()
+    profiler = cprofile.Profile()
     profiler.enable()
 
     for _filename, html in html_files:
