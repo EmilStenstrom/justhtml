@@ -5093,6 +5093,12 @@ class ParseEngine:
         if _URL_CONTROL_CHAR_REGEX.search(stripped):
             return None
 
+        allowed_schemes = rule.allowed_schemes
+        if stripped.startswith("https://") and " " not in stripped:
+            return stripped if "https" in allowed_schemes else None
+        if stripped.startswith("http://") and " " not in stripped:
+            return stripped if "http" in allowed_schemes else None
+
         if ":" not in stripped:
             if "\\" in stripped:
                 return None
@@ -5119,7 +5125,6 @@ class ParseEngine:
                 stripped if rule.allow_fragment else None
             )  # pragma: no cover - unreachable after parser-state guards
 
-        allowed_schemes = rule.allowed_schemes
         if normalized.startswith("//"):  # pragma: no branch - opposite edge requires invalid parser state
             resolved = rule.resolve_protocol_relative  # pragma: no cover - unreachable after parser-state guards
             if not resolved:  # pragma: no cover - unreachable after parser-state guards

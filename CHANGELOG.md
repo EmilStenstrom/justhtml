@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 - Speed up pretty HTML serialization for direct text-only elements, repeated tag/attribute names, and common empty-attribute elements; reduce repeated selector name normalization and hot parser namespace checks; and fix the real-world profiler script when run directly.
+- Speed up parser URL sanitization for common lowercase `http://` and `https://` attributes.
 
 ## [3.0.0] - 2026-06-21
 
