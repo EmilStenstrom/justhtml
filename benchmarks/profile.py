@@ -51,9 +51,15 @@ def load_html_files(batch_path: pathlib.Path, dict_bytes: bytes, limit: int = 10
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--mode",
+        choices=["parse", "compact-html", "pretty-html", "text", "fragment"],
+        default="parse",
+        help="Pipeline to profile (default: parse)",
+    )
+    parser.add_argument(
         "--to-html",
         action="store_true",
-        help="Profile parse + serialization via to_html() (pretty=True by default)",
+        help="Deprecated alias for --mode pretty-html",
     )
     return parser.parse_args()
 
@@ -79,12 +85,26 @@ def main() -> None:
 
     print(f"Loaded {len(html_files)} files")
 
+    mode = "pretty-html" if args.to_html else args.mode
+
     profiler = cprofile.Profile()
     profiler.enable()
 
     for _filename, html in html_files:
+        if mode == "fragment":
+            parser = JustHTML(html, fragment=True)
+            _ = parser.root
+            continue
+
         parser = JustHTML(html)
-        _ = parser.to_html() if args.to_html else parser.root
+        if mode == "compact-html":
+            _ = parser.to_html(pretty=False)
+        elif mode == "pretty-html":
+            _ = parser.to_html()
+        elif mode == "text":
+            _ = parser.to_text()
+        else:
+            _ = parser.root
 
     profiler.disable()
 
