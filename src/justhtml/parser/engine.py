@@ -972,6 +972,13 @@ class ParseEngine:
             if tag_end == -1:
                 self._emit_error("eof-in-tag", end - 1)
                 return
+            if name in self._p_closing_start_tags:
+                for idx in range(len(open_tags) - 1, -1, -1):
+                    if open_tags[idx] == "p":
+                        del open_tags[idx:]
+                        break
+                    if open_tags[idx] in _P_SCOPE_BOUNDARIES:
+                        break
             if name not in self._void_elements and not self._is_self_closing_source_tag(pos + len(name), tag_end):
                 open_tags.append(name)
             pos = tag_end + 1

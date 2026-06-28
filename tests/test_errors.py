@@ -2,6 +2,7 @@
 
 import ast
 import re
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -342,6 +343,24 @@ class TestTreeConstructionErrors(unittest.TestCase):
         doc = JustHTML("<!DOCTYPE html><html><body></span>", collect_errors=True)
         # Closing tag without opening tag
         assert len(doc.errors) > 0
+
+    def test_nested_paragraph_strict_mode_reports_unexpected_end_tag(self):
+        """Implicit paragraph closure still leaves the extra </p> as an error."""
+        html = textwrap.dedent(
+            """
+            <!doctype html>
+            <html>
+                <body>
+                    <p>hello. <p>bad!</p></p>
+                </body>
+            </html>
+            """
+        ).strip()
+        doc = JustHTML(html, collect_errors=True)
+        assert [error.code for error in doc.errors] == ["unexpected-end-tag"]
+
+        with self.assertRaises(StrictModeError):
+            JustHTML(html, strict=True)
 
     def test_tree_construction_error_after_newline(self):
         """Tree construction error column is calculated after newlines."""
