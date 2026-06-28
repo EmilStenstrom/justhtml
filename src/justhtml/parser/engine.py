@@ -5090,14 +5090,14 @@ class ParseEngine:
         if not stripped:
             return None
 
+        allowed_schemes = rule.allowed_schemes
+        if stripped.startswith("https://") and " " not in stripped and stripped.isprintable():
+            return stripped if "https" in allowed_schemes else None
+        if stripped.startswith("http://") and " " not in stripped and stripped.isprintable():
+            return stripped if "http" in allowed_schemes else None
+
         if _URL_CONTROL_CHAR_REGEX.search(stripped):
             return None
-
-        allowed_schemes = rule.allowed_schemes
-        if stripped.startswith("https://") and " " not in stripped:
-            return stripped if "https" in allowed_schemes else None
-        if stripped.startswith("http://") and " " not in stripped:
-            return stripped if "http" in allowed_schemes else None
 
         if ":" not in stripped:
             if "\\" in stripped:
