@@ -707,8 +707,8 @@ class TestParserTreeConstruction(unittest.TestCase):
 
     def test_select_end_tags_create_p_and_close_custom_children_like_chromium(self) -> None:
         cases = {
-            "<select>x</p>": "<select>x<p></p></select>",
-            "<select><option></p>": "<select><option><p></p></option></select>",
+            "<select>x</p>": "<select>x</select>",
+            "<select><option></p>": "<select><option></option></select>",
             "<select><b></br>x": "<select><b><br>x</b></select>",
             "<select><p>x</p>y": "<select><p>x</p>y</select>",
             "<select><form></form>x": "<select><form></form>x</select>",
@@ -870,8 +870,8 @@ class TestParserTreeConstruction(unittest.TestCase):
 
     def test_mathml_text_integration_end_tag_breakouts_stay_inside_integration_point(self) -> None:
         cases = {
-            "<math><mi></p>": "<math><mi><p></p></mi></math>",
-            "<math><mtext></p>": "<math><mtext><p></p></mtext></math>",
+            "<math><mi></p>": "<math><mi></mi></math>",
+            "<math><mtext></p>": "<math><mtext></mtext></math>",
             "<math><mi></br>x": "<math><mi><br>x</mi></math>",
         }
 

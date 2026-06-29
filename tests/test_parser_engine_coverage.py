@@ -195,7 +195,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
                 "<html><head></head><body><table><tbody><tr><td>x</td></tr></tbody></table></body></html>",
             ),
             ("</h1>x", "<html><head></head><body>x</body></html>"),
-            ("x</p>y", "<html><head></head><body>x<p></p>y</body></html>"),
+            ("x</p>y", "<html><head></head><body>xy</body></html>"),
             ("<audio><span></audio>x", "<html><head></head><body><span></span>x</body></html>"),
             ("<head></br>x", "<html><head></head><body><br>x</body></html>"),
             ("<head></div><title>x</title>", "<html><head><title>x</title></head><body></body></html>"),
@@ -247,7 +247,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
     def test_additional_fragment_recovery(self) -> None:
         cases = [
             ("<div>x</body>y", FragmentContext("html"), "<div>x</div>y"),
-            ("x</p>y", FragmentContext("div"), "x<p></p>y"),
+            ("x</p>y", FragmentContext("div"), "xy"),
             ("<col><div>x", FragmentContext("colgroup"), ""),
             ("<colgroup><col><caption>x", FragmentContext("table"), "<caption>x</caption>"),
             ("<tr><td>x<table><tr><td>y", FragmentContext("caption"), "xy<table></table>"),

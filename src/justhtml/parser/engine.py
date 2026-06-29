@@ -2014,8 +2014,7 @@ class ParseEngine:
                     and not self._body_has_content()
                 ):
                     return pos
-                self._insert_compiled_safe_element("p", {}, False, self._current_parent())
-                self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
+                self._emit_error("unexpected-end-tag", name_start - 2, tag_name=name, category="treebuilder", end_pos=pos)
             return pos
         if self._fragment_context_node is not None and stack[idx] is self._fragment_context_node:
             return pos
@@ -2302,8 +2301,7 @@ class ParseEngine:
                     and not self._body_has_content()
                 ):
                     return pos
-                self._insert_sanitized_element("p", {}, False, self._current_parent())
-                self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
+                self._emit_error("unexpected-end-tag", tag_start, tag_name=name, category="treebuilder", end_pos=tag_end)
             return pos
         if self._fragment_context_node is not None and stack[idx] is self._fragment_context_node:
             return pos
