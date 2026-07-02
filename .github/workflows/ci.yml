@@ -36,7 +36,9 @@ jobs:
       - name: Checkout html5lib-tests
         run: |
           cd ..
-          git clone https://github.com/html5lib/html5lib-tests.git
+          git clone --no-checkout https://github.com/html5lib/html5lib-tests.git
+          git -C html5lib-tests fetch origin 9fb614afaa42ce8787840f057b32084308e76549
+          git -C html5lib-tests checkout 9fb614afaa42ce8787840f057b32084308e76549
           git -C html5lib-tests rev-parse HEAD
 
       - name: Setup test fixtures
