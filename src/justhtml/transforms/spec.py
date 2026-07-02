@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, ClassVar
 
-from justhtml.core.constants import WHITESPACE_PRESERVING_ELEMENTS
+from justhtml.core.constants import WHITESPACE_PRESERVING_ELEMENTS, WHITESPACE_TRIMMING_BLOCK_ELEMENTS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection
@@ -342,12 +342,15 @@ class CollapseWhitespace:
     """Collapse whitespace in text nodes.
 
     Collapses runs of HTML whitespace characters (space, tab, LF, CR, FF) into a
-    single space.
+    single space. By default, leading and trailing whitespace is also trimmed at
+    the edges of block containers.
 
     This is similar to `html5lib.filters.whitespace.Filter`.
     """
 
     skip_tags: frozenset[str]
+    trim_blocks: bool
+    block_tags: frozenset[str]
     enabled: bool
     callback: NodeCallback | None
     report: ReportCallback | None
@@ -359,11 +362,15 @@ class CollapseWhitespace:
             *WHITESPACE_PRESERVING_ELEMENTS,
             "title",
         ),
+        trim_blocks: bool = True,
+        block_tags: list[str] | tuple[str, ...] | set[str] | frozenset[str] = WHITESPACE_TRIMMING_BLOCK_ELEMENTS,
         enabled: bool = True,
         callback: NodeCallback | None = None,
         report: ReportCallback | None = None,
     ) -> None:
         object.__setattr__(self, "skip_tags", frozenset(str(t).lower() for t in skip_tags))
+        object.__setattr__(self, "trim_blocks", bool(trim_blocks))
+        object.__setattr__(self, "block_tags", frozenset(str(t).lower() for t in block_tags))
         object.__setattr__(self, "enabled", bool(enabled))
         object.__setattr__(self, "callback", callback)
         object.__setattr__(self, "report", report)

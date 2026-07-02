@@ -258,6 +258,26 @@ def apply_compiled_transforms(
                 node.parent = None
                 return True
 
+            def _trim_block_edge_text(
+                text_data: str,
+                *,
+                parent: Node,
+                children: list[Node],
+                child_index: int,
+                block_tags: frozenset[str],
+            ) -> str:
+                parent_name = parent.name
+                if parent_name.startswith("#") or parent_name == "!doctype":
+                    return text_data
+                if parent_name.lower() not in block_tags:
+                    return text_data
+
+                if child_index == 0:
+                    text_data = text_data.lstrip(" \t\n\f\r")
+                if child_index == len(children) - 1:
+                    text_data = text_data.rstrip(" \t\n\f\r")
+                return text_data
+
             def apply_to_children(
                 parent: Node,
                 *,
@@ -480,12 +500,27 @@ def apply_compiled_transforms(
                                 text_data = str(node.data or "")
                                 if text_data:
                                     collapsed = _collapse_html_space_characters(text_data)
-                                    if collapsed != text_data:
+                                    normalized = collapsed
+                                    if t.trim_blocks:
+                                        normalized = _trim_block_edge_text(
+                                            normalized,
+                                            parent=parent,
+                                            children=children,
+                                            child_index=i,
+                                            block_tags=t.block_tags,
+                                        )
+                                    if normalized != text_data:
                                         if t.callback is not None:
                                             t.callback(node)
                                         if t.report is not None:
                                             t.report("Collapsed whitespace in text node", node=node)
-                                        node.data = collapsed
+                                        if normalized:
+                                            node.data = normalized
+                                        else:
+                                            children.pop(i)
+                                            node.parent = None
+                                            changed = True
+                                            break
                             continue
 
                         if k == "strip_invisible_unicode":

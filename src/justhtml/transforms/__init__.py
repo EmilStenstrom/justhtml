@@ -233,6 +233,8 @@ TransformSpec = Transform | Stage
 class _CompiledCollapseWhitespaceTransform:
     kind: Literal["collapse_whitespace"]
     skip_tags: frozenset[str]
+    trim_blocks: bool
+    block_tags: frozenset[str]
     callback: NodeCallback | None
     report: ReportCallback | None
 

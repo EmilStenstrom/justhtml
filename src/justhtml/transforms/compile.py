@@ -968,6 +968,8 @@ def _compile_collapse_whitespace_transform(t: CollapseWhitespace) -> _CompiledCo
     return _CompiledCollapseWhitespaceTransform(
         kind="collapse_whitespace",
         skip_tags=t.skip_tags,
+        trim_blocks=t.trim_blocks,
+        block_tags=t.block_tags,
         callback=t.callback,
         report=t.report,
     )

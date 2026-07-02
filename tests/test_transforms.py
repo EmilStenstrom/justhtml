@@ -1834,6 +1834,55 @@ class TestTransforms(unittest.TestCase):
         )
         assert doc.to_html(pretty=False) == "<pre>a  b</pre><p>a b</p>"
 
+    def test_collapsewhitespace_trims_block_edges_by_default(self) -> None:
+        doc = JustHTML(
+            "<p>\n      test\n</p>",
+            fragment=True,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<p>test</p>"
+
+    def test_collapsewhitespace_trim_blocks_can_be_disabled(self) -> None:
+        doc = JustHTML(
+            "<p>\n      test\n</p>",
+            fragment=True,
+            transforms=[CollapseWhitespace(trim_blocks=False)],
+        )
+        assert doc.to_html(pretty=False) == "<p> test </p>"
+
+    def test_collapsewhitespace_preserves_inline_edge_whitespace(self) -> None:
+        doc = JustHTML(
+            "<span>\n      test\n</span>",
+            fragment=True,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<span> test </span>"
+
+    def test_collapsewhitespace_preserves_fragment_root_edge_whitespace(self) -> None:
+        doc = JustHTML(
+            "\n      test\n",
+            fragment=True,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == " test "
+
+    def test_collapsewhitespace_preserves_middle_text_edges_in_blocks(self) -> None:
+        doc = JustHTML(
+            "<p><b>a</b> middle <i>b</i></p>",
+            fragment=True,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<p><b>a</b> middle <i>b</i></p>"
+
+    def test_collapsewhitespace_block_tags_can_include_custom_tags(self) -> None:
+        doc = JustHTML(
+            "<x-card>\n      test\n</x-card>",
+            fragment=True,
+            sanitize=False,
+            transforms=[CollapseWhitespace(block_tags=("x-card",))],
+        )
+        assert doc.to_html(pretty=False) == "<x-card>test</x-card>"
+
     def test_collapsewhitespace_noops_when_no_collapse_needed(self) -> None:
         doc = JustHTML(
             "<p>Hello world</p>",
@@ -1849,6 +1898,14 @@ class TestTransforms(unittest.TestCase):
             transforms=[CollapseWhitespace(skip_tags=("p",))],
         )
         assert doc.to_html(pretty=False) == "<p>a  b</p>"
+
+    def test_collapsewhitespace_skip_tags_win_over_block_trimming(self) -> None:
+        doc = JustHTML(
+            "<p>\n      test\n</p>",
+            fragment=True,
+            transforms=[CollapseWhitespace(skip_tags=("p",), block_tags=("p",))],
+        )
+        assert doc.to_html(pretty=False) == "<p>\n      test\n</p>"
 
     def test_collapsewhitespace_ignores_empty_text_nodes(self) -> None:
         root = Node("div")

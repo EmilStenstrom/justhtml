@@ -268,11 +268,16 @@ Advanced building blocks (useful for policy-driven pipelines):
 
 See [`Linkify(...)`](linkify.md) for full documentation and examples.
 
-### `CollapseWhitespace(skip_tags=(...), enabled=True, callback=None, report=None)`
+### `CollapseWhitespace(skip_tags=(...), trim_blocks=True, block_tags=(...), enabled=True, callback=None, report=None)`
 
 Collapses runs of HTML whitespace characters in text nodes to a single space.
+By default, it also trims leading and trailing whitespace at the edges of block
+containers such as `<p>`, `<div>`, and `<li>`.
 
-This is similar to `html5lib.filters.whitespace.Filter`.
+Pass `trim_blocks=False` for html5lib-like whitespace filtering without edge
+trimming. Use `block_tags=(...)` to define which containers trim their edge
+whitespace; `skip_tags` still wins and preserves whitespace inside matching
+tags.
 
 By default it skips `<pre>`, `<textarea>`, `<code>`, `<title>`, `<script>`, and `<style>`.
 
@@ -280,7 +285,7 @@ By default it skips `<pre>`, `<textarea>`, `<code>`, `<title>`, `<script>`, and 
 from justhtml import CollapseWhitespace, JustHTML
 
 doc = JustHTML(
-    "<p>Hello \n\t world</p><pre>a  b</pre>",
+    "<p>\n  Hello \n\t world\n</p><pre>a  b</pre>",
     fragment=True,
     transforms=[CollapseWhitespace()],
 )
