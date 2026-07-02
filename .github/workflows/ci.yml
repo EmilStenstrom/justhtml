@@ -39,13 +39,12 @@ jobs:
           git clone https://github.com/html5lib/html5lib-tests.git
           git -C html5lib-tests rev-parse HEAD
 
-      - name: Setup test symlinks
+      - name: Setup test fixtures
         run: |
-          cd tests
-          ln -s ../../html5lib-tests/tokenizer html5lib-tests-tokenizer
-          ln -s ../../html5lib-tests/tree-construction html5lib-tests-tree
-          ln -s ../../html5lib-tests/serializer html5lib-tests-serializer
-          ln -s ../../html5lib-tests/encoding html5lib-tests-encoding
+          cp -a ../html5lib-tests/tokenizer tests/html5lib-tests-tokenizer
+          cp -a ../html5lib-tests/tree-construction tests/html5lib-tests-tree
+          cp -a ../html5lib-tests/serializer tests/html5lib-tests-serializer
+          cp -a ../html5lib-tests/encoding tests/html5lib-tests-encoding
 
       - name: Run pre-commit
         id: precommit
