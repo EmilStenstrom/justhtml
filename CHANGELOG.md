@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-07-02
+
 ### Changed
 - `CollapseWhitespace(...)` now trims leading and trailing whitespace at block-container edges by default. Pass `trim_blocks=False` to keep the previous html5lib-like behavior, or customize `block_tags=(...)` for project-specific block containers.
+- Document that DOM insertion methods adopt existing nodes, and show how to clone nodes before appending when using parsed DOMs as templates.
 
 ### Fixed
 - Apply explicit `UrlPolicy.allow_rules` to custom URL attributes in constructor sanitization and `DropUrlAttrs(...)`. Previously, rules such as `("el-custom", "data-url")` were ignored unless the attribute name was one of JustHTML's built-in URL sinks.
+- Restore strict-mode reporting for unexpected `</p>` end tags after implicit paragraph closure.
 
 ### Performance
 - Speed up pretty HTML serialization for direct text-only elements, repeated tag/attribute names, and common empty-attribute elements; reduce repeated selector name normalization and hot parser namespace checks; and fix the real-world profiler script when run directly.
