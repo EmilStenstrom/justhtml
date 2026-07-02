@@ -408,9 +408,15 @@ When you build documents with `JustHTML(..., sanitize=True)` (the default), this
 
 Append a child node to this node.
 
+If `node` already has a parent, it is moved from that parent to this node. Use
+`node.clone_node(deep=True)` before appending when you want to keep the source
+DOM unchanged.
+
 #### `insert_before(node, reference_node)`
 
 Insert `node` before `reference_node` (or append if `reference_node` is `None`).
+
+If `node` already has a parent, it is moved from that parent to this node.
 
 #### `remove_child(node)`
 
@@ -419,6 +425,9 @@ Remove a direct child node.
 #### `replace_child(new_node, old_node)`
 
 Replace a direct child node with a new node.
+
+If `new_node` already has a parent, it is moved from that parent before it
+replaces `old_node`.
 
 #### `clone_node(deep=False, override_attrs=None)`
 

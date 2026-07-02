@@ -435,6 +435,33 @@ lead = doc.query_one("p.lead")
 lead.to_html(pretty=False)  # => <p class="lead">Hello</p>
 ```
 
+### Clone from template DOMs before appending
+
+DOM insertion methods adopt existing nodes. If you append a node that already
+belongs to another tree, it is removed from its old parent and moved into the new
+tree.
+
+When you use one parsed DOM as a template for another document, clone the source
+node before appending it:
+
+```python
+from justhtml import JustHTML
+from justhtml.dom.builder import element
+
+template = JustHTML('<section><p class="lead">Hello</p></section>', fragment=True, sanitize=False)
+output = JustHTML(element("main"), fragment=True, sanitize=False)
+
+lead = template.query_one("p.lead")
+assert lead is not None
+main = output.query_one("main")
+assert main is not None
+
+main.append_child(lead.clone_node(deep=True))
+
+template.to_html(pretty=False)  # => <section><p class="lead">Hello</p></section>
+output.to_html(pretty=False)  # => <main><p class="lead">Hello</p></main>
+```
+
 ## When Not to Use the Builder
 
 Don’t use the builder just because it exists.
