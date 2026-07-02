@@ -1503,6 +1503,34 @@ class TestTransforms(unittest.TestCase):
         assert doc.to_html(pretty=False) == '<a href="javascript:alert(1)">x</a>'
         assert policy.collected_security_errors() == []
 
+    def test_dropurlattrs_applies_explicit_custom_attribute_rules(self) -> None:
+        url_policy = UrlPolicy(allow_rules={("el-custom", "data-url"): UrlRule(allowed_schemes={"https"})})
+
+        doc = JustHTML(
+            '<el-custom data-url="mailto:foo"></el-custom><el-custom data-url="https://example.com"></el-custom>',
+            fragment=True,
+            sanitize=False,
+            transforms=[DropUrlAttrs("*", url_policy=url_policy)],
+        )
+
+        assert doc.to_html(pretty=False) == (
+            '<el-custom></el-custom><el-custom data-url="https://example.com"></el-custom>'
+        )
+
+    def test_dropurlattrs_applies_wildcard_custom_attribute_rules(self) -> None:
+        url_policy = UrlPolicy(allow_rules={("*", "data-url"): UrlRule(allowed_schemes={"https"})})
+
+        doc = JustHTML(
+            '<el-custom data-url="mailto:foo"></el-custom><el-custom data-url="https://example.com"></el-custom>',
+            fragment=True,
+            sanitize=False,
+            transforms=[DropUrlAttrs("*", url_policy=url_policy)],
+        )
+
+        assert doc.to_html(pretty=False) == (
+            '<el-custom></el-custom><el-custom data-url="https://example.com"></el-custom>'
+        )
+
     def test_allowstyleattrs_branches_raw_none_and_sanitized_none(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["span"],

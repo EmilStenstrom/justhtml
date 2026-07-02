@@ -2222,6 +2222,36 @@ class TestSanitizeDom(unittest.TestCase):
         out = JustHTML('<a href="https://example.com/x">x</a><img src="/x.png">', fragment=True).to_html(pretty=False)
         assert out == '<a href="https://example.com/x">x</a><img src="/x.png">'
 
+    def test_constructor_sanitize_applies_explicit_custom_attribute_url_rules(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"el-custom"},
+            allowed_attributes={"el-custom": {"data-url"}},
+            url_policy=UrlPolicy(allow_rules={("el-custom", "data-url"): UrlRule(allowed_schemes={"https"})}),
+        )
+
+        out = JustHTML(
+            '<el-custom data-url="mailto:foo"></el-custom><el-custom data-url="https://example.com"></el-custom>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<el-custom></el-custom><el-custom data-url="https://example.com"></el-custom>'
+
+    def test_constructor_sanitize_applies_wildcard_custom_attribute_url_rules(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"el-custom"},
+            allowed_attributes={"el-custom": {"data-url"}},
+            url_policy=UrlPolicy(allow_rules={("*", "data-url"): UrlRule(allowed_schemes={"https"})}),
+        )
+
+        out = JustHTML(
+            '<el-custom data-url="mailto:foo"></el-custom><el-custom data-url="https://example.com"></el-custom>',
+            fragment=True,
+            policy=policy,
+        ).to_html(pretty=False)
+
+        assert out == '<el-custom></el-custom><el-custom data-url="https://example.com"></el-custom>'
+
     def test_url_policy_proxy_does_not_bypass_scheme_checks(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["a"],

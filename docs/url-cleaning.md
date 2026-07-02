@@ -85,7 +85,8 @@ Output:
 
 ## How URL cleaning works (in order)
 
-For a URL-like attribute (like `img[src]` or `a[href]`), JustHTML applies these steps:
+For a URL-like attribute (like `img[src]` or `a[href]`) or a custom attribute with an explicit
+`UrlPolicy(allow_rules=...)` entry, JustHTML applies these steps:
 
 1. The tag must be allowed by `SanitizationPolicy.allowed_tags`.
 2. The attribute name must be allowed by `SanitizationPolicy.allowed_attributes`.
@@ -103,7 +104,9 @@ URL behavior is controlled by `UrlPolicy`:
 - `default_handling`: the default post-validation action for URL-like attributes that match an allow rule and do not set `UrlRule.handling`.
 - `default_allow_relative`: whether **relative** URLs (like `/path`, `./path`, `../path`, `?q`) are allowed by default.
 
-For URL-like attributes that match an explicit `(tag, attr)` rule in `allow_rules`, validated URLs use `UrlPolicy.default_handling` unless that specific `UrlRule` overrides it with `handling=...`.
+For URL-like attributes, or custom attributes that match an explicit `(tag, attr)` or `("*", attr)` rule in
+`allow_rules`, validated URLs use `UrlPolicy.default_handling` unless that specific `UrlRule` overrides it with
+`handling=...`.
 
 Note: URL validation is always enforced by `UrlRule`.
 

@@ -775,11 +775,14 @@ def _compile_drop_url_attrs_transform(
 
         for key in attrs:
             lower_key = key if key.islower() else key.lower()
-            if lower_key not in url_sink_attrs:
+            rule = url_policy.allow_rules.get((tag, lower_key)) or url_policy.allow_rules.get(("*", lower_key))
+            if lower_key not in url_sink_attrs and rule is None:
                 continue
             raw_value = attrs[key]
 
-            sink_kind = _url_sink_kind_for_attr(tag=tag, attr=lower_key, attrs=attrs)
+            sink_kind = (
+                _url_sink_kind_for_attr(tag=tag, attr=lower_key, attrs=attrs) if lower_key in url_sink_attrs else "url"
+            )
             if sink_kind is None:
                 continue
 
@@ -791,7 +794,6 @@ def _compile_drop_url_attrs_transform(
                 to_drop.append(key)
                 continue
 
-            rule = url_policy.allow_rules.get((tag, lower_key))
             if rule is None:
                 if on_report is not None:  # pragma: no cover
                     on_report(f"Unsafe URL in attribute '{lower_key}' (no rule)", node=node)

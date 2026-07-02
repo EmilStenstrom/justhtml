@@ -5,9 +5,14 @@ from pathlib import Path
 from justhtml import JustHTML
 from justhtml.dom import Element
 from justhtml.parser.context import FragmentContext
-from justhtml.parser.engine import ParseEngine, compile_default_engine_plan, compile_raw_engine_plan
+from justhtml.parser.engine import (
+    ParseEngine,
+    compile_default_engine_plan,
+    compile_engine_plan,
+    compile_raw_engine_plan,
+)
 from justhtml.parser.options import ParserOptions
-from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, UrlPolicy
+from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlRule
 from tests.harness.tree import TestRunner
 
 
@@ -733,6 +738,23 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
                     "<html><head></head><body></body></html>",
                     policy=policy,
                 )
+
+    def test_compiled_engine_plan_applies_explicit_custom_attribute_url_rules(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"el-custom"},
+            allowed_attributes={"el-custom": {"data-url"}},
+            url_policy=UrlPolicy(allow_rules={("el-custom", "data-url"): UrlRule(allowed_schemes={"https"})}),
+        )
+        plan = compile_engine_plan(policy=policy, fragment=True)
+        engine = ParseEngine(
+            '<el-custom data-url="mailto:foo"></el-custom><el-custom data-url="https://example.com"></el-custom>',
+            fragment=True,
+            plan=plan,
+        )
+
+        assert engine.parse().to_html(pretty=False) == (
+            '<el-custom></el-custom><el-custom data-url="https://example.com"></el-custom>'
+        )
 
     def test_deep_recovery_interactions(self) -> None:
         self.assert_parses_to(

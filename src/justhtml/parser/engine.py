@@ -319,12 +319,17 @@ def _compile_tag_actions(
         preserve_state_attrs = tag in _ACTIVE_FORMATTING_TAGS and not allowed
         url_attr_kinds: dict[str, UrlSinkKind] = {}
         url_attr_rules: dict[str, UrlRule] = {}
-        for attr in allowed_attrs.intersection(_URL_SINK_ATTRS):
-            rule = url_rules.get((tag, attr))
-            if rule is None:  # pragma: no cover - planner only iterates explicitly configured URL attributes
+        for attr in allowed_attrs:
+            rule = url_rules.get((tag, attr)) or url_rules.get(("*", attr))
+            if attr not in _URL_SINK_ATTRS and rule is None:
                 continue
-            kind = _url_sink_kind_for_attr(tag=tag, attr=attr, attrs={attr: ""})
-            if kind is None:  # pragma: no cover - URL sink attributes always have a declared sink kind
+            if rule is None:  # pragma: no cover - URL sink policy validation rejects missing rules
+                continue
+            if attr in _URL_SINK_ATTRS:
+                kind = _url_sink_kind_for_attr(tag=tag, attr=attr, attrs={attr: ""})
+            else:
+                kind = "url"
+            if kind is None:  # pragma: no cover - guarded URL sink attrs require matching state attrs
                 continue
             url_attr_kinds[attr] = kind
             url_attr_rules[attr] = rule
