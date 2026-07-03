@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Use the web platform html5 treebuilder tests from WPT for tree-construction compliance fixtures.
+
+### Fixed
+- Preserve HTML processing-instruction nodes in unsanitized parsing while keeping default-safe sanitization comment-like and conservative.
+
 ## [3.1.0] - 2026-07-02
 
 ### Changed
