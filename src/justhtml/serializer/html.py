@@ -309,6 +309,10 @@ def _node_to_html_compact(node: Any) -> str:
             append(f"<!--{_serialize_comment_data(item.data)}-->")
             continue
 
+        if name == "#processing-instruction":
+            append(f"<?{item.data or ''}?>")
+            continue
+
         if name == "!doctype":
             append(_serialize_doctype(item))
             continue
@@ -714,6 +718,10 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
 
             if name == "#comment":
                 results.append(f"{prefix}<!--{_serialize_comment_data(current.data)}-->")
+                continue
+
+            if name == "#processing-instruction":
+                results.append(f"{prefix}<?{current.data or ''}?>")
                 continue
 
             if name == "!doctype":
@@ -1241,6 +1249,10 @@ def _node_to_test_format(node: Any, indent: int) -> str:
     if node.name == "#comment":
         comment: str = node.data or ""
         return f"| {' ' * indent}<!-- {comment} -->"
+
+    if node.name == "#processing-instruction":
+        data: str = node.data or ""
+        return f"| {' ' * indent}<?{data}?>"
 
     if node.name == "!doctype":
         return _doctype_to_test_format(node)

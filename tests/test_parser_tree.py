@@ -35,7 +35,7 @@ class TestParserTreeConstruction(unittest.TestCase):
         document = JustHTML("<! first><?second", sanitize=False)
         assert [(node.name, node.data) for node in document.root.children[:2]] == [
             ("#comment", " first"),
-            ("#comment", "?second"),
+            ("html", None),
         ]
 
         document = JustHTML("<!--first--><!DOCTYPE\r\nhtml>", sanitize=False)
@@ -165,9 +165,7 @@ class TestParserTreeConstruction(unittest.TestCase):
         assert [child.name for child in body.children] == ["svg"]
 
         cases = {
-            "<!><template></template><?": (
-                "<!----><html><head><template></template><!--?--></head><body></body></html>"
-            ),
+            "<!><template></template><?": ("<!----><html><head><template></template></head><body></body></html>"),
             "<template><d><table><tr>": (
                 "<html><head><template><d><table><tbody><tr></tr></tbody></table></d></template>"
                 "</head><body></body></html>"

@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from justhtml import JustHTML
-from justhtml.dom import Element
+from justhtml.dom import DocumentFragment, Element
 from justhtml.parser.context import FragmentContext
 from justhtml.parser.engine import (
     ParseEngine,
@@ -40,6 +40,45 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
         for html, expected in cases:
             with self.subTest(html=html):
                 self.assert_parses_to(html, expected)
+
+    def test_processing_instruction_edges(self) -> None:
+        assert JustHTML("a<?x>b", sanitize=False).to_html(pretty=False) == (
+            "<html><head></head><body>a<?x?>b</body></html>"
+        )
+        assert JustHTML("<?x a\r\0b>", sanitize=False).to_html(pretty=False) == (
+            "<?x a\n�b?><html><head></head><body></body></html>"
+        )
+        assert JustHTML("<?xml", sanitize=False).to_html(pretty=False) == (
+            "<!--?xml--><html><head></head><body></body></html>"
+        )
+        assert JustHTML("<?\ud83d\ude80>", sanitize=False).to_html(pretty=False) == (
+            "<!--?🚀--><html><head></head><body></body></html>"
+        )
+        document = JustHTML("<?\ud83d\ude80\ud83dX\ud83d\ude80>", sanitize=False)
+        assert document.root.children[0].data == "?🚀\ud83dX🚀"
+        assert JustHTML("<?#abc", sanitize=False).to_html(pretty=False) == "<html><head></head><body></body></html>"
+        assert JustHTML("<?\t", sanitize=False).to_html(pretty=False) == (
+            "<!--?\t--><html><head></head><body></body></html>"
+        )
+
+    def test_rawtext_processing_instruction_branch(self) -> None:
+        script = Element("script", {}, "html")
+        engine = ParseEngine("<?x>", fragment=True, plan=compile_raw_engine_plan(fragment=True))
+        engine._doc = DocumentFragment()
+        engine._body = engine._doc
+        engine._stack = [engine._doc, script]
+
+        assert engine._parse_range(0, 4) == 4
+        assert script.children[0].data == "<?x>"
+
+        script = Element("script", {}, "html")
+        engine = ParseEngine("<?x", fragment=True, plan=compile_raw_engine_plan(fragment=True))
+        engine._doc = DocumentFragment()
+        engine._body = engine._doc
+        engine._stack = [engine._doc, script]
+
+        assert engine._parse_range(0, 3) == 3
+        assert script.children[0].data == "<?x"
 
     def test_frameset_table_and_template_recovery(self) -> None:
         cases = [
@@ -454,8 +493,8 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
 
     def test_untracked_raw_parser_modes(self) -> None:
         cases = [
-            ("<?x>", "<!--?x--><html><head></head><body></body></html>"),
-            ("<?x", "<!--?x--><html><head></head><body></body></html>"),
+            ("<?x>", "<?x?><html><head></head><body></body></html>"),
+            ("<?x", "<html><head></head><body></body></html>"),
             ("</!x>", "<!--!x--><html><head></head><body></body></html>"),
             ("</!x", "<!--!x--><html><head></head><body></body></html>"),
             ("<!x>", "<!--x--><html><head></head><body></body></html>"),

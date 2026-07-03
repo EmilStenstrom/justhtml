@@ -172,7 +172,7 @@ class Node:
 
         if name.startswith("#") or name == "!doctype":
             self.namespace = namespace
-            if name == "#comment" or name == "!doctype":
+            if name in {"#comment", "#processing-instruction"} or name == "!doctype":
                 self.children = None
                 self.attrs = None
             else:
@@ -484,6 +484,25 @@ class Comment(Node):
         _ = override_attrs
         _ = deep
         clone = Comment(self.data if isinstance(self.data, str) else None)
+        clone._source_html = self._source_html
+        clone._origin_pos = self._origin_pos
+        clone._origin_line = self._origin_line
+        clone._origin_col = self._origin_col
+        return clone
+
+
+class ProcessingInstruction(Node):
+    __slots__ = ()
+
+    def __init__(self, data: str | None = None) -> None:
+        super().__init__("#processing-instruction", data=data)
+
+    def clone_node(
+        self, deep: bool = False, override_attrs: dict[str, str | None] | None = None
+    ) -> ProcessingInstruction:
+        _ = override_attrs
+        _ = deep
+        clone = ProcessingInstruction(self.data if isinstance(self.data, str) else None)
         clone._source_html = self._source_html
         clone._origin_pos = self._origin_pos
         clone._origin_line = self._origin_line

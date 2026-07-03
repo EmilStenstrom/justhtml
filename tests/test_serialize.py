@@ -4,7 +4,7 @@ import unittest
 from justhtml import HTMLContext, UrlRule
 from justhtml import JustHTML as _JustHTML
 from justhtml.core.types import Doctype
-from justhtml.dom import Comment, DocumentFragment, Node, Template, Text
+from justhtml.dom import Comment, DocumentFragment, Node, ProcessingInstruction, Template, Text
 from justhtml.parser.context import FragmentContext
 from justhtml.serializer import (
     _can_unquote_attr_value,
@@ -50,6 +50,14 @@ class TestSerialize(unittest.TestCase):
         doc = JustHTML("<!DOCTYPE html><html><head></head><body><p>Hi</p></body></html>")
         output = doc.to_html(pretty=False)
         assert output == "<!DOCTYPE html><html><head></head><body><p>Hi</p></body></html>"
+
+    def test_processing_instruction_serialization(self):
+        frag = DocumentFragment()
+        frag.append_child(ProcessingInstruction("target data"))
+
+        assert to_html(frag, pretty=False) == "<?target data?>"
+        assert to_html(frag, pretty=True) == "<?target data?>"
+        assert to_test_format(frag) == "| <?target data?>"
 
     def test_compact_serialization_preserves_non_html_doctype(self):
         doc = JustHTML("<!DOCTYPE svg><html><head></head><body></body></html>", sanitize=False)

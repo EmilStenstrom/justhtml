@@ -6,6 +6,7 @@ from justhtml.dom import (
     Document,
     Element,
     Node,
+    ProcessingInstruction,
     Template,
     Text,
 )
@@ -39,6 +40,24 @@ class TestNode(unittest.TestCase):
         child = Node("span")
         parent.append_child(child)
         assert child.parent is None
+
+    def test_processing_instruction_is_leaf_and_clones_origin(self):
+        parent = ProcessingInstruction(data="target data")
+        child = Node("span")
+        parent.append_child(child)
+        parent._origin_pos = 3
+        parent._origin_line = 1
+        parent._origin_col = 4
+
+        clone = parent.clone_node(deep=True)
+
+        assert child.parent is None
+        assert clone.name == "#processing-instruction"
+        assert clone.data == "target data"
+        assert clone.children is None
+        assert clone.attrs is None
+        assert clone.origin_offset == 3
+        assert clone.origin_location == (1, 4)
 
     def test_append_child_repairs_stale_parent_reference(self):
         old_parent = Node("old")

@@ -302,7 +302,7 @@ def apply_compiled_transforms(
                     is_special = name[0] == "#"
                     is_doctype = name == "!doctype"
                     is_text = name == "#text"
-                    is_comment = name == "#comment"
+                    is_comment = name in {"#comment", "#processing-instruction"}
                     if foreign_context:
                         node_foreign_context = True
                     else:

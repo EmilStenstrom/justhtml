@@ -1,5 +1,16 @@
 from .core.types import ParseError
-from .dom import Comment, Document, DocumentFragment, Element, Node, NodeType, QueryMatch, Template, Text
+from .dom import (
+    Comment,
+    Document,
+    DocumentFragment,
+    Element,
+    Node,
+    NodeType,
+    ProcessingInstruction,
+    QueryMatch,
+    Template,
+    Text,
+)
 from .parser import JustHTML, StrictModeError
 from .parser.stream import stream
 from .sanitizer import (
@@ -70,6 +81,7 @@ __all__ = [
     "Node",
     "NodeType",
     "ParseError",
+    "ProcessingInstruction",
     "PruneEmpty",
     "QueryMatch",
     "SanitizationPolicy",

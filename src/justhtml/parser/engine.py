@@ -34,7 +34,7 @@ from justhtml.core.doctype import doctype_error_and_quirks
 from justhtml.core.entities import decode_entities_in_text
 from justhtml.core.errors import generate_error_message
 from justhtml.core.types import Doctype, ParseError
-from justhtml.dom import Comment, Document, DocumentFragment, Element, Node, Template, Text
+from justhtml.dom import Comment, Document, DocumentFragment, Element, Node, ProcessingInstruction, Template, Text
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, _strip_invisible_unicode
 from justhtml.sanitizer.url import (
     _URL_SINK_ATTRS,
@@ -196,6 +196,37 @@ def _coerce_text_for_xml(text: str) -> str:
 
 def _coerce_comment_for_xml(text: str) -> str:
     return text.replace("--", "- -") if "--" in text else text
+
+
+def _normalize_surrogate_pairs(text: str) -> str:
+    if text.isascii():
+        return text
+    result: list[str] | None = None
+    i = 0
+    length = len(text)
+    while i < length:
+        ch = text[i]
+        code = ord(ch)
+        if 0xD800 <= code <= 0xDBFF and i + 1 < length:
+            next_code = ord(text[i + 1])
+            if 0xDC00 <= next_code <= 0xDFFF:
+                if result is None:
+                    result = list(text[:i])
+                result.append(chr(0x10000 + ((code - 0xD800) << 10) + (next_code - 0xDC00)))
+                i += 2
+                continue
+        if result is not None:
+            result.append(ch)
+        i += 1
+    return "".join(result) if result is not None else text
+
+
+def _is_processing_instruction_name_start(ch: str) -> bool:
+    return ch == "_" or ("a" <= ch <= "z") or ("A" <= ch <= "Z")
+
+
+def _is_processing_instruction_name_char(ch: str) -> bool:
+    return ch == "_" or ch == "-" or ("a" <= ch <= "z") or ("A" <= ch <= "Z") or ("0" <= ch <= "9")
 
 
 def _is_hidden_input(name: str, attrs: dict[str, str | None]) -> bool:
@@ -1117,8 +1148,59 @@ class ParseEngine:
             data = data.replace("\r\n", "\n").replace("\r", "\n")
         if self._has_null and "\0" in data:
             data = data.replace("\0", "\ufffd")
+        data = _normalize_surrogate_pairs(data)
         if self._xml_coercion:
             data = _coerce_comment_for_xml(data)
+        node = Comment(data=data)
+        self._append_misc_node(node, source_pos)
+
+    def _append_processing_instruction(self, data: str, source_pos: int | None = None) -> None:
+        if self._has_carriage_return and "\r" in data:
+            data = data.replace("\r\n", "\n").replace("\r", "\n")
+        if self._has_null and "\0" in data:
+            data = data.replace("\0", "\ufffd")
+        node = ProcessingInstruction(data=data)
+        self._append_misc_node(node, source_pos)
+
+    def _processing_instruction_data(
+        self, content_start: int, content_end: int, *, preserve_terminal_question: bool = False
+    ) -> str | None:
+        html = self._html_input
+        if content_start >= content_end or not _is_processing_instruction_name_start(html[content_start]):
+            return None
+
+        pos = content_start + 1
+        while pos < content_end and _is_processing_instruction_name_char(html[pos]):
+            pos += 1
+
+        target = html[content_start:pos]
+        if target.lower().startswith("xml"):
+            return None
+
+        if pos == content_end:
+            return target
+
+        ch = html[pos]
+        if ch == "?":
+            data_start = pos
+        elif ch in _SPACE:
+            pos += 1
+            while pos < content_end and html[pos] in _SPACE:
+                pos += 1
+            data_start = pos
+        elif ch == "\\" and pos + 1 < content_end and html[pos + 1] in "tnrf":
+            data_start = pos + 2
+        else:
+            return None
+
+        data = html[data_start:content_end]
+        if data.endswith("?") and not preserve_terminal_question:
+            data = data[:-1]
+        if data:
+            return f"{target} {data}"
+        return target
+
+    def _append_misc_node(self, node: Node, source_pos: int | None = None) -> None:
         if self._after_document and source_pos is not None:
             marker = "</html" if self._after_html else "</body"
             close_start = self._lower_input.rfind(marker, 0, source_pos)
@@ -1129,7 +1211,6 @@ class ParseEngine:
                 self._after_document = False
                 self._after_html = False
                 self._body_mode_seen = True
-        node = Comment(data=data)
         self._set_origin(node, source_pos)
         parent: Node
         if self._current_parent() is self._head or (
@@ -1456,12 +1537,40 @@ class ParseEngine:
                     append_text(html[lt:end] if gt == -1 else html[lt : gt + 1], lt)
                     pos = end if gt == -1 else gt + 1
                     continue
-                if self._raw_mode:
+                if self._raw_mode and len(self._stack) > 1 and self._stack[-1].name in _RAWTEXT_ELEMENT_TAGS:
                     comment_end = end if gt == -1 else gt
-                    if not self._drop_comments:  # pragma: no branch - opposite edge requires invalid parser state
-                        self._append_comment(html[pos:comment_end], lt)
+                    append_text(html[lt:comment_end] if gt == -1 else html[lt : gt + 1], lt)
                     pos = end if gt == -1 else gt + 1
                     continue
+                if gt == -1:
+                    if pos + 1 >= end:
+                        pos = end
+                        continue
+                    next_ch = html[pos + 1]
+                    if _is_processing_instruction_name_start(next_ch):
+                        target_end = pos + 2
+                        while target_end < end and _is_processing_instruction_name_char(html[target_end]):
+                            target_end += 1
+                        if html[pos + 1 : target_end].lower().startswith("xml") and not self._drop_comments:
+                            self._append_comment(html[pos:end], lt)
+                        pos = end
+                        continue
+                    if next_ch not in _SPACE:
+                        pos = end
+                        continue
+                    if not self._drop_comments:
+                        self._append_comment(html[pos:end], lt)
+                    pos = end
+                    continue
+                pi_data = self._processing_instruction_data(
+                    pos + 1,
+                    gt,
+                    preserve_terminal_question=not self._initial_mode_done,
+                )
+                if pi_data is not None and not self._drop_comments:
+                    self._append_processing_instruction(pi_data, lt)
+                elif not self._drop_comments:
+                    self._append_comment(html[pos:gt].replace("\0", "\ufffd"), lt)
                 pos = end if gt == -1 else gt + 1
                 continue
             if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
