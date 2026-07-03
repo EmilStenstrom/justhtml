@@ -106,6 +106,18 @@ def _neutralize_rawtext_end_tag_sequences(text: str, tag_name: str) -> str:
     return neutralize_rawtext_end_tag_sequences(text, tag_name)[0]
 
 
+def _serialize_pi_data(data: str | None) -> str:
+    if not data:
+        return ""
+    # A browser parses "<?...>" as a bogus comment that terminates at the first
+    # ">". The data cannot be entity-escaped in this context, so any interior
+    # ">" would close the token early and let following markup execute. Replace
+    # them so the whole processing instruction stays contained.
+    if ">" in data:
+        return data.replace(">", " ")
+    return data
+
+
 def _serialize_text_for_parent(text: str | None, parent_name: str | None) -> str:
     if not text:
         return ""
@@ -310,7 +322,7 @@ def _node_to_html_compact(node: Any) -> str:
             continue
 
         if name == "#processing-instruction":
-            append(f"<?{item.data or ''}?>")
+            append(f"<?{_serialize_pi_data(item.data)}?>")
             continue
 
         if name == "!doctype":
@@ -721,7 +733,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                 continue
 
             if name == "#processing-instruction":
-                results.append(f"{prefix}<?{current.data or ''}?>")
+                results.append(f"{prefix}<?{_serialize_pi_data(current.data)}?>")
                 continue
 
             if name == "!doctype":

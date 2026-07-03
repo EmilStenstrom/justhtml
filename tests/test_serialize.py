@@ -59,6 +59,24 @@ class TestSerialize(unittest.TestCase):
         assert to_html(frag, pretty=True) == "<?target data?>"
         assert to_test_format(frag) == "| <?target data?>"
 
+    def test_processing_instruction_serialization_neutralizes_breakout(self):
+        # Browsers parse "<?...>" as a bogus comment ending at the first ">".
+        # An interior ">" must not close the token and expose following markup.
+        frag = DocumentFragment()
+        frag.append_child(ProcessingInstruction("foo><img src=x onerror=alert(1)>"))
+
+        compact = to_html(frag, pretty=False)
+        assert compact == "<?foo <img src=x onerror=alert(1) ?>"
+        assert ">" not in compact[2:-2]
+        assert to_html(frag, pretty=True) == compact
+
+    def test_processing_instruction_serialization_empty_data(self):
+        frag = DocumentFragment()
+        frag.append_child(ProcessingInstruction(None))
+
+        assert to_html(frag, pretty=False) == "<??>"
+        assert to_html(frag, pretty=True) == "<??>"
+
     def test_compact_serialization_preserves_non_html_doctype(self):
         doc = JustHTML("<!DOCTYPE svg><html><head></head><body></body></html>", sanitize=False)
         output = doc.to_html(pretty=False)
