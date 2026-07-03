@@ -2,18 +2,18 @@
 
 # Correctness Testing
 
-JustHTML is the only pure-Python HTML5 parser that passes 100% of the official html5lib test suite. This page explains how we verify and maintain that compliance.
+JustHTML is tested against the web platform html5 treebuilder tests. This page explains how we verify and maintain that compliance.
 
-## The html5lib Test Suite
+## The Web Platform Tests
 
-The [html5lib-tests](https://github.com/html5lib/html5lib-tests) repository is the gold standard for HTML5 parsing compliance. It's used by browser vendors to verify their implementations against the [WHATWG HTML5 specification](https://html.spec.whatwg.org/).
+The web platform html5 treebuilder tests live in [web-platform-tests/wpt](https://github.com/web-platform-tests/wpt/tree/master/html/syntax/parsing/resources). Serializer and encoding fixtures remain in [html5lib-tests](https://github.com/html5lib/html5lib-tests).
 
-Our checked-in test inputs contain:
+The external fixture inputs contain:
 
-- **56 tree-construction test files** - Testing how the parser builds the DOM tree
+- **61 treebuilder test files** - Testing how the parser builds the DOM tree
 - **5 serializer fixture files** - Testing how token streams are serialized back to HTML
 - **Encoding sniffing tests** - Testing BOM/meta charset/transport overrides and legacy fallbacks
-- **1,791 enabled tree-construction cases** - Covering edge cases, error recovery, and spec compliance
+- **1,914 enabled treebuilder cases** - Covering edge cases, error recovery, and spec compliance
 
 ### What the Tests Cover
 
@@ -54,12 +54,11 @@ This tests the adoption agency algorithm - when `</b>` is encountered inside `<p
 ## Compliance Comparison
 
 We run the same test suite against other Python parsers to compare compliance.
-The cross-parser snapshot below used the 1,743 cases available when it was
-recorded; the current JustHTML gate covers 1,791 enabled cases.
+The cross-parser snapshot below used the 1,743 cases available when it was recorded.
 
 | Parser | Tests Passed | Compliance | Notes |
 |--------|-------------|------------|-------|
-| **JustHTML** | 1743/1743 | **100%** | Full spec compliance in this comparison snapshot; current gate: 1791/1791 |
+| **JustHTML** | 1743/1743 | **100%** | Full spec compliance in this comparison snapshot |
 | selectolax | 1743/1743 | 100% | C-based (Lexbor), fast and spec-compliant with dev `html5test` output API |
 | markupever | 1545/1743 | 89% | Rust-based (html5ever), mostly correct |
 | html5lib | 1496/1743 | 86% | Reference implementation, but incomplete |
@@ -68,9 +67,9 @@ recorded; the current JustHTML gate covers 1,791 enabled cases.
 | html.parser | 6/1743 | <1% | Python stdlib, basic error recovery only |
 | lxml | 5/1743 | <1% | XML-based, not HTML5 compliant |
 
-*Run `python benchmarks/correctness.py` to reproduce these results. The selectolax score requires its dev `html5test` output and fragment-context APIs. These scores were refreshed against html5lib-tests `e446320`.*
+*Run `python benchmarks/correctness.py` to reproduce these results. The selectolax score requires its dev `html5test` output and fragment-context APIs. These historical scores were refreshed against html5lib-tests `e446320`.*
 
-These numbers come from a strict tree comparison against the expected output in the `html5lib-tests` tree-construction fixtures (excluding `#script-on` / `#script-off` cases). Unsupported parser capabilities count as failures for this compliance table. The numbers will not match the `html5lib` project’s own reported totals, because `html5lib` runs the suite in multiple configurations and also has its own skip/xfail lists.
+These numbers come from a strict tree comparison against the expected output in the treebuilder fixtures available at the time (excluding `#script-on` / `#script-off` cases). Unsupported parser capabilities count as failures for this compliance table. The numbers will not match the `html5lib` project’s own reported totals, because `html5lib` runs the suite in multiple configurations and also has its own skip/xfail lists.
 
 ## Our Testing Strategy
 
@@ -123,7 +122,7 @@ PYTHONPATH=src python benchmarks/html5lib_engine_diff.py \
   --fail-on-current-exceptions
 ```
 
-This requires exact agreement with the reference parser path across every scored html5lib tree-construction case.
+This requires exact agreement with the reference parser path across every scored web platform html5 treebuilder case.
 
 ### 3. Fuzz Testing (millions of cases)
 
@@ -169,14 +168,18 @@ We maintain additional tests in `tests/justhtml-tests/` for:
 ### Quick Start
 
 ```bash
-# Clone the test suite (one-time setup)
+# Clone the test suites (one-time setup)
+cd ..
+git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git
+cd wpt
+git sparse-checkout set html/syntax/parsing/resources
 cd ..
 git clone https://github.com/html5lib/html5lib-tests.git
 cd justhtml
 
 # Create symlinks
 cd tests
-ln -s ../../html5lib-tests/tree-construction html5lib-tests-tree
+ln -s ../../wpt/html/syntax/parsing/resources html5lib-tests-tree
 ln -s ../../html5lib-tests/serializer html5lib-tests-serializer
 ln -s ../../html5lib-tests/encoding html5lib-tests-encoding
 cd ..

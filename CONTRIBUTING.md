@@ -24,9 +24,9 @@ Thanks for considering contributing to JustHTML! This document explains how to s
 
 ## Running Tests
 
-The test suite uses the html5lib test cases plus additional tests for selector functionality.
+The test suite uses the web platform html5 treebuilder tests plus additional tests for selector functionality.
 
-If you want to run the full html5lib test suite locally, clone `html5lib-tests` next to this repository and create the symlinks described in [tests/README.md](tests/README.md) (tokenizer, tree-construction, and serializer).
+If you want to run the full external fixture suite locally, clone the web platform html5 treebuilder tests and `html5lib-tests` serializer/encoding fixtures next to this repository, then create the symlinks described in [tests/README.md](tests/README.md).
 
 ```bash
 # Run all tests
@@ -58,7 +58,7 @@ Pre-commit runs automatically on every commit and checks:
 - **Ruff check** - linting with auto-fix
 - **Ruff format** - code formatting
 - **Tests & Coverage** - full test suite with 100% coverage requirement
-- **Parser Differential** - exact agreement with the reference parser path across scored html5lib tree cases
+- **Parser Differential** - exact agreement with the reference parser path across scored web platform html5 treebuilder cases
 
 Run manually:
 ```bash

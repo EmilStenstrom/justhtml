@@ -114,7 +114,7 @@ def parse_args():
         "--check-errors",
         action="store_true",
         help=(
-            "Enable additional error validation. For html5lib tree-construction .dat tests, "
+            "Enable additional error validation. For web platform html5 treebuilder .dat tests, "
             "validates the number of parse errors; for tests/justhtml-tests, validates the exact "
             "ordered list of error codes."
             "parse errors (code+line+col) when provided by the fixture."
@@ -295,7 +295,7 @@ def main():
     run_encoding = suite in {"all", "encoding"}
     run_unit = suite in {"all", "unit"}
 
-    # Check that html5lib-tests symlinks exist (only for the selected suites)
+    # Check that external fixture symlinks exist (only for the selected suites)
     tree_tests = test_dir / "html5lib-tests-tree"
     serializer_tests = test_dir / "html5lib-tests-serializer"
     encoding_tests = test_dir / "html5lib-tests-encoding"
@@ -307,13 +307,19 @@ def main():
     if run_encoding and not encoding_tests.exists():
         missing.append(str(encoding_tests))
     if len(missing) > 0:
-        print("ERROR: html5lib-tests not found. Please create symlinks:", file=sys.stderr)
+        print("ERROR: external test fixtures not found. Please create symlinks:", file=sys.stderr)
         for path in missing:
             print(f"  {path}", file=sys.stderr)
-        print("\nTo set up, clone html5lib-tests and create symlinks:", file=sys.stderr)
-        print("  git clone https://github.com/html5lib/html5lib-tests.git ../html5lib-tests", file=sys.stderr)
+        print("\nTo set up, clone the fixture repositories and create symlinks:", file=sys.stderr)
         if run_tree:
-            print("  ln -s ../../html5lib-tests/tree-construction tests/html5lib-tests-tree", file=sys.stderr)
+            print(
+                "  git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git ../wpt",
+                file=sys.stderr,
+            )
+            print("  (cd ../wpt && git sparse-checkout set html/syntax/parsing/resources)", file=sys.stderr)
+            print("  ln -s ../../wpt/html/syntax/parsing/resources tests/html5lib-tests-tree", file=sys.stderr)
+        if run_serializer or run_encoding:
+            print("  git clone https://github.com/html5lib/html5lib-tests.git ../html5lib-tests", file=sys.stderr)
         if run_serializer:
             print("  ln -s ../../html5lib-tests/serializer tests/html5lib-tests-serializer", file=sys.stderr)
         if run_encoding:
@@ -343,7 +349,7 @@ def main():
         combined_results.update(runner.file_results)
 
     if run_justhtml_tree:
-        # Run JustHTML-specific tree-construction tests (custom .dat fixtures).
+        # Run JustHTML-specific treebuilder tests (custom .dat fixtures).
         # These live outside the upstream html5lib-tests checkout.
         justhtml_tree_tests = test_dir / "justhtml-tests"
         justhtml_runner = TestRunner(justhtml_tree_tests, config)

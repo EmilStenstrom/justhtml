@@ -28,7 +28,7 @@ Most Python HTML libraries optimize for one part of the problem.
 
 JustHTML is for applications that want a boring, inspectable, pure-Python default:
 
-- **Correct parsing:** browser-style HTML5 recovery, tested against the official html5lib fixtures.
+- **Correct parsing:** browser-style HTML5 recovery, tested against the web platform html5 treebuilder tests.
 - **Safe by default:** `JustHTML(html)` sanitizes before you query or serialize.
 - **One DOM:** parse once, then sanitize, query, transform, serialize, extract text, or produce Markdown.
 - **Easy deployment:** zero runtime dependencies, no compiler, works on PyPy and Pyodide.
@@ -110,10 +110,10 @@ justhtml index.html --selector "article" --format markdown
 
 ## Correctness
 
-JustHTML is tested against the official html5lib tree-construction, serializer, and encoding fixtures, plus project-specific sanitizer, selector, transform, CLI, and regression tests.
+JustHTML is tested against the web platform html5 treebuilder tests, plus html5lib serializer/encoding fixtures and project-specific sanitizer, selector, transform, CLI, and regression tests.
 
 The current test suite enforces 100% combined line and branch coverage, including the parser engine.
-The parser engine additionally requires exact agreement with the reference path across the html5lib tree suite.
+The parser engine additionally requires exact agreement with the reference path across the web platform html5 treebuilder suite.
 See [Correctness Testing](docs/correctness.md) for details.
 
 ## Documentation
