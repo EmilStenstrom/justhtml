@@ -59,7 +59,7 @@ jobs:
 
       - name: Run pre-commit
         id: precommit
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.14'
         run: pre-commit run --show-diff-on-failure --color=always --all-files
         env:
           SKIP: mypy
@@ -78,7 +78,7 @@ jobs:
           python run_tests.py -v --no-write-summary
 
       - name: Run mypy
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.14'
         run: mypy
 
   test-pyodide:
