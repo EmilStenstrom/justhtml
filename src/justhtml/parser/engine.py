@@ -722,7 +722,7 @@ class ParseEngine:
         "_rcdata_tags",
         "_skip_escaped_comment_space",
         "_special_elements",
-        "_stack_impl",
+        "_stack",
         "_strip_invisible_unicode",
         "_table_allowed_children",
         "_table_cell_tags",
@@ -847,19 +847,11 @@ class ParseEngine:
         self._nodes_to_drop: list[Element] = []
         self._nodes_to_unwrap: list[Element] = []
         self._template_modes: list[str] = []
-        self._stack_impl: _CountingStack = _CountingStack()
+        self._stack: _CountingStack = _CountingStack()
 
     @property
     def errors(self) -> list[ParseError]:
         return self._errors
-
-    @property
-    def _stack(self) -> _CountingStack:
-        return self._stack_impl
-
-    @_stack.setter
-    def _stack(self, value: list[Node]) -> None:
-        self._stack_impl = value if isinstance(value, _CountingStack) else _CountingStack(value)
 
     def _line_col_at_pos(self, pos: int) -> tuple[int, int]:
         if pos < 0:  # pragma: no cover - parser offsets are non-negative
@@ -1104,7 +1096,7 @@ class ParseEngine:
             html_context = self._fragment_context_namespace in {None, "html"}
             if html_context and context_name in self._rcdata_tags:
                 self._body = root
-                self._stack = [root]
+                self._stack = _CountingStack([root])
                 text = self._clean_text(self._html_input, replace_null=True)
                 if context_name == "textarea" and text.startswith("\n"):
                     text = text[1:]
@@ -1114,7 +1106,7 @@ class ParseEngine:
 
             if html_context and context_name in self._plaintext_tags:
                 self._body = root
-                self._stack = [root]
+                self._stack = _CountingStack([root])
                 self._append_raw_literal_text(self._html_input, 0)
                 return root
 
@@ -1124,7 +1116,7 @@ class ParseEngine:
                 or context_name in self._rawtext_element_tags
             ):
                 self._body = root
-                self._stack = [root]
+                self._stack = _CountingStack([root])
                 self._append_raw_literal_text(self._html_input, 0)
                 return root
 
@@ -1139,7 +1131,7 @@ class ParseEngine:
                 self._html = context
                 self._head = head
                 self._body = body
-                self._stack = [root, context, body]
+                self._stack = _CountingStack([root, context, body])
                 if not self._raw_mode:
                     if (
                         "head" not in self._allowed_tags
@@ -1154,10 +1146,10 @@ class ParseEngine:
                 self._append(root, context)
                 self._fragment_context_node = context
                 self._body = context
-                self._stack = [root, context]
+                self._stack = _CountingStack([root, context])
             else:
                 self._body = root
-                self._stack = [root]
+                self._stack = _CountingStack([root])
         else:
             doc = Document()
             if self._track_tag_spans:
@@ -1172,7 +1164,7 @@ class ParseEngine:
             self._html = html_el
             self._head = head
             self._body = body
-            self._stack = [doc, html_el, body]
+            self._stack = _CountingStack([doc, html_el, body])
 
         self._parse_range(0, self._length)
         self._finish_document_shell()
@@ -1408,7 +1400,7 @@ class ParseEngine:
             and not self._body_has_content()
             and not self._has_open_parser_only_template()
         ):
-            self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+            self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
             self._after_head = False
             self._explicit_head = True
         else:
@@ -1818,7 +1810,7 @@ class ParseEngine:
                     if source_pos is not None:  # pragma: no branch - opposite edge requires invalid parser state
                         source_pos += leading_len
                     raw = stripped
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
                 self._after_head = False
                 self._body_mode_seen = True
                 parent = self._body
@@ -1826,7 +1818,7 @@ class ParseEngine:
             if raw_is_space is None:  # pragma: no branch - opposite edge requires invalid parser state
                 raw_is_space = raw.strip(_SPACE) == ""
             if not raw_is_space:
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
                 self._after_head = False
                 self._body_mode_seen = True
                 parent = self._body
@@ -1835,7 +1827,7 @@ class ParseEngine:
                 raw_is_space = raw.strip(_SPACE) == ""
             if not raw_is_space:
                 if self._find_open_html_index("body") is None:
-                    self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                    self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
                 self._after_body = False
                 self._after_document = False
                 self._after_html = False
@@ -2068,9 +2060,9 @@ class ParseEngine:
             if (
                 self._frameset_seen and not self._body_explicit
             ):  # pragma: no cover - later state normalization restores body mode
-                self._stack = [self._doc, self._html]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html])  # type: ignore[list-item]
             else:
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
             self._after_head = False
             self._body_mode_seen = True
             return pos
@@ -2078,7 +2070,7 @@ class ParseEngine:
             self._in_colgroup = False
             if self._body_mode_seen and self._stack[-1] is not self._head:
                 return pos
-            self._stack = [self._doc, self._html]  # type: ignore[list-item]
+            self._stack = _CountingStack([self._doc, self._html])  # type: ignore[list-item]
             self._after_head = True
             return pos
         if name == "colgroup" and not self._parser_only_template_depth:
@@ -2119,7 +2111,7 @@ class ParseEngine:
             and self._stack[-1] is self._head
             and self._html is not None
         ):
-            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+            self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
             self._after_head = False
             self._body_mode_seen = True
         if self._in_head_noscript:
@@ -2279,7 +2271,7 @@ class ParseEngine:
             if (
                 self._find_open_html_index("body") is None
             ):  # pragma: no cover - body-less after-document tags return earlier
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
             self._after_body = False
             self._after_document = False
             self._after_html = False
@@ -2291,9 +2283,9 @@ class ParseEngine:
                 return pos
             self._in_colgroup = False
             if self._head is not None and self._stack[-1] is self._head:
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
             if self._frameset_seen and not self._body_explicit:
-                self._stack = [self._doc, self._html]  # type: ignore[list-item]  # pragma: no cover - frameset state keeps later body reconstruction unreachable here
+                self._stack = _CountingStack([self._doc, self._html])  # type: ignore[list-item]  # pragma: no cover - frameset state keeps later body reconstruction unreachable here
             self._after_head = False
             self._body_mode_seen = (
                 True  # pragma: no cover - frameset end-tag paths return before re-entering body mode
@@ -2311,7 +2303,7 @@ class ParseEngine:
                     self._set_end_span(self._html, name, tag_start, tag_end)
             return pos
         if self._fragment and self._fragment_context_name == "html" and name == "html":
-            self._stack = [self._doc]
+            self._stack = _CountingStack([self._doc])
             return pos
         if not self._fragment and name == "head":
             self._in_colgroup = False
@@ -2320,7 +2312,7 @@ class ParseEngine:
             if self._head is not None:  # pragma: no branch - opposite edge requires invalid parser state
                 if self._track_tag_spans:
                     self._set_end_span(self._head, name, tag_start, tag_end)
-            self._stack = [self._doc, self._html]  # type: ignore[list-item]
+            self._stack = _CountingStack([self._doc, self._html])  # type: ignore[list-item]
             self._after_head = True
             return pos
         if name == "colgroup" and not self._parser_only_template_depth:
@@ -2383,7 +2375,7 @@ class ParseEngine:
             and self._stack[-1] is self._head
             and self._html is not None
         ):
-            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+            self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
             self._after_head = False
             self._body_mode_seen = True
         if self._in_head_noscript:
@@ -2551,7 +2543,7 @@ class ParseEngine:
                 if self._body_mode_seen:
                     return pos
                 if self._head is not None:  # pragma: no branch - opposite edge requires invalid parser state
-                    self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+                    self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
                     self._after_head = False
                 return pos
             if name == "body":
@@ -2567,7 +2559,7 @@ class ParseEngine:
                 if self._body_mode_seen:
                     return pos
                 self._body_mode_seen = True
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
                 self._after_head = False
                 return pos
             if not self._body_mode_seen and not (action.head_content if action is not None else False):
@@ -2581,7 +2573,7 @@ class ParseEngine:
             and current_top is self._head
             and not (action.head_content if action is not None else False)
         ):
-            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+            self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
             self._after_head = False
             self._body_mode_seen = True
             current_top = self._body
@@ -2601,11 +2593,11 @@ class ParseEngine:
                 and not self._body_mode_seen
                 and not self._body_has_content()
             ):
-                self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
                 self._after_head = False
                 current_top = self._head
             else:
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
                 self._after_head = False
                 self._body_mode_seen = True
                 current_top = self._body
@@ -2644,7 +2636,7 @@ class ParseEngine:
 
         if action is not None and action.drop_content:
             if self._raw_head_text_parent(name) and self._head is not None:
-                self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
             return self._skip_rawtext(name, pos, end)
         if action is not None and action.drop_subtree:
             if action.allowed:  # pragma: no branch - opposite edge requires invalid parser state
@@ -2823,7 +2815,7 @@ class ParseEngine:
         in_template_content = bool(self._template_modes)
         if not self._fragment and self._after_document and name != "html" and not self._frameset_seen:
             if self._find_open_html_index("body") is None:
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
             self._after_body = False
             self._after_document = False
             self._after_html = False
@@ -2873,7 +2865,7 @@ class ParseEngine:
                         self._head.attrs.setdefault(attr_name, attr_value)
                     self._set_origin(self._head, tag_start)
                     self._set_source_span(self._head, tag_start, tag_end)
-                    self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+                    self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
                     self._after_head = False
                 return pos
             if name == "body":
@@ -2891,7 +2883,7 @@ class ParseEngine:
                 if self._body_mode_seen:
                     return pos
                 self._body_mode_seen = True
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
                 self._after_head = False
                 return pos
             if not self._body_mode_seen and not (action.head_content if action is not None else False):
@@ -2905,7 +2897,7 @@ class ParseEngine:
             and current_top is self._head
             and not (action.head_content if action is not None else False)
         ):
-            self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+            self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
             self._after_head = False
             self._body_mode_seen = True
             current_top = self._body
@@ -2926,11 +2918,11 @@ class ParseEngine:
                 and not self._body_mode_seen
                 and not self._body_has_content()
             ):
-                self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
                 self._head_reentry = True
                 current_top = self._head
             else:
-                self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
                 self._after_head = False
                 self._body_mode_seen = True
                 current_top = self._body
@@ -3071,7 +3063,7 @@ class ParseEngine:
             return self._parse_rawtext_element(name, attrs, self_closing, pos, end, tag_start, tag_end)
         if action is not None and not raw_mode and action.drop_content:
             if self._raw_head_text_parent(name) and self._head is not None:
-                self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+                self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
             return self._skip_rawtext(name, pos, end)
         if action is not None and action.rawtext_as_text:
             return self._parse_rawtext_as_text(name, pos, end)
@@ -3086,7 +3078,7 @@ class ParseEngine:
                 or (not self._body_explicit and not self._body_mode_seen and not self._body_has_content())
             )
         ):
-            self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+            self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
             if raw_mode:
                 self._insert_sanitized_element(
                     name, attrs, self_closing, self._head, tag_start=tag_start, tag_end=tag_end
@@ -3149,7 +3141,7 @@ class ParseEngine:
             if (
                 not self._fragment and self._html is not None
             ):  # pragma: no branch - opposite edge requires invalid parser state
-                self._stack = [self._doc, self._html]
+                self._stack = _CountingStack([self._doc, self._html])
             else:
                 for idx, stack_node in enumerate(
                     self._stack[1:], start=1
@@ -3677,7 +3669,7 @@ class ParseEngine:
         self._in_head_noscript = False
         if self._fragment or self._html is None:  # pragma: no branch - opposite edge requires invalid parser state
             return  # pragma: no cover - unreachable after parser-state guards
-        self._stack = [self._doc, self._html, self._body]  # type: ignore[list-item]
+        self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
         self._after_head = False
         self._body_mode_seen = True
 
@@ -3687,7 +3679,7 @@ class ParseEngine:
         if self._open_template_index() is not None:  # pragma: no branch - reentry finishes after templates close
             return  # pragma: no cover - guarded by template close ordering
         self._head_reentry = False
-        self._stack = [self._doc, self._html]
+        self._stack = _CountingStack([self._doc, self._html])
         self._after_head = True
 
     def _close_to_fragment_context(self) -> bool:
@@ -4468,7 +4460,7 @@ class ParseEngine:
                     self._set_end_span(node, name, close_start, pos)
             self._stack.pop()
         if parsed_in_initial_head and self._html is not None and self._head is not None:
-            self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+            self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
         self._finish_head_reentry()
         return pos
 
@@ -4520,7 +4512,7 @@ class ParseEngine:
         if self._stack and self._stack[-1] is node:  # pragma: no branch - opposite edge requires invalid parser state
             self._stack.pop()
         if parsed_in_initial_head and self._html is not None and self._head is not None:
-            self._stack = [self._doc, self._html, self._head]  # type: ignore[list-item]
+            self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
         self._finish_head_reentry()
         return pos
 
@@ -5624,7 +5616,7 @@ class ParseEngine:
             children.clear()
         self._frameset_seen = True
         self._mark_active_formatting_dirty()
-        self._stack = [self._doc, self._html]  # type: ignore[list-item]
+        self._stack = _CountingStack([self._doc, self._html])  # type: ignore[list-item]
         self._after_head = False
         return True
 
@@ -5642,7 +5634,7 @@ class ParseEngine:
             self._body, Element
         ):  # pragma: no branch - opposite edge requires invalid parser state
             self._remove_child(self._html, self._body)
-            self._stack = [self._doc, self._html]
+            self._stack = _CountingStack([self._doc, self._html])
         self._frameset_seen = True
         self._mark_active_formatting_dirty()
         return True
