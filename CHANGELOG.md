@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-07-04
+
 ### Changed
 - Use the web platform html5 treebuilder tests from WPT for tree-construction compliance fixtures.
 
