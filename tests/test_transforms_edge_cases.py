@@ -1,12 +1,14 @@
 import unittest
+from time import perf_counter
 
 from justhtml import JustHTML, SanitizationPolicy, UrlRule, to_html
-from justhtml.dom import Element, Text
+from justhtml.dom import Element, Node, Text
 from justhtml.transforms import (
     AllowlistAttrs,
     AllowStyleAttrs,
     Decide,
     DecideAction,
+    Drop,
     DropAttrs,
     DropForeignNamespaces,
     DropUrlAttrs,
@@ -15,6 +17,7 @@ from justhtml.transforms import (
     EditDocument,
     Empty,
     Sanitize,
+    SetAttrs,
     Unwrap,
     UrlPolicy,
     apply_compiled_transforms,
@@ -403,3 +406,73 @@ class TestTransformsEdgeCases(unittest.TestCase):
         processor = JustHTML(html, transforms=[t], sanitize=False)
         result = to_html(processor.root)
         self.assertIn("<div></div>", result)
+
+    def test_edit_attrs_structural_selector_scales_linearly(self):
+        # EditAttrs never mutates tree structure, so nth-child matching may
+        # share cached sibling data across nodes instead of recomputing it
+        # from scratch for every one. Previously this was quadratic.
+        def mark(node):
+            attrs = dict(node.attrs)
+            attrs["marked"] = "1"
+            return attrs
+
+        html = "<p>x</p>" * 4000
+        JustHTML(html, fragment=True, transforms=[EditAttrs("p:nth-child(2n)", mark)], sanitize=False)
+        start = perf_counter()
+        doc = JustHTML(html, fragment=True, transforms=[EditAttrs("p:nth-child(2n)", mark)], sanitize=False)
+        elapsed = perf_counter() - start
+        self.assertLess(elapsed, 2.0)
+        self.assertEqual(doc.to_text(separator="").count("x"), 4000)
+
+    def test_edit_attrs_nth_child_correct_with_mixed_structural_transform(self):
+        # A structurally-mutating transform (Drop) earlier in the same pipeline
+        # must still be reflected in EditAttrs's nth-child results: sharing the
+        # selector-matching cache is only enabled when every transform in the
+        # walk is provably attribute-only, so this falls back to the always-
+        # correct per-node behavior instead of using a stale cache.
+        marked: list[str] = []
+
+        def mark(node):
+            marked.append(node.to_text())
+            attrs = dict(node.attrs)
+            attrs["marked"] = "1"
+            return attrs
+
+        doc = JustHTML(
+            "<p>1</p><div>skip</div><p>2</p><p>3</p><p>4</p>",
+            fragment=True,
+            transforms=[Drop("div"), EditAttrs("p:nth-child(2n)", mark)],
+            sanitize=False,
+        )
+        self.assertEqual(marked, ["2", "4"])
+        self.assertEqual(
+            to_html(doc.root, pretty=False),
+            '<p>1</p><p marked="1">2</p><p>3</p><p marked="1">4</p>',
+        )
+
+    def test_edit_with_structural_mutation_and_later_setattrs_does_not_hang(self):
+        # Edit's callback can arbitrarily mutate tree structure (e.g. insert a
+        # new sibling) with no visibility for the framework. Selector-matching
+        # cache sharing must stay disabled whenever a pipeline contains a
+        # kind like this, or a later structural-selector match could act on
+        # stale cached data and (in the worst case) loop forever.
+        def insert_marker(p):
+            marker = Node("span")
+            marker.append_child(Text("NEW "))
+            p.parent.insert_before(marker, p)
+
+        doc = JustHTML(
+            "<p>one</p><p>two</p>",
+            fragment=True,
+            transforms=[
+                Edit("p:first-child", insert_marker),
+                SetAttrs("span", id="marker"),
+            ],
+        )
+        # SetAttrs doesn't reach the inserted <span> since it lands before the
+        # walker's current cursor (see docs/transforms.md); the point of this
+        # test is that it terminates with the same result, not that it hangs.
+        self.assertEqual(
+            to_html(doc.root, pretty=False),
+            "<span>NEW </span><p>one</p><p>two</p>",
+        )

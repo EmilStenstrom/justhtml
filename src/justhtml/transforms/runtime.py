@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 from justhtml.core.constants import VOID_ELEMENTS
 from justhtml.dom import Element, Node, Template, Text
 from justhtml.sanitizer import _sanitize_rawtext_element_contents, _strip_invisible_unicode
-from justhtml.selector import SelectorMatcher
+from justhtml.selector import SelectorMatcher, SelectorQueryContext
 from justhtml.serializer import serialize_end_tag, serialize_start_tag
 
 from . import (
@@ -45,6 +45,24 @@ from .spec import DecideAction
 if TYPE_CHECKING:
     from justhtml.core.types import ParseError
 
+# Transform kinds whose runtime handling only ever assigns `node.attrs`, never
+# adds/removes/reorders nodes in any `children` list. This is the exhaustive
+# set of `kind` values a walk-transform can have (see the isinstance check
+# feeding `pending_walk` below) minus every kind whose handling can call
+# `children.pop`/`children[...] =`/`del children[...]` or invoke an arbitrary
+# caller-supplied callback that could do so itself ("drop", "unwrap",
+# "escape", "empty", "edit", "decide", "decide_chain",
+# "decide_elements_chain", "drop_foreign_namespaces", "linkify",
+# "collapse_whitespace", "drop_comments", "drop_doctype"). Selector matching
+# for THIS set may safely share one `SelectorQueryContext` across every node
+# in a walk: sharing while an unsafe kind is present is not safe, because a
+# structural mutation elsewhere in the walk (including via an arbitrary
+# "edit"/"decide" callback the framework has no visibility into) can silently
+# invalidate cached sibling/ancestor data a later match relies on.
+_SELECTOR_CONTEXT_SHAREABLE_KINDS = frozenset(
+    {"setattrs", "edit_attrs", "edit_attrs_chain", "strip_invisible_unicode", "merge_attr_tokens"}
+)
+
 
 def apply_compiled_transforms(
     root: Node,
@@ -65,6 +83,7 @@ def apply_compiled_transforms(
         ) -> None:
             if not walk_transforms:
                 return
+            can_share_selector_context = all(t.kind in _SELECTOR_CONTEXT_SHAREABLE_KINDS for t in walk_transforms)
             escape_comments = any(
                 t.kind == "decide_elements_chain"
                 and any("escape" in (callback.__defaults__ or ()) for callback in t.callbacks)
@@ -290,6 +309,16 @@ def apply_compiled_transforms(
                     (parent, 0, skip_linkify, skip_whitespace, foreign_context)
                 ]
 
+                # Only set when this walk's transforms are all in
+                # _SELECTOR_CONTEXT_SHAREABLE_KINDS (see its definition), so
+                # nothing here can invalidate cached sibling/ancestor data
+                # out from under a later match. None here means "don't share";
+                # SelectorMatcher(context=None, ...) creates its own context,
+                # matching the pre-existing per-node behavior exactly.
+                shared_selector_context = (
+                    SelectorQueryContext(limits=selector_limits) if can_share_selector_context else None
+                )
+
                 while stack:
                     parent, i, skip_linkify, skip_whitespace, foreign_context = stack[-1]
                     children = parent.children
@@ -393,7 +422,7 @@ def apply_compiled_transforms(
                             if not t.all_nodes:
                                 sel = t.selector
                                 if matcher is None:
-                                    matcher = SelectorMatcher(limits=selector_limits)
+                                    matcher = SelectorMatcher(context=shared_selector_context, limits=selector_limits)
                                 if not matcher.matches(node, sel):
                                     continue
                             for chain_func in t.funcs:
@@ -654,7 +683,7 @@ def apply_compiled_transforms(
                             if not t.all_nodes:
                                 sel = t.selector
                                 if matcher is None:
-                                    matcher = SelectorMatcher(limits=selector_limits)
+                                    matcher = SelectorMatcher(context=shared_selector_context, limits=selector_limits)
                                 if not matcher.matches(node, sel):
                                     continue
                             new_attrs = t.func(node)
