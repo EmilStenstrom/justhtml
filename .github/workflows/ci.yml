@@ -59,6 +59,7 @@ jobs:
 
       - name: Run pre-commit
         id: precommit
+        if: matrix.python-version == '3.12'
         run: pre-commit run --show-diff-on-failure --color=always --all-files
         env:
           SKIP: mypy
@@ -70,7 +71,7 @@ jobs:
       - name: Diagnose test failures (verbose)
         if: always()
         run: |
-          if [ "${{ steps.precommit.outcome }}" = "success" ] && [ "${{ steps.run_tests.outcome }}" = "success" ]; then
+          if [ "${{ steps.precommit.outcome }}" != "failure" ] && [ "${{ steps.run_tests.outcome }}" = "success" ]; then
             echo "No failures detected; skipping verbose rerun."
             exit 0
           fi
