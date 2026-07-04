@@ -60,7 +60,10 @@ class _StreamScanner:
 
     def __init__(self, html: str) -> None:
         self._html = html
-        self._lower = html.lower()
+        # ASCII-only fold: positions in self._html are reused against
+        # self._lower, so the fold must be length-preserving (str.lower() is
+        # not, e.g. for U+0130).
+        self._lower = _scanner.ascii_lower(html)
         self._open_elements = []
 
     def scan(self) -> Generator[StreamEvent, None, None]:

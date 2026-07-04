@@ -77,5 +77,47 @@ class TestEngineBehaviorRegressions(unittest.TestCase):
         assert document.to_html(pretty=False) == "&lt;!--c--&gt;<p>x</p>"
 
 
+class TestAsciiCaseFoldingRegressions(unittest.TestCase):
+    """The lowered scan copy must stay index-aligned with the original input.
+
+    "İ" (U+0130) is the only character whose str.lower() expands to two
+    characters, shifting every later index of a Unicode-lowered copy. Markup
+    matching is ASCII case-insensitive per §13.2.5, so only A-Z may fold.
+    """
+
+    def test_rawtext_end_tag_found_after_length_changing_case_char(self) -> None:
+        cases = [
+            # Before the raw-text element.
+            "<div>İ</div><script>y</script>0",
+            "<div>İ</div><title>y</title>0",
+            "<div>İ</div><textarea>a</textarea>b",
+            "<div>İİİ</div><style>.a{}</style>tail",
+            # Inside the raw-text content itself.
+            '<script>var x = "İ";</script>0',
+        ]
+
+        for html in cases:
+            with self.subTest(html=html):
+                assert JustHTML(html, fragment=True, sanitize=False).to_html(pretty=False) == html
+
+    def test_kelvin_sign_document_scans_with_strict_ascii_fold(self) -> None:
+        # U+212A KELVIN SIGN is the only non-ASCII character whose str.lower()
+        # is an ASCII letter ("k"), so it must take the strict A-Z fold and
+        # come through scanning untouched.
+        html = "<div>\u212a</div><script>y</script>0"
+
+        assert JustHTML(html, fragment=True, sanitize=False).to_html(pretty=False) == html
+
+    def test_doctype_after_length_changing_case_char_is_not_a_comment(self) -> None:
+        document = JustHTML("İ<!DOCTYPE html><p>x</p>", sanitize=False)
+
+        assert document.to_html(pretty=False) == "<html><head></head><body>İ<p>x</p></body></html>"
+
+    def test_foreign_cdata_after_length_changing_case_char_stays_text(self) -> None:
+        document = JustHTML("<svg>İ<![CDATA[x]]></svg>", fragment=True, sanitize=False)
+
+        assert document.to_html(pretty=False) == "<svg>İx</svg>"
+
+
 if __name__ == "__main__":
     unittest.main()

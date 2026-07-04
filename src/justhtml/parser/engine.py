@@ -708,7 +708,10 @@ class ParseEngine:
     ) -> None:
         self._html_input = html
         self._length = len(html)
-        self._lower_input = html.lower()
+        # ASCII-only fold: positions in self._html_input are reused against
+        # self._lower_input, so the fold must be length-preserving
+        # (str.lower() is not, e.g. for U+0130).
+        self._lower_input = _scanner.ascii_lower(html)
         self._fragment = bool(fragment)
         self._collect_errors = bool(collect_errors)
         self._errors: list[ParseError] = []

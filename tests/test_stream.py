@@ -405,3 +405,37 @@ class TestStream(unittest.TestCase):
 
         invalid_quoted = '<!--<script X </script foo="</scriptx">tail</script>'
         assert find_script_end_tag(invalid_quoted, invalid_quoted.lower(), 0, len(invalid_quoted)) == (43, 52)
+
+    def test_rawtext_end_tag_after_length_changing_case_char(self):
+        # "İ" (U+0130) lowers to two characters, so a str.lower() copy of the
+        # input drifts out of index alignment with the original. The rawtext
+        # scan must keep finding the real end tag after such a character.
+        assert list(stream("<div>İ</div><script>y</script>0")) == [
+            ("start", ("div", {})),
+            ("text", "İ"),
+            ("end", "div"),
+            ("start", ("script", {})),
+            ("text", "y"),
+            ("end", "script"),
+            ("text", "0"),
+        ]
+        assert list(stream('<script>var x = "İ";</script>0')) == [
+            ("start", ("script", {})),
+            ("text", 'var x = "İ";'),
+            ("end", "script"),
+            ("text", "0"),
+        ]
+
+    def test_doctype_after_length_changing_case_char(self):
+        assert list(stream("İ<!DOCTYPE html>")) == [
+            ("text", "İ"),
+            ("doctype", ("html", None, None)),
+        ]
+
+    def test_foreign_cdata_after_length_changing_case_char(self):
+        assert list(stream("<svg>İ<![CDATA[x]]></svg>")) == [
+            ("start", ("svg", {})),
+            ("text", "İ"),
+            ("text", "x"),
+            ("end", "svg"),
+        ]

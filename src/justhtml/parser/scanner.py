@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import string
+
 SPACE = " \t\n\f\r"
 TAG_NAME_STOP = "\t\n\f />"
 # In the HTML attribute-name state, quotes, apostrophes, "<", and NUL are
@@ -7,6 +9,32 @@ TAG_NAME_STOP = "\t\n\f />"
 ATTR_NAME_STOP = "\t\n\f />="
 ATTR_VALUE_STOP = SPACE + ">"
 TAG_END_NAME_STOP = SPACE + "/>"
+
+_ASCII_LOWER_TABLE = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
+
+
+def ascii_lower(html: str) -> str:
+    """Fold the input for ASCII case-insensitive scanning, index-aligned.
+
+    The folded copy is searched for ASCII needles with positions taken from
+    the original string, so the fold must behave like lowercasing only A-Z
+    (markup matching is ASCII case-insensitive per §13.2.5) and must be
+    length-preserving. str.lower() alone is neither: "İ" (U+0130) lowers to
+    two characters, shifting every later index, and U+212A KELVIN SIGN lowers
+    to "k", over-matching ASCII needles.
+
+    str.lower() is still used as the fast path: when it preserves the total
+    length, every character mapped one-to-one, so indexes stay aligned, and
+    with U+212A absent no non-ASCII character can produce an ASCII needle
+    character. The strict A-Z table fold only runs for the rare inputs that
+    fail those checks.
+    """
+    if html.isascii():
+        return html.lower()
+    lowered = html.lower()
+    if len(lowered) != len(html) or "\u212a" in html:
+        return html.translate(_ASCII_LOWER_TABLE)
+    return lowered
 
 
 def find_tag_end(html: str, pos: int, end: int) -> int:
