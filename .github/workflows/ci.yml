@@ -41,10 +41,19 @@ jobs:
           git -C html5lib-tests checkout 9fb614afaa42ce8787840f057b32084308e76549
           git -C html5lib-tests rev-parse HEAD
 
+      - name: Checkout WPT tree-construction tests
+        run: |
+          cd ..
+          git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git
+          git -C wpt fetch origin 75b089d70448e1da425ab8cf38971b6af41f3cea
+          git -C wpt checkout 75b089d70448e1da425ab8cf38971b6af41f3cea
+          git -C wpt sparse-checkout set html/syntax/parsing/resources
+          git -C wpt rev-parse HEAD
+
       - name: Setup test fixtures
         run: |
           cp -a ../html5lib-tests/tokenizer tests/html5lib-tests-tokenizer
-          cp -a ../html5lib-tests/tree-construction tests/html5lib-tests-tree
+          cp -a ../wpt/html/syntax/parsing/resources tests/html5lib-tests-tree
           cp -a ../html5lib-tests/serializer tests/html5lib-tests-serializer
           cp -a ../html5lib-tests/encoding tests/html5lib-tests-encoding
 
