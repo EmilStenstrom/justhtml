@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-07-04
+
 ### Changed
 - Document that `Linkify(...)` must run before an explicit `Sanitize(...)` in a transform list, not after, and correct the `clean_url_value()` example to escape the returned value with `escape_attr_value()` before embedding it in HTML. Previously, the docs suggested orderings that silently skip URL-policy validation on Linkify-generated links, and separately claimed `clean_url_value()` output needed no further escaping for HTML attribute embedding.
 
