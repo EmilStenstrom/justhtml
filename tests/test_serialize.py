@@ -686,6 +686,12 @@ class TestSerialize(unittest.TestCase):
         assert _neutralize_rawtext_end_tag_sequences("", "style") == ""
         assert _neutralize_rawtext_end_tag_sequences("</stylex>", "style") == "</stylex>"
 
+    def test_neutralize_rawtext_end_tag_sequences_after_length_changing_case_char(self) -> None:
+        assert _neutralize_rawtext_end_tag_sequences("İ</style><img>", "style") == "İ&lt;/style><img>"
+
+    def test_neutralize_rawtext_end_tag_sequences_does_not_unicode_fold_to_ascii(self) -> None:
+        assert _neutralize_rawtext_end_tag_sequences("\u212a</style><img>", "style") == "\u212a&lt;/style><img>"
+
     def test_compact_mode_does_not_normalize_script_text_children(self):
         # Artificial tree to cover serializer branch: skip normalization inside rawtext elements.
         script = Node("script")

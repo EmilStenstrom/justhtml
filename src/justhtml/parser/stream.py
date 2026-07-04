@@ -10,6 +10,7 @@ from justhtml.core.constants import (
     SVG_TAG_NAME_ADJUSTMENTS,
 )
 from justhtml.core.entities import decode_entities_in_text
+from justhtml.core.text import ascii_lower
 
 from . import scanner as _scanner
 from .encoding import decode_html
@@ -60,7 +61,10 @@ class _StreamScanner:
 
     def __init__(self, html: str) -> None:
         self._html = html
-        self._lower = html.lower()
+        # ASCII-only fold: positions in self._html are reused against
+        # self._lower, so the fold must be length-preserving (str.lower() is
+        # not, e.g. for U+0130).
+        self._lower = ascii_lower(html)
         self._open_elements = []
 
     def scan(self) -> Generator[StreamEvent, None, None]:

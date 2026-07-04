@@ -65,6 +65,7 @@ async function installJusthtmlFromLocalRepo(pyodideInstance) {
 		"parser/encoding.py",
 		"core/entities.py",
 		"core/errors.py",
+		"core/text.py",
 		"core/types.py",
 		"core/doctype.py",
 		"serializer/markdown.py",

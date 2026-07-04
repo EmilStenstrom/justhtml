@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Preserve HTML processing-instruction nodes in unsanitized parsing while keeping default-safe sanitization comment-like and conservative, and neutralize `>` in serialized processing-instruction data so a hand-built DOM or a policy that preserves comment-like nodes cannot serialize a processing instruction that a browser parses as a bogus comment terminating early and exposing following markup.
+- Keep raw-text, RCDATA, doctype, and foreign-content CDATA scans aligned after Unicode characters whose Python lowercase mapping changes length or becomes ASCII. Previously, content such as `İ` before a later `<script>` close tag could make the parser miss the real end tag and treat following markup as raw text.
 
 ### Performance
 - Short-circuit open-elements-stack scope checks (`<p>`, `<li>`, `<dd>`/`<dt>`, table-cell scoping, and similar) when the target element isn't open anywhere on the stack, avoiding quadratic parse time for deeply nested common block elements such as `<div>`, `<table>`, `<section>`, and heading tags.

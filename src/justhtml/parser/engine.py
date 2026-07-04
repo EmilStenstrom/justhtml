@@ -33,6 +33,7 @@ from justhtml.core.constants import (
 from justhtml.core.doctype import doctype_error_and_quirks
 from justhtml.core.entities import decode_entities_in_text
 from justhtml.core.errors import generate_error_message
+from justhtml.core.text import ascii_lower
 from justhtml.core.types import Doctype, ParseError
 from justhtml.dom import Comment, Document, DocumentFragment, Element, Node, ProcessingInstruction, Template, Text
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, _strip_invisible_unicode
@@ -753,7 +754,10 @@ class ParseEngine:
     ) -> None:
         self._html_input = html
         self._length = len(html)
-        self._lower_input = html.lower()
+        # ASCII-only fold: positions in self._html_input are reused against
+        # self._lower_input, so the fold must be length-preserving
+        # (str.lower() is not, e.g. for U+0130).
+        self._lower_input = ascii_lower(html)
         self._fragment = bool(fragment)
         self._collect_errors = bool(collect_errors)
         self._errors: list[ParseError] = []

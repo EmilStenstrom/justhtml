@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from .constants import HTML_SPACE_OR_TAG_END_CHARACTERS
+from .text import ascii_lower
 
 
 def neutralize_rawtext_end_tag_sequences(text: str, tag_name: str) -> tuple[str, bool]:
     if not text:
         return text, False
 
-    lower_text = text.lower()
+    lower_text = ascii_lower(text)
     needle = f"</{tag_name}"
     needle_len = len(needle)
     out: list[str] = []
