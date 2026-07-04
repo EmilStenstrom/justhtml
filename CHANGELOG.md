@@ -11,7 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use the web platform html5 treebuilder tests from WPT for tree-construction compliance fixtures.
 
 ### Fixed
-- Preserve HTML processing-instruction nodes in unsanitized parsing while keeping default-safe sanitization comment-like and conservative.
+- Preserve HTML processing-instruction nodes in unsanitized parsing while keeping default-safe sanitization comment-like and conservative, and neutralize `>` in serialized processing-instruction data so a hand-built DOM or a policy that preserves comment-like nodes cannot serialize a processing instruction that a browser parses as a bogus comment terminating early and exposing following markup.
+
+### Performance
+- Short-circuit open-elements-stack scope checks (`<p>`, `<li>`, `<dd>`/`<dt>`, table-cell scoping, and similar) when the target element isn't open anywhere on the stack, avoiding quadratic parse time for deeply nested common block elements such as `<div>`, `<table>`, `<section>`, and heading tags.
+
+### Security
+- (Severity: Low) Reject numeric character references with more digits than any valid Unicode code point could have before converting them to an integer. Previously, a decimal reference such as `&#` followed by thousands of digits could crash parsing with an uncaught `ValueError` before sanitization, since Python limits decimal string-to-integer conversion length.
+- (Severity: Moderate) Prioritize a byte-order mark over a caller-declared transport encoding when decoding byte input, matching the HTML encoding-sniffing algorithm. Previously, passing an explicit `encoding=` alongside untrusted bytes that began with a BOM for a different encoding could make JustHTML decode and sanitize content differently than a browser does, letting markup such as `<script>` pass through undetected while a browser executes it under the BOM-indicated encoding.
 
 ## [3.1.0] - 2026-07-02
 

@@ -10,6 +10,17 @@ class TestEntities(unittest.TestCase):
         assert decode_numeric_entity("80", is_hex=True) == "\u20ac"
         assert decode_numeric_entity("41", is_hex=True) == "A"
 
+    def test_numeric_entity_rejects_digit_strings_too_long_for_int_conversion(self):
+        # Python caps decimal string->int conversion length (CVE-2020-10735).
+        # A numeric character reference this long is already guaranteed to be
+        # out of Unicode's valid range, so it must short-circuit before int()
+        # rather than crash with an uncaught ValueError.
+        assert decode_numeric_entity("1" * 10000) == "\ufffd"
+        assert decode_numeric_entity("f" * 10000, is_hex=True) == "\ufffd"
+
+        # Leading zeros must not trip the length guard for otherwise-valid references.
+        assert decode_numeric_entity("0" * 30 + "65") == "A"
+
     def test_numeric_entity_reports_controls_and_noncharacters(self):
         errors: list[str] = []
 

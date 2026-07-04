@@ -94,7 +94,16 @@ class TestEncoding(unittest.TestCase):
         self.assertEqual(text, "hi")
         self.assertEqual(name, "utf-16be")
 
+        # A byte-stream BOM takes priority over a declared transport encoding
+        # (per the HTML encoding-sniffing algorithm), so the precise BOM-derived
+        # encoding ("utf-16le") wins over the generic transport label.
         text, name = decode_html(b"\xff\xfeh\x00i\x00", transport_encoding="utf-16")
+        self.assertEqual(text, "hi")
+        self.assertEqual(name, "utf-16le")
+
+        # With no BOM present, the generic transport-declared "utf-16" label
+        # is used as-is (Python's "utf-16" codec assumes native byte order).
+        text, name = decode_html(b"h\x00i\x00", transport_encoding="utf-16")
         self.assertEqual(text, "hi")
         self.assertEqual(name, "utf-16")
 
@@ -142,20 +151,17 @@ class TestEncoding(unittest.TestCase):
                 self.assertEqual(doc.to_text(separator="", strip=False), "text")
 
     def test_parser_preserves_leading_bom_when_discard_disabled(self):
-        input_cases = (
-            ("\ufeff<p>text</p>", {}),
-            (b"\xef\xbb\xbf<p>text</p>", {"encoding": "utf-8"}),
+        # `discard_bom` only applies to a literal U+FEFF character already present
+        # in string input. A byte-stream BOM is always consumed while determining
+        # the encoding (per the Encoding standard's decode algorithm), regardless
+        # of this option, so it never reaches this string-level check.
+        doc = JustHTML(
+            "\ufeff<p>text</p>",
+            fragment=True,
+            sanitize=False,
+            _parser_opts=ParserOptions(discard_bom=False),
         )
-        for html, kwargs in input_cases:
-            with self.subTest(html=html):
-                doc = JustHTML(
-                    html,
-                    fragment=True,
-                    sanitize=False,
-                    _parser_opts=ParserOptions(discard_bom=False),
-                    **kwargs,
-                )
-                self.assertEqual(doc.to_text(separator="", strip=False), "\ufefftext")
+        self.assertEqual(doc.to_text(separator="", strip=False), "\ufefftext")
 
     def test_parser_replaces_undefined_windows_1252_bytes(self):
         doc = JustHTML(b"<p>ok\x81</p>", fragment=True)

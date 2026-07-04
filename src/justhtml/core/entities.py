@@ -199,7 +199,16 @@ def decode_numeric_entity(
         The decoded character, or None if invalid
     """
     base = 16 if is_hex else 10
-    codepoint = int(text, base)
+
+    # A numeric character reference this long is already guaranteed to exceed
+    # the valid Unicode range, so treat it as out-of-range without calling
+    # int() on an attacker-controlled digit string long enough to exceed
+    # Python's integer-string conversion limit (see sys.set_int_max_str_digits).
+    digits = text.lstrip("0") or "0"
+    if len(digits) > 16:
+        return "\ufffd"  # REPLACEMENT CHARACTER
+
+    codepoint = int(digits, base)
 
     # Invalid ranges per HTML5 spec
     if codepoint > 0x10FFFF:

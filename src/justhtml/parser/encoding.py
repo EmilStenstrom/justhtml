@@ -345,14 +345,15 @@ def _prescan_for_meta_charset(data: bytes) -> str | None:
 
 
 def sniff_html_encoding(data: bytes, transport_encoding: str | None = None) -> tuple[str, int]:
-    # Transport overrides everything.
-    transport = normalize_encoding_label(transport_encoding)
-    if transport:
-        return transport, 0
-
+    # Per the HTML encoding-sniffing algorithm, a byte-order mark takes
+    # priority over a transport-layer declared encoding.
     bom_enc, bom_len = _sniff_bom(data)
     if bom_enc:
         return bom_enc, bom_len
+
+    transport = normalize_encoding_label(transport_encoding)
+    if transport:
+        return transport, 0
 
     meta_enc = _prescan_for_meta_charset(data)
     if meta_enc:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, SupportsIndex
 
 from justhtml.core.constants import (
     BUTTON_SCOPE_TERMINATORS,
@@ -46,7 +46,7 @@ from justhtml.sanitizer.url.runtime import _URL_CONTROL_CHAR_REGEX, _get_scheme,
 from . import scanner as _scanner
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Mapping
+    from collections.abc import Collection, Iterable, Mapping
 
     from justhtml.parser.context import FragmentContext
     from justhtml.sanitizer.url import UrlPolicy, UrlRule
@@ -605,6 +605,51 @@ class _FormattingMarker:
 _ACTIVE_FORMATTING_MARKER = _FormattingMarker()
 
 
+class _CountingStack(list[Node]):
+    """The open-elements stack, tracking a live count of names it holds.
+
+    Scope-check helpers like `_find_open_index_before_boundary` scan from the
+    top of this stack down to a boundary tag. Deeply nested elements that are
+    never themselves the target (e.g. many `<div>` while scanning for an open
+    `<p>`) would otherwise force an O(depth) scan on every single start tag,
+    making nested markup quadratic overall. Tracking per-name counts lets
+    those helpers return "not found" in O(1) whenever the target name isn't
+    open anywhere on the stack, without changing any parsing behavior.
+    """
+
+    __slots__ = ("_name_counts",)
+
+    def __init__(self, iterable: Iterable[Node] = ()) -> None:
+        items = list(iterable)
+        super().__init__(items)
+        counts: dict[str, int] = {}
+        for item in items:
+            counts[item.name] = counts.get(item.name, 0) + 1
+        self._name_counts = counts
+
+    def count_of(self, name: str) -> int:
+        return self._name_counts.get(name, 0)
+
+    def append(self, item: Node) -> None:  # type: ignore[override]
+        super().append(item)
+        self._name_counts[item.name] = self._name_counts.get(item.name, 0) + 1
+
+    def pop(self, index: int = -1) -> Node:  # type: ignore[override]
+        item = super().pop(index)
+        self._name_counts[item.name] -= 1
+        return item
+
+    def remove(self, item: Node) -> None:  # type: ignore[override]
+        super().remove(item)
+        self._name_counts[item.name] -= 1
+
+    def __delitem__(self, key: SupportsIndex | slice) -> None:
+        removed = self[key] if isinstance(key, slice) else [self[key]]
+        super().__delitem__(key)
+        for item in removed:
+            self._name_counts[item.name] -= 1
+
+
 class ParseEngine:
     __slots__ = (
         "_active_formatting",
@@ -676,7 +721,7 @@ class ParseEngine:
         "_rcdata_tags",
         "_skip_escaped_comment_space",
         "_special_elements",
-        "_stack",
+        "_stack_impl",
         "_strip_invisible_unicode",
         "_table_allowed_children",
         "_table_cell_tags",
@@ -798,11 +843,19 @@ class ParseEngine:
         self._nodes_to_drop: list[Element] = []
         self._nodes_to_unwrap: list[Element] = []
         self._template_modes: list[str] = []
-        self._stack: list[Node] = []
+        self._stack_impl: _CountingStack = _CountingStack()
 
     @property
     def errors(self) -> list[ParseError]:
         return self._errors
+
+    @property
+    def _stack(self) -> _CountingStack:
+        return self._stack_impl
+
+    @_stack.setter
+    def _stack(self, value: list[Node]) -> None:
+        self._stack_impl = value if isinstance(value, _CountingStack) else _CountingStack(value)
 
     def _line_col_at_pos(self, pos: int) -> tuple[int, int]:
         if pos < 0:  # pragma: no cover - parser offsets are non-negative
@@ -3557,6 +3610,8 @@ class ParseEngine:
 
     def _find_open_index_before_boundary(self, name: str, boundaries: frozenset[str]) -> int | None:
         stack = self._stack
+        if stack.count_of(name) == 0:
+            return None
         for idx in range(len(stack) - 1, 0, -1):
             node = stack[idx]
             node_name = node.name
@@ -3569,7 +3624,7 @@ class ParseEngine:
                 node
             ):
                 return None
-        return None
+        return None  # pragma: no cover - the count_of fast path above already rules out index 0 as the only match
 
     def _find_open_table_scoped_end_index(self, name: str) -> int | None:
         for idx in range(len(self._stack) - 1, 0, -1):

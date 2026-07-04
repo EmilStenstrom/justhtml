@@ -77,7 +77,7 @@ test_builder.py: 45/45 (100%) [.............................................]
 test_cli.py: 25/25 (100%) [.........................]
 test_docs_examples.py: 3/3 (100%) [...]
 test_encoding.py: 14/14 (100%) [..............]
-test_entities.py: 5/5 (100%) [.....]
+test_entities.py: 6/6 (100%) [......]
 test_errors.py: 42/42 (100%) [..........................................]
 test_linkify_internals.py: 5/5 (100%) [.....]
 test_linkify_it.py: 2/2 (100%) [..]
@@ -99,4 +99,4 @@ test_transforms_edge_cases.py: 22/22 (100%) [......................]
 test_transforms_sanitize_integration.py: 17/17 (100%) [.................]
 test_wikipedia.py: 1/1 (100%) [.]
 
-PASSED: 3628/3628 passed (100.0%), 6 skipped
+PASSED: 3629/3629 passed (100.0%), 6 skipped
