@@ -15,12 +15,22 @@ The streaming parser is:
 
 ```python
 from justhtml import stream
-from pathlib import Path
 
 html = "<html><body><p>Hello, world!</p></body></html>"
 
 for event, data in stream(html):
     print(event, data)
+```
+
+Output:
+```text
+start ('html', {})
+start ('body', {})
+start ('p', {})
+text Hello, world!
+end p
+end body
+end html
 ```
 
 ## Byte Input and Encodings
@@ -29,6 +39,7 @@ for event, data in stream(html):
 
 ```python
 from justhtml import stream
+from pathlib import Path
 
 data = Path("page.html").read_bytes()
 for event, data in stream(data):
@@ -48,19 +59,6 @@ for event, data in stream(data, encoding="utf-8"):
 
 See [Encoding & Byte Input](encoding.md) for details.
 
-Output:
-```
-start ('html', {})
-start ('head', {})
-end head
-start ('body', {})
-start ('p', {})
-text Hello, world!
-end p
-end body
-end html
-```
-
 ## Events
 
 | Event | Data Type | Description |
@@ -69,7 +67,7 @@ end html
 | `"end"` | `tag_name` | Closing tag encountered |
 | `"text"` | `str` | Text content |
 | `"comment"` | `str` | HTML comment content |
-| `"doctype"` | `str` | DOCTYPE name (usually `"html"`) |
+| `"doctype"` | `(name, public_id, system_id)` | DOCTYPE declaration fields |
 
 ## Examples
 

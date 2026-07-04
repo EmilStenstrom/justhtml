@@ -602,7 +602,7 @@ To override the encoding for byte input, pass `encoding=...`.
 | `"end"` | `tag_name` | Closing tag |
 | `"text"` | `text_content` | Text content |
 | `"comment"` | `comment_text` | HTML comment |
-| `"doctype"` | `doctype_name` | DOCTYPE declaration |
+| `"doctype"` | `(name, public_id, system_id)` | DOCTYPE declaration fields |
 
 ---
 
