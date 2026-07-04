@@ -422,7 +422,7 @@ class Node:
         Returns:
             A new node that is a copy of this node.
         """
-        attrs = override_attrs if override_attrs is not None else (self.attrs.copy() if self.attrs else None)
+        attrs = override_attrs.copy() if override_attrs is not None else (self.attrs.copy() if self.attrs else None)
         clone = Node(
             self.name,
             attrs,
@@ -551,7 +551,7 @@ class Element(Node):
         self._self_closing = False
 
     def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> Element:
-        attrs = override_attrs if override_attrs is not None else (self.attrs.copy() if self.attrs else {})
+        attrs = override_attrs.copy() if override_attrs is not None else (self.attrs.copy() if self.attrs else {})
         clone = Element(self.name, attrs, self.namespace)
         clone._source_html = self._source_html
         clone._origin_pos = self._origin_pos
@@ -586,7 +586,7 @@ class Template(Element):
             self.template_content = None
 
     def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> Template:
-        attrs = override_attrs if override_attrs is not None else (self.attrs.copy() if self.attrs else {})
+        attrs = override_attrs.copy() if override_attrs is not None else (self.attrs.copy() if self.attrs else {})
         clone = Template(
             self.name,
             attrs,

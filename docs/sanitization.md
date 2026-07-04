@@ -124,10 +124,12 @@ rule = UrlRule(allowed_schemes={"https", "mailto"})
 cleaned_url = JustHTML.clean_url_value(value=user_url, url_rule=rule)
 
 if cleaned_url:
-    # URL is safe to use.
-    # Note: clean_url_value performs URL encoding, so no extra escape needed if using double quotes in HTML.
-    # <a href="${cleaned_url}">
-    pass
+    # cleaned_url is a validated, percent-encoded URL, not an HTML-attribute-safe
+    # string: it deliberately keeps "&" literal so multi-parameter query strings
+    # stay usable as plain text (e.g. in a JS string). Escape it like any other
+    # attribute value before embedding it in HTML.
+    safe_url = JustHTML.escape_attr_value(cleaned_url)
+    # <a href="${safe_url}">
 ```
 
 ## Configuration

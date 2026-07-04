@@ -14,7 +14,11 @@ if TYPE_CHECKING:
 def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     """Return a sanitized clone of `node`.
 
-    This returns a sanitized clone without mutating the original tree.
+    This returns a sanitized clone without mutating the original tree's
+    structure, attributes, or content. One exception: in "escape" mode, the
+    internal `_source_html` bookkeeping field may be propagated onto the
+    original tree's descendants before cloning (see below) as a performance
+    trade-off; this never affects the original tree's visible content.
     For performance, it builds the sanitized clone in a single pass.
     """
 

@@ -170,7 +170,25 @@ def _escape_url_value(value: str) -> str:
     if not value:
         return ""
     # Preserve common URL separators while percent-encoding other characters.
+    # "&" is kept literal to preserve multi-parameter query strings and real
+    # URL semantics for non-HTML consumers (e.g. a JS string assigned to
+    # location.href). Callers embedding the result directly into an HTML
+    # attribute must still HTML-escape it, same as any other attribute value;
+    # see _escape_url_value_for_html_attr for that case.
     return url_quote(value, safe="/:@?&=#+-._~")
+
+
+def _escape_url_value_for_html_attr(value: str) -> str:
+    """Percent-encode a URL value for direct embedding in an HTML attribute.
+
+    Unlike `_escape_url_value`, this also HTML-escapes any literal "&" left by
+    percent-encoding, so it can't combine with adjacent text to form an
+    unintended character reference when the attribute is parsed (e.g. a
+    legacy no-semicolon named entity such as "&amp;shy..."). "a=1&amp;b=2" is
+    also the spec-correct way to write a multi-parameter URL inside an HTML
+    attribute, so this doesn't change how the URL is interpreted.
+    """
+    return _escape_url_value(value).replace("&", "&amp;")
 
 
 def _choose_attr_quote(value: str | None, forced_quote_char: str | None = None) -> str:
@@ -400,7 +418,7 @@ def to_html(
 
         # First get text content (URLs shouldn't have markup)
         text = node.to_text()
-        return url_quote(text.strip(), safe="/:@?&=#+-._~")
+        return _escape_url_value_for_html_attr(text.strip())
 
     raise TypeError(f"Unknown serialization context: {context}")  # pragma: no cover
 

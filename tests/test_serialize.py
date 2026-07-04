@@ -209,6 +209,20 @@ class TestSerialize(unittest.TestCase):
         output = to_html(div, context=HTMLContext.URL)
         self.assertEqual(output, "/path/to/thing?q=a%20b")
 
+    def test_to_html_context_url_escapes_literal_ampersand_for_html_embedding(self):
+        # HTMLContext.URL is documented for href/src attributes, so a literal
+        # "&" must be HTML-escaped: otherwise it could combine with adjacent
+        # text to form an unintended character reference when a browser
+        # parses the attribute (e.g. a legacy no-semicolon named entity).
+        node = Text("https://example.com/x&ampshy")
+        output = to_html(node, context=HTMLContext.URL)
+        self.assertEqual(output, "https://example.com/x&amp;ampshy")
+
+        # Multi-parameter query strings still work correctly as HTML markup.
+        node2 = Text("https://example.com/search?q=a&lang=en")
+        output2 = to_html(node2, context=HTMLContext.URL)
+        self.assertEqual(output2, "https://example.com/search?q=a&amp;lang=en")
+
     def test_to_html_inner_html_js_context(self):
         output = _JustHTML.escape_html_text_in_js_string('<div a="b">Hi &amp; <b>world</b></div>')
         # & escapes to \u0026

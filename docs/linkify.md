@@ -125,6 +125,33 @@ This matters for Linkify because sanitization policies can remove or rewrite att
 - Schemes not allowed for `a[href]` are stripped (the `<a>` remains, but `href` is removed).
 - Protocol-relative `//example.com` is resolved according to policy (default: `https://example.com`).
 
+**Put `Linkify()` before `Sanitize()`, not after.** It is tempting to reach for `transforms=[Sanitize(policy), Linkify()]`, reasoning "sanitize first, then add links to the clean text." That order does the opposite of what it looks like: your explicit `Sanitize()` position becomes the sanitize point (see above), so the `<a href="...">` elements Linkify creates afterward are never checked against your `UrlPolicy`/`UrlRule` restrictions.
+
+```python
+from justhtml import JustHTML, Linkify, Sanitize, SanitizationPolicy, UrlPolicy, UrlRule
+
+# A policy that only allows https:// links on <a href>.
+policy = SanitizationPolicy(
+    allowed_tags=["a"],
+    allowed_attributes={"a": ["href"]},
+    url_policy=UrlPolicy(allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})}),
+)
+text = "See http://example.com"
+
+# Wrong: Linkify's generated <a href> is created after the sanitize point,
+# so the https-only restriction never sees it.
+doc = JustHTML(text, transforms=[Sanitize(policy), Linkify()])
+print(doc.to_html(pretty=False))
+# => See <a href="http://example.com">http://example.com</a>
+
+# Right: Linkify runs first, so its output is covered by the same sanitize pass.
+doc = JustHTML(text, transforms=[Linkify(), Sanitize(policy)])
+print(doc.to_html(pretty=False))
+# => See http://example.com
+```
+
+If you don't need other transforms between them, the simplest safe option is to omit `Sanitize()` entirely and let `sanitize=True` (the default) append it automatically after `Linkify()`.
+
 If you want Linkify output without any sanitization changes (trusted input only), use `sanitize=False` and avoid adding `Sanitize(...)` in transforms.
 
 ## Provenance

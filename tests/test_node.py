@@ -1029,6 +1029,27 @@ class TestNode(unittest.TestCase):
         clone = node.clone_node()
         assert clone.attrs == {}
 
+    def test_clone_node_override_attrs_is_independent_per_clone(self):
+        # override_attrs must be copied, same as the default clone path:
+        # otherwise multiple clones built from the same dict (or the caller's
+        # own reference to it) would alias and silently mutate each other.
+        for factory in (
+            lambda attrs: Node("div", attrs),
+            lambda attrs: Element("div", attrs, "html"),
+            lambda attrs: Template("template", attrs, None, "html"),
+        ):
+            with self.subTest(factory=factory):
+                original = factory({})
+                shared = {"x": "1"}
+                clone_a = original.clone_node(override_attrs=shared)
+                clone_b = original.clone_node(override_attrs=shared)
+
+                clone_a.attrs["x"] = "mutated"
+
+                assert clone_a.attrs is not shared
+                assert clone_b.attrs == {"x": "1"}
+                assert shared == {"x": "1"}
+
     def test_clone_comment_node(self):
         node = Comment(data="foo")
         clone = node.clone_node()

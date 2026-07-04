@@ -66,6 +66,14 @@ class TestLinkifyInternals(unittest.TestCase):
         m2 = find_links_with_config("See //user@a.com:8080/x", LinkifyConfig())
         assert any(x.href == "//user@a.com:8080/x" for x in m2)
 
+    def test_email_local_part_bounded_to_rfc_5321_limit(self) -> None:
+        # RFC 5321 caps the local part at 64 octets; this also bounds the
+        # candidate regex's local-part backtracking (see the quadratic test
+        # above), so a local part right at the limit must still match and one
+        # character over must not.
+        assert len(find_links_with_config("a" * 64 + "@example.com", LinkifyConfig())) == 1
+        assert find_links_with_config("a" * 65 + "@example.com", LinkifyConfig()) == []
+
     def test_punctuation_runs_do_not_trigger_quadratic_email_scan(self) -> None:
         for ch in ('"', "-", ".", "!"):
             with self.subTest(ch=ch):
@@ -74,6 +82,18 @@ class TestLinkifyInternals(unittest.TestCase):
                 start = perf_counter()
                 assert find_links_with_config(text, LinkifyConfig()) == []
                 assert perf_counter() - start < 0.25
+
+    def test_dotted_alnum_runs_do_not_trigger_quadratic_email_backtracking(self) -> None:
+        # Unlike the punctuation-run case above, a run of alnum-and-dot text
+        # (e.g. repeated version-like or dotted-numeric tokens) can start an
+        # email-candidate match (its first character is alphanumeric). An
+        # unbounded greedy local-part run followed by a required, absent "@"
+        # previously forced a full-length backtrack at every start position.
+        text = "1." * 80_000
+        find_links_with_config(text, LinkifyConfig())
+        start = perf_counter()
+        assert find_links_with_config(text, LinkifyConfig()) == []
+        assert perf_counter() - start < 1.0
 
     def test_unmatched_closing_brackets_do_not_trigger_quadratic_trimming(self) -> None:
         for ch in (")", "]", "}", ">"):

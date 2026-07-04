@@ -53,11 +53,12 @@ class _StreamNode:
 
 
 class _StreamScanner:
-    __slots__ = ("_html", "_lower", "_open_elements")
+    __slots__ = ("_html", "_lower", "_name_counts", "_open_elements")
 
     _html: str
     _lower: str
     _open_elements: list[_StreamNode]
+    _name_counts: dict[str, int]
 
     def __init__(self, html: str) -> None:
         self._html = html
@@ -66,6 +67,25 @@ class _StreamScanner:
         # not, e.g. for U+0130).
         self._lower = ascii_lower(html)
         self._open_elements = []
+        self._name_counts = {}
+
+    def _push_open_element(self, node: _StreamNode) -> None:
+        self._open_elements.append(node)
+        key = node.name.lower()
+        self._name_counts[key] = self._name_counts.get(key, 0) + 1
+
+    def _pop_open_element(self) -> _StreamNode:
+        node = self._open_elements.pop()
+        key = node.name.lower()
+        self._name_counts[key] -= 1
+        return node
+
+    def _truncate_open_elements(self, index: int) -> None:
+        removed = self._open_elements[index:]
+        del self._open_elements[index:]
+        for node in removed:
+            key = node.name.lower()
+            self._name_counts[key] -= 1
 
     def scan(self) -> Generator[StreamEvent, None, None]:
         html = self._html
@@ -156,7 +176,7 @@ class _StreamScanner:
             namespace = self._namespace_for_start_tag(name, attrs)
             if not (self_closing and namespace not in {None, "html"}):
                 adjusted_name = self._adjusted_name_for_namespace(name, namespace)
-                self._open_elements.append(_StreamNode(adjusted_name, namespace, attrs.copy()))
+                self._push_open_element(_StreamNode(adjusted_name, namespace, attrs.copy()))
 
             if namespace in {None, "html"}:
                 if name in _PLAINTEXT_TAGS:
@@ -438,7 +458,7 @@ class _StreamScanner:
             )
             if breaks_out:
                 while self._open_elements and self._open_elements[-1].namespace not in {None, "html"}:
-                    self._open_elements.pop()
+                    self._pop_open_element()
             else:
                 return parent_namespace
 
@@ -446,7 +466,7 @@ class _StreamScanner:
 
     def _pop_foreign_context(self) -> None:
         while self._open_elements and self._open_elements[-1].namespace not in {None, "html"}:
-            self._open_elements.pop()
+            self._pop_open_element()
 
     def _pop_for_end_tag(self, name: str) -> None:
         if not self._open_elements:
@@ -458,15 +478,23 @@ class _StreamScanner:
             self._pop_foreign_context()
             return
 
-        for index in range(len(self._open_elements) - 1, -1, -1):
-            node = self._open_elements[index]
-            if node.name.lower() == name_lower:
-                del self._open_elements[index:]
-                return
-            if node.namespace in {None, "html"}:
-                break
+        # Skip the scan entirely when the name isn't open anywhere on the
+        # stack: an unmatched end tag deep inside foreign content (svg/math)
+        # would otherwise scan the whole stack on every single end tag,
+        # making a run of unmatched end tags quadratic overall.
+        if self._name_counts.get(name_lower, 0) > 0:
+            for index in range(len(self._open_elements) - 1, -1, -1):  # pragma: no branch
+                node = self._open_elements[index]
+                if node.name.lower() == name_lower:
+                    self._truncate_open_elements(index)
+                    return
+                if node.namespace in {None, "html"}:
+                    break
+            # Unreachable: count_of > 0 guarantees a match exists at some index
+            # in this exact range, so the loop above always returns or breaks
+            # before exhausting it.
 
-        self._open_elements.pop()
+        self._pop_open_element()
 
     def _in_foreign_context(self) -> bool:
         if not self._open_elements:

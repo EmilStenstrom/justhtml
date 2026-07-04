@@ -288,6 +288,20 @@ class TestStream(unittest.TestCase):
         expected = [("end", "div")]
         assert events == expected
 
+    def test_unmatched_end_tag_stops_at_nearer_html_element(self):
+        # </foo> targets the outer <foo>, but the nearer <bar> (also HTML
+        # namespace) isn't a match, so only the innermost open element is
+        # popped and <foo>/<bar> remain unmatched.
+        html = "<foo><bar><svg></svg></foo>"
+        events = list(stream(html))
+        assert events == [
+            ("start", ("foo", {})),
+            ("start", ("bar", {})),
+            ("start", ("svg", {})),
+            ("end", "svg"),
+            ("end", "foo"),
+        ]
+
     def test_trailing_less_than_and_non_tag_openers_are_text(self):
         assert list(stream("abc<")) == [("text", "abc<")]
         assert list(stream("<1x")) == [("text", "<1x")]

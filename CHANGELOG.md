@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Document that `Linkify(...)` must run before an explicit `Sanitize(...)` in a transform list, not after, and correct the `clean_url_value()` example to escape the returned value with `escape_attr_value()` before embedding it in HTML. Previously, the docs suggested orderings that silently skip URL-policy validation on Linkify-generated links, and separately claimed `clean_url_value()` output needed no further escaping for HTML attribute embedding.
+
+### Fixed
+- Copy `override_attrs` when cloning a node instead of storing the caller's dict by reference. Previously, calling `clone_node(override_attrs=...)` more than once with the same dict (or holding onto that dict after cloning) produced clones that aliased the same attribute dictionary, so mutating one clone's attributes silently mutated another clone or the caller's own dict.
+
+### Performance
+- Avoid rescanning the entire open-elements stack for every unmatched end tag inside foreign (SVG/MathML) content in the streaming parser (`stream()`), by tracking open-element name counts the same way the main parser engine does. Previously, a run of unmatched end tags deep inside foreign content was quadratic in the depth of nesting.
+- Bound `Linkify(...)`'s email-candidate pattern to RFC 5321's 64-octet local-part limit instead of an unbounded match. Previously, the greedy local-part match followed by a required (and often absent) `@` forced a full-length backtrack at every candidate start position, making long "@"-free runs of otherwise email-local-part-legal text (such as repeated dotted-numeric tokens) quadratic to scan.
+
+### Security
+- (Severity: Low) HTML-escape a literal `&` left over after percent-encoding a URL for the `HTMLContext.URL` serialization context (used for `href`/`src`-style attributes). Previously, a URL containing a legacy (no-semicolon) named HTML entity immediately after a decoded `&` could be interpreted differently once embedded in an HTML attribute and re-parsed by a browser than what was validated.
+
 ## [3.2.0] - 2026-07-04
 
 ### Changed

@@ -69,7 +69,13 @@ _CANDIDATE_PATTERN: Final[str] = "".join(
         r"|mailto:[^\s<>\uFF5C]+",  # mailto
         r"|//[^\s<>\uFF5C]+",  # protocol-relative
         r"|(?:www\.)[^\s<>\uFF5C]+",  # www.
-        rf"|[0-9A-Za-z][0-9A-Za-z.!#$%&'*+/=?^_`{{|}}~\-\"]*@(?:{_LABEL_RE}\.)+{_LABEL_RE}",  # email
+        # Local-part is bounded to RFC 5321's 64-octet limit (1 leading char here
+        # plus up to 63 more) instead of an unbounded `*`. An unbounded greedy
+        # local-part run followed by a required (and often absent) "@" forces the
+        # engine to backtrack the full remaining match length at every candidate
+        # start position, which is quadratic over long "@"-free runs of otherwise
+        # local-part-legal text (e.g. long dotted-numeric strings).
+        rf"|[0-9A-Za-z][0-9A-Za-z.!#$%&'*+/=?^_`{{|}}~\-\"]{{0,63}}@(?:{_LABEL_RE}\.)+{_LABEL_RE}",  # email
         r"|(?:\d{1,3}\.){3}\d{1,3}(?:/[^\s<>\uFF5C]*)?",  # IPv4
         rf"|(?:{_LABEL_RE}\.)+{_LABEL_RE}(?:/[^\s<>\uFF5C]*)?",  # fuzzy domain/path
         r")",
