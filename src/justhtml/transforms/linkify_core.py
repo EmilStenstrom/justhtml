@@ -439,7 +439,9 @@ def find_links_with_config(text: str, config: LinkifyConfig) -> list[LinkMatch]:
             host = hostport
             if ":" in hostport and not hostport.startswith("["):
                 host, port = hostport.split(":", 1)
-                if port and (not port.isdigit() or int(port) > 65535):
+                if port and (
+                    not port.isascii() or not port.isdecimal() or len(port) > 5 or (len(port) == 5 and port > "65535")
+                ):
                     continue
             if not host or host.startswith(("-", ".")) or host.endswith(("-", ".")) or ".." in host:
                 continue

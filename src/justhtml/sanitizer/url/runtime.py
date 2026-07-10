@@ -146,9 +146,17 @@ def _is_noncanonical_numeric_ipv4_host(host: str) -> bool:
         return False
     if not all(_is_legacy_ipv4_number(label) for label in labels):
         return False
-    return not (
-        len(labels) == 4
-        and all(label.isdecimal() and str(int(label)) == label and 0 <= int(label) <= 255 for label in labels)
+    return not (len(labels) == 4 and all(_is_canonical_ipv4_decimal_label(label) for label in labels))
+
+
+def _is_canonical_ipv4_decimal_label(value: str) -> bool:
+    """Check an IPv4 decimal label without converting attacker-controlled digits."""
+    return (
+        value.isascii()
+        and value.isdecimal()
+        and len(value) <= 3
+        and (len(value) == 1 or value[0] != "0")
+        and (len(value) < 3 or value <= "255")
     )
 
 
@@ -363,9 +371,7 @@ def _sanitize_srcset_descriptor(value: str) -> str | None:
     token = tokens[0].lower()
     if token.endswith(("w", "h")):
         number = token[:-1]
-        if not number.isdecimal():
-            return None
-        if int(number) <= 0:
+        if not number.isdecimal() or not number.strip("0"):
             return None
         return token
 

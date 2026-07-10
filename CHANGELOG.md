@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - (Severity: Low) Bound named character-reference lookup to the finite HTML entity tables. Previously, a malformed `&` followed by a long alphanumeric run caused repeated shrinking-prefix allocations and lookups, making parsing quadratic and allowing denial of service before sanitization.
 - (Severity: Low) Cap diagnostics retained by `JustHTML(...)` with the new `max_errors` option (default: 1000), including parser, sanitizer, raw-text, and transform findings. Previously, input containing many independently malformed characters or unsafe constructs could allocate an unbounded number of `ParseError` objects.
 - (Severity: Low) Index active-formatting entries by signature within each HTML5 Noah's Ark marker segment, retiring superseded entries lazily and compacting in bounded batches. Previously, repeated fourth occurrences across many formatting signatures rescanned and shifted the active-formatting list, allowing quadratic parsing of crafted HTML.
+- (Severity: Low) Avoid unbounded integer conversion for untrusted `srcset` width descriptors, URL host validation, and `Linkify(...)` URL ports. Previously, inputs with more decimal digits than Python permits in `int()` could raise an uncaught `ValueError` during sanitization or linkification.
 
 ## [3.3.0] - 2026-07-04
 

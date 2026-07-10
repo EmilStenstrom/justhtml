@@ -199,6 +199,7 @@ class TestSanitizePlumbing(unittest.TestCase):
         assert _raw_authority_host("[2001:db8::1") == ""
         assert _is_noncanonical_numeric_ipv4_host("1.2.3.4.5") is False
         assert _is_noncanonical_numeric_ipv4_host("1..2.3") is False
+        assert _is_noncanonical_numeric_ipv4_host(".".join(["9" * 5000] * 4)) is True
         assert _is_legacy_ipv4_number("") is False
 
     def test_urlproxy_does_not_rewrite_safe_url_to_active_href(self) -> None:
@@ -2167,6 +2168,10 @@ class TestSanitizeDom(unittest.TestCase):
         out = JustHTML('<a href="https://127.0.0.1/x">x</a>', fragment=True, policy=policy).to_html()
         assert out == '<a href="https://127.0.0.1/x">x</a>'
 
+        overlong_host = ".".join(["9" * 5000] * 4)
+        out = JustHTML(f'<a href="https://{overlong_host}/x">x</a>', fragment=True, policy=policy).to_html()
+        assert out == "<a>x</a>"
+
     def test_url_policy_remote_proxy_global_and_img_override(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags=["a", "img"],
@@ -2400,6 +2405,21 @@ class TestSanitizeDom(unittest.TestCase):
                 policy=policy,
             ).to_html()
             assert out == "<img>"
+
+    def test_srcset_accepts_large_positive_width_descriptors_without_integer_conversion(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags=["img"],
+            allowed_attributes={"*": [], "img": ["srcset"]},
+            url_policy=UrlPolicy(
+                default_allow_relative=True,
+                allow_rules={("img", "srcset"): UrlRule(allowed_schemes={"https"})},
+            ),
+        )
+        width = "9" * 5000
+
+        out = JustHTML(f'<img srcset="https://example.com/a {width}w">', fragment=True, policy=policy).to_html()
+
+        assert out == f'<img srcset="https://example.com/a {width}w">'
 
     def test_srcset_preserves_valid_width_and_density_descriptors(self) -> None:
         policy = SanitizationPolicy(

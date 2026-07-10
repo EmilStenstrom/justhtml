@@ -2097,3 +2097,14 @@ class TestTransforms(unittest.TestCase):
             transforms=[Linkify()],
         )
         assert doc.to_html(pretty=False) == "<p>Hello world</p>"
+
+    def test_linkify_rejects_an_overlong_numeric_port_without_integer_conversion(self) -> None:
+        port = "9" * 5000
+
+        doc = JustHTML(
+            f"<p>http://example.com:{port}</p>",
+            fragment=True,
+            transforms=[Linkify()],
+        )
+
+        assert doc.to_html(pretty=False) == f"<p>http://example.com:{port}</p>"
