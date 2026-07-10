@@ -155,6 +155,7 @@ class TestSerialize(unittest.TestCase):
         assert output.startswith("<div>")
         assert output.endswith("</div>")
         assert "x" in output
+        assert len(output) < 400_000
 
     def test_collapse_html_whitespace_vertical_tab(self):
         # \v is not HTML whitespace, so it should be preserved as a non-whitespace character

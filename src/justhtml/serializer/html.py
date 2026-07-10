@@ -713,10 +713,53 @@ def _should_pretty_indent_children(children: list[Any]) -> bool:
     return True
 
 
+_HTML_FRAGMENT = str | tuple["_HTML_FRAGMENT", ...]
+_MAX_PRETTY_INDENT_DEPTH = 64
+
+
+def _pretty_indent(depth: int, indent_size: int) -> str:
+    """Return bounded indentation so deep untrusted trees cannot amplify output."""
+    return " " * (min(depth, _MAX_PRETTY_INDENT_DEPTH) * indent_size)
+
+
+def _join_html_fragments(parts: list[_HTML_FRAGMENT], separator: str = "") -> _HTML_FRAGMENT:
+    """Join fragments without repeatedly copying nested serialized output."""
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    if not separator:
+        return tuple(parts)
+    joined: list[_HTML_FRAGMENT] = []
+    for index, part in enumerate(parts):
+        if index:
+            joined.append(separator)
+        joined.append(part)
+    return tuple(joined)
+
+
+def _html_fragment_is_nonempty(fragment: _HTML_FRAGMENT) -> bool:
+    if isinstance(fragment, str):
+        return bool(fragment)
+    return any(_html_fragment_is_nonempty(part) for part in fragment)
+
+
+def _html_fragment_to_string(fragment: _HTML_FRAGMENT) -> str:
+    parts: list[str] = []
+    stack: list[_HTML_FRAGMENT] = [fragment]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, str):
+            parts.append(current)
+        else:
+            stack.extend(reversed(current))
+    return "".join(parts)
+
+
 def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: bool) -> str:
     """Helper to convert a node to HTML using an explicit stack."""
     tasks: list[Any] = [("visit", node, indent, in_pre)]
-    results: list[str] = []
+    results: list[_HTML_FRAGMENT] = []
 
     while tasks:
         task = tasks.pop()
@@ -731,7 +774,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                 tasks.append(("collect_join", "\n", False, child_specs, 0, []))
                 continue
 
-            prefix = " " * (current_indent * indent_size) if not current_in_pre else ""
+            prefix = _pretty_indent(current_indent, indent_size) if not current_in_pre else ""
             content_pre = current_in_pre or name in WHITESPACE_PRESERVING_ELEMENTS
             newline = "\n" if not content_pre else ""
 
@@ -908,7 +951,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                                 parts_template.append(("child", idx))
 
                             run_line_templates.append(
-                                (" " * ((current_indent + 1) * indent_size), parts_template, False)
+                                (_pretty_indent(current_indent + 1, indent_size), parts_template, False)
                             )
 
                         if can_apply and run_line_templates:
@@ -956,7 +999,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                                     first_non_none_index = i
                                 last_non_none_index = i
 
-                            inline_line_prefix = " " * ((current_indent + 1) * indent_size)
+                            inline_line_prefix = _pretty_indent(current_indent + 1, indent_size)
 
                             def flush_inline_parts(
                                 target_lines: list[tuple[str, list[tuple[str, Any]], bool]] = mixed_line_templates,
@@ -1066,7 +1109,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                                 if text:
                                     element_line_templates.append(
                                         (
-                                            " " * ((current_indent + 1) * indent_size),
+                                            _pretty_indent(current_indent + 1, indent_size),
                                             [("lit", _escape_text(text))],
                                             False,
                                         )
@@ -1150,8 +1193,8 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                 tasks.append(("visit", child, child_indent, child_in_pre))
                 continue
             if filter_empty:
-                child_results = [value for value in child_results if value]
-            results.append(sep.join(child_results))
+                child_results = [value for value in child_results if _html_fragment_is_nonempty(value)]
+            results.append(_join_html_fragments(child_results, sep))
             continue
 
         if kind == "collect_wrap_join":
@@ -1173,7 +1216,9 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                 )
                 tasks.append(("visit", child, child_indent, child_in_pre))
                 continue
-            results.append(f"{prefix}{open_tag}{sep.join(child_results)}{close_tag}")
+            results.append(
+                _join_html_fragments([prefix, open_tag, _join_html_fragments(child_results, sep), close_tag])
+            )
             continue
 
         if kind == "collect_wrap_parts":
@@ -1204,13 +1249,13 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                 )
                 tasks.append(("visit", child, child_indent, child_in_pre))
                 continue
-            parts: list[str] = []
+            parts: list[_HTML_FRAGMENT] = []
             for part_kind, value in parts_template:
                 if part_kind == "lit":
                     parts.append(value)
                 else:
                     parts.append(child_results[value])
-            results.append(f"{prefix}{open_tag}{''.join(parts)}{close_tag}")
+            results.append(_join_html_fragments([prefix, open_tag, _join_html_fragments(parts), close_tag]))
             continue
 
         if kind != "collect_wrap_lines":  # pragma: no cover
@@ -1244,22 +1289,22 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
             )
             tasks.append(("visit", child, child_indent, child_in_pre))
             continue
-        lines: list[str] = []
+        lines: list[_HTML_FRAGMENT] = []
         for line_prefix, parts_template, strip_spaces in line_templates:
-            line_parts: list[str] = []
+            line_parts: list[_HTML_FRAGMENT] = []
             for part_kind, value in parts_template:
                 if part_kind == "lit":
                     line_parts.append(value)
                 else:
                     line_parts.append(child_results[value])
-            line = "".join(line_parts)
+            line = _join_html_fragments(line_parts)
             if strip_spaces:
-                line = line.strip(" ")
-            if line or not skip_empty:
-                lines.append(f"{line_prefix}{line}")
-        results.append("\n".join([f"{prefix}{open_tag}", *lines, f"{prefix}{close_tag}"]))
+                line = _html_fragment_to_string(line).strip(" ")
+            if _html_fragment_is_nonempty(line) or not skip_empty:
+                lines.append(_join_html_fragments([line_prefix, line]))
+        results.append(_join_html_fragments([f"{prefix}{open_tag}", *lines, f"{prefix}{close_tag}"], "\n"))
 
-    return results[-1] if results else ""
+    return _html_fragment_to_string(results[-1]) if results else ""
 
 
 def to_test_format(node: NodeType, indent: int = 0) -> str:
