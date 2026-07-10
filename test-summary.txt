@@ -90,7 +90,7 @@ test_linkify_internals.py: 7/7 (100%) [.......]
 test_linkify_it.py: 2/2 (100%) [..]
 test_linkify_transform.py: 8/8 (100%) [........]
 test_node.py: 146/146 (100%) [..................................................................................................................................................]
-test_parser_engine.py: 34/34 (100%) [..................................]
+test_parser_engine.py: 36/36 (100%) [....................................]
 test_parser_regressions.py: 14/14 (100%) [..............]
 test_parser_tree.py: 57/57 (100%) [.........................................................]
 test_playground_local_repo_file_list.py: 1/1 (100%) [.]
@@ -106,4 +106,4 @@ test_transforms_compiler.py: 10/10 (100%) [..........]
 test_transforms_sanitize_integration.py: 18/18 (100%) [..................]
 test_wikipedia.py: 1/1 (100%) [.]
 
-PASSED: 3656/3656 passed (100.0%), 6 skipped
+PASSED: 3658/3658 passed (100.0%), 6 skipped

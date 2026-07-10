@@ -597,6 +597,8 @@ class _FormattingEntry:
     attrs: dict[str, str | None]
     node: Element
     signature: tuple[tuple[str, str], ...]
+    active: bool = True
+    segment: dict[tuple[str, tuple[tuple[str, str], ...]], list[_FormattingEntry]] | None = None
 
 
 class _FormattingMarker:
@@ -654,8 +656,9 @@ class _CountingStack(list[Node]):
 class ParseEngine:
     __slots__ = (
         "_active_formatting",
-        "_active_formatting_counts",
         "_active_formatting_dirty",
+        "_active_formatting_entries",
+        "_active_formatting_retired",
         "_active_formatting_tags",
         "_after_body",
         "_after_document",
@@ -847,11 +850,13 @@ class ParseEngine:
         self._head: Element | None = None
         self._body: Element | DocumentFragment
         self._active_formatting: list[_FormattingEntry | _FormattingMarker] = []
-        # One signature-count cache per Noah's Ark marker segment. Counts may
-        # temporarily be high after removals; duplicate lookup repairs a stale
-        # count before acting on it. This keeps removal paths simple while
-        # making the common non-duplicate lookup O(1).
-        self._active_formatting_counts: list[dict[tuple[str, tuple[tuple[str, str], ...]], int]] = [{}]
+        # One direct index per Noah's Ark marker segment. A signature retains
+        # at most its three live entries, so finding the oldest duplicate does
+        # not require scanning the whole active-formatting list.
+        self._active_formatting_entries: list[
+            dict[tuple[str, tuple[tuple[str, str], ...]], list[_FormattingEntry]]
+        ] = [{}]
+        self._active_formatting_retired = 0
         self._active_formatting_dirty = False
         self._nodes_to_drop: list[Element] = []
         self._nodes_to_unwrap: list[Element] = []
@@ -4317,17 +4322,19 @@ class ParseEngine:
 
     def _push_active_formatting_marker(self) -> None:
         self._active_formatting.append(_ACTIVE_FORMATTING_MARKER)
-        self._active_formatting_counts.append({})
+        self._active_formatting_entries.append({})
 
     def _clear_active_formatting_to_marker(self) -> None:
         active = self._active_formatting
         while active:
             entry = active.pop()
+            if isinstance(entry, _FormattingEntry) and not entry.active:
+                self._active_formatting_retired -= 1
             if entry is _ACTIVE_FORMATTING_MARKER:
-                self._active_formatting_counts.pop()
+                self._active_formatting_entries.pop()
                 break
         else:
-            self._active_formatting_counts[-1].clear()
+            self._active_formatting_entries[-1].clear()
         self._refresh_active_formatting_dirty()
 
     def _foster_parent_for(self, parent: Node, *, for_tag: str | None = None) -> tuple[Node, int] | None:
@@ -4622,6 +4629,7 @@ class ParseEngine:
         tag_end: int | None = None,
         compiled_safe: bool = False,
     ) -> int:
+        self._compact_active_formatting_if_needed()
         if name == "a" and self._find_active_formatting_index("a") is not None:
             self._adoption_agency("a")
             self._remove_last_active_formatting_by_name("a")
@@ -4634,10 +4642,9 @@ class ParseEngine:
         if self._active_formatting_dirty:
             self._reconstruct_active_formatting()
         signature = () if not attrs else self._attrs_signature(attrs)
-        if len(self._active_formatting) >= 3:
-            duplicate_index = self._find_active_formatting_duplicate(name, signature)
-            if duplicate_index is not None:
-                del self._active_formatting[duplicate_index]
+        duplicate = self._find_active_formatting_duplicate(name, signature)
+        if duplicate is not None:
+            self._retire_active_formatting_entry(duplicate)
 
         if compiled_safe:
             node = self._insert_compiled_safe_element(name, attrs, False, self._current_parent())
@@ -4666,10 +4673,13 @@ class ParseEngine:
         signature: tuple[tuple[str, str], ...],
     ) -> None:
         entry_attrs = attrs if attrs else {}
-        self._active_formatting.append(_FormattingEntry(name, entry_attrs, node, signature))
-        counts = self._active_formatting_counts[-1]
+        entry = _FormattingEntry(name, entry_attrs, node, signature)
+        self._active_formatting.append(entry)
+        entries = self._active_formatting_entries[-1]
+        entry.segment = entries
         key = (name, signature)
-        counts[key] = counts.get(key, 0) + 1
+        matches = entries.setdefault(key, [])
+        matches.append(entry)
         self._active_formatting_dirty = False
 
     def _find_active_formatting_index(self, name: str) -> int | None:
@@ -4678,7 +4688,7 @@ class ParseEngine:
             entry = active[idx]
             if isinstance(entry, _FormattingMarker):
                 break
-            if entry.name == name:
+            if entry.active and entry.name == name:
                 return idx
         return None
 
@@ -4686,34 +4696,44 @@ class ParseEngine:
         active = self._active_formatting
         for idx in range(len(active) - 1, -1, -1):
             entry = active[idx]
-            if not isinstance(entry, _FormattingMarker) and entry.node is node:
+            if not isinstance(entry, _FormattingMarker) and entry.active and entry.node is node:
                 return idx
         return None
 
-    def _find_active_formatting_duplicate(self, name: str, signature: tuple[tuple[str, str], ...]) -> int | None:
+    def _find_active_formatting_duplicate(
+        self, name: str, signature: tuple[tuple[str, str], ...]
+    ) -> _FormattingEntry | None:
         key = (name, signature)
-        counts = self._active_formatting_counts[-1]
-        if counts.get(key, 0) < 3:
-            return None
+        matches = self._active_formatting_entries[-1].get(key)
+        if matches is not None and len(matches) == 3:
+            return matches[0]
+        return None
 
-        matches = 0
-        first_index: int | None = None
+    def _retire_active_formatting_entry(self, entry: _FormattingEntry) -> None:
+        """Remove an entry logically, postponing list compaction.
+
+        Physical deletion shifts every later entry. Retiring old Noah's Ark
+        entries avoids that work on each fourth duplicate; compaction keeps
+        the occasional scans elsewhere bounded.
+        """
+        if not entry.active:  # pragma: no cover - callers only retire live entries
+            return
+        entry.active = False
+        key = (entry.name, entry.signature)
+        entries = entry.segment
+        if entries is not None:  # pragma: no branch - parser-created entries always belong to a segment
+            matches = entries[key]
+            matches.remove(entry)
+            if not matches:
+                del entries[key]
+        self._active_formatting_retired += 1
+
+    def _compact_active_formatting_if_needed(self) -> None:
         active = self._active_formatting
-        segment_start = 0
-        for idx in range(len(active) - 1, -1, -1):
-            if isinstance(active[idx], _FormattingMarker):
-                segment_start = idx + 1
-                break
-        for idx in range(segment_start, len(active)):
-            entry = active[idx]
-            if isinstance(entry, _FormattingMarker):  # pragma: no cover - segment starts after the last marker
-                continue
-            if entry.name == name and entry.signature == signature:
-                matches += 1
-                if first_index is None:
-                    first_index = idx
-        counts[key] = matches
-        return first_index if matches >= 3 else None
+        if self._active_formatting_retired < 64 or self._active_formatting_retired * 2 < len(active):
+            return
+        active[:] = [entry for entry in active if isinstance(entry, _FormattingMarker) or entry.active]
+        self._active_formatting_retired = 0
 
     def _remove_last_active_formatting_by_name(self, name: str) -> None:
         active = self._active_formatting
@@ -4721,8 +4741,8 @@ class ParseEngine:
             entry = active[idx]
             if isinstance(entry, _FormattingMarker):
                 break
-            if entry.name == name:
-                del active[idx]
+            if entry.active and entry.name == name:
+                self._retire_active_formatting_entry(entry)
                 return
 
     def _remove_last_open_element_by_name(self, name: str) -> None:
@@ -4738,7 +4758,16 @@ class ParseEngine:
         if not active:  # pragma: no branch - opposite edge requires invalid parser state
             self._active_formatting_dirty = False  # pragma: no cover - unreachable after parser-state guards
             return  # pragma: no cover - unreachable after parser-state guards
-        last_entry = active[-1]
+        last_index = len(active) - 1
+        while last_index >= 0:
+            candidate = active[last_index]
+            if isinstance(candidate, _FormattingMarker) or candidate.active:
+                break
+            last_index -= 1
+        if last_index < 0:
+            self._active_formatting_dirty = False
+            return
+        last_entry = active[last_index]
         if isinstance(last_entry, _FormattingMarker):
             self._active_formatting_dirty = False
             return
@@ -4747,10 +4776,10 @@ class ParseEngine:
         ):  # pragma: no branch - opposite edge requires invalid parser state
             return  # pragma: no cover - unreachable after parser-state guards
 
-        idx = len(active) - 1
+        idx = last_index
         while idx >= 0:
             entry = active[idx]
-            if isinstance(entry, _FormattingMarker) or entry.node in self._stack:
+            if isinstance(entry, _FormattingMarker) or (entry.active and entry.node in self._stack):
                 break
             idx -= 1
         idx += 1
@@ -4760,6 +4789,9 @@ class ParseEngine:
             if isinstance(entry, _FormattingMarker):  # pragma: no branch - opposite edge requires invalid parser state
                 idx += 1  # pragma: no cover - unreachable after parser-state guards
                 continue  # pragma: no cover - unreachable after parser-state guards
+            if not entry.active:
+                idx += 1
+                continue
             node = self._insert_sanitized_element(entry.name, entry.attrs.copy(), False, self._current_parent())
             node._source_html = entry.node._source_html
             node._origin_pos = entry.node._origin_pos
@@ -4797,14 +4829,12 @@ class ParseEngine:
                 if self._track_tag_spans:
                     self._set_end_span(formatting_element, subject, tag_start, tag_end)
                 stack.pop()
-                del active[formatting_index]
-                if not active:
-                    self._active_formatting_dirty = False
+                self._retire_active_formatting_entry(entry)
                 return
             try:
                 formatting_stack_index = stack.index(formatting_element)
             except ValueError:
-                del active[formatting_index]
+                self._retire_active_formatting_entry(entry)
                 self._refresh_active_formatting_dirty()
                 return
 
@@ -4828,7 +4858,7 @@ class ParseEngine:
                     self._set_end_span(formatting_element, subject, tag_start, tag_end)
                 self._mark_active_formatting_dirty()
                 del stack[formatting_stack_index:]
-                del self._active_formatting[formatting_index]
+                self._retire_active_formatting_entry(entry)
                 self._refresh_active_formatting_dirty()
                 return
             if furthest_block_index is None:  # pragma: no branch - opposite edge requires invalid parser state
@@ -4848,7 +4878,10 @@ class ParseEngine:
 
                 node_formatting_index = self._find_active_formatting_index_by_node(node)
                 if inner_counter > 3 and node_formatting_index is not None:
-                    del self._active_formatting[node_formatting_index]
+                    node_entry = self._active_formatting[node_formatting_index]
+                    if isinstance(node_entry, _FormattingMarker):  # pragma: no cover - lookup excludes markers
+                        return
+                    self._retire_active_formatting_entry(node_entry)
                     if node_formatting_index < bookmark:
                         bookmark -= 1
                     node_formatting_index = None
@@ -4894,8 +4927,6 @@ class ParseEngine:
             new_formatting_element = self._clone_formatting_entry(entry)
             if self._track_tag_spans:
                 self._set_end_span(new_formatting_element, subject, tag_start, tag_end)
-            entry.node = new_formatting_element
-
             moved_children = list(furthest_block.children or ())
             if furthest_block.children is not None:  # pragma: no branch - opposite edge requires invalid parser state
                 furthest_block.children.clear()
@@ -4904,7 +4935,8 @@ class ParseEngine:
 
             self._append_moved_node(furthest_block, new_formatting_element)
 
-            del self._active_formatting[formatting_index]
+            self._retire_active_formatting_entry(entry)
+            replacement = _FormattingEntry(entry.name, entry.attrs, new_formatting_element, entry.signature)
             bookmark -= 1
             if bookmark < 0:  # pragma: no branch - opposite edge requires invalid parser state
                 bookmark = 0  # pragma: no cover - unreachable after parser-state guards
@@ -4912,7 +4944,10 @@ class ParseEngine:
                 self._active_formatting
             ):  # pragma: no branch - opposite edge requires invalid parser state
                 bookmark = len(self._active_formatting)  # pragma: no cover - unreachable after parser-state guards
-            self._active_formatting.insert(bookmark, entry)
+            self._active_formatting.insert(bookmark, replacement)
+            entries = self._active_formatting_entries[-1]
+            replacement.segment = entries
+            entries.setdefault((replacement.name, replacement.signature), []).append(replacement)
 
             try:
                 self._mark_active_formatting_dirty()
@@ -4944,7 +4979,7 @@ class ParseEngine:
             return
         stack = self._stack
         self._active_formatting_dirty = any(
-            not isinstance(entry, _FormattingMarker) and entry.node not in stack for entry in active
+            not isinstance(entry, _FormattingMarker) and entry.active and entry.node not in stack for entry in active
         )
 
     def _clone_formatting_entry(self, entry: _FormattingEntry) -> Element:

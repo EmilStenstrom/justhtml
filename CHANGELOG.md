@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - (Severity: Low) Bound named character-reference lookup to the finite HTML entity tables. Previously, a malformed `&` followed by a long alphanumeric run caused repeated shrinking-prefix allocations and lookups, making parsing quadratic and allowing denial of service before sanitization.
 - (Severity: Low) Cap diagnostics retained by `JustHTML(...)` with the new `max_errors` option (default: 1000), including parser, sanitizer, raw-text, and transform findings. Previously, input containing many independently malformed characters or unsafe constructs could allocate an unbounded number of `ParseError` objects.
-- (Severity: Low) Cache active-formatting signature counts within each HTML5 Noah's Ark marker segment. Previously, every formatting start tag scanned the complete active-formatting list for duplicates, making deeply nested formatting elements with unique attributes quadratic to parse.
+- (Severity: Low) Index active-formatting entries by signature within each HTML5 Noah's Ark marker segment, retiring superseded entries lazily and compacting in bounded batches. Previously, repeated fourth occurrences across many formatting signatures rescanned and shifted the active-formatting list, allowing quadratic parsing of crafted HTML.
 
 ## [3.3.0] - 2026-07-04
 
