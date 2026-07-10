@@ -35,13 +35,9 @@ class UnsafeHandler:
     # into that list so multiple components can share a single sink.
     sink: list[ParseError] | None = None
 
-    max_collected_errors: int = 1000
-
     _errors: list[ParseError] | None = None
-    _collected_count: int = 0
 
     def reset(self) -> None:
-        self._collected_count = 0
         if self.unsafe_handling != "collect":
             self._errors = None
             return
@@ -78,10 +74,10 @@ class UnsafeHandler:
         )
         return out
 
-    def handle(self, msg: str, *, node: Any | None = None) -> bool:
+    def handle(self, msg: str, *, node: Any | None = None) -> None:
         mode = self.unsafe_handling
         if mode == "strip":
-            return True
+            return
         if mode == "raise":
             raise UnsafeHtmlError(msg)
         if mode == "collect":
@@ -90,9 +86,6 @@ class UnsafeHandler:
                 if self._errors is None:
                     self._errors = []
                 dest = self._errors
-
-            if self._collected_count >= self.max_collected_errors:
-                return False
 
             line: int | None = None
             column: int | None = None
@@ -111,8 +104,7 @@ class UnsafeHandler:
                     message=msg,
                 )
             )
-            self._collected_count += 1
-            return True
+            return
         raise AssertionError(f"Unhandled unsafe_handling: {mode!r}")
 
 
@@ -172,7 +164,6 @@ class SanitizationPolicy:
             disallowed_tag_handling: DisallowedTagHandling = "unwrap",
             strip_invisible_unicode: bool = True,
             selector_limits: SelectorLimits = DEFAULT_SELECTOR_LIMITS,
-            max_collected_errors: int = 1000,
         ) -> None: ...
 
     # URL handling.
@@ -219,10 +210,6 @@ class SanitizationPolicy:
     # transform pipelines. Applications with known-large documents/selectors
     # can raise these while keeping conservative defaults for untrusted input.
     selector_limits: SelectorLimits = DEFAULT_SELECTOR_LIMITS
-
-    # Maximum number of security findings retained in "collect" mode. Further
-    # findings are still sanitized but are not allocated or stored.
-    max_collected_errors: int = 1000
 
     _unsafe_handler: UnsafeHandler = field(
         default_factory=lambda: UnsafeHandler("strip"),
@@ -310,11 +297,6 @@ class SanitizationPolicy:
             raise ValueError("Invalid unsafe_handling. Expected one of: 'strip', 'raise', 'collect'")
         object.__setattr__(self, "unsafe_handling", unsafe_handling)
 
-        if isinstance(self.max_collected_errors, bool) or not isinstance(self.max_collected_errors, int):
-            raise TypeError("max_collected_errors must be an integer")
-        if self.max_collected_errors < 0:
-            raise ValueError("max_collected_errors must be non-negative")
-
         disallowed_tag_handling = str(self.disallowed_tag_handling)
         if disallowed_tag_handling not in {"unwrap", "escape", "drop"}:
             raise ValueError("Invalid disallowed_tag_handling. Expected one of: 'unwrap', 'escape', 'drop'")
@@ -324,9 +306,7 @@ class SanitizationPolicy:
             raise TypeError("SanitizationPolicy.selector_limits must be a SelectorLimits instance")
 
         # Centralize unsafe-handling logic so multiple passes can share it.
-        handler = UnsafeHandler(
-            cast("UnsafeHandling", unsafe_handling), max_collected_errors=self.max_collected_errors
-        )
+        handler = UnsafeHandler(cast("UnsafeHandling", unsafe_handling))
         handler.reset()
         object.__setattr__(self, "_unsafe_handler", handler)
 
@@ -367,9 +347,8 @@ class SanitizationPolicy:
         """
         return self._unsafe_handler.sink is sink
 
-    def handle_unsafe(self, msg: str, *, node: Any | None = None) -> bool:
-        """Record an unsafe construct and return whether it was retained."""
-        return self._unsafe_handler.handle(msg, node=node)
+    def handle_unsafe(self, msg: str, *, node: Any | None = None) -> None:
+        self._unsafe_handler.handle(msg, node=node)
 
     @property
     def _compiled_sanitize_transforms(self) -> tuple[Any, ...] | None:

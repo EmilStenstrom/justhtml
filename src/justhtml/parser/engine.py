@@ -708,6 +708,7 @@ class ParseEngine:
         "_line_starts",
         "_list_item_scope_boundaries",
         "_lower_input",
+        "_max_errors",
         "_nodes_to_drop",
         "_nodes_to_unwrap",
         "_p_closing_start_tags",
@@ -746,6 +747,7 @@ class ParseEngine:
         scripting_enabled: bool = True,
         plan: EnginePlan | None = None,
         collect_errors: bool = False,
+        max_errors: int = 1000,
         iframe_srcdoc: bool = False,
         track_node_locations: bool = False,
         track_tag_spans: bool = False,
@@ -760,6 +762,7 @@ class ParseEngine:
         self._lower_input = ascii_lower(html)
         self._fragment = bool(fragment)
         self._collect_errors = bool(collect_errors)
+        self._max_errors = max_errors
         self._errors: list[ParseError] = []
         self._iframe_srcdoc = bool(iframe_srcdoc)
         self._track_node_locations = bool(track_node_locations)
@@ -946,7 +949,9 @@ class ParseEngine:
         category: str = "tokenizer",
         end_pos: int | None = None,
     ) -> None:
-        if not self._collect_errors:  # pragma: no cover - callers guard error emission
+        if (
+            not self._collect_errors or len(self._errors) >= self._max_errors
+        ):  # pragma: no cover - callers guard error emission
             return
         line, column = self._source_location(pos)
         end_column = None

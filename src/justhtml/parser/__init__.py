@@ -71,6 +71,7 @@ class JustHTML:
         sanitize: bool | None = None,
         policy: SanitizationPolicy | None = None,
         collect_errors: bool = False,
+        max_errors: int = 1000,
         track_node_locations: bool = False,
         debug: bool = False,
         encoding: str | None = None,
@@ -83,6 +84,11 @@ class JustHTML:
         transforms: list[TransformSpec] | None = None,
     ) -> None:
         sanitize_enabled = True if sanitize is None else bool(sanitize)
+
+        if isinstance(max_errors, bool) or not isinstance(max_errors, int):
+            raise TypeError("max_errors must be an integer")
+        if max_errors < 1:
+            raise ValueError("max_errors must be positive")
 
         if fragment_context is not None:
             fragment = True
@@ -201,6 +207,7 @@ class JustHTML:
             scripting_enabled=scripting_enabled,
             plan=engine_plan,
             collect_errors=should_collect,
+            max_errors=max_errors,
             iframe_srcdoc=iframe_srcdoc,
             track_node_locations=bool(track_node_locations),
             track_tag_spans=bool(track_node_locations) or track_tag_spans,

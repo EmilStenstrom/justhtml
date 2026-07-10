@@ -3327,45 +3327,6 @@ class TestSanitizeDom(unittest.TestCase):
 
 
 class TestSanitizeUnsafe(unittest.TestCase):
-    def test_collect_mode_caps_retained_security_errors(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags=set(),
-            allowed_attributes={},
-            url_policy=UrlPolicy(allow_rules={}),
-            unsafe_handling="collect",
-            max_collected_errors=2,
-        )
-
-        doc = JustHTML("<x></x><y></y><z></z>", fragment=True, policy=policy)
-
-        assert len(doc.errors) == 2
-        assert all(error.category == "security" for error in doc.errors)
-
-    def test_collect_mode_caps_rawtext_security_errors(self) -> None:
-        policy = SanitizationPolicy(
-            allowed_tags={"style"},
-            allowed_attributes={},
-            url_policy=UrlPolicy(allow_rules={}),
-            drop_content_tags=set(),
-            unsafe_handling="collect",
-            max_collected_errors=1,
-        )
-
-        doc = JustHTML("<style></style><style></style>", fragment=True, sanitize=False)
-        first, second = doc.root.children
-        first.append_child(Node("img"))
-        second.append_child(Node("img"))
-        _sanitize_rawtext_element_contents(doc.root, policy=policy, errors=doc.errors)
-
-        assert len(doc.errors) == 1
-        assert doc.errors[0].category == "security"
-
-    def test_policy_rejects_invalid_max_collected_errors(self) -> None:
-        with self.assertRaises(TypeError):
-            SanitizationPolicy([], {}, max_collected_errors=True)
-        with self.assertRaises(ValueError):
-            SanitizationPolicy([], {}, max_collected_errors=-1)
-
     def test_unsafe_handler_collect_initializes_on_first_use(self) -> None:
         # Cover the centralized handler's fast path when used standalone
         # (without an explicit reset call).

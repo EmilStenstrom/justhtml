@@ -73,6 +73,24 @@ class TestErrorCollection(unittest.TestCase):
         assert len(doc.errors) > 0
         assert all(isinstance(e, ParseError) for e in doc.errors)
 
+    def test_collect_errors_respects_max_errors(self):
+        doc = JustHTML("\x00" * 10, fragment=True, collect_errors=True, max_errors=3)
+
+        assert len(doc.errors) == 3
+        assert {error.code for error in doc.errors} == {"unexpected-null-character"}
+
+    def test_strict_mode_respects_max_errors(self):
+        with self.assertRaises(StrictModeError) as raised:
+            JustHTML("\x00" * 10, fragment=True, strict=True, max_errors=1)
+
+        assert raised.exception.error.code == "unexpected-null-character"
+
+    def test_max_errors_rejects_invalid_values(self):
+        with self.assertRaises(TypeError):
+            JustHTML("", max_errors=True)
+        with self.assertRaises(ValueError):
+            JustHTML("", max_errors=0)
+
     def test_error_has_line_and_column(self):
         """Errors include line and column information."""
         doc = JustHTML("<p>\x00</p>", collect_errors=True)

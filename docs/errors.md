@@ -23,6 +23,10 @@ for error in doc.errors:
 `doc.errors` is ordered by source position (line, column), with unknown
 positions appearing last.
 
+At most 1,000 parser diagnostics are retained by default. Set a different
+positive `max_errors` value when constructing `JustHTML` if your application
+needs a different limit.
+
 ## Error Categories
 
 Each error has a `category` field:
