@@ -24,8 +24,8 @@ def _record_rawtext_security_issue(
     message: str,
     node: Any,
 ) -> None:
-    policy.handle_unsafe(message, node=node)
-    if errors is None:
+    retained = policy.handle_unsafe(message, node=node)
+    if errors is None or not retained:
         return
     errors.append(
         ParseError(

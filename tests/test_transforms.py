@@ -57,6 +57,15 @@ class TestTransforms(unittest.TestCase):
         # Exercise the internal mismatch path for wildcard patterns.
         assert _glob_match("a?c", "axd") is False
 
+    def test_dropattrs_handles_wildcard_heavy_nonmatch_without_regex_backtracking(self) -> None:
+        root = DocumentFragment()
+        node = Element("div", {"a" * 30: "x"}, "html")
+        root.append_child(node)
+
+        apply_compiled_transforms(root, compile_transforms([DropAttrs("*", patterns=(("*a" * 25) + "b",))]))
+
+        assert node.attrs == {"a" * 30: "x"}
+
     def test_compile_transforms_rejects_unknown_transform_type(self) -> None:
         with self.assertRaises(TypeError):
             compile_transforms([object()])

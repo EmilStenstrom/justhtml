@@ -6,7 +6,6 @@ representation consumed by the runtime walker in ``transforms.py``.
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from justhtml.sanitizer import DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, _sanitize_inline_style
@@ -121,19 +120,6 @@ def _iter_flattened_transforms(specs: list[TransformSpec] | tuple[TransformSpec,
 
     _walk(specs)
     return out
-
-
-def _compile_patterns_to_regex(patterns: tuple[str, ...]) -> re.Pattern[str] | None:
-    if not patterns:
-        return None
-    parts: list[str] = []
-    for p in patterns:
-        regex = re.escape(p)
-        regex = regex.replace(r"\*", ".*")
-        regex = regex.replace(r"\?", ".")
-        parts.append(regex)
-    full = "^(?:" + "|".join(parts) + ")$"
-    return re.compile(full)
 
 
 def _glob_match(pattern: str, text: str) -> bool:
@@ -570,12 +556,10 @@ def _compile_drop_attrs_transform(t: DropAttrs, parse: Callable[[str], ParsedSel
     patterns = t.patterns
     on_hook = t.callback
     on_report = t.report
-    compiled_regex = _compile_patterns_to_regex(patterns)
 
     def _drop_attrs(
         node: Node,
         patterns: tuple[str, ...] = patterns,
-        compiled_regex: re.Pattern[str] | None = compiled_regex,
         on_hook: NodeCallback | None = on_hook,
         on_report: ReportCallback | None = on_report,
     ) -> dict[str, str | None] | None:
@@ -615,15 +599,13 @@ def _compile_drop_attrs_transform(t: DropAttrs, parse: Callable[[str], ParsedSel
                 on_hook(node)  # pragma: no cover
             return out
 
-        if compiled_regex is None:  # pragma: no cover
-            return None
         for raw_key in attrs:
             if not raw_key or not str(raw_key).strip():
                 continue
             key = raw_key
             if not key.islower():
                 key = key.lower()
-            if compiled_regex.match(key):
+            if any(_glob_match(pattern, key) for pattern in patterns):
                 break
         else:
             return None
@@ -636,7 +618,7 @@ def _compile_drop_attrs_transform(t: DropAttrs, parse: Callable[[str], ParsedSel
             if not key.islower():
                 key = key.lower()
 
-            if compiled_regex.match(key):
+            if any(_glob_match(pattern, key) for pattern in patterns):
                 if on_report is not None:
                     found_pat = "?"
                     for pat in patterns:

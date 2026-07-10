@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- (Severity: Low) Bound named character-reference lookup to the finite HTML entity tables. Previously, a malformed `&` followed by a long alphanumeric run caused repeated shrinking-prefix allocations and lookups, making parsing quadratic and allowing denial of service before sanitization.
+- (Severity: Low) Cap security findings retained by `SanitizationPolicy(unsafe_handling="collect")` with the new `max_collected_errors` option (default: 1000), including findings from raw-text hardening. Previously, a document containing many unsafe constructs could make collect mode retain an unbounded number of `ParseError` objects.
+
 ## [3.3.0] - 2026-07-04
 
 ### Changed

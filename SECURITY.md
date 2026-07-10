@@ -19,6 +19,20 @@
 | 1.x     | :x:                                      |
 | < 1.0   | :x:                                      |
 
+## Threat Model
+
+JustHTML's primary security boundary is **untrusted HTML input**: markup,
+bytes, and HTML-derived values supplied to parsing, sanitization, and
+serialization APIs. The promises below apply when callers use the documented
+safe defaults or a deliberately safe policy.
+
+Library configuration is trusted application code. This includes custom
+sanitization policies, transform specifications and callbacks, selectors,
+glob patterns, CLI flags, and any policy or transform values assembled from
+configuration. Applications that accept those values from untrusted users must
+validate and constrain them before passing them to JustHTML; transform APIs are
+not a sandbox.
+
 ## Security Domains
 
 This section describes the security areas we use when reviewing `justhtml`.

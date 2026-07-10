@@ -56,3 +56,8 @@ class TestEntities(unittest.TestCase):
         assert decode_entities_in_text("&copy=x", in_attribute=True) == "&copy=x"
         assert decode_entities_in_text("&notit", in_attribute=True) == "&notit"
         assert decode_entities_in_text("&copy ", in_attribute=True) == "© "
+
+    def test_long_invalid_named_entity_is_handled_without_unbounded_prefix_search(self):
+        suffix = "a" * 100_000
+        assert decode_entities_in_text("&" + suffix) == "&" + suffix
+        assert decode_entities_in_text("&not" + suffix) == "¬" + suffix

@@ -26,6 +26,8 @@ for _key, _value in _HTML5_ENTITIES.items():
     else:
         NAMED_ENTITIES[_key] = _value
 
+_MAX_NAMED_ENTITY_LENGTH = max(map(len, NAMED_ENTITIES))
+
 # Legacy named character references that can be used without semicolons
 # Per HTML5 spec, these are primarily ISO-8859-1 (Latin-1) entities from HTML4
 # Modern entities like "prod", "notin" etc. require semicolons
@@ -138,6 +140,8 @@ LEGACY_ENTITIES: set[str] = {
     "yen",
     "yuml",
 }
+
+_MAX_LEGACY_ENTITY_LENGTH = max(map(len, LEGACY_ENTITIES))
 
 # HTML5 numeric character reference replacements (§13.2.5.73)
 NUMERIC_REPLACEMENTS: dict[int, str] = {
@@ -302,10 +306,13 @@ def decode_entities_in_text(
         while j < length and (text[j].isalpha() or text[j].isdigit()):
             j += 1
 
-        entity_name = text[i + 1 : j]
+        entity_length = j - i - 1
+        # HTML's entity tables are finite. Avoid copying an attacker-controlled
+        # alphanumeric run when it is too long to be an exact entity name.
+        entity_name = text[i + 1 : j] if entity_length <= _MAX_NAMED_ENTITY_LENGTH else ""
         has_semicolon = j < length and text[j] == ";"
 
-        if not entity_name:
+        if entity_length == 0:
             result.append("&")
             i += 1
             continue
@@ -319,8 +326,8 @@ def decode_entities_in_text(
         if has_semicolon and not in_attribute:
             best_match: str | None = None
             best_match_len = 0
-            for k in range(len(entity_name), 0, -1):
-                prefix = entity_name[:k]
+            for k in range(min(entity_length, _MAX_LEGACY_ENTITY_LENGTH), 0, -1):
+                prefix = text[i + 1 : i + 1 + k]
                 if prefix in LEGACY_ENTITIES and prefix in NAMED_ENTITIES:
                     best_match = NAMED_ENTITIES[prefix]
                     best_match_len = k
@@ -355,8 +362,8 @@ def decode_entities_in_text(
         # This handles cases like &notit where &not is valid but &notit is not
         best_match = None
         best_match_len = 0
-        for k in range(len(entity_name), 0, -1):
-            prefix = entity_name[:k]
+        for k in range(min(entity_length, _MAX_LEGACY_ENTITY_LENGTH), 0, -1):
+            prefix = text[i + 1 : i + 1 + k]
             if prefix in LEGACY_ENTITIES and prefix in NAMED_ENTITIES:
                 best_match = NAMED_ENTITIES[prefix]
                 best_match_len = k

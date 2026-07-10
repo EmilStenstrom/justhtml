@@ -180,6 +180,7 @@ def main() -> None:
             allowed_css_properties=base.allowed_css_properties,
             force_link_rel=base.force_link_rel,
             unsafe_handling=base.unsafe_handling,
+            max_collected_errors=base.max_collected_errors,
             disallowed_tag_handling=base.disallowed_tag_handling,
         )
 
