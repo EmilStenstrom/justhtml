@@ -93,6 +93,22 @@ class TestTransformsSanitizeIntegration(unittest.TestCase):
         assert [e for e in clean_doc.errors if e.category == "security"] == []
         assert policy.collected_security_errors() == []
 
+    def test_explicit_sanitize_collect_policy_preserves_external_sink(self) -> None:
+        policy = replace(DEFAULT_POLICY, unsafe_handling="collect")
+        sink = []
+        policy._unsafe_handler.sink = sink
+
+        doc = JustHTML(
+            "<script>x</script>",
+            fragment=True,
+            transforms=[Sanitize(policy=policy)],
+            collect_errors=True,
+        )
+
+        assert len(doc.errors) == 1
+        assert [error.category for error in sink] == ["security"]
+        assert policy.collected_security_errors() == sink
+
     def test_staged_explicit_sanitize_collect_policy_does_not_leak_stale_errors(self) -> None:
         policy = replace(DEFAULT_POLICY, unsafe_handling="collect")
 

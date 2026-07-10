@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
+from justhtml.core.types import ParseError
 from justhtml.dom import Document, DocumentFragment, Node, QueryMatch, Text
 from justhtml.sanitizer import (
     UrlRule,
@@ -24,7 +25,6 @@ from .engine import (
 )
 
 if TYPE_CHECKING:
-    from justhtml.core.types import ParseError
     from justhtml.sanitizer import SanitizationPolicy
     from justhtml.serializer import HTMLContext
     from justhtml.transforms import TransformSpec
@@ -53,6 +53,20 @@ class StrictModeError(SyntaxError):
         self.text = exc.text
         self.end_lineno = getattr(exc, "end_lineno", None)
         self.end_offset = getattr(exc, "end_offset", None)
+
+
+class _BoundedErrorList(list[ParseError]):
+    """List-like diagnostic sink that retains at most a fixed number of errors."""
+
+    __slots__ = ("_max_errors",)
+
+    def __init__(self, max_errors: int) -> None:
+        super().__init__()
+        self._max_errors = max_errors
+
+    def append(self, error: ParseError) -> None:
+        if len(self) < self._max_errors:
+            super().append(error)
 
 
 class JustHTML:
@@ -216,13 +230,14 @@ class JustHTML:
         )
         self.root = engine.parse()
 
-        transform_errors: list[ParseError] = []
+        transform_errors: list[ParseError] = _BoundedErrorList(max_errors - len(engine.errors))
         if not use_compiled_safe_engine:
             transform_errors = self._apply_constructor_transforms(
                 transforms=transforms,
                 sanitize_enabled=sanitize_enabled,
                 policy=policy,
                 has_sanitize_transform=has_sanitize_transform,
+                max_errors=max_errors - len(engine.errors),
             )
 
         if should_collect:
@@ -239,8 +254,9 @@ class JustHTML:
         sanitize_enabled: bool,
         policy: SanitizationPolicy | None,
         has_sanitize_transform: bool,
+        max_errors: int,
     ) -> list[ParseError]:
-        transform_errors: list[ParseError] = []
+        transform_errors: list[ParseError] = _BoundedErrorList(max_errors)
 
         # Apply transforms after parse.
         # Safety model: when sanitize=True, the in-memory tree is sanitized exactly once
@@ -324,6 +340,7 @@ class JustHTML:
         # Avoid stale collected errors on reused policy objects. Constructor
         # `doc.errors` should describe this parse, including when callers provide
         # explicit Sanitize(...) transforms.
+        collected_policies: list[tuple[SanitizationPolicy, list[ParseError] | None]] = []
         reset_collect_policy_ids: set[int] = set()
         for transform_item in _iter_flattened_transforms(final_transforms):
             if not isinstance(transform_item, (Sanitize, HardenRawtext)) or not transform_item.enabled:
@@ -334,6 +351,9 @@ class JustHTML:
             policy_id = id(t_policy)
             if policy_id in reset_collect_policy_ids:  # pragma: no branch - duplicate policy is idempotent
                 continue  # pragma: no cover
+            handler = t_policy._unsafe_handler
+            collected_policies.append((t_policy, handler.sink))
+            handler.sink = transform_errors
             t_policy.reset_collected_security_errors()
             reset_collect_policy_ids.add(policy_id)
 
@@ -344,20 +364,20 @@ class JustHTML:
             if only.enabled and only.callback is None and only.report is None and p is not None:
                 compiled_transforms = p.compile().transforms
 
-        if compiled_transforms is None:
-            compiled_transforms = compile_transforms(tuple(final_transforms))
-        apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
+        try:
+            if compiled_transforms is None:
+                compiled_transforms = compile_transforms(tuple(final_transforms))
+            apply_compiled_transforms(self.root, compiled_transforms, errors=transform_errors)
 
-        # Merge collected security errors into the document error list. This
-        # mirrors the old behavior where safe output could feed security findings
-        # into doc.errors.
-        for transform_item in _iter_flattened_transforms(final_transforms):
-            if isinstance(transform_item, (Sanitize, HardenRawtext)) and transform_item.enabled:
-                t_policy = transform_item.policy
-                if t_policy is not None and t_policy.unsafe_handling == "collect":
-                    if t_policy.collects_security_errors_into(transform_errors):  # pragma: no branch
-                        continue  # pragma: no cover
-                    transform_errors.extend(t_policy.collected_security_errors())
+        finally:
+            for t_policy, previous_sink in collected_policies:
+                handler = t_policy._unsafe_handler
+                collected = handler.collected()
+                handler.sink = previous_sink
+                handler._errors = collected
+                if previous_sink is not None:
+                    handler.reset()
+                    previous_sink.extend(collected)
 
         return transform_errors
 

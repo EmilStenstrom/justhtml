@@ -4,9 +4,10 @@ import ast
 import re
 import textwrap
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
-from justhtml import JustHTML, ParseError, StrictModeError
+from justhtml import DEFAULT_POLICY, JustHTML, ParseError, StrictModeError
 from justhtml.core.errors import PARSER_ERROR_CODES, SECURITY_ERROR_CODES
 
 
@@ -78,6 +79,14 @@ class TestErrorCollection(unittest.TestCase):
 
         assert len(doc.errors) == 3
         assert {error.code for error in doc.errors} == {"unexpected-null-character"}
+
+    def test_max_errors_caps_collected_sanitizer_findings(self):
+        policy = replace(DEFAULT_POLICY, unsafe_handling="collect")
+        doc = JustHTML("<script>x</script>" * 10, fragment=True, policy=policy, collect_errors=True, max_errors=3)
+
+        assert len(doc.errors) == 3
+        assert all(error.category == "security" for error in doc.errors)
+        assert len(policy.collected_security_errors()) == 3
 
     def test_strict_mode_respects_max_errors(self):
         with self.assertRaises(StrictModeError) as raised:

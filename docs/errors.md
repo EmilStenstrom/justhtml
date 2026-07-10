@@ -23,7 +23,8 @@ for error in doc.errors:
 `doc.errors` is ordered by source position (line, column), with unknown
 positions appearing last.
 
-At most 1,000 parser diagnostics are retained by default. Set a different
+At most 1,000 diagnostics are retained by default, including parser,
+sanitizer, and transform findings produced during construction. Set a different
 positive `max_errors` value when constructing `JustHTML` if your application
 needs a different limit.
 
