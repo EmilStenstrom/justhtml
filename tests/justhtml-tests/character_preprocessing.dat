@@ -1,0 +1,99 @@
+#data
+<math><mi>\x00</mi></math>
+#errors
+(1,6): expected-doctype-but-got-start-tag
+(1,11): unexpected-null-character
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+
+#data
+<math><mi>\x00\x0c</mi></math>
+#errors
+(1,6): expected-doctype-but-got-start-tag
+(1,11): unexpected-null-character
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         ""
+
+#data
+<math><mi>   </mi></math>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         "   "
+
+#data
+<math><mi>\x0ctext</mi></math>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         "text"
+
+#data
+<select>\x0ctext</select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       "text"
+
+#data
+<table>\x00</table>
+#errors
+(1,7): expected-doctype-but-got-start-tag
+(1,8): unexpected-null-character
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+
+#data
+<head></head>\x00
+#errors
+(1,6): expected-doctype-but-got-start-tag
+(1,14): unexpected-null-character
+
+#document
+| <html>
+|   <head>
+|   <body>
+
+#data
+<table>\x0c</table>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       ""

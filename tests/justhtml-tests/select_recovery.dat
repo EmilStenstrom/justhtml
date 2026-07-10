@@ -1,0 +1,138 @@
+#data
+<select><optgroup><option>1</option></optgroup></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <optgroup>
+|         <option>
+|           "1"
+
+#data
+<select><option>1</option></optgroup></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,37): unexpected-end-tag-in-select
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <option>
+|         "1"
+
+#data
+<b><select></b></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,15): unexpected-end-tag-in-select
+(1,24): expected-closing-tag-but-got-eof
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <b>
+|       <select>
+
+#data
+<a href="x"><select></a></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,24): unexpected-end-tag-in-select
+(1,33): expected-closing-tag-but-got-eof
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <a>
+|       href="x"
+|       <select>
+
+#data
+<select><plaintext></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,19): unexpected-start-tag-in-select
+(1,28): expected-closing-tag-but-got-eof
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <plaintext>
+|         "</select>"
+
+#data
+<select></a></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,12): unexpected-end-tag-in-select
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+
+#data
+<select></b></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,12): unexpected-end-tag-in-select
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+
+#data
+<select><aside>text</aside></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,15): unexpected-start-tag-in-select
+(1,27): unexpected-end-tag-in-select
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <aside>
+|         "text"
+
+#data
+<select></regularitem>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,22): unexpected-end-tag
+(1,22): expected-closing-tag-but-got-eof
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+
+#data
+<div><select></div>text
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,19): unexpected-end-tag-in-select
+(1,23): expected-closing-tag-but-got-eof
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       <select>
+|         "text"

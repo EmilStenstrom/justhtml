@@ -1,0 +1,74 @@
+#data
+<table><input id="x" class="y" type="hidden"></table>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,45): unexpected-hidden-input-in-table
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <input>
+|         class="y"
+|         id="x"
+|         type="hidden"
+
+#data
+<table><caption><!--comment--></caption></table>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <caption>
+|         <!-- comment -->
+
+#data
+<table><caption><table></table></caption></table>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,23): unexpected-start-tag-implies-end-tag
+(1,23): unexpected-start-tag-implies-end-tag
+(1,41): unexpected-end-tag
+(1,49): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <caption>
+|         <table>
+
+#data
+<table>text</table>
+#errors
+(1,7): expected-doctype-but-got-start-tag
+(1,11): unexpected-character-implies-table-voodoo
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     "text"
+|     <table>
+
+#data
+<table><td><!-- comment in cell --></td></table>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,11): unexpected-cell-in-table-body
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             <!--  comment in cell  -->

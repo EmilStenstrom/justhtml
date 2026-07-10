@@ -1,0 +1,122 @@
+#data
+<math><annotation-xml encoding="text/plain"><div></div></annotation-xml></math>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,49): unexpected-html-element-in-foreign-content
+(1,72): unexpected-end-tag
+(1,79): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math annotation-xml>
+|         encoding="text/plain"
+|     <div>
+
+#data
+<math><annotation-xml><div></div></annotation-xml></math>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,27): unexpected-html-element-in-foreign-content
+(1,50): unexpected-end-tag
+(1,57): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math annotation-xml>
+|     <div>
+
+#data
+<svg><font color="red">text</font></svg>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,23): unexpected-html-element-in-foreign-content
+(1,40): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|     <font>
+|       color="red"
+|       "text"
+
+#data
+<svg><g><rect></rect><circle></circle><path></path></g></svg><div></div>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg g>
+|         <svg rect>
+|         <svg circle>
+|         <svg path>
+|     <div>
+
+#data
+<math><annotation-xml encoding="text/html"><div><table><tr></tr></table></div></annotation-xml></math>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math annotation-xml>
+|         encoding="text/html"
+|         <div>
+|           <table>
+|             <tbody>
+|               <tr>
+
+#data
+<math><annotation-xml foo="bar"><div>test</div></annotation-xml></math>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,37): unexpected-html-element-in-foreign-content
+(1,64): unexpected-end-tag
+(1,71): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math annotation-xml>
+|         foo="bar"
+|     <div>
+|       "test"
+
+#data
+<svg><g><rect><circle><path><div>text</div></path></circle></rect></g></svg>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,33): unexpected-html-element-in-foreign-content
+(1,50): unexpected-end-tag
+(1,59): unexpected-end-tag
+(1,66): unexpected-end-tag
+(1,70): unexpected-end-tag
+(1,76): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg g>
+|         <svg rect>
+|           <svg circle>
+|             <svg path>
+|     <div>
+|       "text"

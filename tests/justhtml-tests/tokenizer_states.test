@@ -1,5 +1,5 @@
 {"tests": [
-    {
+{
         "description": "BOM Removal",
         "input": "\ufeff<div>",
         "output": [["StartTag", "div", {}]],

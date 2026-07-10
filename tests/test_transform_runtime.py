@@ -25,12 +25,9 @@ from justhtml.transforms import (
 )
 
 
-class TestTransformsEdgeCases(unittest.TestCase):
-    def test_chained_edit_attrs_coverage(self):
-        """
-        Cover the chaining optimization branch in compile_transforms calling both
-        callbacks where both return changes.
-        """
+class TestTransformCallbacksAndAttributeFilters(unittest.TestCase):
+    def test_chained_edit_attrs_applies_both_callbacks(self):
+        """Chained attribute editors apply changes in callback order."""
 
         def cb1(node):
             return {"data-step": "1"}
@@ -48,7 +45,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertIn('data-step="1-2"', result)
 
     def test_chained_edit_attrs_second_returns_none(self):
-        """Cover case where chained next_cb returns None."""
+        """A no-op second editor preserves changes from the first editor."""
 
         def cb1(node):
             return {"a": "1"}
@@ -63,9 +60,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertIn('a="1"', result)
 
     def test_wrappers_execution(self):
-        """
-        Cover wrapper functions in compile_transforms hooks via JustHTML/manual exec.
-        """
+        """Compiled transform wrappers invoke their configured hooks."""
         called_hook = False
 
         def hook(node):
@@ -126,7 +121,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertTrue(called_hook, "DropForeignNamespaces hook not called")
 
     def test_drop_foreign_namespaces_keep_path(self):
-        """Cover DropForeignNamespaces KEEP return for HTML namespace nodes."""
+        """Foreign-namespace filtering leaves HTML nodes in place."""
         t_foreign = DropForeignNamespaces(report=lambda m, node: None)
         root = Element("root", {}, "html")
         root.append_child(Element("p", {}, "html"))
@@ -134,7 +129,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertEqual(len(root.children), 1)
 
     def test_drop_attrs_no_attrs_returns_none(self):
-        """Cover DropAttrs early return when attrs is empty."""
+        """Attribute dropping is a no-op when the element has no attributes."""
         t = DropAttrs("div", patterns=("data-*",), report=lambda m, node: None)
         root = Element("root", {}, "html")
         root.append_child(Element("div", {}, "html"))
@@ -142,17 +137,15 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertEqual(len(root.children), 1)
 
     def test_drop_attrs_no_match_returns_none(self):
-        """Cover DropAttrs early return when no attribute matched patterns."""
+        """Attribute dropping is a no-op when no pattern matches."""
         t = DropAttrs("div", patterns=("data-*",), report=lambda m, node: None)
         root = Element("root", {}, "html")
         root.append_child(Element("div", {"class": "x"}, "html"))
         apply_compiled_transforms(root, compile_transforms([t]))
         self.assertEqual(len(root.children), 1)
 
-    def test_allowlist_attrs_wrapper_coverage(self):
-        """
-        Cover AllowlistAttrs wrapper hooks + uppercase normalization logic.
-        """
+    def test_allowlist_attrs_wrapper_normalizes_and_reports(self):
+        """Attribute allowlisting normalizes names and invokes its hook."""
         called_hook = False
 
         def hook(node):
@@ -174,7 +167,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertIn('data-test="val"', result)
 
     def test_allowlist_attrs_no_attrs_returns_none(self):
-        """Cover AllowlistAttrs early return when attrs is empty."""
+        """Attribute allowlisting is a no-op when there are no attributes."""
         t = AllowlistAttrs("div", allowed_attributes={"div": ["id"]}, report=lambda m, node: None)
         root = Element("root", {}, "html")
         root.append_child(Element("div", {}, "html"))
@@ -182,17 +175,15 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertEqual(len(root.children), 1)
 
     def test_allowlist_attrs_no_change_returns_none(self):
-        """Cover AllowlistAttrs early return when nothing changes."""
+        """Attribute allowlisting preserves an already-valid mapping."""
         t = AllowlistAttrs("div", allowed_attributes={"div": ["id"]}, report=lambda m, node: None)
         root = Element("root", {}, "html")
         root.append_child(Element("div", {"id": "x"}, "html"))
         apply_compiled_transforms(root, compile_transforms([t]))
         self.assertEqual(len(root.children), 1)
 
-    def test_drop_attrs_wrapper_coverage(self):
-        """
-        Cover DropAttrs wrapper reporting/callback with glob matching.
-        """
+    def test_drop_attrs_wrapper_reports_matching_pattern(self):
+        """Glob-matched attributes are reported and invoke the callback."""
         called_hook = False
 
         def hook(node):
@@ -211,10 +202,8 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertTrue(called_hook, "DropAttrs hook not called")
         self.assertTrue(any("matched forbidden pattern 'data-*'" in m for m in reported))
 
-    def test_drop_url_attrs_wrapper_coverage(self):
-        """
-        Cover DropUrlAttrs wrapper edge cases and callback.
-        """
+    def test_drop_url_attrs_wrapper_reports_and_calls_hook(self):
+        """Invalid URL attributes are reported and invoke the callback."""
         called_hook = False
 
         def hook(node):
@@ -241,9 +230,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertTrue(any("Unsafe URL" in m for m in reported))
 
     def test_drop_url_attrs_no_attrs_branch(self):
-        """
-        Cover 'if not attrs: return None' in DropUrlAttrs wrapper.
-        """
+        """URL filtering is a no-op when the element has no attributes."""
         div = Element("div", {}, "html")
         policy = UrlPolicy()
         t = DropUrlAttrs("div", url_policy=policy)
@@ -253,10 +240,8 @@ class TestTransformsEdgeCases(unittest.TestCase):
         apply_compiled_transforms(root, compiled)
         self.assertEqual(div.name, "div")
 
-    def test_allow_style_attrs_wrapper_coverage(self):
-        """
-        Cover AllowStyleAttrs wrapper with unsafe style failing sanitization and hook.
-        """
+    def test_allow_style_attrs_wrapper_reports_and_calls_hook(self):
+        """Rejected inline styles are reported and invoke the callback."""
         called_hook = False
 
         def hook(node):
@@ -275,10 +260,10 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertTrue(called_hook, "AllowStyleAttrs hook not called")
         self.assertTrue(any("Unsafe inline style" in m for m in reported))
 
+
+class TestTransformSanitizationAndEscaping(unittest.TestCase):
     def test_decide_escape_children_and_template(self):
-        """
-        Cover Decide.ESCAPE handling for nodes with children and template content.
-        """
+        """Escape decisions preserve ordinary and template children as text."""
 
         def decide_escape(node):
             return DecideAction.ESCAPE
@@ -299,9 +284,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertIn("<span>content</span>", res_tmpl)
 
     def test_sanitize_unsafe_style_fused(self):
-        """
-        Cover _apply_fused_sanitize branch for unsafe style.
-        """
+        """Fused sanitization removes unsafe inline styles."""
         reported = []
 
         def report(msg, node):
@@ -318,7 +301,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertTrue(any("Unsafe inline style" in m for m in reported))
 
     def test_sanitize_safe_style_unchanged_branch(self):
-        """Cover fused sanitize branch where style sanitizes to same value."""
+        """Fused sanitization preserves an already-safe inline style."""
         policy = SanitizationPolicy(
             allowed_tags={"div"},
             allowed_attributes={"div": {"style"}},
@@ -330,7 +313,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertIn('style="color: red"', out)
 
     def test_decide_escape_uses_raw_tag_spans(self):
-        """Cover ESCAPE path where raw start/end tag text is available."""
+        """Escape decisions reuse tracked raw start and end tag text."""
         t = Decide("div", lambda node: DecideAction.ESCAPE)
         compiled = compile_transforms([t])
 
@@ -375,7 +358,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertIn("&lt;div&gt;hi&lt;/div&gt;", to_html(root))
 
     def test_sanitize_fused_comment_doctype(self):
-        """Cover fused sanitize dropping/keeping comments/doctypes."""
+        """Fused sanitization applies comment and doctype policy settings."""
         policy = SanitizationPolicy(allowed_tags=set(), allowed_attributes={}, drop_comments=True, drop_doctype=True)
         t = Sanitize(policy)
         html = "<!-- comment -->"
@@ -391,7 +374,7 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertIn("<b>hi</b>", res)
 
     def test_unwrap_simple(self):
-        """Cover Unwrap transform compilation and execution."""
+        """Unwrap removes the element while preserving its children."""
         t = Unwrap("div")
         html = "<div><span>text</span></div>"
         processor = JustHTML(html, transforms=[t], sanitize=False)
@@ -400,13 +383,15 @@ class TestTransformsEdgeCases(unittest.TestCase):
         self.assertNotIn("<div>", result)
 
     def test_empty_simple(self):
-        """Cover Empty transform compilation and execution."""
+        """Empty removes all children from the selected element."""
         t = Empty("div")
         html = "<div><span>text</span></div>"
         processor = JustHTML(html, transforms=[t], sanitize=False)
         result = to_html(processor.root)
         self.assertIn("<div></div>", result)
 
+
+class TestTransformStructuralMatching(unittest.TestCase):
     def test_edit_attrs_structural_selector_scales_linearly(self):
         # EditAttrs never mutates tree structure, so nth-child matching may
         # share cached sibling data across nodes instead of recomputing it

@@ -16,12 +16,14 @@ from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, Sanitiza
 from tests.harness.tree import TestRunner
 
 
-class TestParserEngineIntegrationCoverage(unittest.TestCase):
+class _ParserEngineTestCase(unittest.TestCase):
     def assert_parses_to(self, html: str, expected: str, **kwargs: object) -> JustHTML:
         document = JustHTML(html, **kwargs)
         assert document.to_html(pretty=False) == expected
         return document
 
+
+class TestParserSyntaxAndRecovery(_ParserEngineTestCase):
     def test_malformed_markup_and_document_shell(self) -> None:
         cases = [
             ("abc<", "<html><head></head><body>abc&lt;</body></html>"),
@@ -115,6 +117,8 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             with self.subTest(html=html):
                 self.assert_parses_to(html, expected)
 
+
+class TestParserFormattingAndLists(_ParserEngineTestCase):
     def test_formatting_lists_select_and_foreign_content(self) -> None:
         cases = [
             (
@@ -175,6 +179,8 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
 
         assert marked_engine._find_active_formatting_duplicate("b", signature) == 1
 
+
+class TestParserFragmentsAndTextModes(_ParserEngineTestCase):
     def test_text_modes_and_projected_attributes(self) -> None:
         cases = [
             (
@@ -337,6 +343,8 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             with self.subTest(html=html, context=context):
                 self.assert_parses_to(html, expected, fragment_context=context)
 
+
+class TestParserPolicyProjection(_ParserEngineTestCase):
     def test_url_projection_variants(self) -> None:
         anchor_cases = [
             ("", "<a>x</a>"),
@@ -462,6 +470,8 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
         )
         self.assert_parses_to("<p>x</p>", "<p>x</p>", fragment=True, policy=fragment_policy)
 
+
+class TestParserLowLevelModes(_ParserEngineTestCase):
     def test_raw_text_and_fragment_modes(self) -> None:
         raw_cases = [
             ("<", "<html><head></head><body>&lt;</body></html>"),
@@ -637,6 +647,8 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             with self.subTest(html=html):
                 self.assert_parses_to(html, expected)
 
+
+class TestParserRecoveryRegressions(_ParserEngineTestCase):
     def test_targeted_recovery_regressions(self) -> None:
         default_cases = [
             ("<script>x", "<html><head></head><body></body></html>"),
@@ -679,7 +691,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             with self.subTest(html=html, context=context):
                 self.assert_parses_to(html, expected, fragment_context=context)
 
-    def test_coverage_guided_malformed_recovery(self) -> None:
+    def test_malformed_recovery_edge_cases(self) -> None:
         default_cases = [
             ("<svg><div><frameset>x</svg></div></frameset>", "<html><head></head></html>"),
             (
@@ -747,6 +759,8 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             with self.subTest(html=html, context=context):
                 self.assert_parses_to(html, expected, fragment_context=context)
 
+
+class TestParserAttributeProjection(_ParserEngineTestCase):
     def test_foreign_integration_attribute_projection(self) -> None:
         values = [
             "",
@@ -910,7 +924,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             _parser_opts=ParserOptions(xml_coercion=True),
         )
 
-    def test_coverage_guided_frameset_and_attr_recovery(self) -> None:
+    def test_frameset_and_attribute_recovery_edge_cases(self) -> None:
         self.assert_parses_to(
             "</body>x",
             "<html><head></head><body>x</body></html>",
@@ -962,7 +976,9 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             track_node_locations=True,
         )
 
-    def test_direct_engine_branch_coverage(self) -> None:
+
+class TestParserEngineInternals(_ParserEngineTestCase):
+    def test_direct_engine_state_transitions(self) -> None:
         raw_plan = compile_raw_engine_plan(fragment=False)
         raw_fragment_plan = compile_raw_engine_plan(fragment=True)
         default_plan = compile_default_engine_plan(fragment=False)
@@ -1021,7 +1037,7 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             track_node_locations=True,
         )
 
-    def test_direct_engine_private_helper_coverage(self) -> None:
+    def test_engine_private_helper_contracts(self) -> None:
         raw_plan = compile_raw_engine_plan(fragment=False)
         raw_fragment_plan = compile_raw_engine_plan(fragment=True)
         default_plan = compile_default_engine_plan(fragment=False)
@@ -1112,6 +1128,8 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
         visible_input_engine._append(visible_input_engine._body, Element("input", {}, "html"))
         self.assertFalse(visible_input_engine._body_allows_frameset(visible_input_engine._body))
 
+
+class TestParserDiagnosticModes(_ParserEngineTestCase):
     def test_upstream_inputs_across_diagnostic_modes(self) -> None:
         config = {
             "fail_fast": False,

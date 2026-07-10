@@ -1,0 +1,76 @@
+#data
+<select><selectedcontent></selectedcontent><option>A</option><option selected>B</option></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,25): unexpected-start-tag-in-select
+(1,43): unexpected-end-tag-in-select
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <selectedcontent>
+|         "B"
+|       <option>
+|         "A"
+|       <option>
+|         selected=""
+|         "B"
+
+#data
+<select><selectedcontent></selectedcontent><option>A</option><option>B</option></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,25): unexpected-start-tag-in-select
+(1,43): unexpected-end-tag-in-select
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <selectedcontent>
+|         "A"
+|       <option>
+|         "A"
+|       <option>
+|         "B"
+
+#data
+<select><selectedcontent></selectedcontent><option disabled>A</option></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,25): unexpected-start-tag-in-select
+(1,43): unexpected-end-tag-in-select
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <selectedcontent>
+|       <option>
+|         disabled=""
+|         "A"
+
+#data
+<select><selectedcontent></selectedcontent><option class="x">A</option><option selected>B</option></select>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,25): unexpected-start-tag-in-select
+(1,43): unexpected-end-tag-in-select
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <selectedcontent>
+|         "B"
+|       <option>
+|         class="x"
+|         "A"
+|       <option>
+|         selected=""
+|         "B"

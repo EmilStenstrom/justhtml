@@ -1,0 +1,57 @@
+#data
+</template>
+#errors
+(1,1): expected-doctype-but-got-end-tag
+(1,11): unexpected-end-tag-before-html
+
+#document
+| <html>
+|   <head>
+|   <body>
+
+#data
+<body><input type="hidden">
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <input>
+|       type="hidden"
+
+#data
+<html><body><html attr="test">
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,30): unexpected-start-tag
+
+#document
+| <html>
+|   attr="test"
+|   <head>
+|   <body>
+
+#data
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//" "http://www.w3.org/TR/html4/loose.dtd">
+#errors
+(1,100): unknown-doctype
+
+#document
+| <!DOCTYPE html "-//W3C//DTD HTML 4.01 Transitional//" "http://www.w3.org/TR/html4/loose.dtd">
+| <html>
+|   <head>
+|   <body>
+
+#data
+<head></head></template>text
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,24): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     "text"

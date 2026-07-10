@@ -1,0 +1,12 @@
+#data
+<dl><dd>x</dd></dl>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <dl>
+|       <dd>
+|         "x"

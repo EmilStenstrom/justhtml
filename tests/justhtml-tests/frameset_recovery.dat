@@ -1,0 +1,50 @@
+#data
+<!DOCTYPE html><html><head></head><frameset></frameset>
+#errors
+
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<!DOCTYPE html><html><head></head><frameset></frameset>abc
+#errors
+(1,58): unexpected-token-after-frameset
+
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<frameset></frameset></frameset>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,32): unexpected-token-after-frameset
+
+#document
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<figure><frameset><h1><aside><figcaption><html><frameset>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,22): unexpected-token-in-frameset
+(1,29): unexpected-token-in-frameset
+(1,41): unexpected-token-in-frameset
+(1,47): unexpected-start-tag
+(1,57): unexpected-start-tag-ignored
+(1,57): expected-closing-tag-but-got-eof
+
+#document
+| <html>
+|   <head>
+|   <frameset>
+
+
+#script-off
