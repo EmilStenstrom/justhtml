@@ -145,6 +145,36 @@ class TestParserEngineIntegrationCoverage(unittest.TestCase):
             with self.subTest(html=html):
                 self.assert_parses_to(html, expected)
 
+    def test_unique_active_formatting_signatures_use_the_count_cache(self) -> None:
+        class _NoIterationList(list):
+            def __iter__(self):
+                raise AssertionError("unique formatting signatures must not scan the active list")
+
+        engine = ParseEngine("".join(f"<b id={i}>" for i in range(10)), fragment=True)
+        engine._active_formatting = _NoIterationList()
+        engine.parse()
+
+        assert len(engine._active_formatting) == 10
+        assert len(engine._active_formatting_counts[-1]) == 10
+
+    def test_active_formatting_count_cache_repairs_stale_removal_counts(self) -> None:
+        engine = ParseEngine("<b><b><b>", fragment=True)
+        engine.parse()
+        signature = ()
+
+        engine._active_formatting.pop()
+
+        assert engine._find_active_formatting_duplicate("b", signature) is None
+        assert engine._active_formatting_counts[-1][("b", signature)] == 2
+
+        marked_engine = ParseEngine("", fragment=True)
+        marked_engine._push_active_formatting_marker()
+        for _ in range(3):
+            node = Element("b", {}, "html")
+            marked_engine._append_active_formatting_entry("b", {}, node, signature)
+
+        assert marked_engine._find_active_formatting_duplicate("b", signature) == 1
+
     def test_text_modes_and_projected_attributes(self) -> None:
         cases = [
             (

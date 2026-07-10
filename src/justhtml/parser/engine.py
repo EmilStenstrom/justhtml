@@ -654,6 +654,7 @@ class _CountingStack(list[Node]):
 class ParseEngine:
     __slots__ = (
         "_active_formatting",
+        "_active_formatting_counts",
         "_active_formatting_dirty",
         "_active_formatting_tags",
         "_after_body",
@@ -846,6 +847,11 @@ class ParseEngine:
         self._head: Element | None = None
         self._body: Element | DocumentFragment
         self._active_formatting: list[_FormattingEntry | _FormattingMarker] = []
+        # One signature-count cache per Noah's Ark marker segment. Counts may
+        # temporarily be high after removals; duplicate lookup repairs a stale
+        # count before acting on it. This keeps removal paths simple while
+        # making the common non-duplicate lookup O(1).
+        self._active_formatting_counts: list[dict[tuple[str, tuple[tuple[str, str], ...]], int]] = [{}]
         self._active_formatting_dirty = False
         self._nodes_to_drop: list[Element] = []
         self._nodes_to_unwrap: list[Element] = []
@@ -4311,13 +4317,17 @@ class ParseEngine:
 
     def _push_active_formatting_marker(self) -> None:
         self._active_formatting.append(_ACTIVE_FORMATTING_MARKER)
+        self._active_formatting_counts.append({})
 
     def _clear_active_formatting_to_marker(self) -> None:
         active = self._active_formatting
         while active:
             entry = active.pop()
             if entry is _ACTIVE_FORMATTING_MARKER:
+                self._active_formatting_counts.pop()
                 break
+        else:
+            self._active_formatting_counts[-1].clear()
         self._refresh_active_formatting_dirty()
 
     def _foster_parent_for(self, parent: Node, *, for_tag: str | None = None) -> tuple[Node, int] | None:
@@ -4657,6 +4667,9 @@ class ParseEngine:
     ) -> None:
         entry_attrs = attrs if attrs else {}
         self._active_formatting.append(_FormattingEntry(name, entry_attrs, node, signature))
+        counts = self._active_formatting_counts[-1]
+        key = (name, signature)
+        counts[key] = counts.get(key, 0) + 1
         self._active_formatting_dirty = False
 
     def _find_active_formatting_index(self, name: str) -> int | None:
@@ -4678,17 +4691,28 @@ class ParseEngine:
         return None
 
     def _find_active_formatting_duplicate(self, name: str, signature: tuple[tuple[str, str], ...]) -> int | None:
+        key = (name, signature)
+        counts = self._active_formatting_counts[-1]
+        if counts.get(key, 0) < 3:
+            return None
+
         matches = 0
         first_index: int | None = None
-        for idx, entry in enumerate(self._active_formatting):
-            if isinstance(entry, _FormattingMarker):
-                matches = 0
-                first_index = None
+        active = self._active_formatting
+        segment_start = 0
+        for idx in range(len(active) - 1, -1, -1):
+            if isinstance(active[idx], _FormattingMarker):
+                segment_start = idx + 1
+                break
+        for idx in range(segment_start, len(active)):
+            entry = active[idx]
+            if isinstance(entry, _FormattingMarker):  # pragma: no cover - segment starts after the last marker
                 continue
             if entry.name == name and entry.signature == signature:
                 matches += 1
                 if first_index is None:
                     first_index = idx
+        counts[key] = matches
         return first_index if matches >= 3 else None
 
     def _remove_last_active_formatting_by_name(self, name: str) -> None:
