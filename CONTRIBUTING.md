@@ -107,7 +107,7 @@ After making changes, verify performance impact:
 
 ```bash
 # Quick benchmark
-python benchmarks/performance.py --parsers justhtml --iterations 1 --no-mem
+python benchmarks/performance.py --parsers justhtml --iterations 1
 
 # Profile hotspots
 python benchmarks/profile.py

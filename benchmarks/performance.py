@@ -15,12 +15,10 @@ Decompresses at runtime (no disk writes) using html.dict for optimal performance
 # ruff: noqa: PERF203, PLC0415, BLE001, S110
 
 import argparse
-import multiprocessing
-import os  # MEMORY: added
+import os
 import pathlib
 import sys
 import tarfile
-import threading  # MEMORY: added
 import time
 
 
@@ -38,82 +36,6 @@ try:
 except ImportError:
     print("ERROR: zstandard is required. Install with: pip install zstandard")
     sys.exit(1)
-
-try:
-    import psutil
-except ImportError:
-    print("ERROR: psutil is required. Install with: pip install psutil")
-    sys.exit(1)
-
-
-# MEMORY: lightweight RSS monitor using psutil
-class MemoryMonitor:
-    def __init__(self, pid=None, sample_interval=0.01):
-        """
-        pid: process ID to monitor (default: current process).
-        sample_interval: seconds between samples (default 10ms).
-        """
-        self.sample_interval = sample_interval
-        self._stop = threading.Event()
-        self._thread = None
-        target_pid = pid if pid is not None else os.getpid()
-        self._proc = psutil.Process(target_pid)
-        self.start_rss = None
-        self.end_rss = None
-        self.peak_rss = None
-        self.last_rss = None
-        self.samples = 0
-
-    def _get_rss(self):
-        try:
-            return self._proc.memory_info().rss
-        except Exception:
-            return None
-
-    def start(self):
-        self.start_rss = self._get_rss()
-        self.peak_rss = self.start_rss
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def _run(self):
-        while not self._stop.is_set():
-            rss = self._get_rss()
-            if rss is not None:
-                self.last_rss = rss
-                if self.peak_rss is None or rss > self.peak_rss:
-                    self.peak_rss = rss
-                self.samples += 1
-            self._stop.wait(self.sample_interval)
-
-    def stop(self):
-        self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=1.0)
-
-        # Try to get current RSS, if fail (process dead), use last seen
-        current = self._get_rss()
-        if current and current > 0:
-            self.end_rss = current
-        else:
-            self.end_rss = self.last_rss
-
-    def to_dict(self):
-        def mb(x):
-            return (x or 0) / (1024 * 1024)
-
-        start_mb = mb(self.start_rss)
-        end_mb = mb(self.end_rss)
-        peak_mb = mb(self.peak_rss)
-        delta_mb = end_mb - start_mb if (self.end_rss is not None and self.start_rss is not None) else 0.0
-        return {
-            "rss_start_mb": start_mb,
-            "rss_end_mb": end_mb,
-            "rss_delta_mb": delta_mb,
-            "rss_peak_mb": peak_mb,
-            "mem_samples": self.samples,
-        }
 
 
 def load_dict(dict_path):
@@ -608,52 +530,6 @@ def benchmark_markupever(html_source, iterations=1):
     }
 
 
-def _benchmark_worker(bench_fn, html_files, iterations, queue):
-    """Worker function to run benchmark in a separate process."""
-    try:
-        res = bench_fn(html_files, iterations)
-        queue.put(res)
-    except Exception as e:
-        queue.put({"error": str(e)})
-
-
-def run_benchmark_isolated(bench_fn, html_files, iterations, args):
-    """Run benchmark in a separate process to isolate memory usage."""
-    # Materialize generator to list (required for multiprocessing pickling)
-    if not isinstance(html_files, list):
-        html_files = list(html_files)
-
-    if args.no_mem:
-        return bench_fn(html_files, iterations)
-
-    # Force GC in parent to minimize COW overhead (though fork handles it)
-    import gc
-
-    gc.collect()
-
-    queue = multiprocessing.Queue()
-    p = multiprocessing.Process(
-        target=_benchmark_worker,
-        args=(bench_fn, html_files, iterations, queue),
-    )
-    p.start()
-
-    # Monitor the child process
-    mon = MemoryMonitor(pid=p.pid, sample_interval=max(0.0005, args.mem_sample_ms / 1000.0))
-    mon.start()
-
-    res = None
-    try:
-        res = queue.get()
-    finally:
-        mon.stop()
-        p.join()
-
-    if res and "error" not in res:
-        res.update(mon.to_dict())
-    return res
-
-
 def print_results(results, file_count, iterations=1):
     """Pretty print benchmark results."""
     print("\n" + "=" * 100)
@@ -675,9 +551,9 @@ def print_results(results, file_count, iterations=1):
     ]
 
     # Combined header
-    header = f"\n{'Parser':<15} {'Total (s)':<10} {'Mean (ms)':<10} {'Peak (MB)':<10} {'Delta (MB)':<10}"
+    header = f"\n{'Parser':<15} {'Total (s)':<10} {'Mean (ms)':<10}"
     print(header)
-    print("-" * 100)
+    print("-" * 60)
 
     justhtml_time = results.get("justhtml", {}).get("total_time", 0)
 
@@ -692,11 +568,6 @@ def print_results(results, file_count, iterations=1):
         total = result["total_time"]
         mean_ms = result["mean_time"] * 1000
 
-        # Memory stats
-        peak_mb = result.get("rss_peak_mb", 0)
-        delta_mb = result.get("rss_delta_mb", 0)
-        mem_str = f"{peak_mb:>10.1f} {delta_mb:>10.1f}" if "rss_peak_mb" in result else f"{'n/a':>10} {'n/a':>10}"
-
         speedup = ""
         if parser != "justhtml" and justhtml_time > 0 and total > 0:
             speedup_factor = justhtml_time / total
@@ -705,7 +576,7 @@ def print_results(results, file_count, iterations=1):
             else:
                 speedup = f" ({1 / speedup_factor:.2f}x slower)"
 
-        print(f"{parser:<15} {total:<10.3f} {mean_ms:<10.3f} {mem_str} {speedup}")
+        print(f"{parser:<15} {total:<10.3f} {mean_ms:<10.3f} {speedup}")
 
     print("\n" + "=" * 100)
 
@@ -773,15 +644,6 @@ def main():
         default=["justhtml", "html5lib", "lxml", "bs4", "html.parser", "selectolax", "gumbo", "markupever"],
         help="Parsers to benchmark (default: all)",
     )
-    # MEMORY: options
-    parser.add_argument("--no-mem", action="store_true", help="Disable memory measurement (RSS sampling)")
-    parser.add_argument(
-        "--mem-sample-ms",
-        type=float,
-        default=10.0,
-        help="Memory sampling interval in milliseconds (default: 10ms)",
-    )
-
     args = parser.parse_args()
 
     # Load dictionary
@@ -812,11 +674,6 @@ def main():
         def html_source_factory():
             return iter_html_from_batch(default_batch, dict_bytes, limit)
 
-    # Helper: run a benchmark with optional memory measurement
-    def run_with_memory(bench_fn, html_source_factory, iterations):
-        # Use isolated process runner
-        return run_benchmark_isolated(bench_fn, html_source_factory(), iterations, args=args)
-
     # Run benchmarks
     results = {}
     benchmarks = {
@@ -835,7 +692,7 @@ def main():
     total_bytes = 0
     for parser_name in args.parsers:
         print(f"\nBenchmarking {parser_name}...", end="", flush=True)
-        res = run_with_memory(benchmarks[parser_name], html_source_factory, args.iterations)
+        res = benchmarks[parser_name](html_source_factory(), args.iterations)
         results[parser_name] = res
         if "error" in res:
             print(f" SKIPPED ({res['error']})")

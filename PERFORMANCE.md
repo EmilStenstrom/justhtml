@@ -29,10 +29,10 @@ serialization. Start with the narrowest mode that covers the change:
 
 ```bash
 # Parser throughput on 100 real-world documents, without RSS sampling noise.
-python benchmarks/performance.py --parsers justhtml --iterations 5 --no-mem
+python benchmarks/performance.py --parsers justhtml --iterations 5
 
 # Parse plus default HTML serialization.
-python benchmarks/performance.py --parsers justhtml_to_html --iterations 5 --no-mem
+python benchmarks/performance.py --parsers justhtml_to_html --iterations 5
 
 # Compare selected installed parsers on a larger corpus sample.
 python benchmarks/performance.py --parsers justhtml html5lib lxml --limit 1000 --iterations 3
@@ -40,9 +40,9 @@ python benchmarks/performance.py --parsers justhtml html5lib lxml --limit 1000 -
 
 Use `--all-batches` for a corpus-wide measurement, `--batch PATH` for one
 archive, or `--downloaded DIR` for a directory of decompressed-source files.
-The benchmark reports total throughput, per-document timing, and optional RSS
-measurements. Compare the same command before and after a change on the same
-machine; do not compare absolute timings across machines.
+The benchmark reports total throughput and per-document timing. Compare the
+same command before and after a change on the same machine; do not compare
+absolute timings across machines.
 
 ## Find the hot path
 
