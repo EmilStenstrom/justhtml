@@ -6,20 +6,19 @@ JustHTML’s sanitization and transform pipeline were heavily inspired by Bleach
 
 Bleach has helped a lot of projects ship safer HTML over the years, and a lot of that is thanks to the hard work of [@willkg](https://github.com/willkg) building and maintaining it.
 
-In 2023, Bleach’s maintainer announced that **Bleach is deprecated** (but will continue to receive security updates, new Python version support, and fixes for egregious bugs). See: https://github.com/mozilla/bleach/issues/698
+In June 2026, Bleach’s maintainer [announced Bleach’s final release](https://bluesock.org/~willkg/blog/dev/bleach_6_4_0_final_release.html). The announcement identifies JustHTML as an easy migration path and explicitly recommends swapping Bleach out for it.
 
-This guide covers common migration patterns.
+This guide starts with Bleach's defaults, then builds up to a copyable compatibility wrapper for a gradual migration.
 
-## Real-world migration pattern: add a local wrapper first
+## Start with the defaults
 
-A large application migration often works best in two steps:
+Bleach and JustHTML are both safe by default, but their default policies are intentionally different. Do not replace `bleach.clean(html)` with `JustHTML(html).to_html()` and expect byte-for-byte identical output.
 
-1. Add a small application-local `clean(...)` wrapper that accepts the Bleach-shaped options your codebase already uses.
-2. Migrate call sites from `bleach.clean(...)` / `bleach.linkify(...)` to that wrapper.
+Bleach's default allowlist keeps a small set of formatting tags such as `b`, `em`, `i`, `a`, `code`, and lists. JustHTML's default policy allows a broader set of ordinary document tags and applies its own URL policy.
 
-That keeps most call-site changes mechanical while leaving the security policy in one place.
+The wrapper below reproduces Bleach 6.x's default tags, attributes, and protocols without making Bleach a runtime dependency. It is a compatibility baseline, not a recommended final policy.
 
-Example wrapper:
+## Copyable `clean(...)` compatibility wrapper
 
 ```python
 import re
@@ -40,10 +39,21 @@ URL_LIKE_ATTRS = {
     "ping",
 }
 
+BLEACH_DEFAULT_TAGS = frozenset(
+    {"a", "abbr", "acronym", "b", "blockquote", "code", "em", "i", "li", "ol", "strong", "ul"}
+)
+BLEACH_DEFAULT_ATTRIBUTES = {
+    "a": {"href", "title"},
+    "abbr": {"title"},
+    "acronym": {"title"},
+}
+BLEACH_DEFAULT_PROTOCOLS = frozenset({"http", "https", "mailto"})
+
 
 def build_url_policy(
     allowed_tags: Collection[str],
     allowed_attributes: Mapping[str, Collection[str]],
+    protocols: Collection[str],
 ) -> UrlPolicy:
     rules = {}
 
@@ -52,7 +62,7 @@ def build_url_policy(
         for attr in global_attrs:
             if attr in URL_LIKE_ATTRS:
                 rules[(tag, attr)] = UrlRule(
-                    allowed_schemes={"http", "https", "mailto", "tel"},
+                    allowed_schemes=protocols,
                     allow_relative=True,
                 )
 
@@ -62,7 +72,7 @@ def build_url_policy(
         for attr in attrs:
             if attr in URL_LIKE_ATTRS:
                 rules[(tag, attr)] = UrlRule(
-                    allowed_schemes={"http", "https", "mailto", "tel"},
+                    allowed_schemes=protocols,
                     allow_relative=True,
                 )
     return UrlPolicy(allow_rules=rules)
@@ -71,13 +81,14 @@ def build_url_policy(
 def clean(
     html: str,
     *,
-    tags: Collection[str] = (),
-    attributes: Mapping[str, Collection[str]] | None = None,
+    tags: Collection[str] = BLEACH_DEFAULT_TAGS,
+    attributes: Mapping[str, Collection[str]] = BLEACH_DEFAULT_ATTRIBUTES,
+    protocols: Collection[str] = BLEACH_DEFAULT_PROTOCOLS,
     css_properties: Collection[str] = (),
-    strip: bool = True,
+    strip: bool = False,
     strip_comments: bool = True,
 ) -> str:
-    attrs = dict(attributes or {})
+    attrs = {tag: set(values) for tag, values in attributes.items()}
     disallowed_tag_handling = "unwrap" if strip else "escape"
 
     # Bleach defaults to strip_comments=True. If you use escape mode
@@ -90,7 +101,7 @@ def clean(
         allowed_tags=tags,
         allowed_attributes=attrs,
         allowed_css_properties=css_properties,
-        url_policy=build_url_policy(tags, attrs),
+        url_policy=build_url_policy(tags, attrs, protocols),
         drop_comments=strip_comments,
         disallowed_tag_handling=disallowed_tag_handling,
     )
@@ -109,57 +120,38 @@ def linkify(text: str, *, nofollow: bool = False) -> str:
     ).to_html(pretty=False)
 ```
 
-Treat this as a compatibility shim, not a universal policy. Tighten `build_url_policy(...)` for your application, especially for attributes that load remote resources such as `img[src]`.
-
-## Mental model differences
-
-- Bleach takes a string and returns a cleaned string.
-- JustHTML parses into a DOM and sanitizes by default at construction time:
-    - `JustHTML(html)` sanitizes by default (`sanitize=True`).
-    - `JustHTML(html, sanitize=False)` disables sanitization (trusted input only).
-
-JustHTML also supports constructor-time **transforms** (a DOM equivalent of Bleach/html5lib filter pipelines): see [Transforms](transforms.md).
-
-## Equivalent of `bleach.clean(...)`
-
-A typical Bleach call:
+Use the wrapper with Bleach-compatible defaults:
 
 ```python
-import bleach
+# Replace existing bleach.clean(user_html) calls with clean(user_html).
+safe_html = clean(user_html)
+```
 
-clean = bleach.clean(
+## Customize the wrapper gradually
+
+Keep the call shape familiar while making the policy explicit at the call site:
+
+```python
+safe_html = clean(
     user_html,
-    tags=["p", "b", "a"],
-    attributes={"a": ["href"]},
-    protocols=["http", "https"],
+    tags={"p", "b", "a"},
+    attributes={"a": {"href"}},
+    protocols={"http", "https"},
     strip=True,
 )
 ```
 
-In JustHTML you typically configure a `SanitizationPolicy`:
+`fragment=True` inside the wrapper keeps user-generated snippets free of `<html>`, `<head>`, and `<body>` wrappers. For URL rules with host restrictions, proxies, `srcset`, and remote-resource controls, extend the local `build_url_policy(...)` function; see [URL Cleaning](url-cleaning.md).
 
-```python
-from justhtml import JustHTML, SanitizationPolicy, UrlPolicy, UrlRule
+## Intentional compatibility differences
 
-policy = SanitizationPolicy(
-    allowed_tags=["p", "b", "a"],
-    allowed_attributes={"*": [], "a": ["href"]},
-    url_policy=UrlPolicy(
-        default_handling="allow",
-        allow_rules={
-            ("a", "href"): UrlRule(allowed_schemes=["http", "https"]),
-        },
-    ),
-)
+The wrapper matches Bleach's ordinary allowlist behavior, but it deliberately does not preserve every historical output detail:
 
-doc = JustHTML(user_html, fragment=True, policy=policy)
-clean = doc.to_html()
-```
+- JustHTML drops the contents of dangerous containers such as `script` and `style`; Bleach with `strip=True` can leave their text content behind.
+- JustHTML normalizes a protocol-relative URL such as `//example.com/x` to `https://example.com/x`; Bleach preserves the original spelling.
+- JustHTML parses into a DOM and sanitizes at construction time. Add `Sanitize(...)` after later DOM edits if the tree needs to become safe again.
 
-Notes:
-
-- Prefer `fragment=True` for user-generated snippets. That avoids adding `<html>`, `<head>`, and `<body>` tags.
-- JustHTML sanitizes *at construction time* by default. If you need to sanitize again after later DOM edits, add `Sanitize(...)` at the end of your transform pipeline (see [HTML Cleaning](html-cleaning.md)).
+JustHTML also supports constructor-time transforms, which replace Bleach/html5lib filter pipelines; see [Transforms](transforms.md).
 
 ## Bleach filters → JustHTML transforms
 
