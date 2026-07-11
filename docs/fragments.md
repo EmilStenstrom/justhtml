@@ -16,7 +16,7 @@ doc = JustHTML("<tr><td>cell</td></tr>")
 print(doc.to_html(indent_size=4))
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <html>
@@ -37,7 +37,7 @@ doc = JustHTML(html, fragment_context=ctx)
 print(doc.to_html(indent_size=4))
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <tr>
@@ -64,7 +64,7 @@ print(doc.to_html())
 paragraphs = doc.query("p")
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 #document-fragment
@@ -143,7 +143,7 @@ doc = JustHTML("<b>not bold</b>", fragment_context=ctx)
 print(doc.to_html())
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 &lt;b&gt;not bold&lt;/b&gt;
@@ -227,7 +227,7 @@ dirty = '<p>Hello</p><script>alert("xss")</script><b>world</b>'
 print(sanitize_fragment(dirty))
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <p>Hello</p><b>world</b>

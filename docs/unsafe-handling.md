@@ -44,7 +44,7 @@ for e in doc.errors:
         print(e.message)
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```text
 Unsafe tag 'script' (dropped content)
@@ -74,7 +74,7 @@ except UnsafeHtmlError as e:
     print(e)
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```text
 Unsafe tag 'script' (dropped content)

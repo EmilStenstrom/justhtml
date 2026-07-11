@@ -22,7 +22,7 @@ for event, data in stream(html):
     print(event, data)
 ```
 
-Output:
+<!-- justhtml: output -->
 ```text
 start ('html', {})
 start ('body', {})

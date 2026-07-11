@@ -130,7 +130,7 @@ doc = JustHTML(html)
 print(doc.to_markdown())
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ````html
 # Title

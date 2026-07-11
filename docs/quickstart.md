@@ -102,7 +102,7 @@ div = doc.query_one("#main")
 print(div.to_html(indent_size=4))
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <div id="main">
@@ -120,7 +120,7 @@ from justhtml import JustHTML
 JustHTML("<!doctype html><p></div>", strict=True)  # doctest: skip
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```text
 Traceback (most recent call last):
@@ -156,7 +156,7 @@ for event, data in stream(html):
         print(f"End: {data}")
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 Start: p

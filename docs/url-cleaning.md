@@ -43,7 +43,7 @@ print(JustHTML("""
 """, fragment=True, policy=policy).to_html())
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <img>
@@ -75,7 +75,7 @@ print(JustHTML("""
 """, fragment=True, policy=policy).to_html())
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <img src="https://example.com">
@@ -154,7 +154,7 @@ print(JustHTML('<img src="https://example.com/x">', fragment=True, policy=policy
 print(JustHTML('<img src="/x">', fragment=True, policy=policy).to_html())
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <img>
@@ -185,7 +185,7 @@ print(JustHTML('<img src="https://example.com/x">', fragment=True, policy=policy
 print(JustHTML('<img src="/x">', fragment=True, policy=policy).to_html())
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <img>
@@ -215,7 +215,7 @@ policy = SanitizationPolicy(
 print(JustHTML('<a href="https://example.com/?a=1&b=2">link</a>', policy=policy).to_html())
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <a href="/proxy?url=https%3A%2F%2Fexample.com%2F%3Fa%3D1%26b%3D2">link</a>
@@ -249,7 +249,7 @@ policy = SanitizationPolicy(
 print(JustHTML('<a href="https://example.com/?a=1&b=2">link</a>', policy=policy).to_html())
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <a href="/p?u=https%3A%2F%2Fexample.com%2F%3Fa%3D1%26b%3D2">link</a>
@@ -324,7 +324,7 @@ html = '<a href="https://example.com/">ok</a>\n<a href="https://attacker.com/">b
 print(JustHTML(html, fragment=True, policy=policy).to_html())
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <a href="https://example.com/">ok</a>

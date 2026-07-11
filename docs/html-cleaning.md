@@ -21,18 +21,17 @@ On this page:
 
 By default, construction removes all dangerous html:
 
+### HTML output
+
 ```python
 from justhtml import JustHTML
 
 user_html = '<p>Hello <b>world</b> <script>alert(1)</script> <a href="javascript:alert(1)">bad</a> <a href="https://example.com/?a=1&b=2">ok</a></p>'
 doc = JustHTML(user_html, fragment=True)
-```
-
-### HTML output
-
-```python
 print(doc.to_html())
 ```
+
+<!-- justhtml: output -->
 
 ```html
 <p>Hello <b>world</b>  <a>bad</a> <a href="https://example.com/?a=1&amp;b=2">ok</a></p>
@@ -41,8 +40,14 @@ print(doc.to_html())
 ### Markdown output
 
 ```python
+from justhtml import JustHTML
+
+user_html = '<p>Hello <b>world</b> <script>alert(1)</script> <a href="javascript:alert(1)">bad</a> <a href="https://example.com/?a=1&b=2">ok</a></p>'
+doc = JustHTML(user_html, fragment=True)
 print(doc.to_markdown())
 ```
+
+<!-- justhtml: output -->
 
 ```markdown
 Hello **world** [bad] [ok](https://example.com/?a=1&b=2)

@@ -153,7 +153,7 @@ print(doc.to_html(pretty=False))
 print(doc2.to_html(pretty=False))
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <span>NEW </span><p>one</p><p>two</p>
@@ -357,7 +357,7 @@ doc = JustHTML(
 print(doc.to_html(pretty=False))
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <p><img src="/x"></p>
@@ -402,7 +402,7 @@ doc = JustHTML(
 print(doc.to_html(pretty=False))
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <p>Hello</p>
@@ -422,7 +422,7 @@ doc = JustHTML(
 print(doc.to_html(pretty=False))
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <p>One</p><p>Two</p>
@@ -442,7 +442,7 @@ doc = JustHTML(
 print(doc.to_html(pretty=False))
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```html
 <p><img src="/x"></p>

@@ -91,7 +91,7 @@ python run_tests.py --suite encoding
 python run_tests.py --suite unit
 ```
 
-Output:
+<!-- justhtml: output -->
 ```
 PASSED: 3464/3464 passed (100.0%)
 ```
@@ -132,7 +132,7 @@ We generate random malformed HTML to find crashes and hangs:
 python benchmarks/fuzz.py -n 3000000
 ```
 
-Output:
+<!-- justhtml: output -->
 ```
 ============================================================
 FUZZING RESULTS: justhtml

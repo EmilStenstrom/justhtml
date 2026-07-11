@@ -279,7 +279,7 @@ def _iter_doc_examples(docs_dir: Path) -> list[_DocExample]:
                     while j < len(lines) and lines[j].strip() == "":
                         j += 1
 
-                    if j < len(lines) and lines[j].strip() == "Output:":
+                    if j < len(lines) and lines[j].strip() == "<!-- justhtml: output -->":
                         k = j + 1
                         while k < len(lines) and lines[k].strip() == "":
                             k += 1

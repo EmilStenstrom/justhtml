@@ -124,7 +124,7 @@ justhtml page.html --selector "main" --format text --separator "" --no-strip
 curl -s https://github.com/EmilStenstrom/justhtml/ | justhtml - --selector '.markdown-body' --format markdown | head -n 15
 ```
 
-Output:
+<!-- justhtml: output -->
 
 ```text
 # JustHTML
