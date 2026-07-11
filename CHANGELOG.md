@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-07-11
+
 ### Security
 - (Severity: Low) Bound named character-reference lookup to the finite HTML entity tables. Previously, a malformed `&` followed by a long alphanumeric run caused repeated shrinking-prefix allocations and lookups, making parsing quadratic and allowing denial of service before sanitization.
 - (Severity: Low) Cap diagnostics retained by `JustHTML(...)` with the new `max_errors` option (default: 1000), including parser, sanitizer, raw-text, and transform findings. Previously, input containing many independently malformed characters or unsafe constructs could allocate an unbounded number of `ParseError` objects.
