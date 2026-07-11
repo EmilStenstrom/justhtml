@@ -26,6 +26,11 @@ bytes, and HTML-derived values supplied to parsing, sanitization, and
 serialization APIs. The promises below apply when callers use the documented
 safe defaults or a deliberately safe policy.
 
+Availability is part of that boundary. Small hostile inputs must not trigger
+disproportionate work or uncaught conversion errors while parsing, sanitizing,
+transforming, or serializing. Applications still need their own limits for
+total input size, execution time, and memory use.
+
 Library configuration is trusted application code. This includes custom
 sanitization policies, transform specifications and callbacks, selectors,
 glob patterns, CLI flags, and any policy or transform values assembled from
@@ -56,7 +61,8 @@ Promise:
 - JustHTML decodes bytes using HTML-style encoding detection and rejects UTF-7.
 - JustHTML parses malformed HTML into a DOM using browser-style HTML5 recovery.
 - The parser handles entity and character-reference edge cases.
-- The parser avoids known small-input patterns that can cause excessive work.
+- The parser avoids known small-input patterns that can cause excessive work or
+  uncaught conversion errors.
 - JustHTML reports parse errors as data unless strict mode is enabled.
 - Fragment parsing and full-document parsing keep their different assumptions
   explicit.
@@ -140,6 +146,8 @@ Promise:
 - Serialization rejects unsafe element and attribute names created through
   custom DOM changes.
 - Serialization neutralizes rawtext end-tag sequences.
+- Pretty serialization bounds indentation and avoids repeatedly copying nested
+  output, so deeply nested input does not cause disproportionate work.
 - `to_text()` returns text content rather than markup.
 - `to_markdown()` escapes Markdown-sensitive text by default.
 - `to_markdown()` escapes line-start Markdown markers that could change block
@@ -179,6 +187,8 @@ Promise:
   sanitization step after later transforms.
 - Built-in URL-aware transforms reuse sanitizer URL cleaning where they can.
 - Linkification operates on DOM text nodes rather than raw HTML strings.
+- Built-in structural transforms avoid repeated sibling-list shifting for
+  common bulk operations on untrusted documents.
 
 Out of scope:
 - Safety of arbitrary user callbacks passed to transform APIs.

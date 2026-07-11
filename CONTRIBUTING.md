@@ -49,6 +49,28 @@ python -c 'from justhtml import JustHTML, to_test_format; print(to_test_format(J
 
 **Coverage is required to be 100%.** All new code must be fully tested.
 
+### Documentation examples
+
+Runnable documentation examples use an explicit output marker. Place it between
+a self-contained Python fence and the expected-output fence:
+
+````text
+```python
+from justhtml import JustHTML
+print(JustHTML("<p>x</p>", fragment=True).to_html())
+```
+
+<!-- justhtml: output -->
+
+```html
+<p>x</p>
+```
+````
+
+The docs test executes each marked Python block independently and compares its
+stdout with the following fence. Keep ordinary HTML fences unmarked so they
+remain explanatory examples rather than tests.
+
 ## Pre-commit Hooks
 
 Pre-commit runs automatically on every commit and checks:
@@ -85,11 +107,24 @@ After making changes, verify performance impact:
 
 ```bash
 # Quick benchmark
-python benchmarks/performance.py --iterations 1 --parser justhtml --no-mem
+python benchmarks/performance.py --parsers justhtml --iterations 1 --no-mem
 
 # Profile hotspots
 python benchmarks/profile.py
 ```
+
+For a parser-speed improvement, measure the relevant pipeline on the web100k
+corpus before and after the change; see [PERFORMANCE.md](PERFORMANCE.md). For
+an availability fix, add a regression that exercises the affected hostile-input
+shape and verify that growth is linear or otherwise bounded.
+
+## Releases
+
+Use `python scripts/release.py --version X.Y.Z --yes` for releases. The script
+runs release checks, bumps `pyproject.toml`, commits, tags, pushes, and creates
+the GitHub release. Before invoking it, ensure the worktree is clean and move
+the relevant Unreleased changelog entries into a dated `## [X.Y.Z]` section;
+the helper requires that section to exist.
 
 ## Architecture Notes
 
@@ -109,8 +144,9 @@ Golden rules:
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes with tests
-4. Ensure pre-commit passes
-5. Submit a pull request
+3. Add an entry under the relevant section of `CHANGELOG.md`
+4. Make your changes with tests
+5. Ensure pre-commit passes
+6. Submit a pull request
 
 Questions? Open an issue on GitHub. For security vulnerabilities, please see our [Security Policy](SECURITY.md).

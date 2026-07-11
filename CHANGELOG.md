@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Add contributor guidance for documentation examples, security and availability reviews, releases, and a new `PERFORMANCE.md` workflow for measuring and testing performance improvements.
+
 ## [3.4.0] - 2026-07-11
 
 ### Security
