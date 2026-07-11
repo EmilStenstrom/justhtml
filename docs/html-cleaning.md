@@ -8,20 +8,14 @@ This page focuses on **HTML cleaning**: tags, attributes, and inline styles. For
 
 On this page:
 
-- [DOM vs construction](#important-dom-vs-construction)
 - [Safe-by-default construction](#safe-by-default-construction)
-- [Sanitizing a DOM directly](#sanitizing-a-dom-directly)
-- [Disable sanitization](#disable-sanitization)
 - [Default policy](#default-sanitization-policy)
-- [Inline styles](#inline-styles-optional)
 - [Custom policy](#use-a-custom-sanitization-policy)
+- [Sanitizing a DOM directly](#sanitizing-a-dom-directly)
+- [Inline styles](#inline-styles-optional)
+- [Advanced policy options](#advanced-policy-options)
+- [Disable sanitization](#disable-sanitization)
 - [Reporting issues](#reporting-issues)
-
-## Important: DOM vs construction
-
-The parsed DOM is **sanitized by default** at construction time (`JustHTML(..., sanitize=True)`), and serialization is a pure output step.
-
-If you want to sanitize **after** other transforms or after direct DOM edits, apply the `Sanitize(...)` transform to sanitize the in-memory tree. If your transform list already includes `Sanitize(...)`, that explicit position becomes the sanitize point; later transforms can reintroduce unsafe content.
 
 ## Safe-by-default construction
 
@@ -32,54 +26,26 @@ from justhtml import JustHTML
 
 user_html = '<p>Hello <b>world</b> <script>alert(1)</script> <a href="javascript:alert(1)">bad</a> <a href="https://example.com/?a=1&b=2">ok</a></p>'
 doc = JustHTML(user_html, fragment=True)
-
-print(doc.to_html())
-print()
-print(doc.to_markdown())
 ```
 
-Output:
+### HTML output
+
+```python
+print(doc.to_html())
+```
 
 ```html
 <p>Hello <b>world</b>  <a>bad</a> <a href="https://example.com/?a=1&amp;b=2">ok</a></p>
+```
 
+### Markdown output
+
+```python
+print(doc.to_markdown())
+```
+
+```markdown
 Hello **world** [bad] [ok](https://example.com/?a=1&b=2)
-```
-
-## Sanitizing the in-memory DOM
-
-If you will be working with the DOM and want a clean slate to work from, add `Sanitize(...)` to your transform pipeline.
-
-If you want explicit pass boundaries (advanced use), you can group transforms using [`Stage([...])`](transforms.md#advanced-stages).
-
-```python
-from justhtml import JustHTML, Sanitize
-
-user_html = '<p>Hello <b>world</b> <script>alert(1)</script> <a href="javascript:alert(1)">bad</a> <a href="https://example.com/?a=1&b=2">ok</a></p>'
-doc = JustHTML(user_html, fragment=True, transforms=[Sanitize()])
-
-# The DOM is now sanitized in-memory.
-print(doc.to_html(pretty=False))
-# => <p>Hello <b>world</b>  <a>bad</a> <a href="https://example.com/?a=1&amp;b=2">ok</a></p>
-```
-
-## Disable sanitization
-
-If you want to (dangerously) disable sanitization, because you know that your trusted HTML can't contain malicious code:
-
-```python
-from justhtml import JustHTML
-
-user_html = '<p>Hello <b>world</b> <script>init_page_view_tracker()</script> <a href="javascript:track_pageview()">ok</a></p>'
-doc = JustHTML(user_html, fragment=True, sanitize=False)
-
-print(doc.to_html())
-```
-
-Output:
-
-```html
-<p>Hello <b>world</b> <script>init_page_view_tracker()</script> <a href="javascript:track_pageview()">ok</a></p>
 ```
 
 ## Default sanitization policy
@@ -114,23 +80,62 @@ Default allowlists:
   - `img`: `src`, `alt`, `title`, `width`, `height`, `loading`, `decoding`
   - `th`/`td`: `colspan`, `rowspan`
 
+## Use a custom sanitization policy
+
+Start with the smallest policy that matches the HTML you want to accept. This makes the allowed output clear to future maintainers.
+
+```python
+from justhtml import JustHTML, SanitizationPolicy, UrlPolicy, UrlRule
+
+policy = SanitizationPolicy(
+    allowed_tags={"p", "strong", "a"},
+    allowed_attributes={"a": {"href"}},
+    url_policy=UrlPolicy(
+        allow_rules={
+            ("a", "href"): UrlRule(allowed_schemes={"https", "mailto"}),
+        }
+    ),
+)
+
+safe_html = JustHTML(user_html, fragment=True, policy=policy).to_html()
+```
+
+The three settings work together:
+
+- `allowed_tags` controls which elements remain.
+- `allowed_attributes` controls which attribute names remain. An omitted tag has no allowed attributes, so you only need to list tags that accept attributes.
+- URL-valued attributes such as `href` also need a `UrlRule`; allowing the attribute name alone is not enough.
+
+For URL schemes, hosts, proxies, `srcset`, and other URL-specific controls, continue with [URL Cleaning](url-cleaning.md).
+
+## Sanitizing the in-memory DOM
+
+The parsed DOM is sanitized by default at construction time (`JustHTML(..., sanitize=True)`), and serialization is a pure output step.
+
+If you want to sanitize after other transforms or after direct DOM edits, add `Sanitize(...)` at the point where the tree should become safe. Later transforms can reintroduce unsafe content. For explicit pass boundaries (advanced use), see [`Stage([...])`](transforms.md#advanced-stages).
+
+```python
+from justhtml import JustHTML, Sanitize
+
+doc = JustHTML(user_html, fragment=True, transforms=[Sanitize()])
+print(doc.to_html(pretty=False))
+```
+
 ## Inline styles (optional)
 
 Inline styles are disabled by default. To allow them you must:
 
-1) Allow the `style` attribute for the relevant tag via `allowed_attributes`, and
-2) Provide a non-empty allowlist via `allowed_css_properties`.
+1. Allow the `style` attribute for the relevant tag via `allowed_attributes`.
+2. Provide a non-empty allowlist via `allowed_css_properties`.
 
-Even then, JustHTML is conservative: it rejects declarations that look like they can load external resources (such as values containing `url(` or `image-set(`), as well as legacy constructs like `expression(`.
-
-To avoid "footgun" policies, you can start from the built-in preset `CSS_PRESET_TEXT`.
+Even then, JustHTML rejects declarations that look like they can load external resources (such as values containing `url(` or `image-set(`), as well as legacy constructs like `expression(`. Start from the conservative `CSS_PRESET_TEXT` preset.
 
 ```python
 from justhtml import CSS_PRESET_TEXT, JustHTML, SanitizationPolicy, UrlPolicy
 
 policy = SanitizationPolicy(
-    allowed_tags=["p"],
-    allowed_attributes={"*": [], "p": ["style"]},
+    allowed_tags={"p"},
+    allowed_attributes={"p": {"style"}},
     url_policy=UrlPolicy(allow_rules={}),
     allowed_css_properties=CSS_PRESET_TEXT | {"width"},
 )
@@ -139,20 +144,9 @@ html = '<p style="color: red; background-image: url(https://evil.test/x); width:
 print(JustHTML(html, policy=policy).to_html())
 ```
 
-Output:
+## Advanced policy options
 
-```html
-<p style="color: red">Hi</p>
-
-```
-
-## Use a custom sanitization policy
-
-You are encouraged to write your own `SanitizationPolicy`, and not rely on the default one. This makes it easier for future developers to understand what's being cleaned, without having to look it up in justhtml's documentation.
-
-When expanding the default policy, prefer adding small, explicit allowlists.
-
-Advanced sanitization pipelines can also tune selector resource limits:
+Selector limits are for trusted pipelines that need to accept unusually large selectors or match budgets:
 
 ```python
 from justhtml import SanitizationPolicy
@@ -165,43 +159,14 @@ policy = SanitizationPolicy(
 )
 ```
 
-Use this only when you trust the selectors and know which limit your workload needs to raise. The defaults are intentionally conservative for untrusted input.
+Treat policies that allow active content as a separate security review: `iframe`, `object`, `embed`, `meta`, `link`, `base`, form elements, and their active attributes are preserved when you explicitly allow them.
 
-Treat these as a separate security review if you plan to allow them:
+## Disable sanitization
 
-- `iframe`, `object`, `embed`
-- `meta`, `link`, `base`
-- form elements and submission-related attributes
-
-If you explicitly allow these tags and their active attributes (for example `iframe[src]` or `object[data]`), JustHTML will preserve them according to your policy. That is an explicit opt-in to active embedded content, not something the sanitizer makes safe for you.
-
-For URL-related risks and controls, see [URL Cleaning](url-cleaning.md).
+Only disable sanitization for HTML you fully trust:
 
 ```python
-from justhtml import JustHTML, SanitizationPolicy, UrlPolicy, UrlRule
-
-user_html = '<p>Hello <b>world</b> <script>alert(1)</script> <a href="javascript:alert(1)">bad</a> <a href="https://example.com/?a=1&b=2">ok</a></p>'
-
-policy = SanitizationPolicy(
-    allowed_tags=["p", "b", "a"],
-    allowed_attributes={"*": [], "a": ["href"]},
-    url_policy=UrlPolicy(
-        default_handling="allow",
-        allow_rules={
-            ("a", "href"): UrlRule(allowed_schemes=["https"]),
-        }
-    ),
-)
-
-doc = JustHTML(user_html, fragment=True)
-doc = JustHTML(user_html, fragment=True, policy=policy)
-print(doc.to_html())
-```
-
-Output:
-
-```html
-<p>Hello <b>world</b>  <a>bad</a> <a href="https://example.com/?a=1&amp;b=2">ok</a></p>
+doc = JustHTML(trusted_html, fragment=True, sanitize=False)
 ```
 
 ## Reporting issues
