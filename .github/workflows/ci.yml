@@ -45,8 +45,6 @@ jobs:
         run: |
           cd ..
           git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git
-          git -C wpt fetch origin 75b089d70448e1da425ab8cf38971b6af41f3cea
-          git -C wpt checkout 75b089d70448e1da425ab8cf38971b6af41f3cea
           git -C wpt sparse-checkout set html/syntax/parsing/resources
           git -C wpt rev-parse HEAD
 
