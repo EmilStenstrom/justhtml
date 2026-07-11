@@ -46,7 +46,7 @@ class TestParserSyntaxAndRecovery(_ParserEngineTestCase):
 
     def test_processing_instruction_edges(self) -> None:
         assert JustHTML("a<?x>b", sanitize=False).to_html(pretty=False) == (
-            "<html><head></head><body>a<?x?>b</body></html>"
+            "<html><head></head><body>a<?x ?>b</body></html>"
         )
         assert JustHTML("<?x a\r\0b>", sanitize=False).to_html(pretty=False) == (
             "<?x a\n�b?><html><head></head><body></body></html>"
@@ -59,7 +59,10 @@ class TestParserSyntaxAndRecovery(_ParserEngineTestCase):
         )
         document = JustHTML("<?\ud83d\ude80\ud83dX\ud83d\ude80>", sanitize=False)
         assert document.root.children[0].data == "?🚀\ud83dX🚀"
-        assert JustHTML("<?#abc", sanitize=False).to_html(pretty=False) == "<html><head></head><body></body></html>"
+        assert (
+            JustHTML("<?#abc", sanitize=False).to_html(pretty=False)
+            == "<!--?#abc--><html><head></head><body></body></html>"
+        )
         assert JustHTML("<?\t", sanitize=False).to_html(pretty=False) == (
             "<!--?\t--><html><head></head><body></body></html>"
         )
@@ -550,7 +553,7 @@ class TestParserLowLevelModes(_ParserEngineTestCase):
 
     def test_untracked_raw_parser_modes(self) -> None:
         cases = [
-            ("<?x>", "<?x?><html><head></head><body></body></html>"),
+            ("<?x>", "<?x ?><html><head></head><body></body></html>"),
             ("<?x", "<html><head></head><body></body></html>"),
             ("</!x>", "<!--!x--><html><head></head><body></body></html>"),
             ("</!x", "<!--!x--><html><head></head><body></body></html>"),

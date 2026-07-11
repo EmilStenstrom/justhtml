@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add contributor guidance for documentation examples, security and availability reviews, releases, and a new `PERFORMANCE.md` workflow for measuring and testing performance improvements.
 - Add TurboHTML to the correctness benchmarks, and refresh the comparison guide with current Python-parser and browser-engine scores. Many dropped because of the new tests around processing instructions.
 
+### Fixed
+- Match the latest WPT processing-instruction tree expectations, including empty data fields and the `<?#` bogus-comment case.
+
 ## [3.4.0] - 2026-07-11
 
 ### Security

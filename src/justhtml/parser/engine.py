@@ -1227,9 +1227,7 @@ class ParseEngine:
         node = ProcessingInstruction(data=data)
         self._append_misc_node(node, source_pos)
 
-    def _processing_instruction_data(
-        self, content_start: int, content_end: int, *, preserve_terminal_question: bool = False
-    ) -> str | None:
+    def _processing_instruction_data(self, content_start: int, content_end: int) -> str | None:
         html = self._html_input
         if content_start >= content_end or not _is_processing_instruction_name_start(html[content_start]):
             return None
@@ -1243,7 +1241,10 @@ class ParseEngine:
             return None
 
         if pos == content_end:
-            return target
+            # The html5lib tree format represents a processing instruction
+            # with an empty data field as ``<?target ?>``. Keep that empty
+            # field distinct from a target-only internal value.
+            return f"{target} "
 
         ch = html[pos]
         if ch == "?":
@@ -1253,17 +1254,14 @@ class ParseEngine:
             while pos < content_end and html[pos] in _SPACE:
                 pos += 1
             data_start = pos
-        elif ch == "\\" and pos + 1 < content_end and html[pos + 1] in "tnrf":
-            data_start = pos + 2
         else:
             return None
 
         data = html[data_start:content_end]
-        if data.endswith("?") and not preserve_terminal_question:
-            data = data[:-1]
+        data = data.removesuffix("?")
         if data:
             return f"{target} {data}"
-        return target
+        return f"{target} "
 
     def _append_misc_node(self, node: Node, source_pos: int | None = None) -> None:
         if self._after_document and source_pos is not None:
@@ -1621,17 +1619,15 @@ class ParseEngine:
                         pos = end
                         continue
                     if next_ch not in _SPACE:
+                        if next_ch == "#" and not self._drop_comments:
+                            self._append_comment(html[pos:end], lt)
                         pos = end
                         continue
                     if not self._drop_comments:
                         self._append_comment(html[pos:end], lt)
                     pos = end
                     continue
-                pi_data = self._processing_instruction_data(
-                    pos + 1,
-                    gt,
-                    preserve_terminal_question=not self._initial_mode_done,
-                )
+                pi_data = self._processing_instruction_data(pos + 1, gt)
                 if pi_data is not None and not self._drop_comments:
                     self._append_processing_instruction(pi_data, lt)
                 elif not self._drop_comments:
