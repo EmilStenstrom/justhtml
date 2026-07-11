@@ -277,6 +277,7 @@ class _CompiledDecideTransform:
     selector: ParsedSelector | None
     all_nodes: bool
     callback: Callable[[Node], DecideAction]
+    bulk_drop_tags: frozenset[str] | None = None
 
 
 @dataclass(frozen=True, slots=True)

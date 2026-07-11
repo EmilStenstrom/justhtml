@@ -723,6 +723,26 @@ class TestTransforms(unittest.TestCase):
         assert "node:script" in calls
         assert any("Dropped tag 'script'" in c for c in calls)
 
+    def test_drop_tag_list_compacts_many_matching_siblings_without_pop(self) -> None:
+        class _NoPopList(list[Node]):
+            def pop(self, index: int = -1) -> Node:
+                raise AssertionError("bulk tag dropping must compact children without repeated pop() calls")
+
+        root = DocumentFragment()
+        root.children = _NoPopList(Element("script", {}, "html") for _ in range(100))
+        for child in root.children:
+            child.parent = root
+
+        apply_compiled_transforms(root, compile_transforms([Drop("script")]))
+
+        assert root.children == []
+
+        template_root = DocumentFragment()
+        template_root.append_child(Template("template", namespace="html"))
+        apply_compiled_transforms(template_root, compile_transforms([Drop("script")]))
+        assert template_root.children is not None
+        assert template_root.children[0].name == "template"
+
     def test_drop_foreign_namespaces_skips_comment_and_doctype(self) -> None:
         calls: list[str] = []
 

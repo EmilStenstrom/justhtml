@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - (Severity: Low) Index active-formatting entries by signature within each HTML5 Noah's Ark marker segment, retiring superseded entries lazily and compacting in bounded batches. Previously, repeated fourth occurrences across many formatting signatures rescanned and shifted the active-formatting list, allowing quadratic parsing of crafted HTML.
 - (Severity: Low) Avoid unbounded integer conversion for untrusted `srcset` width descriptors, URL host validation, and `Linkify(...)` URL ports. Previously, inputs with more decimal digits than Python permits in `int()` could raise an uncaught `ValueError` during sanitization or linkification.
 - (Severity: Low) Bound pretty-print indentation and avoid repeatedly copying nested serialized output. Previously, serializing deeply nested untrusted HTML with the default `to_html()` settings could consume quadratic time and memory.
+- (Severity: Low) Compact sibling lists when applying a tag-only `Drop(...)` transform. Previously, dropping many matching untrusted sibling elements shifted the remaining list after every removal, making transform execution quadratic.
 
 ## [3.3.0] - 2026-07-04
 

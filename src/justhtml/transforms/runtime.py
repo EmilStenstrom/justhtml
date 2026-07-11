@@ -83,6 +83,37 @@ def apply_compiled_transforms(
         ) -> None:
             if not walk_transforms:
                 return
+
+            # A tag-only Drop is common in sanitization pipelines. Processing
+            # each matching sibling with list.pop(index) shifts every remaining
+            # sibling, which makes attacker-controlled flat input quadratic.
+            # With one such transform, compact each child list in place instead.
+            if (
+                len(walk_transforms) == 1
+                and isinstance(walk_transforms[0], _CompiledDecideTransform)
+                and walk_transforms[0].bulk_drop_tags is not None
+            ):
+                drop_transform = walk_transforms[0]
+                pending: list[Node] = [root_node]
+                while pending:
+                    parent = pending.pop()
+                    children = parent.children
+                    if not children:
+                        continue
+                    kept: list[Node] = []
+                    for child in children:
+                        if drop_transform.callback(child) is DecideAction.DROP:
+                            child.parent = None
+                            continue
+                        kept.append(child)
+                    parent.children = kept
+                    for child in reversed(kept):
+                        if type(child) is Template and child.template_content is not None:
+                            pending.append(child.template_content)
+                        if child.children:
+                            pending.append(child)
+                return
+
             can_share_selector_context = all(t.kind in _SELECTOR_CONTEXT_SHAREABLE_KINDS for t in walk_transforms)
             escape_comments = any(
                 t.kind == "decide_elements_chain"

@@ -409,6 +409,7 @@ def _compile_drop_transform(t: Drop, parse: Callable[[str], ParsedSelector]) -> 
             selector=None,
             all_nodes=True,
             callback=_drop_if_tag,
+            bulk_drop_tags=tags,
         )
 
     return _CompiledSelectorTransform(
