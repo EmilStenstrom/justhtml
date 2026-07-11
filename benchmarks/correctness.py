@@ -22,7 +22,17 @@ from justhtml.parser.context import FragmentContext
 from justhtml.serializer import to_test_format
 
 # Available parsers
-PARSERS = ["justhtml", "html5lib", "html5_parser", "lxml", "bs4", "html.parser", "selectolax", "markupever"]
+PARSERS = [
+    "justhtml",
+    "html5lib",
+    "html5_parser",
+    "lxml",
+    "bs4",
+    "html.parser",
+    "selectolax",
+    "markupever",
+    "turbohtml",
+]
 
 
 class Status(Enum):
@@ -61,6 +71,7 @@ PARSER_CAPABILITIES = {
     "html.parser": ParserCapabilities(),
     "selectolax": ParserCapabilities(fragment_context=True, foreign_fragment_context=True),
     "markupever": ParserCapabilities(),
+    "turbohtml": ParserCapabilities(fragment_context=True, foreign_fragment_context=True),
 }
 
 
@@ -146,6 +157,15 @@ def check_parser_available(parser_name):
             return True
         except ImportError:
             return False
+    if parser_name == "turbohtml":
+        try:
+            from turbohtml import parse, parse_fragment
+
+            parse("<p></p>")
+            parse_fragment("<p></p>", "div")
+            return True
+        except (ImportError, TypeError, ValueError, AttributeError):
+            return False
     return False
 
 
@@ -172,6 +192,33 @@ def parse_dat_file(path):
         i += 1
 
     return tests
+
+
+def decode_escapes(text):
+    """Decode the \"\\xXX\" and \"\\uXXXX\" sequences used by tree fixtures."""
+    if "\\x" not in text and "\\u" not in text:
+        return text
+
+    result = []
+    i = 0
+    while i < len(text):
+        if text[i : i + 2] == "\\x" and i + 3 < len(text):
+            try:
+                result.append(chr(int(text[i + 2 : i + 4], 16)))
+                i += 4
+                continue
+            except ValueError:
+                pass
+        elif text[i : i + 2] == "\\u" and i + 5 < len(text):
+            try:
+                result.append(chr(int(text[i + 2 : i + 6], 16)))
+                i += 6
+                continue
+            except ValueError:
+                pass
+        result.append(text[i])
+        i += 1
+    return "".join(result)
 
 
 def parse_single_test(lines):
@@ -209,7 +256,7 @@ def parse_single_test(lines):
 
     if data or document:
         return {
-            "data": "\n".join(data),
+            "data": decode_escapes("\n".join(data)),
             "document": "\n".join(document),
             "fragment_context": fragment_context,
             "script_directive": script_directive,
@@ -497,6 +544,23 @@ def run_test_markupever(html, fragment_context, expected, xml_coercion=False, if
     try:
         nodes = [markupever.parse(html).root()]
         actual = _markupever_to_test_format(nodes)
+        return _compare_result(expected, actual)
+    except Exception as e:
+        return _error(e)
+
+
+def run_test_turbohtml(html, fragment_context, expected, xml_coercion=False, iframe_srcdoc=False):
+    """Run a single test with TurboHTML's public DOM API."""
+    from turbohtml import parse, parse_fragment
+
+    try:
+        if fragment_context:
+            namespace, tag_name = fragment_context
+            context = f"{namespace} {tag_name}" if namespace else tag_name
+            node = parse_fragment(html, context)
+            actual = _turbohtml_to_test_format(node.children, 0)
+        else:
+            actual = _turbohtml_to_test_format(parse(html).children, 0)
         return _compare_result(expected, actual)
     except Exception as e:
         return _error(e)
@@ -839,6 +903,56 @@ def _markupever_to_test_format(nodes):
     return "".join(line for node in nodes for line in process(node, 0))
 
 
+def _turbohtml_to_test_format(nodes, indent):
+    """Convert TurboHTML's public node objects to html5lib test format."""
+    from turbohtml import Comment, Doctype, Element, Namespace, Text
+
+    def qualified_name(namespace, name):
+        if namespace is Namespace.SVG:
+            return f"svg {name}"
+        if namespace is Namespace.MATHML:
+            return f"math {name}"
+        return name
+
+    def attribute_name(name):
+        if name.startswith("xlink:"):
+            return f"xlink {name.removeprefix('xlink:')}"
+        if name.startswith("xml:"):
+            return f"xml {name.removeprefix('xml:')}"
+        if name.startswith("xmlns:"):
+            return f"xmlns {name.removeprefix('xmlns:')}"
+        return name
+
+    def process(node, node_indent):
+        prefix = " " * node_indent
+        if isinstance(node, Doctype):
+            if node.public_id is not None or node.system_id is not None:
+                public_id = node.public_id or ""
+                system_id = node.system_id or ""
+                return [f'| <!DOCTYPE {node.name} "{public_id}" "{system_id}">']
+            return [f"| <!DOCTYPE {node.name}>"]
+        if isinstance(node, Comment):
+            return [f"| {prefix}<!-- {node.data} -->"]
+        if isinstance(node, Text):
+            return [f'| {prefix}"{node.text}"']
+        if not isinstance(node, Element):
+            return [line for child in node.children for line in process(child, node_indent)]
+
+        lines = [f"| {prefix}<{qualified_name(node.namespace, node.tag)}>"]
+        for name, value in sorted(node.attrs.items()):
+            lines.append(f'| {prefix}  {attribute_name(name)}="{value}"')
+
+        if node.tag == "template" and node.namespace is Namespace.HTML:
+            lines.append(f"| {prefix}  content")
+            content = node.children[0]
+            lines.extend(line for child in content.children for line in process(child, node_indent + 4))
+        else:
+            lines.extend(line for child in node.children for line in process(child, node_indent + 2))
+        return lines
+
+    return "\n".join(line for node in nodes for line in process(node, indent))
+
+
 # Parser dispatch
 PARSER_RUNNERS = {
     "justhtml": run_test_justhtml,
@@ -849,6 +963,7 @@ PARSER_RUNNERS = {
     "html.parser": run_test_html_parser,
     "selectolax": run_test_selectolax,
     "markupever": run_test_markupever,
+    "turbohtml": run_test_turbohtml,
 }
 
 

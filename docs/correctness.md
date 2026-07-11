@@ -13,7 +13,7 @@ The external fixture inputs contain:
 - **61 treebuilder test files** - Testing how the parser builds the DOM tree
 - **5 serializer fixture files** - Testing how token streams are serialized back to HTML
 - **Encoding sniffing tests** - Testing BOM/meta charset/transport overrides and legacy fallbacks
-- **1,914 enabled treebuilder cases** - Covering edge cases, error recovery, and spec compliance
+- **1,918 treebuilder cases** - Covering edge cases, error recovery, and spec compliance
 
 ### What the Tests Cover
 
@@ -54,20 +54,21 @@ This tests the adoption agency algorithm - when `</b>` is encountered inside `<p
 ## Compliance Comparison
 
 We run the same test suite against other Python parsers to compare compliance.
-The cross-parser snapshot below used the 1,743 cases available when it was recorded.
+The cross-parser snapshot below uses the current 1,879 non-scripting cases.
 
 | Parser | Tests Passed | Compliance | Notes |
 |--------|-------------|------------|-------|
-| **JustHTML** | 1743/1743 | **100%** | Full spec compliance in this comparison snapshot |
-| selectolax | 1743/1743 | 100% | C-based (Lexbor), fast and spec-compliant with dev `html5test` output API |
-| markupever | 1545/1743 | 89% | Rust-based (html5ever), mostly correct |
-| html5lib | 1496/1743 | 86% | Reference implementation, but incomplete |
-| html5_parser | 862/1743 | 49% | C-based (Gumbo), fast but loses exposed tree information |
-| BeautifulSoup | 6/1743 | <1% | Uses html.parser, not HTML5 compliant |
-| html.parser | 6/1743 | <1% | Python stdlib, basic error recovery only |
-| lxml | 5/1743 | <1% | XML-based, not HTML5 compliant |
+| **JustHTML** | 1879/1879 | **100%** | Full spec compliance in this comparison snapshot |
+| selectolax | 1789/1879 | 95.2% | C-based (Lexbor), development build with the `HTML5TEST` serializer enabled |
+| turbohtml | 1768/1879 | 94.1% | C-backed parser with a broad public DOM API |
+| html5lib | 1544/1879 | 82.2% | Reference implementation, but incomplete |
+| markupever | 1489/1879 | 79.2% | Rust-based (html5ever); 107 cases abort the current parser process |
+| html5_parser | 895/1879 | 47.6% | C-based (Gumbo), fast but loses exposed tree information |
+| BeautifulSoup | 6/1879 | 0.3% | Uses html.parser, not HTML5 compliant |
+| html.parser | 6/1879 | 0.3% | Python stdlib, basic error recovery only |
+| lxml | 5/1879 | 0.3% | XML-based, not HTML5 compliant |
 
-*Run `python benchmarks/correctness.py` to reproduce these results. The selectolax score requires its dev `html5test` output and fragment-context APIs. These historical scores were refreshed against html5lib-tests `e446320`.*
+*Run `python benchmarks/correctness.py` to reproduce these results, except MarkupEver: its score was collected with one isolated process per case because its current parser can abort the interpreter. The Selectolax score uses a development build with Lexbor's `HTML5TEST` serializer enabled, plus its fragment-context APIs; MarkupEver process aborts are counted as errors.*
 
 These numbers come from a strict tree comparison against the expected output in the treebuilder fixtures available at the time (excluding `#script-on` / `#script-off` cases). Unsupported parser capabilities count as failures for this compliance table. The numbers will not match the `html5lib` project’s own reported totals, because `html5lib` runs the suite in multiple configurations and also has its own skip/xfail lists.
 

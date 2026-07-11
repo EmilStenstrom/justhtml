@@ -530,6 +530,47 @@ def benchmark_markupever(html_source, iterations=1):
     }
 
 
+def benchmark_turbohtml(html_source, iterations=1):
+    """Benchmark TurboHTML parser."""
+    try:
+        from turbohtml import parse
+    except ImportError:
+        return {"error": "turbohtml not installed (pip install turbohtml)"}
+    times = []
+    errors = 0
+    total_bytes = 0
+    file_count = 0
+    warmup_done = False
+    for _, html in html_source:
+        if not warmup_done:
+            try:
+                parse(html)
+            except Exception:
+                pass
+            warmup_done = True
+        total_bytes += len(html)
+        file_count += 1
+        for _ in range(iterations):
+            try:
+                start = time.perf_counter()
+                result = parse(html)
+                elapsed = time.perf_counter() - start
+                times.append(elapsed)
+                _ = result.root
+            except Exception:
+                errors += 1
+    return {
+        "total_time": sum(times),
+        "mean_time": sum(times) / len(times) if times else 0,
+        "min_time": min(times) if times else 0,
+        "max_time": max(times) if times else 0,
+        "errors": errors,
+        "success_count": len(times),
+        "file_count": file_count,
+        "total_bytes": total_bytes,
+    }
+
+
 def print_results(results, file_count, iterations=1):
     """Pretty print benchmark results."""
     print("\n" + "=" * 100)
@@ -548,6 +589,7 @@ def print_results(results, file_count, iterations=1):
         "selectolax",
         "gumbo",
         "markupever",
+        "turbohtml",
     ]
 
     # Combined header
@@ -640,8 +682,19 @@ def main():
             "selectolax",
             "gumbo",
             "markupever",
+            "turbohtml",
         ],
-        default=["justhtml", "html5lib", "lxml", "bs4", "html.parser", "selectolax", "gumbo", "markupever"],
+        default=[
+            "justhtml",
+            "html5lib",
+            "lxml",
+            "bs4",
+            "html.parser",
+            "selectolax",
+            "gumbo",
+            "markupever",
+            "turbohtml",
+        ],
         help="Parsers to benchmark (default: all)",
     )
     args = parser.parse_args()
@@ -686,6 +739,7 @@ def main():
         "selectolax": benchmark_selectolax,
         "gumbo": benchmark_gumbo,
         "markupever": benchmark_markupever,
+        "turbohtml": benchmark_turbohtml,
     }
 
     file_count = 0

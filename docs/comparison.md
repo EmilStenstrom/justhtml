@@ -8,23 +8,26 @@ Use a different tool when one narrow requirement matters more than the whole pip
 
 ## At a Glance
 
-| Tool | HTML5 parsing [1][2] | Speed | Query | Build | Sanitize | Notes |
+| Tool | HTML5 parsing [1] | Speed | Query | Build | Sanitize | Notes |
 |------|------------------------------------------|-------|----------|-------|------------------|-------|
-| **JustHTML**<br>Pure Python | ✅&nbsp;100% | ⚡ Fast | ✅ CSS selectors | ✅ `element()` | ✅ Built-in | Correct, secure, easy to install, and fast enough. |
-| **`selectolax`**<br>Python wrapper of C-based Lexbor | ✅&nbsp;100% | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast and spec-compliant. |
-| **Chromium**<br>browser engine | ✅&nbsp;99.5% | 🚀&nbsp;Very&nbsp;Fast | — | — | — | — |
-| **WebKit**<br>browser engine | ✅ 98.4% | 🚀 Very Fast | — | — | — | — |
-| **Firefox**<br>browser engine | ✅ 97.6% | 🚀 Very Fast | — | — | — | — |
-| **`markupever`**<br>Python wrapper of Rust-based html5ever | 🟡 89% | 🚀 Very Fast | ✅ CSS selectors | ✅ `TreeDom .create_*()` | ❌ Needs sanitization | Fast and mostly correct, but missing benchmarked capabilities count against compliance. |
-| **`html5lib`**<br>Pure Python | 🟡 86% | 🐢 Slow | 🟡 XPath (lxml) | 🟡 Tree API | 🔴 [Deprecated](https://github.com/html5lib/html5lib-python/issues/443) | Unmaintained reference implementation; incomplete coverage of the tree-construction fixtures. |
-| **`html5_parser`**<br>Python wrapper of C-based Gumbo | 🔴 49% | 🚀 Very Fast | 🟡 XPath (lxml) | 🟡 `etree` (lxml) | ❌ Needs sanitization | Fast, but its public tree API loses information needed by many fixtures. |
-| **`BeautifulSoup`**<br>Pure Python | 🔴 <1% (default) | 🐢 Slow | 🟡 Custom API | ✅ `new_tag()` API | ❌ Needs sanitization | Wraps `html.parser` (default). Can use lxml or html5lib. |
-| **`html.parser`**<br>Python stdlib | 🔴 <1% | ⚡ Fast | ❌ None | ❌ None | ❌ Needs sanitization | Standard library. Chokes on malformed HTML. |
-| **`lxml`**<br>Python wrapper of C-based libxml2 | 🔴 <1% | 🚀 Very Fast | 🟡 XPath | ✅ `etree` / E-factory | ❌ Needs sanitization | Fast but not HTML5 compliant. Context-fragment cases are skipped; supported cases still perform poorly. Don't use the old lxml.html.clean module! |
+| **JustHTML**<br>Pure Python | ✅ 100% | ⚡ Fast | ✅ CSS selectors | ✅ `element()` | ✅ Built-in | Correct, secure, easy to install, and fast enough. |
+| **`selectolax`**<br>Python wrapper of C-based Lexbor | 🟡 95.2% [2] | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast; processing-instruction fixtures remain in the score. |
+| **Chromium**<br>browser engine | 🟡 94.6% [3] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
+| **`turbohtml`**<br>Python wrapper of a C core | 🟡 94.1% | 🚀 Very Fast | ✅ CSS selectors, XPath | ✅ `E.*` builder | ✅ Built-in | Broad, compiled alternative with parsing, querying, and sanitization. |
+| **WebKit**<br>browser engine | 🟡 93.5% [3] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
+| **Firefox**<br>browser engine | 🟡 92.8% [3] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
+| **`html5lib`**<br>Pure Python | 🟡 82.2% | 🐢 Slow | 🟡 XPath (lxml) | 🟡 Tree API | 🔴 [Deprecated](https://github.com/html5lib/html5lib-python/issues/443) | Unmaintained reference implementation; incomplete coverage of the tree-construction fixtures. |
+| **`markupever`**<br>Python wrapper of Rust-based html5ever | 🟡 79.2% | 🚀 Very Fast | ✅ CSS selectors | ✅ `TreeDom .create_*()` | ❌ Needs sanitization | Fast, but 107 fixture cases abort its current parser process. |
+| **`html5_parser`**<br>Python wrapper of C-based Gumbo | 🔴 47.6% | 🚀 Very Fast | 🟡 XPath (lxml) | 🟡 `etree` (lxml) | ❌ Needs sanitization | Fast, but its public tree API loses information needed by many fixtures. |
+| **`BeautifulSoup`**<br>Pure Python | 🔴 0.3% (default) | 🐢 Slow | 🟡 Custom API | ✅ `new_tag()` API | ❌ Needs sanitization | Wraps `html.parser` (default). Can use lxml or html5lib. |
+| **`html.parser`**<br>Python stdlib | 🔴 0.3% | ⚡ Fast | ❌ None | ❌ None | ❌ Needs sanitization | Standard library. Chokes on malformed HTML. |
+| **`lxml`**<br>Python wrapper of C-based libxml2 | 🔴 0.3% | 🚀 Very Fast | 🟡 XPath | ✅ `etree` / E-factory | ❌ Needs sanitization | Fast but not HTML5 compliant. Context-fragment cases are skipped; supported cases still perform poorly. Don't use the old lxml.html.clean module! |
 
-[1]: Parser compliance scores are from a strict run of the [html5lib-tests](https://github.com/html5lib/html5lib-tests) tree-construction fixtures (1,743 non-script tests). The score is `pass / (pass + fail + error)`; unsupported public API capabilities count as failures rather than being faked. The benchmark may compose multiple public APIs from the same parser, but does not use testcase-specific shims or synthetic adapters when an API surface is missing. See [Correctness Testing](correctness.md) for details.
+[1]: Parser compliance scores are from strict runs of the [html5lib-tests](https://github.com/html5lib/html5lib-tests) tree-construction fixtures: 1,879 non-scripting cases, with 39 scripting cases skipped. The score is `pass / (pass + fail + error)`; unsupported public API capabilities count as failures rather than being faked. The benchmark may compose multiple public APIs from the same parser, but does not use testcase-specific shims or synthetic adapters when an API surface is missing. See [Correctness Testing](correctness.md) for details.
 
-[2]: Browser numbers are from a local rerun of [`justhtml-html5lib-tests-bench`](https://github.com/EmilStenstrom/justhtml-html5lib-tests-bench) against this repo's `tests/html5lib-tests-tree/*.dat` corpus: Chromium 1762/1770, WebKit 1742/1770, Firefox 1728/1770, with 12 skipped scripting-enabled cases per engine.
+[2]: The Selectolax result uses its development build with Lexbor's `HTML5TEST` serializer enabled. It passed 1,789 cases; 89 processing-instruction fixtures and one recovery case remain non-passing.
+
+[3]: Current local rerun with [`justhtml-html5lib-tests-bench`](https://github.com/EmilStenstrom/justhtml-html5lib-tests-bench): Chromium 1803/1906 (94.6%), WebKit 1783/1906 (93.5%), Firefox 1768/1906 (92.8%). The browser harness skips 12 `#script-on` cases but includes `#script-off` cases, so these scores are not directly comparable to the 1,879-case Python-parser scores above.
 
 ## Why JustHTML
 
@@ -53,6 +56,8 @@ Sanitization happens before you query or serialize unless you explicitly disable
 ## When to Choose Another Tool
 
 Choose **selectolax** when raw speed is the main requirement and the HTML is trusted or sanitized elsewhere.
+
+Choose **turbohtml** when you want a compiled, all-in-one HTML toolkit and are comfortable depending on a native extension. Its feature set overlaps more with JustHTML's than the parser-only alternatives do.
 
 Choose **markupever** or **html5_parser** when you specifically want their underlying parser engines or tree APIs and can accept their compatibility tradeoffs.
 
