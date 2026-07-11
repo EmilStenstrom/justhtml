@@ -11,11 +11,11 @@ Use a different tool when one narrow requirement matters more than the whole pip
 | Tool | HTML5 parsing [1] | Speed | Query | Build | Sanitize | Notes |
 |------|------------------------------------------|-------|----------|-------|------------------|-------|
 | **JustHTML**<br>Pure Python | ✅ 100% | ⚡ Fast | ✅ CSS selectors | ✅ `element()` | ✅ Built-in | Correct, secure, easy to install, and fast enough. |
-| **`selectolax`**<br>Python wrapper of C-based Lexbor | 🟡 95.4% [2] | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast; Scores depend on using dev-build. |
-| **Chromium**<br>browser engine | 🟡 95.1% [3] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
+| **`selectolax`**<br>Python wrapper of C-based Lexbor | 🟡 95.4% | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast. |
+| **Chromium**<br>browser engine | 🟡 95.1% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
 | **`turbohtml`**<br>Python wrapper of a C core | 🟡 94.3% | 🚀 Very Fast | ✅ CSS selectors, XPath | ✅ `E.*` builder | ✅ Built-in | Broad, compiled alternative with parsing, querying, and sanitization. |
-| **WebKit**<br>browser engine | 🟡 94.0% [3] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
-| **Firefox**<br>browser engine | 🟡 93.2% [3] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
+| **WebKit**<br>browser engine | 🟡 94.0% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
+| **Firefox**<br>browser engine | 🟡 93.2% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
 | **`html5lib`**<br>Pure Python | 🟡 82.3% | 🐢 Slow | 🟡 XPath (lxml) | 🟡 Tree API | 🔴 [Deprecated](https://github.com/html5lib/html5lib-python/issues/443) | Unmaintained reference implementation; incomplete coverage of the tree-construction fixtures. |
 | **`markupever`**<br>Python wrapper of Rust-based html5ever | 🟡 79.4% | 🚀 Very Fast | ✅ CSS selectors | ✅ `TreeDom .create_*()` | ❌ Needs sanitization | Fast, but 105 fixture cases abort its current parser process. |
 | **`html5_parser`**<br>Python wrapper of C-based Gumbo | 🔴 47.8% | 🚀 Very Fast | 🟡 XPath (lxml) | 🟡 `etree` (lxml) | ❌ Needs sanitization | Fast, but its public tree API loses information needed by many fixtures. |
@@ -26,7 +26,7 @@ Use a different tool when one narrow requirement matters more than the whole pip
 [1]: Correctness scores are counted against the [web-platform-tests tree-construction tests](https://github.com/web-platform-tests/wpt/tree/master/html/syntax/parsing/resources). They were run locally at [2026-07-11](https://github.com/web-platform-tests/wpt/commit/ba458f52c8a848bbd9c525ac98fb1f7b30e41dc2).
 
 
-[2]: ): Chromium 1812/1906 (95.1%), WebKit 1792/1906 (94.0%), Firefox 1777/1906 (93.2%). The browser harness skips 12 `#script-on` cases but includes `#script-off` cases, so these scores are not directly comparable to the 1,879-case Python-parser scores above.
+[2]: Current local rerun with [`justhtml-html5lib-tests-bench`](https://github.com/EmilStenstrom/justhtml-html5lib-tests-bench) against WPT commit [`ba458f52`](https://github.com/web-platform-tests/wpt/commit/ba458f52c8a848bbd9c525ac98fb1f7b30e41dc2). The browser harness skips 12 `#script-on` cases but includes `#script-off` cases, so these scores are not directly comparable to the 1,879-case Python-parser scores above.
 
 ## Why JustHTML
 
