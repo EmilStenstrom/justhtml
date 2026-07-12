@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Close template table bodies before handling `</table>`. Previously, following content could remain incorrectly nested inside `<tbody>`.
 - Close template rows before handling `</table>`. Previously, following nested templates could remain incorrectly nested inside `<tr>`.
 - Ignore nested table starts in template table modes that have no open table. Previously, malformed input could create a spurious empty `<table>`.
+- Resume template body recovery after `<title>`. Previously, invalid table-structure tags following a template title could create incorrect table nodes.
 
 ## [3.4.0] - 2026-07-11
 

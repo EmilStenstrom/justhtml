@@ -4506,6 +4506,8 @@ class ParseEngine:
             self._stack.pop()
         if parsed_in_initial_head and self._html is not None and self._head is not None:
             self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
+        if name == "title" and self._current_template_mode() == _TEMPLATE_MODE_INITIAL:
+            self._set_current_template_mode(_TEMPLATE_MODE_BODY)
         self._finish_head_reentry()
         return pos
 

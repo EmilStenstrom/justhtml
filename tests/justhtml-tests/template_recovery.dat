@@ -141,3 +141,46 @@
 |         <caption>
 |           "x"
 |   <body>
+
+#data
+<template><title>x</title><tbody></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <title>
+|           "x"
+|   <body>
+
+#data
+<template><title>x</title><tr></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <title>
+|           "x"
+|   <body>
+
+#data
+<template><title>x</title><td>x</template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <title>
+|           "x"
+|         "x"
+|   <body>
