@@ -2191,6 +2191,7 @@ class ParseEngine:
             if name == "p":
                 if (
                     not self._fragment
+                    and not self._parser_only_template_depth
                     and not self._body_explicit
                     and not self._body_mode_seen
                     and not self._body_has_content()
@@ -2479,6 +2480,7 @@ class ParseEngine:
             if name == "p":
                 if (
                     not self._fragment
+                    and not self._template_modes
                     and not self._body_explicit
                     and not self._body_mode_seen
                     and not self._body_has_content()
