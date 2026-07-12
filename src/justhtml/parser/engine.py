@@ -2339,6 +2339,16 @@ class ParseEngine:
             ):
                 self._stack.pop()
             return pos
+        if (
+            self._in_colgroup
+            and len(self._stack) > 1
+            and self._stack[-1].name == "colgroup"
+            and not self._parser_only_template_depth
+        ):
+            # Per the "in column group" fallback, close the group and
+            # reprocess this token using the table insertion mode.
+            self._in_colgroup = False
+            self._stack.pop()
         if name == "table":
             self._in_colgroup = False
             self._close_table_cell()

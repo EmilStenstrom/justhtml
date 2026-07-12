@@ -72,3 +72,17 @@
 |         <tr>
 |           <td>
 |             <!--  comment in cell  -->
+
+#data
+<table><colgroup></p>
+#errors
+(1,7): expected-doctype-but-got-start-tag
+(1,18): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     <table>
+|       <colgroup>
