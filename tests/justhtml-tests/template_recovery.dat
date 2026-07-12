@@ -101,3 +101,43 @@
 |         <template>
 |           content
 |   <body>
+
+#data
+<template><tbody><table></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <tbody>
+|   <body>
+
+#data
+<template><tr><table></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <tr>
+|   <body>
+
+#data
+<template><caption>x</caption><table></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <caption>
+|           "x"
+|   <body>

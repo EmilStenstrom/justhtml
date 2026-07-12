@@ -3924,7 +3924,9 @@ class ParseEngine:
 
         if mode == _TEMPLATE_MODE_TABLE:
             table_idx = self._find_open_index("table")
-            if name == "table" and table_idx is not None:
+            if name == "table":
+                if table_idx is None:
+                    return pos
                 del self._stack[table_idx:]
                 self._insert_template_mode_element(name, attrs, self_closing)
                 return pos
@@ -4050,12 +4052,8 @@ class ParseEngine:
         if name == "table" and tr_index is not None:
             self._close_until_before_boundary("tr", _TEMPLATE_SCOPE_BOUNDARIES)
             self._close_open_template_table_section()
-            table_idx = self._find_open_index("table")
-            if table_idx is not None:  # pragma: no branch - row mode table replacement has an open table
-                del self._stack[table_idx:]
             self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
-            self._insert_template_mode_element(name, attrs, self_closing)
-            return pos
+            return self._handle_template_mode_start(name, attrs, self_closing, pos)
         if name in _TEMPLATE_ROW_STRUCTURE_START_TAGS:
             if tr_index is not None:
                 self._close_until_before_boundary("tr", _TEMPLATE_SCOPE_BOUNDARIES)

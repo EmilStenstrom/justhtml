@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Recover table-body start tags correctly inside templates. Previously, a following `<colgroup>` could be discarded instead of closing the current table body.
 - Close template table bodies before handling `</table>`. Previously, following content could remain incorrectly nested inside `<tbody>`.
 - Close template rows before handling `</table>`. Previously, following nested templates could remain incorrectly nested inside `<tr>`.
+- Ignore nested table starts in template table modes that have no open table. Previously, malformed input could create a spurious empty `<table>`.
 
 ## [3.4.0] - 2026-07-11
 
