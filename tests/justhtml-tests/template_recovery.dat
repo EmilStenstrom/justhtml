@@ -200,6 +200,19 @@
 |   <body>
 
 #data
+<template></p><select></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <select>
+|   <body>
+
+#data
 <template><base><tbody></template>
 #errors
 (1,10): expected-doctype-but-got-start-tag
