@@ -55,3 +55,15 @@
 |   <head>
 |   <body>
 |     "text"
+
+#data
+<meta><!--x-->
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <meta>
+|     <!-- x -->
+|   <body>

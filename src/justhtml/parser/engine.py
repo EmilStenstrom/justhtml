@@ -1282,7 +1282,10 @@ class ParseEngine:
             and not self._body_mode_seen
             and not self._body_has_content()
             and self._current_parent() in {self._html, self._body}
-            and any(type(child) is Template for child in self._head.children or ())
+            and (
+                any(type(child) is Template for child in self._head.children or ())
+                or (not self._explicit_head and self._current_parent() is self._body and bool(self._head.children))
+            )
         ):
             self._append(self._head, node)
             return
