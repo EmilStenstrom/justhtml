@@ -48,3 +48,13 @@
 
 
 #script-off
+
+#data
+<i><frameset>
+#errors
+(1,3): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <frameset>

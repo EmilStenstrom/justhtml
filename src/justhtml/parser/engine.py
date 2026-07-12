@@ -159,7 +159,7 @@ _TEMPLATE_MODE_COLGROUP = "colgroup"
 _TEMPLATE_TABLE_CONTEXT_START_TAGS = {"caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr"}
 _TEMPLATE_TABLE_BODY_IGNORED_START_TAGS = {"caption", "col", "colgroup", "table"}
 _TEMPLATE_ROW_STRUCTURE_START_TAGS = {"caption", "col", "colgroup", "tbody", "tfoot", "thead", "tr", "table"}
-_FRAMESET_BODY_OK_TAGS = {"div", "figure", "p", "param", "source", "track"}
+_FRAMESET_BODY_OK_TAGS = {"div", "figure", "p", "param", "source", "track"} | FORMATTING_ELEMENTS
 _FRAMESET_BLOCKING_START_TAGS = {
     "applet",
     "area",

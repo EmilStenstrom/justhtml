@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Run CI against the latest WPT tree-construction fixtures rather than a pinned revision.
 
 ### Fixed
+- Preserve the `frameset-ok` state across empty active-formatting elements. Previously, markup such as `<i><frameset>` could retain an empty body instead of replacing it with the frameset.
 - Keep comments following implied head metadata in the head. Previously, `<meta><!--...-->` could place the comment before the document element.
 - Exit column-group mode before reprocessing malformed end tags. Previously, `<table><colgroup></p>` could leave a paragraph inside the colgroup instead of foster-parenting it before the table.
 - Keep foreign elements named `colgroup` out of HTML table recovery. Previously, text following SVG or MathML `<colgroup>` could become a sibling instead of its child.
