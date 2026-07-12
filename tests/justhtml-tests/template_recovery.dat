@@ -267,3 +267,28 @@
 |         <noframes>
 |         "x"
 |   <body>
+
+#data
+<template></template>&#32;
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|     " "
+|   <body>
+
+#data
+<body><template></template>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <template>
+|       content

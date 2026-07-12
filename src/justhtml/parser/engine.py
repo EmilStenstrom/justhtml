@@ -2922,7 +2922,25 @@ class ParseEngine:
                 self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
                 self._after_head = False
                 return pos
-            if not self._body_mode_seen and not (action.head_content if action is not None else False):
+            if (
+                name == "template"
+                and not self._body_explicit
+                and not self._body_mode_seen
+                and not self._body_has_content()
+                and self._head is not None
+            ):
+                # The "in head" template rule applies before the generic
+                # transition to "in body".  Keeping head on the stack also
+                # lets whitespace after </template> remain in the head.
+                self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
+                self._explicit_head = True
+                current_top = self._head
+
+            if (
+                name != "template"
+                and not self._body_mode_seen
+                and not (action.head_content if action is not None else False)
+            ):
                 self._body_mode_seen = True
         else:
             current_top = None
