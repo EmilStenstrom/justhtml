@@ -490,6 +490,18 @@ class TestParserPolicyProjection(_ParserEngineTestCase):
         )
         self.assert_parses_to("<p>x</p>", "<p>x</p>", fragment=True, policy=fragment_policy)
 
+    def test_policy_planner_disallowed_template_leaves_colgroup_mode_for_body_content(self) -> None:
+        policy = replace(
+            DEFAULT_DOCUMENT_POLICY,
+            allowed_tags=(DEFAULT_DOCUMENT_POLICY.allowed_tags | {"colgroup", "div", "table"}) - {"template"},
+        )
+
+        self.assert_parses_to(
+            "<template><table><colgroup><div>x</template>",
+            "<html><head><div>x</div><table><colgroup></colgroup></table></head><body></body></html>",
+            policy=policy,
+        )
+
 
 class TestParserLowLevelModes(_ParserEngineTestCase):
     def test_raw_text_and_fragment_modes(self) -> None:
@@ -1147,6 +1159,51 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         visible_input_engine.parse()
         visible_input_engine._append(visible_input_engine._body, Element("input", {}, "html"))
         self.assertFalse(visible_input_engine._body_allows_frameset(visible_input_engine._body))
+
+        parser_only_plan = compile_engine_plan(
+            policy=replace(
+                DEFAULT_DOCUMENT_POLICY,
+                allowed_tags=(DEFAULT_DOCUMENT_POLICY.allowed_tags | {"colgroup", "div", "table"}) - {"template"},
+            ),
+            fragment=False,
+        )
+        parser_only_colgroup_engine = ParseEngine("", fragment=False, plan=parser_only_plan)
+        parser_only_colgroup_engine.parse()
+        parser_only_colgroup_engine._html_input = "<div>"
+        parser_only_colgroup_engine._lower_input = "<div>"
+        parser_only_colgroup_engine._length = len(parser_only_colgroup_engine._html_input)
+        parser_template = Element("template", {}, "justhtml-parser-only")
+        table = Element("table", {}, "html")
+        colgroup = Element("colgroup", {}, "html")
+        parser_only_colgroup_engine._append(parser_only_colgroup_engine._head, parser_template)
+        parser_only_colgroup_engine._append(parser_template, table)
+        parser_only_colgroup_engine._append(table, colgroup)
+        parser_only_colgroup_engine._stack = type(parser_only_colgroup_engine._stack)(
+            [
+                parser_only_colgroup_engine._doc,
+                parser_only_colgroup_engine._html,
+                parser_only_colgroup_engine._head,
+                parser_template,
+                table,
+                colgroup,
+            ]
+        )
+        parser_only_colgroup_engine._parser_only_template_depth = 1
+        parser_only_colgroup_engine._template_modes = ["colgroup"]
+
+        assert (
+            parser_only_colgroup_engine._parse_compiled_safe_start_tag(1, len(parser_only_colgroup_engine._html_input))
+            == 5
+        )
+        assert parser_only_colgroup_engine._current_template_mode() == "table"
+        assert [node.name for node in parser_only_colgroup_engine._stack] == [
+            "#document",
+            "html",
+            "head",
+            "template",
+            "table",
+            "div",
+        ]
 
 
 class TestParserDiagnosticModes(_ParserEngineTestCase):

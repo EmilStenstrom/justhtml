@@ -28,3 +28,33 @@
 |           <template>
 |             content
 |   <body>
+
+#data
+<template><table><colgroup><script></script></table></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <table>
+|           <colgroup>
+|           <script>
+|   <body>
+
+#data
+<template><table><colgroup><style></style></table></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <table>
+|           <colgroup>
+|           <style>
+|   <body>

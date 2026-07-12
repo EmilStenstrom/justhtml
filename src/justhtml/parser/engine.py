@@ -2646,6 +2646,11 @@ class ParseEngine:
             self._close_until("select")
             return pos
 
+        if in_parser_only_template and self._current_template_mode() == _TEMPLATE_MODE_COLGROUP:
+            template_pos = self._handle_template_mode_start(name, attrs, self_closing, pos)
+            if template_pos is not None:
+                return template_pos
+
         if action is not None and action.drop_content:
             if self._raw_head_text_parent(name) and self._head is not None:
                 self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
@@ -3026,6 +3031,11 @@ class ParseEngine:
             return pos
         if html_text_parsing and name == "input" and self._find_open_html_index("select") is not None:
             self._close_html_until("select")
+
+        if html_text_parsing and self._current_template_mode() == _TEMPLATE_MODE_COLGROUP:
+            template_pos = self._handle_template_mode_start(name, attrs, self_closing, pos)
+            if template_pos is not None:
+                return template_pos
 
         select_idx = self._find_open_html_index("select") if html_text_parsing else None
         if select_idx is not None and name == "hr":

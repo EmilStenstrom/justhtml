@@ -4039,6 +4039,46 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert out == ""
 
+    def test_sanitize_disallowed_svg_preserves_html_breakout_content(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"img", "p"},
+            allowed_attributes={"img": {"src"}, "p": set()},
+            url_policy=UrlPolicy(allow_rules={("img", "src"): UrlRule(allowed_schemes=set())}),
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML("<svg><p><img src=x onerror=1></p></svg>", fragment=True, policy=policy).to_html(pretty=False)
+
+        assert out == '<p><img src="x"></p>'
+
+    def test_sanitize_disallowed_template_preserves_colgroup_mode_content(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"col", "colgroup", "table"},
+            allowed_attributes={"col": set(), "colgroup": set(), "table": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML("<template><table><colgroup><col></template>", fragment=True, policy=policy).to_html(
+            pretty=False
+        )
+
+        assert out == "<table><colgroup><col></colgroup></table>"
+
+    def test_sanitize_disallowed_template_leaves_colgroup_mode_for_body_content(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"colgroup", "div", "table"},
+            allowed_attributes={"colgroup": set(), "div": set(), "table": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML("<template><table><colgroup><div>x</template>", fragment=True, policy=policy).to_html(
+            pretty=False
+        )
+
+        assert out == "<div>x</div><table><colgroup></colgroup></table>"
+
     def test_sanitize_template_without_foreign_content_preserves_template_content(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"template", "p"},
