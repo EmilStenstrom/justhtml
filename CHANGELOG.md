@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Match the latest WPT processing-instruction tree expectations, including empty data fields and the `<?#` bogus-comment case.
 - Close an open template `<colgroup>` before processing following script and style tags. Previously, those tags could be incorrectly inserted inside the column group.
 - Recover table-body start tags correctly inside templates. Previously, a following `<colgroup>` could be discarded instead of closing the current table body.
+- Close template table bodies before handling `</table>`. Previously, following content could remain incorrectly nested inside `<tbody>`.
 
 ## [3.4.0] - 2026-07-11
 

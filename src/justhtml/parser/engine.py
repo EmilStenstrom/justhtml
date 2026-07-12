@@ -4092,6 +4092,11 @@ class ParseEngine:
                 ):  # pragma: no branch - opposite edge requires invalid parser state
                     self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
                 return True
+            if name == "table":
+                if self._close_open_template_table_section():
+                    self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
+                    return self._handle_template_mode_end(name)
+                return True
             if name in {"caption", "col", "colgroup", "td", "th", "tr"}:
                 return True
         if mode == _TEMPLATE_MODE_COLGROUP:
