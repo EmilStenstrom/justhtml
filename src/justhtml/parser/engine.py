@@ -2577,7 +2577,7 @@ class ParseEngine:
             if name == "head":
                 self._in_colgroup = False
                 self._explicit_head = True
-                if self._body_mode_seen:
+                if self._body_mode_seen or self._body_has_content():
                     return pos
                 if self._head is not None:  # pragma: no branch - opposite edge requires invalid parser state
                     self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
@@ -2908,7 +2908,7 @@ class ParseEngine:
             if name == "head":
                 self._in_colgroup = False
                 self._explicit_head = True
-                if self._body_mode_seen:
+                if self._body_mode_seen or self._body_has_content():
                     return pos
                 if self._head is not None:  # pragma: no branch - opposite edge requires invalid parser state
                     for attr_name, attr_value in attrs.items():

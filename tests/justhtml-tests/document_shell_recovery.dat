@@ -79,3 +79,15 @@
 | <html>
 |   <head>
 |   <body>
+
+#data
+<!doctype html>x<head><meta>
+#errors
+
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "x"
+|     <meta>

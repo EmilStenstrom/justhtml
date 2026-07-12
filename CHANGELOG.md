@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Run CI against the latest WPT tree-construction fixtures rather than a pinned revision.
 
 ### Fixed
+- Ignore late `<head>` start tags after body text even when the fast text path has not marked body mode explicitly. Previously, following metadata could be moved from the body back into the head.
 - Limit doctype tokenization whitespace to the HTML ASCII whitespace set. Previously, non-ASCII spaces such as NBSP could be discarded instead of becoming part of the doctype name.
 - Preserve the `frameset-ok` state across empty active-formatting elements. Previously, markup such as `<i><frameset>` could retain an empty body instead of replacing it with the frameset.
 - Keep comments following implied head metadata in the head. Previously, `<meta><!--...-->` could place the comment before the document element.
