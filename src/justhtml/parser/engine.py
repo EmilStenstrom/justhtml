@@ -4025,6 +4025,9 @@ class ParseEngine:
                 return self._handle_template_mode_start(name, attrs, self_closing, pos)
             return pos
         if name in _TEMPLATE_TABLE_BODY_IGNORED_START_TAGS:
+            if self._close_open_template_table_section():
+                self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
+                return self._handle_template_mode_start(name, attrs, self_closing, pos)
             return pos
         return None
 

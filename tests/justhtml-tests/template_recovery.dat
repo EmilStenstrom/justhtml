@@ -58,3 +58,17 @@
 |           <colgroup>
 |           <style>
 |   <body>
+
+#data
+<template><tbody><colgroup></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <tbody>
+|         <colgroup>
+|   <body>
