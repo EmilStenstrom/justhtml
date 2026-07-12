@@ -60,7 +60,8 @@ _TAG_NAME_RE = re.compile(r"[A-Za-z][^\t\n\f\r />]*")
 _SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][^\t\n\f\r />]*$")
 _SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[^\t\n\f\r />=]+$")
 _DOCTYPE_RE = re.compile(
-    r"""\s*([^\s>]+)(?:\s*(PUBLIC|SYSTEM)\s*(?:(?:"([^"]*)"|'([^']*)')\s*(?:"([^"]*)"|'([^']*)')?)?)?""",
+    r"""[\t\n\f\r ]*([^\t\n\f\r >]+)(?:[\t\n\f\r ]*(PUBLIC|SYSTEM)[\t\n\f\r ]*"""
+    r"""(?:(?:"([^"]*)"|'([^']*)')[\t\n\f\r ]*(?:"([^"]*)"|'([^']*)')?)?)?""",
     re.IGNORECASE,
 )
 _SPACE = _scanner.SPACE

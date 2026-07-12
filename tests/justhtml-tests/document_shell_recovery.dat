@@ -67,3 +67,15 @@
 |     <meta>
 |     <!-- x -->
 |   <body>
+
+#data
+<!DOCTYPE 
+#errors
+(1,10): eof-in-tag
+(1,10): unknown-doctype
+
+#document
+| <!DOCTYPE  >
+| <html>
+|   <head>
+|   <body>
