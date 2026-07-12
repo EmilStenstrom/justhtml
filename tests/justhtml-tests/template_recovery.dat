@@ -1,0 +1,30 @@
+#data
+<template><table><colgroup></colgroup><script></script></table></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <table>
+|           <colgroup>
+|           <script>
+|   <body>
+
+#data
+<template><table><colgroup></colgroup><template></template></table></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <table>
+|           <colgroup>
+|           <template>
+|             content
+|   <body>

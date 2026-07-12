@@ -4083,6 +4083,12 @@ class ParseEngine:
                 return True
         if mode == _TEMPLATE_MODE_COLGROUP:
             if name == "colgroup":
+                # "In column group" </colgroup>: pop the current colgroup, then
+                # switch to "in table" (mirrors the start-tag path above and the
+                # non-template rule). Without the pop the colgroup stays open and
+                # the next start tag (e.g. <script>) is misparented into it.
+                if len(self._stack) > 1 and self._stack[-1].name == "colgroup":
+                    self._stack.pop()
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE)
                 return True
             return name != "template"
