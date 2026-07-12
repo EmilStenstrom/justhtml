@@ -2858,7 +2858,7 @@ class ParseEngine:
             self._body_mode_seen = True
         if raw_mode and self._fragment and name == "html" and not in_template_content:
             return pos
-        if not in_template_content:
+        if not in_template_content and not in_foreign_context:
             if name == "colgroup":
                 if len(self._stack) > 1 and self._stack[-1].name == "colgroup":
                     self._stack.pop()

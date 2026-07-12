@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Run CI against the latest WPT tree-construction fixtures rather than a pinned revision.
 
 ### Fixed
+- Keep foreign elements named `colgroup` out of HTML table recovery. Previously, text following SVG or MathML `<colgroup>` could become a sibling instead of its child.
 - Keep form controls in template contents when a template appears inside `<select>`. Previously, an `<input>` could prematurely close the outer select.
 - Keep initial-template recovery in the head insertion mode after `</template>`. Previously, following head whitespace could be discarded.
 - Match the latest WPT processing-instruction tree expectations, including empty data fields and the `<?#` bogus-comment case.

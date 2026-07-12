@@ -120,3 +120,16 @@
 |             <svg path>
 |     <div>
 |       "text"
+
+#data
+<svg><colgroup>x
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg colgroup>
+|         "x"
