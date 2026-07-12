@@ -3063,10 +3063,15 @@ class ParseEngine:
                 tag_end=tag_end,
             )
             return pos
-        if html_text_parsing and name == "select" and open_select_idx is not None:
+        if html_text_parsing and not self._template_modes and name == "select" and open_select_idx is not None:
             self._close_html_until("select")
             return pos
-        if html_text_parsing and name == "input" and self._find_open_html_index("select") is not None:
+        if (
+            html_text_parsing
+            and not self._template_modes
+            and name == "input"
+            and self._find_open_html_index("select") is not None
+        ):
             self._close_html_until("select")
 
         if self._current_template_mode() == _TEMPLATE_MODE_INITIAL and name in {

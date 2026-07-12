@@ -136,3 +136,17 @@
 |     <div>
 |       <select>
 |         "text"
+
+#data
+<select><template><input>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <template>
+|         content
+|           <input>
