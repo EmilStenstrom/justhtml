@@ -2412,6 +2412,13 @@ class ParseEngine:
             self._insert_sanitized_element("br", {}, False, self._current_parent())
             return pos
         stack = self._stack
+        if name == "select" and self._template_modes:
+            select_idx = self._find_open_index_before_boundary("select", _DEFAULT_SCOPE_BOUNDARIES)
+            if select_idx is None:
+                return pos
+            self._mark_active_formatting_dirty()  # pragma: no cover - compiled sanitizer drops parser-only templates
+            stack.pop(select_idx)  # pragma: no cover
+            return pos  # pragma: no cover
         if name in HEADING_ELEMENTS:
             idx = self._find_open_heading_index()
             if idx is None:

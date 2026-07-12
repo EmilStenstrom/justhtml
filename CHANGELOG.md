@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Apply phantom paragraph recovery inside templates. Previously, an unmatched `</p>` could be incorrectly ignored.
 - Keep unmatched `</p>` ignored in the template initial insertion mode.
 - Keep template table-body recovery scoped to an open table. Previously, a nested table token could close and duplicate synthetic table bodies.
+- Preserve open template tables when closing a select. Previously, following option content could be placed outside the select.
 
 ## [3.4.0] - 2026-07-11
 

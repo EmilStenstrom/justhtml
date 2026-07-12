@@ -227,6 +227,21 @@
 |   <body>
 
 #data
+<template><select><table></select><option></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <select>
+|           <option>
+|           <table>
+|   <body>
+
+#data
 <template><base><tbody></template>
 #errors
 (1,10): expected-doctype-but-got-start-tag
