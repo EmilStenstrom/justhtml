@@ -213,6 +213,20 @@
 |   <body>
 
 #data
+<template><tbody><table><tr></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <tbody>
+|           <tr>
+|   <body>
+
+#data
 <template><base><tbody></template>
 #errors
 (1,10): expected-doctype-but-got-start-tag

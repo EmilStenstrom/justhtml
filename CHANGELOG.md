@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resume template body recovery after base and noframes head-content tags. Previously, invalid following table-structure tags could create incorrect table nodes.
 - Apply phantom paragraph recovery inside templates. Previously, an unmatched `</p>` could be incorrectly ignored.
 - Keep unmatched `</p>` ignored in the template initial insertion mode.
+- Keep template table-body recovery scoped to an open table. Previously, a nested table token could close and duplicate synthetic table bodies.
 
 ## [3.4.0] - 2026-07-11
 
