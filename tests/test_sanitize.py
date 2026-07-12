@@ -4079,6 +4079,18 @@ class TestSanitizeUnsafe(unittest.TestCase):
 
         assert out == "<div>x</div><table><colgroup></colgroup></table>"
 
+    def test_sanitize_disallowed_template_base_resumes_body_mode(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"base", "tbody"},
+            allowed_attributes={"base": set(), "tbody": set()},
+            url_policy=UrlPolicy(allow_rules={}),
+            drop_content_tags=set(),
+        )
+
+        out = JustHTML("<template><base><tbody></template>", fragment=True, policy=policy).to_html(pretty=False)
+
+        assert out == "<base>"
+
     def test_sanitize_template_without_foreign_content_preserves_template_content(self) -> None:
         policy = SanitizationPolicy(
             allowed_tags={"template", "p"},

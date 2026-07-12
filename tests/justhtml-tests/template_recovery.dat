@@ -184,3 +184,30 @@
 |           "x"
 |         "x"
 |   <body>
+
+#data
+<template><base><tbody></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <base>
+|   <body>
+
+#data
+<template><noframes></noframes><td>x</template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <noframes>
+|         "x"
+|   <body>

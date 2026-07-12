@@ -2646,6 +2646,14 @@ class ParseEngine:
             self._close_until("select")
             return pos
 
+        if self._current_template_mode() == _TEMPLATE_MODE_INITIAL and name in {
+            "base",
+            "basefont",
+            "bgsound",
+            "noframes",
+        }:  # pragma: no cover - compiled sanitizer drops parser-only template contents
+            self._set_current_template_mode(_TEMPLATE_MODE_BODY)  # pragma: no cover
+
         if in_parser_only_template and self._current_template_mode() == _TEMPLATE_MODE_COLGROUP:
             template_pos = self._handle_template_mode_start(name, attrs, self_closing, pos)
             if template_pos is not None:
@@ -3031,6 +3039,14 @@ class ParseEngine:
             return pos
         if html_text_parsing and name == "input" and self._find_open_html_index("select") is not None:
             self._close_html_until("select")
+
+        if self._current_template_mode() == _TEMPLATE_MODE_INITIAL and name in {
+            "base",
+            "basefont",
+            "bgsound",
+            "noframes",
+        }:
+            self._set_current_template_mode(_TEMPLATE_MODE_BODY)
 
         if html_text_parsing and self._current_template_mode() == _TEMPLATE_MODE_COLGROUP:
             template_pos = self._handle_template_mode_start(name, attrs, self_closing, pos)
