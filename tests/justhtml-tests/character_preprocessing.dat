@@ -97,3 +97,14 @@
 |   <body>
 |     <table>
 |       ""
+
+#data
+<!doctype html>\x00
+#errors
+(1,16): unexpected-null-character
+
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>

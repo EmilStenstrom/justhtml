@@ -1861,10 +1861,10 @@ class ParseEngine:
                 if initial_text and initial_text.strip(_SPACE + "\0") == "":
                     return
             if raw_is_space is None:  # pragma: no branch - shell text reaches this block without prior classification
-                raw_is_space = raw.strip(_SPACE) == ""
+                raw_is_space = raw.strip(_SPACE + "\0") == ""
             if raw_is_space:
                 return
-            raw = raw.lstrip(_SPACE)
+            raw = raw.lstrip(_SPACE + "\0")
         if self._in_colgroup and getattr(parent, "name", None) == "table":
             if raw.strip(_SPACE):  # pragma: no branch - mixed colgroup text is the state-changing edge
                 leading = len(raw) - len(raw.lstrip(_SPACE))
