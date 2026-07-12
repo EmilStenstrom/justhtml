@@ -86,3 +86,18 @@
 |         <tbody>
 |         <script>
 |   <body>
+
+#data
+<template><tr></table><template></template></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <tr>
+|         <template>
+|           content
+|   <body>

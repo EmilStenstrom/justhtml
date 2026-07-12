@@ -4083,6 +4083,11 @@ class ParseEngine:
                 if self._close_template_row():
                     self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
                 return True
+            if name == "table":
+                if self._close_template_row():
+                    self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
+                    return self._handle_template_mode_end(name)
+                return True
             if name in {"caption", "col", "colgroup", "td", "th"}:
                 return True
         if mode == _TEMPLATE_MODE_TABLE_BODY:
