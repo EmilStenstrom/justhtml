@@ -45,27 +45,8 @@ class TestParserSyntaxAndRecovery(_ParserEngineTestCase):
                 self.assert_parses_to(html, expected)
 
     def test_processing_instruction_edges(self) -> None:
-        assert JustHTML("a<?x>b", sanitize=False).to_html(pretty=False) == (
-            "<html><head></head><body>a<?x ?>b</body></html>"
-        )
-        assert JustHTML("<?x a\r\0b>", sanitize=False).to_html(pretty=False) == (
-            "<?x a\n�b?><html><head></head><body></body></html>"
-        )
-        assert JustHTML("<?xml", sanitize=False).to_html(pretty=False) == (
-            "<!--?xml--><html><head></head><body></body></html>"
-        )
-        assert JustHTML("<?\ud83d\ude80>", sanitize=False).to_html(pretty=False) == (
-            "<!--?🚀--><html><head></head><body></body></html>"
-        )
         document = JustHTML("<?\ud83d\ude80\ud83dX\ud83d\ude80>", sanitize=False)
         assert document.root.children[0].data == "?🚀\ud83dX🚀"
-        assert (
-            JustHTML("<?#abc", sanitize=False).to_html(pretty=False)
-            == "<!--?#abc--><html><head></head><body></body></html>"
-        )
-        assert JustHTML("<?\t", sanitize=False).to_html(pretty=False) == (
-            "<!--?\t--><html><head></head><body></body></html>"
-        )
 
     def test_rawtext_processing_instruction_branch(self) -> None:
         script = Element("script", {}, "html")
@@ -554,84 +535,6 @@ class TestParserLowLevelModes(_ParserEngineTestCase):
             with self.subTest(html=html):
                 self.assert_parses_to(html, expected, sanitize=False, track_node_locations=True)
 
-        fragment_cases = [
-            ("x</textarea>y", FragmentContext("textarea"), "x&lt;/textarea&gt;y"),
-            ("a<b", FragmentContext("plaintext"), "a&lt;b"),
-            ("a</style>b", FragmentContext("style"), "a&lt;/style&gt;b"),
-            ("<frame>", FragmentContext("frameset"), "<frame></frame>"),
-            ("<input><option>x", FragmentContext("select"), "<option>x</option>"),
-        ]
-        for html, context, expected in fragment_cases:
-            with self.subTest(html=html, context=context):
-                self.assert_parses_to(html, expected, sanitize=False, fragment_context=context)
-
-    def test_raw_xml_text_modes(self) -> None:
-        options = ParserOptions(xml_coercion=True)
-        cases = [
-            (
-                "<style>a\r\nb\fc\0</style>",
-                "<html><head><style>a\nb c�</style></head><body></body></html>",
-            ),
-            (
-                "<plaintext>a\r\nb\fc\0",
-                "<html><head></head><body><plaintext>a\nb c�</plaintext></body></html>",
-            ),
-        ]
-        for html, expected in cases:
-            with self.subTest(html=html):
-                self.assert_parses_to(html, expected, sanitize=False, _parser_opts=options)
-
-    def test_untracked_raw_parser_modes(self) -> None:
-        cases = [
-            ("<?x>", "<?x ?><html><head></head><body></body></html>"),
-            ("<?x", "<html><head></head><body></body></html>"),
-            ("</!x>", "<!--!x--><html><head></head><body></body></html>"),
-            ("</!x", "<!--!x--><html><head></head><body></body></html>"),
-            ("<!x>", "<!--x--><html><head></head><body></body></html>"),
-            ("<!x", "<!--x--><html><head></head><body></body></html>"),
-            ("<!--x", "<!--x--><html><head></head><body></body></html>"),
-            ("<!--x--!>", "<!--x--><html><head></head><body></body></html>"),
-            ("<script>x", "<html><head><script>x</script></head><body></body></html>"),
-            ("<style>x", "<html><head><style>x</style></head><body></body></html>"),
-            ("<body><script>x", "<html><head></head><body><script>x</script></body></html>"),
-            ("<body><style>x", "<html><head></head><body><style>x</style></body></html>"),
-            ("<xmp>x", "<html><head></head><body><xmp>x</xmp></body></html>"),
-            ("<iframe>x", "<html><head></head><body><iframe>x</iframe></body></html>"),
-            ("<noembed>x", "<html><head></head><body><noembed>x</noembed></body></html>"),
-            ("<noframes>x", "<html><head><noframes>x</noframes></head><body></body></html>"),
-            (
-                "<table><form><input>x",
-                "<html><head></head><body><input>x<table><form></form></table></body></html>",
-            ),
-            ("<select><b>x</b></select>", "<html><head></head><body><select><b>x</b></select></body></html>"),
-            ('<div a="unterminated', "<html><head></head><body></body></html>"),
-            ("<DIV A=1 a=2>x</DIV>", '<html><head></head><body><div a="1">x</div></body></html>'),
-            ("<svg><g/>x</svg>", "<html><head></head><body><svg><g></g>x</svg></body></html>"),
-            ("<math><mi>x</mi></math>", "<html><head></head><body><math><mi>x</mi></math></body></html>"),
-            ("<p><b>x</p>y</b>", "<html><head></head><body><p><b>x</b></p><b>y</b></body></html>"),
-            (
-                "<frameset><frame></frameset><frameset>",
-                "<html><head></head><frameset><frame></frame></frameset></html>",
-            ),
-            ("<frameset>x", "<html><head></head><frameset></frameset></html>"),
-            ("<frameset> \r\n", "<html><head></head><frameset> \n</frameset></html>"),
-        ]
-        for html, expected in cases:
-            with self.subTest(html=html):
-                self.assert_parses_to(html, expected, sanitize=False)
-
-    def test_empty_fragment_and_multiline_error_paths(self) -> None:
-        self.assert_parses_to("\n", "", fragment_context=FragmentContext("textarea"))
-        self.assert_parses_to("", "", fragment_context=FragmentContext("style"), sanitize=False)
-        self.assert_parses_to(
-            "<head></head> \n",
-            "<html><head></head> \n<body></body></html>",
-            sanitize=False,
-        )
-
-        document = JustHTML("<!doctype html><div></span\n>", sanitize=False, collect_errors=True)
-        assert [error.code for error in document.errors] == ["unexpected-end-tag"]
-
     def test_template_insertion_modes(self) -> None:
         cases = [
             ("<template><colgroup><col><col></colgroup></template>", "<html><head></head><body></body></html>"),
@@ -975,37 +878,6 @@ class TestParserAttributeProjection(_ParserEngineTestCase):
         )
 
     def test_frameset_and_attribute_recovery_edge_cases(self) -> None:
-        self.assert_parses_to(
-            "</body>x",
-            "<html><head></head><body>x</body></html>",
-            sanitize=False,
-        )
-        self.assert_parses_to(
-            "</body>x<!--c-->",
-            "<html><head></head><body>x<!--c--></body></html>",
-            sanitize=False,
-        )
-        self.assert_parses_to(
-            "<frameset></frameset></body>",
-            "<html><head></head><frameset></frameset></html>",
-            sanitize=False,
-        )
-        self.assert_parses_to(
-            "<frameset><frame><frame>",
-            "<html><head></head><frameset><frame></frame><frame></frame></frameset></html>",
-            sanitize=False,
-        )
-        self.assert_parses_to(
-            "x<frameset>",
-            "<head></head><body>x</body>",
-            fragment_context=FragmentContext("html"),
-            sanitize=False,
-        )
-        self.assert_parses_to(
-            "<input><frameset>",
-            "<html><head></head><body><input></body></html>",
-            sanitize=False,
-        )
         self.assert_parses_to(
             "<button><frameset>",
             "<html><head></head><body></body></html>",

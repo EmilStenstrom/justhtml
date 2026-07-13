@@ -74,3 +74,13 @@
 |       <option>
 |         selected=""
 |         "B"
+
+#data
+<select><selectedcontent></selectedcontent></select>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <selectedcontent>

@@ -51,3 +51,27 @@
 |   <body>
 |     <div>
 |       "über "
+
+#data
+<style>a\x0d\x0ab\x0cc\x00</style>
+#errors
+#xml-coercion
+#document
+| <html>
+|   <head>
+|     <style>
+|       "a
+b c�"
+|   <body>
+
+#data
+<plaintext>a\x0d\x0ab\x0cc\x00
+#errors
+#xml-coercion
+#document
+| <html>
+|   <head>
+|   <body>
+|     <plaintext>
+|       "a
+b c�"

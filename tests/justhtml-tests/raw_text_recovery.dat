@@ -1,0 +1,166 @@
+#data
+<script>x
+#errors
+#document
+| <html>
+|   <head>
+|     <script>
+|       "x"
+|   <body>
+
+#data
+<style>x
+#errors
+#document
+| <html>
+|   <head>
+|     <style>
+|       "x"
+|   <body>
+
+#data
+<body><script>x
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <script>
+|       "x"
+
+#data
+<body><style>x
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <style>
+|       "x"
+
+#data
+<xmp>x
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <xmp>
+|       "x"
+
+#data
+<iframe>x
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <iframe>
+|       "x"
+
+#data
+<noembed>x
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <noembed>
+|       "x"
+
+#data
+<noframes>x
+#errors
+#document
+| <html>
+|   <head>
+|     <noframes>
+|       "x"
+|   <body>
+
+#data
+<textarea\x0b/>x
+#errors
+(1,12): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <textarea
+>
+|       "x"
+
+#data
+\x0a
+#errors
+#document-fragment
+textarea
+#document
+
+
+#data
+
+#errors
+#document-fragment
+style
+#document
+
+
+#data
+a&amp;b</title><p>x
+#errors
+#document-fragment
+title
+#document
+| "a&b</title><p>x"
+
+#data
+a</script><p>x
+#errors
+#document-fragment
+script
+#document
+| "a</script><p>x"
+
+#data
+<b>x</b>
+#errors
+#script-off
+#document-fragment
+noscript
+#document
+| <b>
+|   "x"
+
+#data
+<b>x</b>
+#errors
+#script-on
+#document-fragment
+noscript
+#document
+| "<b>x</b>"
+
+#data
+x</textarea>y
+#errors
+#document-fragment
+textarea
+#document
+| "x</textarea>y"
+
+#data
+a<b
+#errors
+#document-fragment
+plaintext
+#document
+| "a<b"
+
+#data
+a</style>b
+#errors
+#document-fragment
+style
+#document
+| "a</style>b"

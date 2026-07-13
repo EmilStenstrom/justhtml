@@ -35,3 +35,27 @@
 |   <head>
 |   <body>
 |     <noscript>
+
+
+#data
+<head><noscript><head class="foo"><!--foo--></noscript>
+#errors
+(1,6): expected-doctype-but-got-start-tag
+#script-off
+#document
+| <html>
+|   <head>
+|     <noscript>
+|       <!-- foo -->
+|   <body>
+
+#data
+<noscript><script>
+#errors
+#script-off
+#document
+| <html>
+|   <head>
+|     <noscript>
+|     <script>
+|   <body>

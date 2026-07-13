@@ -64,3 +64,112 @@
 |     <form>
 |       <table>
 |       <table>
+
+
+#data
+<p><b>x</p>y</b>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <b>
+|         "x"
+|     <b>
+|       "y"
+
+#data
+<rt><rt>
+#errors
+(1,4): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <rt>
+|       <rt>
+
+#data
+<f><frameset>
+#errors
+(1,3): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <f>
+
+#data
+<div><b>x</div><span>y</span><svg>z</svg>
+#errors
+(1,5): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       <b>
+|         "x"
+|     <b>
+|       <span>
+|         "y"
+|       <svg svg>
+|         "z"
+
+#data
+<a><dialog><a>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <a>
+|       <dialog>
+|     <a>
+
+#data
+</r\x0a=="><
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+
+#data
+<p><a><xmp>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <a>
+|     <a>
+|       <xmp>
+
+#data
+<!DOCTYPE html><li><menuitem><li>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <li>
+|       <menuitem>
+|     <li>
+
+#data
+<object><h2><button><ul></ul></h2><iframe>x
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <object>
+|       <h2>
+|         <button>
+|           <ul>
+|       <iframe>
+|         "x"

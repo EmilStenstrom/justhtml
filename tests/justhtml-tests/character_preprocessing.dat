@@ -108,3 +108,145 @@
 | <html>
 |   <head>
 |   <body>
+
+
+#data
+<!--a\x00b-->
+#errors
+(1,1): expected-doctype-but-got-chars
+(1,6): unexpected-null-character
+#document
+| <!-- a�b -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<frameset>\x0d\x0a
+#errors
+#document
+| <html>
+|   <head>
+|   <frameset>
+|     "
+"
+#data
+<!--a-
+#errors
+(1,1): expected-doctype-but-got-chars
+(1,6): eof-in-comment
+#document
+| <!-- a -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!x\x0d\x0ay>
+#errors
+(1,1): expected-doctype-but-got-chars
+#document
+| <!-- x
+y -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<\x00div>
+#errors
+(1,1): expected-doctype-but-got-chars
+(1,2): unexpected-null-character
+#document
+| <html>
+|   <head>
+|   <body>
+|     "<�div>"
+
+#data
+</>
+#errors
+(1,1): expected-doctype-but-got-chars
+#document
+| <html>
+|   <head>
+|   <body>
+
+#data
+\x00\x0cA
+#errors
+(1,1): unexpected-null-character
+(1,1): expected-doctype-but-got-chars
+#document
+| <html>
+|   <head>
+|   <body>
+|     "A"
+
+#data
+<!DOCTYPE\x00html>
+#errors
+(1,10): unexpected-null-character
+(1,15): unknown-doctype
+#document
+| <!DOCTYPE �html>
+| <html>
+|   <head>
+|   <body>
+
+#data
+&#x;
+#errors
+(1,1): expected-doctype-but-got-chars
+#document
+| <html>
+|   <head>
+|   <body>
+|     "&#x;"
+
+#data
+<!--first--><!DOCTYPE\x0d\x0ahtml>
+#errors
+(1,1): expected-doctype-but-got-chars
+#document
+| <!-- first -->
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+
+#data
+<o\x0ce="\x0d">
+#errors
+(1,9): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <o>
+|       e="
+"
+
+#data
+<d 2="\x0d">
+#errors
+(1,9): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <d>
+|       2="
+"
+
+#data
+<a 8=&#13\x0d>
+#errors
+(1,11): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <a>
+|       8="
+"

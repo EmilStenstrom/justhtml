@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Move raw parser input/output regressions from Python unit tests into the shared tree-construction fixture format.
+
 ## [3.6.0] - 2026-07-13
 
 ### Fixed

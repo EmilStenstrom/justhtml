@@ -1,0 +1,230 @@
+#data
+<?x>
+#errors
+#document
+| <?x ?>
+| <html>
+|   <head>
+|   <body>
+
+#data
+<?x
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+
+#data
+</!x>
+#errors
+#document
+| <!-- !x -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+</!x
+#errors
+#document
+| <!-- !x -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!x>
+#errors
+#document
+| <!-- x -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!x
+#errors
+#document
+| <!-- x -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!--x
+#errors
+#document
+| <!-- x -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!--x--!>
+#errors
+#document
+| <!-- x -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<h\x0a=>
+#errors
+(2,2): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <h>
+|       ==""
+
+#data
+<h\x0a=9>
+#errors
+(2,3): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <h>
+|       =9=""
+
+#data
+<h\x0a==>
+#errors
+(2,3): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <h>
+|       ==""
+
+#data
+<p ==>
+#errors
+(1,6): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       ==""
+
+#data
+<m\x0ci=''=">
+#errors
+(1,10): expected-doctype-but-got-start-tag
+(1,10): eof-in-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <m>
+|       ="=""
+|       i=""
+
+#data
+<r/Y>
+#errors
+(1,5): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <r>
+|       y=""
+
+#data
+<x/">
+#errors
+(1,5): expected-doctype-but-got-start-tag
+(1,5): eof-in-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <x>
+|       "=""
+
+#data
+a<?x>b
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     "a"
+|     <?x ?>
+|     "b"
+
+#data
+<?x a\x0d\x00b>
+#errors
+#document
+| <?x a
+�b?>
+| <html>
+|   <head>
+|   <body>
+
+#data
+<?xml
+#errors
+#document
+| <!-- ?xml -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<?\ud83d\ude80>
+#errors
+#document
+| <!-- ?🚀 -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<?#abc
+#errors
+#document
+| <!-- ?#abc -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<?\x09
+#errors
+#document
+| <!-- ?	 -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!doctype html><div\x0dclass\x0d=\x0d'a'\x0d>w</div>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       class="a"
+|       "w"
+
+#data
+<!doctype html><div\x0d/>x
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       "x"

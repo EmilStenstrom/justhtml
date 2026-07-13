@@ -390,3 +390,253 @@
 |         <td>
 |           "x"
 |   <body>
+
+
+#data
+<template><title>x</title><base><link></template>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <title>
+|           "x"
+|         <base>
+|         <link>
+|   <body>
+
+#data
+<template></html><//
+#errors
+(1,10): expected-doctype-but-got-start-tag
+(1,11): unexpected-end-tag
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <!-- / -->
+|   <body>
+
+#data
+<template><tr>d
+#errors
+(1,10): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <tr>
+|         "d"
+|   <body>
+
+#data
+<!><template></template><?
+#errors
+(1,1): expected-doctype-but-got-chars
+#document
+| <!--  -->
+| <html>
+|   <head>
+|     <template>
+|       content
+|   <body>
+
+#data
+<template><d><table><tr>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <d>
+|           <table>
+|             <tbody>
+|               <tr>
+|   <body>
+
+#data
+<template><table><tr><table>
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <table>
+|           <tbody>
+|             <tr>
+|         <table>
+|   <body>
+
+#data
+<template><table><col>
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <table>
+|           <colgroup>
+|             <col>
+|   <body>
+
+#data
+<template><colgroup>X
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <colgroup>
+|         "X"
+|   <body>
+
+#data
+<template><colgroup><v>
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <colgroup>
+|         <v>
+|   <body>
+
+#data
+<template><col><
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <col>
+|   <body>
+
+#data
+<template><table><table><
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <table>
+|         "<"
+|         <table>
+|   <body>
+
+#data
+<template><td><table><tr>
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <td>
+|           <table>
+|             <tbody>
+|               <tr>
+|   <body>
+
+#data
+<template><table><body><td>
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <table>
+|           <tbody>
+|             <tr>
+|               <td>
+|   <body>
+
+#data
+<template><tr><form>V
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <tr>
+|           <form>
+|         "V"
+|   <body>
+
+#data
+<template><tbody><e><tr>
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <tbody>
+|           <tr>
+|         <e>
+|   <body>
+
+#data
+<template><tr><u><td>
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <tr>
+|           <td>
+|         <u>
+|   <body>
+
+#data
+<table><template><n><form><
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <template>
+|         content
+|           <n>
+|             <form>
+|               "<"
+
+#data
+<table><template><tr>s
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <template>
+|         content
+|           <tr>
+|           "s"
+
+#data
+<template><tr><script>
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <tr>
+|           <script>
+|   <body>

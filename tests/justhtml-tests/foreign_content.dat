@@ -274,3 +274,121 @@
 |     <code>
 |     <h2>
 |       <code>
+
+
+#data
+<svg><g/>x</svg>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg g>
+|       "x"
+
+#data
+<math><mi>x</mi></math>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         "x"
+
+#data
+<svg><image href='x'></svg>
+#errors
+(1,5): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg image>
+|         href="x"
+
+#data
+<button><p><math></button>>
+#errors
+(1,8): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <button>
+|       <p>
+|         <math math>
+|     ">"
+
+#data
+<math><source>>
+#errors
+(1,6): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math source>
+|         ">"
+
+#data
+<svg><input>x
+#errors
+(1,5): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg input>
+|         "x"
+
+#data
+<math><frame><
+#errors
+(1,6): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math frame>
+|         "<"
+
+#data
+<math><html>
+#errors
+(1,6): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math html>
+
+#data
+<svg><body>
+#errors
+(1,5): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+
+#data
+<h3><svg><title><d></h3><
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <h3>
+|       <svg svg>
+|         <svg title>
+|           <d>
+|             "<"

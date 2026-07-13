@@ -86,3 +86,110 @@
 |     <p>
 |     <table>
 |       <colgroup>
+
+
+#data
+<table><form><input>x
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <input>
+|     "x"
+|     <table>
+|       <form>
+
+#data
+<table><colgroup></colgroup><colgroup></colgroup></table>
+#errors
+(1,7): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <colgroup>
+|       <colgroup>
+
+#data
+<table><c><col>
+#errors
+(1,7): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <c>
+|     <table>
+|       <colgroup>
+|         <col>
+
+#data
+<table><caption>x<table><tr><td>nested</td></tr></table></caption></table>
+#errors
+(1,7): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <caption>
+|         "x"
+|         <table>
+|           <tbody>
+|             <tr>
+|               <td>
+|                 "nested"
+
+#data
+<table><a><th></th></br>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <a>
+|     <a>
+|       <br>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <th>
+
+#data
+<table></> </l>\x0a<
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     "
+<"
+|     <table>
+|       " "
+
+#data
+<table></>\x0a<
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     "
+<"
+|     <table>
+
+#data
+<div><strong></div><table><colgroup>H
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       <strong>
+|     <strong>
+|       "H"
+|     <table>
+|       <colgroup>

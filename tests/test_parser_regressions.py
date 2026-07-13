@@ -8,38 +8,6 @@ from justhtml.sanitizer import DEFAULT_POLICY
 from justhtml.transforms import Escape
 
 
-class TestMalformedRawTagRegressions(unittest.TestCase):
-    def test_carriage_returns_delimit_tag_and_attribute_names(self) -> None:
-        html = "<!doctype html><div\rclass\r=\r'a'\r>w</div>"
-
-        assert JustHTML(html, sanitize=False).to_html(pretty=False) == (
-            '<!DOCTYPE html><html><head></head><body><div class="a">w</div></body></html>'
-        )
-
-    def test_carriage_return_before_solidus_does_not_enter_element_name(self) -> None:
-        html = "<!doctype html><div\r/>x"
-
-        assert JustHTML(html, sanitize=False).to_html(pretty=False) == (
-            "<!DOCTYPE html><html><head></head><body><div>x</div></body></html>"
-        )
-
-    def test_malformed_names_after_frameset_do_not_reach_serializer(self) -> None:
-        expected = "<html><head></head><frameset><frame></frame></frameset></html>"
-        cases = [
-            "<html><frameset><frame></frameset></html><linkN\v\0href=x>",
-            "<html><frameset><frame></frameset></html><a0<>",
-        ]
-
-        for html in cases:
-            with self.subTest(html=html):
-                assert JustHTML(html, sanitize=False).to_html(pretty=False) == expected
-
-    def test_malformed_null_name_in_frameset_is_ignored(self) -> None:
-        document = JustHTML("<frameset><div\0>x", sanitize=False)
-
-        assert document.to_html(pretty=False) == "<html><head></head><frameset></frameset></html>"
-
-
 class TestEngineBehaviorRegressions(unittest.TestCase):
     def test_fragment_template_unwrap_preserves_text_boundaries(self) -> None:
         document = JustHTML("<div>a<template>b</template>c</div>", fragment=True)
@@ -107,11 +75,6 @@ class TestAsciiCaseFoldingRegressions(unittest.TestCase):
         html = "<div>\u212a</div><script>y</script>0"
 
         assert JustHTML(html, fragment=True, sanitize=False).to_html(pretty=False) == html
-
-    def test_doctype_after_length_changing_case_char_is_not_a_comment(self) -> None:
-        document = JustHTML("İ<!DOCTYPE html><p>x</p>", sanitize=False)
-
-        assert document.to_html(pretty=False) == "<html><head></head><body>İ<p>x</p></body></html>"
 
     def test_foreign_cdata_after_length_changing_case_char_stays_text(self) -> None:
         document = JustHTML("<svg>İ<![CDATA[x]]></svg>", fragment=True, sanitize=False)

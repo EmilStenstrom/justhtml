@@ -58,3 +58,172 @@
 | <html>
 |   <head>
 |   <frameset>
+
+
+#data
+<frameset><frame></frameset><frameset>
+#errors
+#document
+| <html>
+|   <head>
+|   <frameset>
+|     <frame>
+
+#data
+<frameset>x
+#errors
+#document
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<frameset><body>x</body></frameset>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<frameset></frameset></html><!--a--><script><!--b--></script>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+(1,22): unexpected-end-tag
+#document
+| <html>
+|   <head>
+|   <frameset>
+| <!-- a -->
+| <!-- b -->
+
+#data
+<frameset></frameset><frame>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<frameset></frameset><frameset>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<frameset></body><!
+#errors
+(1,10): expected-doctype-but-got-start-tag
+(1,11): unexpected-end-tag
+(1,19): eof-in-tag
+#document
+| <html>
+|   <head>
+|   <frameset>
+|     <!--  -->
+
+#data
+<frameset>&#9
+#errors
+(1,10): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <frameset>
+|     "	"
+
+#data
+<html><frameset><frame></frameset></html><linkN\x0b\x00href=x>
+#errors
+#document
+| <html>
+|   <head>
+|   <frameset>
+|     <frame>
+
+#data
+<html><frameset><frame></frameset></html><a0<>
+#errors
+#document
+| <html>
+|   <head>
+|   <frameset>
+|     <frame>
+
+#data
+<frameset><div\x00>x
+#errors
+#document
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<frame>
+#errors
+#document-fragment
+frameset
+#document
+| <frame>
+
+#data
+</body>x
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     "x"
+
+#data
+</body>x<!--c-->
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     "x"
+|     <!-- c -->
+
+#data
+<frameset></frameset></body>
+#errors
+#document
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<frameset><frame><frame>
+#errors
+#document
+| <html>
+|   <head>
+|   <frameset>
+|     <frame>
+|     <frame>
+
+#data
+x<frameset>
+#errors
+#document-fragment
+html
+#document
+| <head>
+| <body>
+|   "x"
+
+#data
+<input><frameset>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <input>

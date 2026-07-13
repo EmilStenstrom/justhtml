@@ -1,267 +1,12 @@
 import unittest
 
 from justhtml import JustHTML, SanitizationPolicy
-from justhtml.parser.context import FragmentContext
 from justhtml.parser.options import ParserOptions
 from justhtml.sanitizer import UrlPolicy
 
 
 class TestParserTreeConstruction(unittest.TestCase):
-    def test_chromium_null_and_line_end_preprocessing_in_markup_states(self) -> None:
-        cases = {
-            "<!--a\0b-->": "<!--a�b--><html><head></head><body></body></html>",
-            "<!--a-": "<!--a--><html><head></head><body></body></html>",
-            "<!x\r\ny>": "<!--x\ny--><html><head></head><body></body></html>",
-            "<\0div>": "<html><head></head><body>&lt;�div&gt;</body></html>",
-            "</>": "<html><head></head><body></body></html>",
-            "\0\fA": "<html><head></head><body>A</body></html>",
-        }
-
-        for html, expected in cases.items():
-            with self.subTest(html=html):
-                assert JustHTML(html, sanitize=False).to_html(pretty=False) == expected
-
-        document = JustHTML("<!DOCTYPE\0html>", sanitize=False)
-        doctype = document.root.children[0]
-        assert doctype.name == "!doctype"
-        assert doctype.data.name == "�html"
-
-    def test_absent_digit_numeric_reference_follows_the_standard_despite_chromium(self) -> None:
-        document = JustHTML("&#x;", sanitize=False)
-
-        assert document.to_text(strip=False) == "&#x;"
-
-    def test_chromium_preserves_preamble_order_and_replacement_attribute_names(self) -> None:
-        document = JustHTML("<! first><?second", sanitize=False)
-        assert [(node.name, node.data) for node in document.root.children[:2]] == [
-            ("#comment", " first"),
-            ("html", None),
-        ]
-
-        document = JustHTML("<!--first--><!DOCTYPE\r\nhtml>", sanitize=False)
-        assert [node.name for node in document.root.children[:3]] == ["#comment", "!doctype", "html"]
-        assert document.root.children[1].data.name == "html"
-
-        document = JustHTML("<div \0name=value>", sanitize=False)
-        div = document.query("div")[0]
-        assert div.attrs == {"�name": "value"}
-        assert document.to_html(pretty=False) == ('<html><head></head><body><div �name="value"></div></body></html>')
-
-        document = JustHTML("<source\0 x=y>", sanitize=False)
-        source = document.query("source�")[0]
-        assert source.attrs == {"x": "y"}
-        assert document.to_html(pretty=False) == ('<html><head></head><body><source� x="y"></source�></body></html>')
-
-        document = JustHTML("<html 1name='\0'>", sanitize=False)
-        assert document.root.children[-1].attrs == {"1name": "�"}
-
-        document = JustHTML("<textarea\v/>x", sanitize=False)
-        textarea = document.query("body")[0].children[0]
-        assert textarea.name == "textarea\v"
-        assert textarea.to_text(strip=False) == "x"
-        assert document.to_html(pretty=False) == ("<html><head></head><body><textarea\v>x</textarea\v></body></html>")
-
-        document = JustHTML("<source\0 '='<script>alert(1)</script>'>", sanitize=False)
-        assert document.query("source�")[0].attrs == {"'": "<script>alert(1)</script>"}
-
-        attribute_cases = {
-            "<h\n=>": {"=": ""},
-            "<h\n=9>": {"=9": ""},
-            "<h\n==>": {"=": ""},
-            "<p ==>": {"=": ""},
-            "<m\fi=''=\">": {"i": "", '="': ""},
-            "<r/Y>": {"y": ""},
-            '<x/">': {'"': ""},
-        }
-        for html, expected in attribute_cases.items():
-            with self.subTest(html=html):
-                element = JustHTML(html, sanitize=False).query("body")[0].children[0]
-                assert element.attrs == expected
-
-    def test_chromium_foreign_template_table_and_frameset_regressions(self) -> None:
-        cases = {
-            "<svg><image href='x'></svg>": (
-                '<html><head></head><body><svg><image href="x"></image></svg></body></html>'
-            ),
-            "<table><colgroup></colgroup><colgroup></colgroup></table>": (
-                "<html><head></head><body><table><colgroup></colgroup><colgroup></colgroup></table></body></html>"
-            ),
-            "<template><title>x</title><base><link></template>": (
-                "<html><head><template><title>x</title><base><link></template></head><body></body></html>"
-            ),
-            "<frameset><body>x</body></frameset>": ("<html><head></head><frameset></frameset></html>"),
-            "<frameset></frameset></html><!--a--><script><!--b--></script>": (
-                "<html><head></head><frameset></frameset></html><!--a--><!--b-->"
-            ),
-            "<frameset></frameset><frame>": "<html><head></head><frameset></frameset></html>",
-            "<frameset></frameset><frameset>": "<html><head></head><frameset></frameset></html>",
-            "<frameset></body><!": "<html><head></head><frameset><!----></frameset></html>",
-            "<template></html><//": ("<html><head><template><!--/--></template></head><body></body></html>"),
-        }
-
-        for html, expected in cases.items():
-            with self.subTest(html=html):
-                document = JustHTML(html, sanitize=False)
-                assert document.to_html(pretty=False) == expected
-
-        document = JustHTML("<math><html>", sanitize=False)
-        math = document.query("math")[0]
-        assert math.children[0].name == "html"
-        assert math.children[0].namespace == "math"
-
-        document = JustHTML("<rt><rt>", sanitize=False)
-        first_rt = document.query("rt")[0]
-        assert first_rt.children[0].name == "rt"
-
-        document = JustHTML("<select><table><input><select>", sanitize=False)
-        select = document.query("select")[0]
-        assert [child.name for child in select.children] == ["input", "select", "table"]
-
-        document = JustHTML("<select><table><d><select>", sanitize=False)
-        select = document.query("select")[0]
-        assert [child.name for child in select.children] == ["d", "table"]
-        assert select.children[0].children[0].name == "select"
-
-        cases = {
-            "</html><script>": "<html><head></head><body><script></script></body></html>",
-            "</head></html><y>": "<html><head></head><body><y></y></body></html>",
-            "</html><</ ": "<html><head></head><body>&lt;<!-- --></body></html>",
-            "<button><p><math></button>>": (
-                "<html><head></head><body><button><p><math></math></p></button>&gt;</body></html>"
-            ),
-            "<i></body></f><": "<html><head></head><body><i>&lt;</i></body></html>",
-            "</>&#9": "<html><head></head><body></body></html>",
-            "<!>&#xD": "<!----><html><head></head><body></body></html>",
-            "<!DOCTYPE>&#xD": "<!DOCTYPE><html><head></head><body></body></html>",
-            "</e>&#9": "<html><head></head><body></body></html>",
-            "<template><tr>d": "<html><head><template><tr></tr>d</template></head><body></body></html>",
-        }
-        for html, expected in cases.items():
-            with self.subTest(html=html):
-                assert JustHTML(html, sanitize=False).to_html(pretty=False) == expected
-
-        for html, element_name, text in (
-            ("<math><source>>", "source", ">"),
-            ("<svg><input>x", "input", "x"),
-            ("<math><frame><", "frame", "<"),
-        ):
-            with self.subTest(html=html):
-                element = JustHTML(html, sanitize=False).query(element_name)[0]
-                assert element.to_text(strip=False) == text
-
-        for html in ('<o\fe="\r">', '<d 2="\r">'):
-            with self.subTest(html=html):
-                element = JustHTML(html, sanitize=False).query("body")[0].children[0]
-                assert next(iter(element.attrs.values())) == "\n"
-
-        document = JustHTML("<a 8=&#13\r>", sanitize=False)
-        assert document.query("a")[0].attrs == {"8": "\r"}
-
-        document = JustHTML("<frameset>&#9", sanitize=False)
-        assert document.query("frameset")[0].to_text(strip=False) == "\t"
-
-        document = JustHTML("<svg><body>", sanitize=False)
-        body = document.query("body")[0]
-        assert [child.name for child in body.children] == ["svg"]
-
-        cases = {
-            "<!><template></template><?": ("<!----><html><head><template></template></head><body></body></html>"),
-            "<template><d><table><tr>": (
-                "<html><head><template><d><table><tbody><tr></tr></tbody></table></d></template>"
-                "</head><body></body></html>"
-            ),
-            "<table><c><col>": (
-                "<html><head></head><body><c></c><table><colgroup><col></colgroup></table></body></html>"
-            ),
-            "<optgroup><optgroup>": (
-                "<html><head></head><body><optgroup><optgroup></optgroup></optgroup></body></html>"
-            ),
-        }
-        for html, expected in cases.items():
-            with self.subTest(html=html):
-                assert JustHTML(html, sanitize=False).to_html(pretty=False) == expected
-
-        document = JustHTML("</head></html>2</t></-", sanitize=False)
-        body = document.query("body")[0]
-        assert body.to_text(strip=False) == "2"
-        assert body.children[-1].name == "#comment"
-
-    def test_unknown_body_element_blocks_frameset_per_standard_despite_chromium(self) -> None:
-        document = JustHTML("<f><frameset>", sanitize=False)
-
-        assert document.to_html(pretty=False) == "<html><head></head><body><f></f></body></html>"
-
-    def test_chromium_nested_template_and_recovery_regressions(self) -> None:
-        cases = {
-            "<template><table><tr><table>": (
-                "<html><head><template><table><tbody><tr></tr></tbody></table><table></table>"
-                "</template></head><body></body></html>"
-            ),
-            "<template><table><col>": (
-                "<html><head><template><table><colgroup><col></colgroup></table></template></head><body></body></html>"
-            ),
-            "<template><colgroup>X": (
-                "<html><head><template><colgroup></colgroup>X</template></head><body></body></html>"
-            ),
-            "<template><colgroup><v>": (
-                "<html><head><template><colgroup></colgroup><v></v></template></head><body></body></html>"
-            ),
-            "<template><col><": "<html><head><template><col></template></head><body></body></html>",
-            "<template><table><table><": (
-                "<html><head><template><table></table>&lt;<table></table></template></head><body></body></html>"
-            ),
-            "<template><td><table><tr>": (
-                "<html><head><template><td><table><tbody><tr></tr></tbody></table></td></template>"
-                "</head><body></body></html>"
-            ),
-            "<template><table><body><td>": (
-                "<html><head><template><table><tbody><tr><td></td></tr></tbody></table></template>"
-                "</head><body></body></html>"
-            ),
-            "<template><tr><form>V": (
-                "<html><head><template><tr><form></form></tr>V</template></head><body></body></html>"
-            ),
-            "<template><tbody><e><tr>": (
-                "<html><head><template><tbody><tr></tr></tbody><e></e></template></head><body></body></html>"
-            ),
-            "<template><tr><u><td>": (
-                "<html><head><template><tr><td></td></tr><u></u></template></head><body></body></html>"
-            ),
-            "<table><template><n><form><": (
-                "<html><head></head><body><table><template><n><form>&lt;</form></n></template></table></body></html>"
-            ),
-            "<a><dialog><a>": ("<html><head></head><body><a><dialog></dialog></a><a></a></body></html>"),
-            "<table><a><th></th></br>": (
-                "<html><head></head><body><a></a><a><br></a><table><tbody><tr><th></th></tr>"
-                "</tbody></table></body></html>"
-            ),
-            '</r\n=="><': "<html><head></head><body></body></html>",
-            "<table></> </l>\n<": ("<html><head></head><body>\n&lt;<table> </table></body></html>"),
-            "<table></>\n<": "<html><head></head><body>\n&lt;<table></table></body></html>",
-            "<table><template><tr>s": (
-                "<html><head></head><body><table><template><tr></tr>s</template></table></body></html>"
-            ),
-            "<template><tr><script>": (
-                "<html><head><template><tr><script></script></tr></template></head><body></body></html>"
-            ),
-            "<h3><svg><title><d></h3><": (
-                "<html><head></head><body><h3><svg><title><d>&lt;</d></title></svg></h3></body></html>"
-            ),
-            "<p><a><xmp>": ("<html><head></head><body><p><a></a></p><a><xmp></xmp></a></body></html>"),
-            "<div><strong></div><table><colgroup>H": (
-                "<html><head></head><body><div><strong></strong></div><strong>H</strong>"
-                "<table><colgroup></colgroup></table></body></html>"
-            ),
-        }
-        for html, expected in cases.items():
-            with self.subTest(html=html):
-                assert JustHTML(html, sanitize=False).to_html(pretty=False) == expected
-
-        document = JustHTML("<noscript><script>", sanitize=False, scripting_enabled=False)
-        assert document.to_html(pretty=False) == (
-            "<html><head><noscript></noscript><script></script></head><body></body></html>"
-        )
-
+    def test_compiled_safe_path_nested_recovery_regressions(self) -> None:
         assert JustHTML("<!doctype html><summary><p>foo</summary>bar").to_html(pretty=False) == (
             "<!DOCTYPE html><html><head></head><body><p>foo</p>bar</body></html>"
         )
@@ -270,30 +15,6 @@ class TestParserTreeConstruction(unittest.TestCase):
         )
         assert JustHTML("<table><a><th></th></br>").to_html(pretty=False) == (
             "<html><head></head><body><a></a><a><br></a><table><tbody><tr><th></th></tr></tbody></table></body></html>"
-        )
-
-    def test_chromium_duplicate_body_and_nested_caption_table_regressions(self) -> None:
-        document = JustHTML("<body id='a'><div><body id='b'>x</div>", sanitize=False)
-        assert document.to_html(pretty=False) == ('<html><head></head><body id="a"><div>x</div></body></html>')
-
-        document = JustHTML("<div><li>x<body class='late'>y", sanitize=False)
-        assert document.to_html(pretty=False) == (
-            '<html><head></head><body class="late"><div><li>xy</li></div></body></html>'
-        )
-
-        document = JustHTML("<div>x<head><title>ignored</title></head>y", sanitize=False)
-        assert document.to_html(pretty=False) == (
-            "<html><head></head><body><div>x<title>ignored</title>y</div></body></html>"
-        )
-
-        document = JustHTML(
-            "<table><caption>x<table><tr><td>nested</td></tr></table></caption></table>",
-            sanitize=False,
-        )
-        assert document.to_html(pretty=False) == (
-            "<html><head></head><body><table><caption>x"
-            "<table><tbody><tr><td>nested</td></tr></tbody></table>"
-            "</caption></table></body></html>"
         )
 
     def test_compiled_safe_path_merges_duplicate_shell_attributes_and_colgroups(self) -> None:
@@ -333,40 +54,6 @@ class TestParserTreeConstruction(unittest.TestCase):
                 document = JustHTML(html, fragment=True, sanitize=False)
                 aside = document.query("aside")[0]
                 assert aside.to_html(pretty=False) == "<aside><b></b></aside>"
-
-    def test_active_formatting_reconstructs_before_ordinary_and_foreign_elements(self) -> None:
-        document = JustHTML("<div><b>x</div><span>y</span><svg>z</svg>", sanitize=False)
-
-        assert document.to_html(pretty=False) == (
-            "<html><head></head><body><div><b>x</b></div><b><span>y</span><svg>z</svg></b></body></html>"
-        )
-
-    def test_head_noscript_comment_follows_the_standard_despite_chromium(self) -> None:
-        document = JustHTML(
-            '<head><noscript><head class="foo"><!--foo--></noscript>',
-            sanitize=False,
-            scripting_enabled=False,
-        )
-
-        assert (
-            document.to_html(pretty=False) == "<html><head><noscript><!--foo--></noscript></head><body></body></html>"
-        )
-
-    def test_command_remains_an_ordinary_element_despite_chromium(self) -> None:
-        document = JustHTML("<!DOCTYPE html><body><command>A", sanitize=False)
-
-        assert document.to_html(pretty=False) == (
-            "<!DOCTYPE html><html><head></head><body><command>A</command></body></html>"
-        )
-
-    def test_select_fragment_ignores_input_per_standard_despite_chromium(self) -> None:
-        document = JustHTML(
-            "<input><option>",
-            fragment_context=FragmentContext("select"),
-            sanitize=False,
-        )
-
-        assert document.to_html(pretty=False) == "<option></option>"
 
     def test_parser_options_copy_is_independent(self) -> None:
         options = ParserOptions(
@@ -419,14 +106,6 @@ class TestParserTreeConstruction(unittest.TestCase):
         assert selectedcontent is not None
         self.assertTrue(selectedcontent.children)
         self.assertEqual(selectedcontent.children[0].name, "div")
-
-    def test_selectedcontent_without_options_does_not_crash(self) -> None:
-        doc = JustHTML("<select><selectedcontent></selectedcontent></select>", sanitize=False)
-
-        self.assertEqual(
-            doc.to_html(pretty=False),
-            "<html><head></head><body><select><selectedcontent></selectedcontent></select></body></html>",
-        )
 
     def test_selectedcontent_population_handles_multiple_selectedcontent_nodes(self) -> None:
         doc = JustHTML(
@@ -598,21 +277,6 @@ class TestParserTreeConstruction(unittest.TestCase):
         self.assertEqual(outer_li.name, "li")
         self.assertEqual(outer_li.children[2].name, "listing")
         self.assertEqual(outer_li.children[2].children[0].name, "li")
-
-    def test_menuitem_is_not_special_for_li_start_tag_scanning(self) -> None:
-        doc = JustHTML("<!DOCTYPE html><li><menuitem><li>", sanitize=False)
-
-        body_children = doc.query("body")[0].children
-        self.assertEqual([child.name for child in body_children], ["li", "li"])
-        self.assertEqual(body_children[0].children[0].name, "menuitem")
-
-    def test_heading_end_tag_closes_across_button_scope_like_chromium(self) -> None:
-        doc = JustHTML("<object><h2><button><ul></ul></h2><iframe>x", sanitize=False)
-
-        obj = doc.query("object")[0]
-        self.assertEqual(obj.children[0].name, "h2")
-        self.assertEqual(obj.children[0].children[0].name, "button")
-        self.assertEqual(obj.children[1].name, "iframe")
 
     def test_hr_in_table_context_uses_in_body_void_element_rules(self) -> None:
         cases = {
@@ -809,41 +473,6 @@ class TestParserTreeConstruction(unittest.TestCase):
             with self.subTest(html=html):
                 doc = JustHTML(html, fragment=True, policy=policy)
                 self.assertEqual(doc.to_html(pretty=False), expected)
-
-    def test_title_fragment_context_uses_rcdata(self) -> None:
-        doc = JustHTML(
-            "a&amp;b</title><p>x",
-            fragment_context=FragmentContext("title"),
-            sanitize=False,
-        )
-
-        self.assertEqual(doc.to_html(pretty=False), "a&amp;b&lt;/title&gt;&lt;p&gt;x")
-
-    def test_script_fragment_context_uses_rawtext_without_context_end_tag(self) -> None:
-        doc = JustHTML(
-            "a</script><p>x",
-            fragment_context=FragmentContext("script"),
-            sanitize=False,
-        )
-
-        self.assertEqual(doc.to_html(pretty=False), "a&lt;/script&gt;&lt;p&gt;x")
-
-    def test_noscript_fragment_context_respects_scripting_flag(self) -> None:
-        disabled = JustHTML(
-            "<b>x</b>",
-            fragment_context=FragmentContext("noscript"),
-            scripting_enabled=False,
-            sanitize=False,
-        )
-        enabled = JustHTML(
-            "<b>x</b>",
-            fragment_context=FragmentContext("noscript"),
-            scripting_enabled=True,
-            sanitize=False,
-        )
-
-        self.assertEqual(disabled.to_html(pretty=False), "<b>x</b>")
-        self.assertEqual(enabled.to_html(pretty=False), "&lt;b&gt;x&lt;/b&gt;")
 
     def test_integration_point_text_like_elements_use_html_text_parsing(self) -> None:
         cases = {

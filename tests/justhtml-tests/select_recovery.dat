@@ -193,3 +193,69 @@
 |     <select>
 |       <v>
 |         <!--  -->
+
+
+#data
+<select><b>x</b></select>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <b>
+|         "x"
+
+#data
+<optgroup><optgroup>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <optgroup>
+|       <optgroup>
+
+#data
+<select><table><input><select>
+#errors
+(1,8): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <input>
+|       <select>
+|       <table>
+
+#data
+<select><table><d><select>
+#errors
+(1,8): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <d>
+|         <select>
+|       <table>
+
+#data
+<input><option>
+#errors
+#document-fragment
+select
+#document
+| <option>
+
+#data
+<input><option>x
+#errors
+#document-fragment
+select
+#document
+| <option>
+|   "x"
