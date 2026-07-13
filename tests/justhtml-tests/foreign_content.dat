@@ -191,3 +191,44 @@
 |     <listing>
 |       <a>
 |         "U"
+
+#data
+<p><svg><article>
+#errors
+(1,3): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <svg svg>
+|         <svg article>
+
+#data
+<p><math><td><listing>
+#errors
+(1,3): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <math math>
+|         <math td>
+|     <listing>
+
+#data
+<table><math><tr><d>
+#errors
+(1,7): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math tr>
+|         <math d>
+|     <table>

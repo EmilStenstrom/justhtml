@@ -3311,6 +3311,11 @@ class ParseEngine:
             and not self._body_has_content()
         ):
             parent = self._head
+        elif not html_text_parsing and not self._is_foreign_breakout_start(name, attrs):
+            # A non-breakout start tag inside foreign content is inserted as a
+            # foreign element in the current namespace; the HTML in-body repair
+            # (p-closing, heading/list handling, ...) must not run.
+            parent = self._current_parent()
         else:
             self._repair_stack_for_start(name)
             parent = self._current_parent()
@@ -3616,6 +3621,12 @@ class ParseEngine:
         ):
             self._stack.pop()
 
+    def _is_foreign_breakout_start(self, name: str, attrs: dict[str, str | None]) -> bool:
+        # Start tags that break out of foreign content back to HTML (§13.2.6.5).
+        return name in FOREIGN_BREAKOUT_ELEMENTS or (
+            name == "font" and any(attr.lower() in {"color", "face", "size"} for attr in attrs)
+        )
+
     def _namespace_for_raw_start(self, name: str, attrs: dict[str, str | None]) -> str:
         current = self._stack[-1] if self._stack else None
         current_ns = getattr(current, "namespace", None)
@@ -3626,10 +3637,7 @@ class ParseEngine:
                 return "svg" if name == "svg" else "math" if name == "math" else "html"
             if current_ns == "math" and current.name == "annotation-xml" and name == "svg":
                 return "svg"
-            breaks_out = name in FOREIGN_BREAKOUT_ELEMENTS or (
-                name == "font" and any(attr.lower() in {"color", "face", "size"} for attr in attrs)
-            )
-            if not breaks_out:
+            if not self._is_foreign_breakout_start(name, attrs):
                 return current_ns or "html"
             self._pop_foreign_for_breakout()
 
@@ -4298,7 +4306,8 @@ class ParseEngine:
     def _close_until_before_boundary(self, name: str, boundaries: frozenset[str]) -> bool:
         stack = self._stack
         for idx in range(len(stack) - 1, 0, -1):
-            node_name = getattr(stack[idx], "name", None)
+            node = stack[idx]
+            node_name = getattr(node, "name", None)
             if node_name == name:
                 if (
                     self._fragment_context_node is not None and stack[idx] is self._fragment_context_node
@@ -4307,7 +4316,11 @@ class ParseEngine:
                 self._mark_active_formatting_dirty()
                 del stack[idx:]
                 return True
-            if node_name in boundaries:
+            # Scope boundaries are HTML elements. A foreign element that merely
+            # shares a name with a boundary (e.g. an SVG or MathML "td") must not
+            # stop the scan; callers guard this walk with an in-scope check that
+            # already accounts for foreign integration points.
+            if getattr(node, "namespace", None) in {None, "html", _PARSER_ONLY_NAMESPACE} and node_name in boundaries:
                 return False
         return False
 
@@ -4501,7 +4514,12 @@ class ParseEngine:
         self._refresh_active_formatting_dirty()
 
     def _foster_parent_for(self, parent: Node, *, for_tag: str | None = None) -> tuple[Node, int] | None:
-        if getattr(parent, "name", None) not in self._table_foster_targets:
+        # Foster parenting only applies within an HTML table. A foreign element
+        # sharing a name with a foster target (e.g. an SVG or MathML "tr") keeps
+        # its children rather than fostering them out.
+        if getattr(parent, "name", None) not in self._table_foster_targets or getattr(
+            parent, "namespace", None
+        ) not in {None, "html", _PARSER_ONLY_NAMESPACE}:
             return None
         if (
             for_tag is not None and for_tag in self._table_allowed_children
