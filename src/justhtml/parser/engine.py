@@ -1286,6 +1286,7 @@ class ParseEngine:
         parent: Node
         if self._current_parent() is self._head or (
             not self._fragment
+            and not self._after_head
             and self._head is not None
             and not self._body_mode_seen
             and not self._body_has_content()

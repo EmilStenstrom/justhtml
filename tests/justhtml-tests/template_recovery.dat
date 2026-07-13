@@ -334,3 +334,16 @@
 |           <object>
 |             "e"
 |   <body>
+
+#data
+<head><template></template></head><!--c-->
+#errors
+(1,6): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|   <!-- c -->
+|   <body>
