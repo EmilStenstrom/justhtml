@@ -3020,6 +3020,9 @@ class ParseEngine:
                 action is not None
                 and allowed
                 and action.head_content
+                # "after head" re-enters the head only for the metadata start
+                # tags it lists; noscript is not among them and starts the body.
+                and name != "noscript"
                 and self._head is not None
                 and not self._in_head_noscript
                 and not self._body_mode_seen

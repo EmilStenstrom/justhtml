@@ -23,3 +23,15 @@
 |   <head>
 |     <noscript>
 |   <body>
+
+#data
+</head><noscript>
+#errors
+(1,1): expected-doctype-but-got-chars
+(1,1): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <noscript>
