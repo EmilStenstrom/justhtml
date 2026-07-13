@@ -347,3 +347,18 @@
 |       content
 |   <!-- c -->
 |   <body>
+
+#data
+<template><caption><tr>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <caption>
+|         <tbody>
+|           <tr>
+|   <body>

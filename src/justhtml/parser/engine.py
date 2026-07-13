@@ -4069,7 +4069,7 @@ class ParseEngine:
                 del self._stack[table_idx:]
                 self._insert_template_mode_element(name, attrs, self_closing)
                 return pos
-            if table_idx is not None and name in {
+            if name in {
                 "caption",
                 "col",
                 "colgroup",
@@ -4080,7 +4080,12 @@ class ParseEngine:
                 "thead",
                 "tr",
             }:
-                del self._stack[table_idx + 1 :]
+                # Clear back to the table context before opening table structure.
+                # In a template with no table element, that context is the
+                # template contents, so an open caption is popped first.
+                clear_idx = table_idx if table_idx is not None else template_idx
+                if clear_idx is not None:  # pragma: no branch - a template is always open in this mode
+                    del self._stack[clear_idx + 1 :]
             if name in {"tbody", "tfoot", "thead"}:
                 self._set_current_template_mode(_TEMPLATE_MODE_TABLE_BODY)
                 self._insert_template_mode_element(name, attrs, self_closing)
