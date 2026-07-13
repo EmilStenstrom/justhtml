@@ -232,3 +232,16 @@
 |       <math tr>
 |         <math d>
 |     <table>
+
+#data
+<form><math></form>x
+#errors
+(1,6): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <form>
+|       <math math>
+|         "x"

@@ -949,6 +949,12 @@ class ParseEngine:
                     return True
                 if self._fragment_context_node is not None and node is self._fragment_context_node:
                     return True
+                if node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
+                    # The foreign-content walk reached a matching HTML element
+                    # (§13.2.6.5 steps 6-7): hand the token to the HTML end-tag
+                    # rules, which may splice a form or run adoption, rather than
+                    # popping the foreign elements sitting above it.
+                    return False
                 if self._track_tag_spans:
                     self._set_end_span(node, name, tag_start, tag_end)
                 del stack[idx:]
