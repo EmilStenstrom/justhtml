@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-07-13
+
 ### Fixed
 Note: The below are all minor parsing differences found when diffing against Chromium output, that is not covered in WPT's html5 parsing tests.
 
