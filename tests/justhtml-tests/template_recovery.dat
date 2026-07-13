@@ -375,3 +375,18 @@
 |       content
 |         <xmp>
 |   <body>
+
+#data
+<template><td></th>x
+#errors
+(1,10): expected-doctype-but-got-start-tag
+(1,15): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <td>
+|           "x"
+|   <body>

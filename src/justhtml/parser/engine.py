@@ -4231,7 +4231,9 @@ class ParseEngine:
             return self._find_open_index_before_boundary(name, _TEMPLATE_SCOPE_BOUNDARIES) is None
         if mode == _TEMPLATE_MODE_CELL:
             if name in self._table_cell_tags:
-                return self._close_template_cell()
+                # Only the matching cell type closes; </th> with a <td> open (or
+                # vice versa) leaves the cell open.
+                return self._close_template_cell(name)
             if name in {"table", "tbody", "tfoot", "thead", "tr"}:
                 if self._find_open_index_before_boundary(name, _TEMPLATE_SCOPE_BOUNDARIES) is None:
                     return True
@@ -4295,11 +4297,16 @@ class ParseEngine:
                 return False
         return False  # pragma: no cover - template scope always terminates the scan
 
-    def _close_template_cell(self) -> bool:
+    def _close_template_cell(self, name: str | None = None) -> bool:
         stack = self._stack
         for idx in range(len(stack) - 1, 0, -1):
             node_name = stack[idx].name
             if node_name in self._table_cell_tags:
+                # A </td>/</th> end tag only closes the matching cell type; a
+                # mismatched end tag (e.g. </th> for an open <td>) is left for
+                # the generic handling, which ignores it.
+                if name is not None and node_name != name:
+                    return False
                 self._mark_active_formatting_dirty()
                 self._clear_active_formatting_to_marker()
                 del stack[idx:]
