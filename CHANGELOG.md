@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ignore end tags other than `</template>` in the "in template" insertion mode. Previously, the `</br>` special case still ran, so `<template></br>` created a stray `<br>` inside the template contents.
 - Let table-scoped end tags follow the foreign-content end-tag algorithm when the current node is a MathML or SVG element. Previously, an end tag such as `</th>` inside foreign content was routed to HTML table recovery, so `<svg><th><o></th>0` left the foreign cell open and misplaced the following text.
 - Ignore `</body>` and `</html>` when no body element is in scope. Previously, an open scope marker such as `<marquee>`, `<object>`, or `<applet>` did not prevent the switch to the after-body mode, so following content such as a comment in `<marquee></body><!--x-->` was placed outside the still-open element.
+- Close an escaped script comment on `<!-->`, whose `<!--` dashes already count toward the `-->`. Previously, `<script><!--><script></script>` treated the following `<script>` as a double-escape start and swallowed the closing tag, leaving the script element unclosed.
 
 ## [3.5.0] - 2026-07-13
 

@@ -443,6 +443,12 @@ class TestStream(unittest.TestCase):
             20,
         )
 
+        # "<!-->" closes the escaped comment immediately (the "<!--" dashes count
+        # toward the "-->"), so the following "<script>" is plain script data and
+        # does not start a double escape; the "</script>" still closes it.
+        short_comment = "<!--><script></script>"
+        assert find_script_end_tag(short_comment, short_comment.lower(), 0, len(short_comment)) == (13, 22)
+
     def test_rawtext_end_tag_after_length_changing_case_char(self):
         # "İ" (U+0130) lowers to two characters, so a str.lower() copy of the
         # input drifts out of index alignment with the original. The rawtext

@@ -59,7 +59,11 @@ def find_script_end_tag(html: str, lower: str, pos: int, end: int) -> tuple[int 
             if comment_start == -1 or close < comment_start:
                 return close, next_pos
             escaped = True
-            search = comment_start + 4
+            # After "<!--" the tokenizer is in the script-data-escaped-dash-dash
+            # state, so the two trailing dashes already count toward a closing
+            # "-->". Resume the comment-end search at those dashes so "<!-->"
+            # leaves the escaped state instead of being treated as still open.
+            search = comment_start + 2
             continue
 
         script_start = find_script_start_marker(html, lower, search, close, end) if not double_escaped else -1

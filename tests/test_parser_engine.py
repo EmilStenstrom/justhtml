@@ -528,6 +528,12 @@ class TestParserLowLevelModes(_ParserEngineTestCase):
                 "<html><head><script><!--<script</script></head><body></body></html>",
             ),
             (
+                # "<!-->" closes the escaped comment, so the following "<script>"
+                # is plain script data and the "</script>" closes the element.
+                "<script><!--><script></script>",
+                "<html><head><script><!--><script></script></head><body></body></html>",
+            ),
+            (
                 "<html a=1><head b=2></head><body c=3>x</body></html><p>y",
                 '<html a="1"><head b="2"></head><body c="3">x<p>y</p></body></html>',
             ),
