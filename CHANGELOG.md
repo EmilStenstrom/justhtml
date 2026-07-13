@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Add a formatting element that breaks out of foreign content (such as `<i>` inside `<svg>`) to the active formatting list, so it is reconstructed later. Previously, the breakout element was inserted but not tracked, so `<b><svg><i></b>z` dropped the reconstructed `<i>` around the trailing text and `<svg><code><h2></code>` lost the reconstructed `<code>`.
 - Start the body for a `<noscript>` start tag in the "after head" insertion mode instead of re-entering the head. The after-head metadata list does not include noscript, so markup such as `</head><noscript>` now places the element in the body.
 - Hand an end tag to the HTML rules when the foreign-content end-tag walk reaches a matching HTML element, rather than popping the foreign elements above it. Previously, `<form><math></form>` popped the `<math>` along with the form instead of splicing only the form out of the stack.
 - Clear back to the template contents before opening table structure in a template with no table element, so an open caption is closed. Previously, `<template><caption><tr>` nested the row inside the caption instead of making it a sibling.

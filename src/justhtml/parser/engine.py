@@ -3256,7 +3256,14 @@ class ParseEngine:
                 )
                 return pos
 
-        if html_text_parsing and action is not None and action.active_formatting:
+        if (
+            action is not None
+            and action.active_formatting
+            and (html_text_parsing or self._is_foreign_breakout_start(name, attrs))
+        ):
+            # A formatting element that breaks out of foreign content (e.g. <i>
+            # inside <svg>) becomes an HTML formatting element and must join the
+            # active formatting list so it is reconstructed later.
             return self._parse_formatting_start(name, attrs, pos, tag_start=tag_start, tag_end=tag_end)
 
         if html_text_parsing and name == "menuitem" and self._active_formatting_dirty:

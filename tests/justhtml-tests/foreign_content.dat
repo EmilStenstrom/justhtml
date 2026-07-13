@@ -245,3 +245,32 @@
 |     <form>
 |       <math math>
 |         "x"
+
+#data
+<b><svg><i></b>z
+#errors
+(1,3): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <b>
+|       <svg svg>
+|       <i>
+|     <i>
+|       "z"
+
+#data
+<svg><code><h2></code>
+#errors
+(1,5): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|     <code>
+|     <h2>
+|       <code>
