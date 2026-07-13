@@ -2014,9 +2014,15 @@ class ParseEngine:
                 else:
                     public_id = None
                     system_id = None
-                doctype = Doctype(name, public_id, system_id, force_quirks=name is None)
+                # Junk after the name with no PUBLIC/SYSTEM keyword lands in the
+                # "after DOCTYPE name" state, which sets the force-quirks flag
+                # (§13.2.5.55). The regex tolerates that trailing text, so detect
+                # it here to reproduce the quirks-mode transition.
+                trailing = raw[match.end() :].strip("\t\n\f\r ")
+                bogus = kind is None and bool(trailing)
+                doctype = Doctype(name, public_id, system_id, force_quirks=name is None or bogus)
                 doctype_error, self._quirks_mode = doctype_error_and_quirks(doctype, self._iframe_srcdoc)
-                if doctype_error and self._collect_errors:
+                if (doctype_error or bogus) and self._collect_errors:
                     self._emit_error(
                         "unknown-doctype",
                         doctype_end if gt != -1 else max(0, end - 1),

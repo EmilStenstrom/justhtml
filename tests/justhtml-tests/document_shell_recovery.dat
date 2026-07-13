@@ -91,3 +91,16 @@
 |   <body>
 |     "x"
 |     <meta>
+
+#data
+<!DOCTYPE html foo><p><table>
+#errors
+(1,19): unknown-doctype
+
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <table>

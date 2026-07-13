@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pop foreign-content ancestors before applying the heading start-tag rule so a heading that breaks out of MathML or SVG closes an open heading. Previously, markup such as `<h1><math><h3>` nested the second heading inside the first instead of making it a sibling.
 - Ignore `</html>` and `</body>` end tags in the "in select" insertion mode instead of switching to the after-body/after-html modes. Previously, markup such as `<select></html><!--c-->` moved trailing comments out of the still-open select to the document level.
 - Restrict character foster parenting to HTML table elements. Previously, a foreign SVG or MathML element that merely shared a name with a table foster target (such as an SVG `<tr>`) had following text foster-parented out of the foreign subtree instead of kept as its child, as in `<table><svg><tr>n`.
+- Force quirks mode when a doctype has trailing junk after its name without a PUBLIC or SYSTEM keyword. Previously, `<!DOCTYPE html foo>` was treated as no-quirks, so a following `<table>` incorrectly closed an open `<p>`.
 
 ## [3.5.0] - 2026-07-13
 
