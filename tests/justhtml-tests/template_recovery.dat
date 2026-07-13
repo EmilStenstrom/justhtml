@@ -292,3 +292,16 @@
 |   <body>
 |     <template>
 |       content
+
+#data
+<template></br>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+(1,11): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|   <body>

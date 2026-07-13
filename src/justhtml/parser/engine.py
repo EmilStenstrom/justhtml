@@ -4166,6 +4166,11 @@ class ParseEngine:
             return False  # pragma: no cover - unreachable after parser-state guards
         if name in {"html", "head", "body"}:
             return True
+        if mode == _TEMPLATE_MODE_INITIAL:
+            # "In template" handles only </template>; every other end tag is a
+            # parse error that is ignored (§13.2.6.4.18). Without switching to
+            # "in body" via a start tag, that includes the </br> special case.
+            return name != "template"
         if mode == _TEMPLATE_MODE_CELL:
             if name in self._table_cell_tags:
                 return self._close_template_cell()
