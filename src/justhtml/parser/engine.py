@@ -936,8 +936,6 @@ class ParseEngine:
             return False
         if name in {"br", "p"}:
             return False
-        if name in _TABLE_SCOPED_END_TAGS:
-            return False
 
         crossed_integration_point = False
         for idx in range(len(stack) - 1, 0, -1):

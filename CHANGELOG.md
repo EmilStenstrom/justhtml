@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restrict character foster parenting to HTML table elements. Previously, a foreign SVG or MathML element that merely shared a name with a table foster target (such as an SVG `<tr>`) had following text foster-parented out of the foreign subtree instead of kept as its child, as in `<table><svg><tr>n`.
 - Force quirks mode when a doctype has trailing junk after its name without a PUBLIC or SYSTEM keyword. Previously, `<!DOCTYPE html foo>` was treated as no-quirks, so a following `<table>` incorrectly closed an open `<p>`.
 - Ignore end tags other than `</template>` in the "in template" insertion mode. Previously, the `</br>` special case still ran, so `<template></br>` created a stray `<br>` inside the template contents.
+- Let table-scoped end tags follow the foreign-content end-tag algorithm when the current node is a MathML or SVG element. Previously, an end tag such as `</th>` inside foreign content was routed to HTML table recovery, so `<svg><th><o></th>0` left the foreign cell open and misplaced the following text.
 
 ## [3.5.0] - 2026-07-13
 

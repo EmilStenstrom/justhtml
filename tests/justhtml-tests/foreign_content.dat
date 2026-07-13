@@ -160,3 +160,17 @@
 |       <svg tr>
 |         "n"
 |     <table>
+
+#data
+<svg><th><o></th>0
+#errors
+(1,5): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg th>
+|         <svg o>
+|       "0"
