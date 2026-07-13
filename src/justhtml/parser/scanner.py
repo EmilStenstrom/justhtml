@@ -62,7 +62,7 @@ def find_script_end_tag(html: str, lower: str, pos: int, end: int) -> tuple[int 
             search = comment_start + 4
             continue
 
-        script_start = find_script_start_marker(html, lower, search, close) if not double_escaped else -1
+        script_start = find_script_start_marker(html, lower, search, close, end) if not double_escaped else -1
         comment_end = lower.find("-->", search, close)
         if (
             comment_end != -1
@@ -98,7 +98,12 @@ def find_script_end_tag(html: str, lower: str, pos: int, end: int) -> tuple[int 
         return close, next_pos
 
 
-def find_script_start_marker(html: str, lower: str, pos: int, end: int) -> int:
+def find_script_start_marker(html: str, lower: str, pos: int, end: int, text_end: int) -> int:
+    # `end` bounds where a "<script" marker may start; `text_end` bounds the real
+    # input so the script-data-double-escape-start terminator is checked against
+    # the actual following character. When these differ, a marker whose name ends
+    # exactly at `end` still has a following character (e.g. the "<" of a trailing
+    # "</script>") that must be inspected rather than treated as end-of-input.
     search = pos
     needle = "<script"
     needle_len = len(needle)
@@ -107,6 +112,6 @@ def find_script_start_marker(html: str, lower: str, pos: int, end: int) -> int:
         if start == -1:
             return -1
         after_name = start + needle_len
-        if after_name >= end or html[after_name] in TAG_END_NAME_STOP:
+        if after_name >= text_end or html[after_name] in TAG_END_NAME_STOP:
             return start
         search = after_name

@@ -4486,7 +4486,7 @@ class ParseEngine:
 
     def _find_script_start_marker(self, pos: int, end: int) -> int:
         return _scanner.find_script_start_marker(
-            self._html_input, self._lower_input, pos, end
+            self._html_input, self._lower_input, pos, end, end
         )  # pragma: no cover - unreachable after parser-state guards
 
     def _find_tag_end(self, pos: int, end: int) -> int:

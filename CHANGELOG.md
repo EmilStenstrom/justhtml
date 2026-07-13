@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Process in-body `base`, `link`, and `meta` start tags with the in-head rules without reconstructing the active formatting elements. Previously, markup such as `<p><u><section><meta>` could wrongly wrap the metadata element in a stale formatting element instead of inserting it directly.
+- Check the script-data-double-escape-start terminator against the real following character. Previously, a `<script` immediately followed by `</script>` inside a script (for example `<script><!--<script</script>`) entered the double-escaped state and swallowed the closing tag, leaving the script element unclosed.
 
 ## [3.5.0] - 2026-07-13
 

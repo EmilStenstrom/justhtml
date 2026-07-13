@@ -434,6 +434,15 @@ class TestStream(unittest.TestCase):
         invalid_quoted = '<!--<script X </script foo="</scriptx">tail</script>'
         assert find_script_end_tag(invalid_quoted, invalid_quoted.lower(), 0, len(invalid_quoted)) == (43, 52)
 
+        # A "<script" immediately followed by "</script>" is not a
+        # script-data-double-escape-start (its following character "<" is not a
+        # terminator), so the trailing "</script>" must still close the element.
+        unterminated_marker = "<!--<script</script>"
+        assert find_script_end_tag(unterminated_marker, unterminated_marker.lower(), 0, len(unterminated_marker)) == (
+            11,
+            20,
+        )
+
     def test_rawtext_end_tag_after_length_changing_case_char(self):
         # "İ" (U+0130) lowers to two characters, so a str.lower() copy of the
         # input drifts out of index alignment with the original. The rawtext
