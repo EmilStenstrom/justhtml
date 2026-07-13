@@ -1936,7 +1936,14 @@ class ParseEngine:
                     self._insert_at(parent, position, node)
                     return
             foster = None
-            if parent.name in self._table_foster_targets:
+            # Foster parenting only applies in HTML table insertion modes. A
+            # foreign element that merely shares a name with a table foster
+            # target (e.g. an SVG or MathML "tr") keeps character data as its
+            # own child instead.
+            parent_is_table_foster = parent.name in self._table_foster_targets and getattr(
+                parent, "namespace", None
+            ) in {None, "html", _PARSER_ONLY_NAMESPACE}
+            if parent_is_table_foster:
                 is_table_space = text_is_space if text_is_space is not None else text.strip(_SPACE) == ""
                 if not is_table_space:
                     if pending_table_whitespace:
@@ -1966,7 +1973,7 @@ class ParseEngine:
                         node = self._new_text(text, source_pos) if self._track_node_locations else Text(text)
                         children.append(node)
                         node.parent = parent
-                if parent.name in self._table_foster_targets and is_table_space:
+                if parent_is_table_foster and is_table_space:
                     self._foster_next_table_whitespace = pending_table_whitespace + len(text)
             else:
                 foster_parent, position = foster

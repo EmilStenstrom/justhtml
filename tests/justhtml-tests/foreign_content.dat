@@ -146,3 +146,17 @@
 |     <h1>
 |       <math math>
 |     <h3>
+
+#data
+<table><svg><tr>n
+#errors
+(1,7): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg tr>
+|         "n"
+|     <table>

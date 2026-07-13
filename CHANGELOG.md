@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Check the script-data-double-escape-start terminator against the real following character. Previously, a `<script` immediately followed by `</script>` inside a script (for example `<script><!--<script</script>`) entered the double-escaped state and swallowed the closing tag, leaving the script element unclosed.
 - Pop foreign-content ancestors before applying the heading start-tag rule so a heading that breaks out of MathML or SVG closes an open heading. Previously, markup such as `<h1><math><h3>` nested the second heading inside the first instead of making it a sibling.
 - Ignore `</html>` and `</body>` end tags in the "in select" insertion mode instead of switching to the after-body/after-html modes. Previously, markup such as `<select></html><!--c-->` moved trailing comments out of the still-open select to the document level.
+- Restrict character foster parenting to HTML table elements. Previously, a foreign SVG or MathML element that merely shared a name with a table foster target (such as an SVG `<tr>`) had following text foster-parented out of the foreign subtree instead of kept as its child, as in `<table><svg><tr>n`.
 
 ## [3.5.0] - 2026-07-13
 
