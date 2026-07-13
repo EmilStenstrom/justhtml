@@ -150,3 +150,16 @@
 |       <template>
 |         content
 |           <input>
+
+#data
+<select></html><!--c-->
+#errors
+(1,8): expected-doctype-but-got-start-tag
+(1,9): unexpected-end-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <!-- c -->
