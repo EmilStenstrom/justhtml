@@ -10,3 +10,17 @@
 |     <dl>
 |       <dd>
 |         "x"
+
+#data
+<p><u><section><meta>
+#errors
+(1,3): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <u>
+|     <section>
+|       <meta>

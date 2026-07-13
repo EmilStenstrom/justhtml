@@ -138,6 +138,11 @@ _P_CLOSING_START_TAGS = {
 _HEAD_NOSCRIPT_ALLOWED_START_TAGS = {"basefont", "bgsound", "link", "meta", "noframes", "style"}
 _HEAD_NOSCRIPT_VOID_START_TAGS = {"basefont", "bgsound"}
 _HEAD_ONLY_VOID_START_TAGS = {"basefont", "bgsound"}
+# In "in body", base/basefont/bgsound/link/meta are processed with the "in head"
+# rules (§13.2.6.4.7), which insert-and-pop without reconstructing the active
+# formatting elements. Reconstructing here would wrongly wrap them (and their
+# following siblings) in a stale formatting element.
+_INLINE_HEAD_VOID_START_TAGS = {"base", "basefont", "bgsound", "link", "meta"}
 _HTML_VOID_COMPAT_TAGS = {"basefont", "bgsound", "frame", "keygen"}
 _DEFINITION_SCOPE_BOUNDARIES = frozenset(DEFINITION_SCOPE_TERMINATORS)
 _LIST_ITEM_SCOPE_BOUNDARIES = frozenset(LIST_ITEM_SCOPE_TERMINATORS)
@@ -3312,7 +3317,7 @@ class ParseEngine:
 
         reconstruct_before_insert = (
             name not in _TABLE_STRUCTURE_START_TAGS
-            and name not in _HEAD_ONLY_VOID_START_TAGS
+            and name not in _INLINE_HEAD_VOID_START_TAGS
             and name not in {"param", "source", "track"}
             and name != "template"
             and (action is None or not action.p_closing)

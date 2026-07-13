@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Process in-body `base`, `link`, and `meta` start tags with the in-head rules without reconstructing the active formatting elements. Previously, markup such as `<p><u><section><meta>` could wrongly wrap the metadata element in a stale formatting element instead of inserting it directly.
+
 ## [3.5.0] - 2026-07-13
 
 ### Changed
