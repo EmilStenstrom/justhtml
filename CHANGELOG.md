@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Insert a non-breakout HTML-named start tag inside foreign content as a foreign element without running HTML in-body recovery. Foreign elements sharing a name with an HTML scope boundary or table foster target (an SVG or MathML `td`, `tr`, `caption`, ...) no longer stop scope walks or foster their children out. Previously, markup such as `<p><svg><article>`, `<p><math><td><listing>`, and `<table><math><tr><d>` broke out of or escaped the foreign subtree.
+- Ignore `</body>` and `</html>` whenever a select is open, not only when the select holds just options. Previously, an element retained inside the select (as in `<select><o></body><!--x-->`) let the end tag switch to the after-body mode, moving following content out of the select.
 - Close a raw-text or RCDATA element when its end tag name is terminated by `/` or a space even without a closing `>`. Previously, `<style></style/x` kept the unterminated end tag as text and left the element open.
 - Do not reconstruct the active formatting elements for `rb`, `rp`, `rt`, or `rtc` start tags. Previously, `<div><tt></div><rt>` wrapped the `<rt>` in a stale `<tt>` instead of inserting it directly.
 - Ignore `</form>` when the form element is not in scope, such as behind an open `<table>`. Previously, `<form><table></form><table>` removed the form from the stack, so the following table became a sibling of the form instead of nesting inside it.

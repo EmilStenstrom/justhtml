@@ -2318,13 +2318,11 @@ class ParseEngine:
             self._body_mode_seen = True
 
         if not self._fragment and name in {"html", "body"}:
-            select_idx = self._find_open_html_index("select")
-            if select_idx is not None and all(
-                self._stack[idx].name in {"option", "optgroup"} for idx in range(select_idx + 1, len(self._stack))
-            ):
+            if self._find_open_html_index("select") is not None:
                 # In the "in select" insertion mode, </html> and </body> are
-                # unhandled end tags and must be ignored rather than switching
-                # to the after-body/after-html modes.
+                # unhandled end tags and must be ignored rather than switching to
+                # the after-body/after-html modes. Any elements kept inside the
+                # open select remain part of that insertion mode.
                 return pos
             if (
                 self._find_open_html_index("body") is not None
