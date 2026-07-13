@@ -143,6 +143,10 @@ _HEAD_ONLY_VOID_START_TAGS = {"basefont", "bgsound"}
 # formatting elements. Reconstructing here would wrongly wrap them (and their
 # following siblings) in a stale formatting element.
 _INLINE_HEAD_VOID_START_TAGS = {"base", "basefont", "bgsound", "link", "meta"}
+# The in-body rb/rp/rt/rtc rules (§13.2.6.4.7) only generate implied end tags
+# and insert; unlike "any other start tag" they do not reconstruct the active
+# formatting elements.
+_RUBY_START_TAGS = {"rb", "rp", "rt", "rtc"}
 _HTML_VOID_COMPAT_TAGS = {"basefont", "bgsound", "frame", "keygen"}
 _DEFINITION_SCOPE_BOUNDARIES = frozenset(DEFINITION_SCOPE_TERMINATORS)
 _LIST_ITEM_SCOPE_BOUNDARIES = frozenset(LIST_ITEM_SCOPE_TERMINATORS)
@@ -3345,6 +3349,7 @@ class ParseEngine:
             name not in _TABLE_STRUCTURE_START_TAGS
             and name not in _INLINE_HEAD_VOID_START_TAGS
             and name not in {"param", "source", "track"}
+            and name not in _RUBY_START_TAGS
             and name != "template"
             and (action is None or not action.p_closing)
         )

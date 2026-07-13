@@ -38,3 +38,16 @@
 |   <body>
 |     <marquee>
 |       <!--  -->
+
+#data
+<div><tt></div><rt>
+#errors
+(1,5): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       <tt>
+|     <rt>
