@@ -2404,11 +2404,16 @@ class ParseEngine:
             self._form_element = None
             if form_node is None:
                 return pos
+            # §13.2.6.4.7: ignore </form> when the form element is not in scope,
+            # e.g. behind an open <table>. Without this the form is removed from
+            # the stack and following content escapes it.
+            form_idx = self._find_open_index_before_boundary("form", _DEFAULT_SCOPE_BOUNDARIES)
+            if form_idx is None or self._stack[form_idx] is not form_node:
+                return pos
+            # form_node is confirmed in scope on the stack and implied end tags
+            # never pop a form, so the removal below always succeeds.
             self._generate_implied_end_tags()
-            try:
-                self._stack.remove(form_node)
-            except ValueError:
-                pass
+            self._stack.remove(form_node)
             return pos
         select_idx = self._find_open_html_index("select")
         if select_idx is not None and name not in {"optgroup", "option", "select", "selectedcontent", "template"}:

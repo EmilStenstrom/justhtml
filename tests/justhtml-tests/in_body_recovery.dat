@@ -51,3 +51,16 @@
 |     <div>
 |       <tt>
 |     <rt>
+
+#data
+<form><table></form><table>
+#errors
+(1,6): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <form>
+|       <table>
+|       <table>
