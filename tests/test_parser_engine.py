@@ -534,6 +534,12 @@ class TestParserLowLevelModes(_ParserEngineTestCase):
                 "<html><head><script><!--><script></script></head><body></body></html>",
             ),
             (
+                # "</style/x" terminates the end-tag name with "/", closing the
+                # element at EOF with its attributes dropped.
+                "<style></style/x",
+                "<html><head><style></style></head><body></body></html>",
+            ),
+            (
                 "<html a=1><head b=2></head><body c=3>x</body></html><p>y",
                 '<html a="1"><head b="2"></head><body c="3">x<p>y</p></body></html>',
             ),

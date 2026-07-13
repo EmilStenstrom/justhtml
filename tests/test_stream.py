@@ -2,7 +2,7 @@ import unittest
 
 from justhtml import stream
 from justhtml.core.text import ascii_lower
-from justhtml.parser.scanner import find_script_end_tag
+from justhtml.parser.scanner import find_rawtext_end_tag, find_script_end_tag
 from justhtml.parser.stream import _StreamScanner
 
 
@@ -448,6 +448,16 @@ class TestStream(unittest.TestCase):
         # does not start a double escape; the "</script>" still closes it.
         short_comment = "<!--><script></script>"
         assert find_script_end_tag(short_comment, short_comment.lower(), 0, len(short_comment)) == (13, 22)
+
+    def test_rawtext_end_tag_slash_terminated_without_gt(self):
+        # "</style/x" terminates the end-tag name with "/", so at EOF the end tag
+        # is emitted (attributes dropped) and the raw text ends, even though no
+        # ">" ever appears.
+        slashed = "</style/x"
+        assert find_rawtext_end_tag(slashed, slashed.lower(), "style", 0, len(slashed)) == (0, len(slashed))
+        # A bare "</style" at EOF with no terminator stays raw text.
+        bare = "</style"
+        assert find_rawtext_end_tag(bare, bare.lower(), "style", 0, len(bare)) == (None, len(bare))
 
     def test_rawtext_end_tag_after_length_changing_case_char(self):
         # "İ" (U+0130) lowers to two characters, so a str.lower() copy of the

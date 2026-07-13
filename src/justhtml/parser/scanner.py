@@ -38,7 +38,11 @@ def find_rawtext_end_tag(html: str, lower: str, name: str, pos: int, end: int) -
             continue
         tag_end = find_tag_end(html, after_name, end)
         if tag_end == -1:
-            if after_name < end and not html[after_name:end].strip(SPACE + "/"):
+            if after_name < end:
+                # A space or "/" terminated the end-tag name but no ">" follows.
+                # At EOF the end tag is still emitted (its attributes dropped), so
+                # the raw text ends here. Only a bare "</name" at EOF, with no
+                # terminator, stays raw text.
                 return close, end
             search = after_name
             continue
@@ -89,13 +93,9 @@ def find_script_end_tag(html: str, lower: str, pos: int, end: int) -> tuple[int 
                     double_escaped = False
                     search = close + 8
                     continue
-            double_end = lower.find("</script", search, close)
-            if double_end != -1:
-                after_name = double_end + 8
-                if after_name >= end or html[after_name] in TAG_END_NAME_STOP:
-                    double_escaped = False
-                    search = after_name
-                    continue
+            # No earlier terminated "</script" can precede `close`: find_rawtext_end_tag
+            # already returns the first terminated end tag, so the region between
+            # `search` and `close` holds only non-terminated occurrences.
             double_escaped = False
             search = next_pos
             continue
