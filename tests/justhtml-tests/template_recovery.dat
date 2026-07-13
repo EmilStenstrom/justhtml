@@ -305,3 +305,17 @@
 |     <template>
 |       content
 |   <body>
+
+#data
+<template><noscript></noscript>Y
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <noscript>
+|         "Y"
+|   <body>
