@@ -3515,9 +3515,11 @@ class ParseEngine:
                 "html",
             }:  # pragma: no branch - opposite edge requires invalid parser state
                 self._enter_template_mode()  # pragma: no cover - unreachable after parser-state guards
-            if name in self._table_cell_tags:
-                self._push_active_formatting_marker()
-            elif name in _ACTIVE_FORMATTING_MARKER_TAGS:
+            # Active-formatting markers are pushed only for the HTML scope-marker
+            # elements. A foreign element that merely shares a name (e.g. an SVG
+            # or MathML "td") must not push one, or the stray marker would block
+            # later reconstruction once the foreign element is popped.
+            if is_html_namespace and (name in self._table_cell_tags or name in _ACTIVE_FORMATTING_MARKER_TAGS):
                 self._push_active_formatting_marker()
         return node
 
@@ -3571,9 +3573,10 @@ class ParseEngine:
             self._stack.append(node)
             if type(node) is Template and node.namespace in {None, "html"}:
                 self._enter_template_mode()
-            if name in self._table_cell_tags:
-                self._push_active_formatting_marker()
-            elif name in _ACTIVE_FORMATTING_MARKER_TAGS:
+            # Only HTML scope-marker elements push an active-formatting marker; a
+            # foreign element sharing a name (e.g. an SVG or MathML "td") must not,
+            # or the stray marker blocks reconstruction once it is popped.
+            if is_html_namespace and (name in self._table_cell_tags or name in _ACTIVE_FORMATTING_MARKER_TAGS):
                 self._push_active_formatting_marker()
         return node
 

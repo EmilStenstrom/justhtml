@@ -174,3 +174,20 @@
 |       <svg th>
 |         <svg o>
 |       "0"
+
+#data
+<p><a><math><td></td><listing>U
+#errors
+(1,3): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <a>
+|         <math math>
+|           <math td>
+|     <listing>
+|       <a>
+|         "U"

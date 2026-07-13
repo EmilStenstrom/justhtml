@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Let table-scoped end tags follow the foreign-content end-tag algorithm when the current node is a MathML or SVG element. Previously, an end tag such as `</th>` inside foreign content was routed to HTML table recovery, so `<svg><th><o></th>0` left the foreign cell open and misplaced the following text.
 - Ignore `</body>` and `</html>` when no body element is in scope. Previously, an open scope marker such as `<marquee>`, `<object>`, or `<applet>` did not prevent the switch to the after-body mode, so following content such as a comment in `<marquee></body><!--x-->` was placed outside the still-open element.
 - Close an escaped script comment on `<!-->`, whose `<!--` dashes already count toward the `-->`. Previously, `<script><!--><script></script>` treated the following `<script>` as a double-escape start and swallowed the closing tag, leaving the script element unclosed.
+- Push active-formatting markers only for HTML scope-marker elements. A foreign element sharing a name such as an SVG or MathML `<td>` no longer pushes a marker that would linger after the element is popped and block later formatting reconstruction, as in `<p><a><math><td></td><listing>U`.
 
 ## [3.5.0] - 2026-07-13
 
