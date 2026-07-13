@@ -319,3 +319,18 @@
 |         <noscript>
 |         "Y"
 |   <body>
+
+#data
+<template><dialog><object></dialog>e
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <dialog>
+|           <object>
+|             "e"
+|   <body>

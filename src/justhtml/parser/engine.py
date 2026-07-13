@@ -2534,7 +2534,7 @@ class ParseEngine:
         elif name == "summary":
             idx = self._find_open_index_before_boundary(name, _DEFAULT_SCOPE_BOUNDARIES)
         elif self._template_modes:
-            idx = self._find_open_index_in_current_scope(name)
+            idx = self._find_open_index_before_boundary(name, self._template_end_tag_boundaries(name, action))
         elif name not in self._special_elements and (action is None or not action.p_closing):
             idx = self._find_open_index_before_boundary(name, _GENERAL_END_TAG_BOUNDARIES)
         else:
@@ -3781,6 +3781,15 @@ class ParseEngine:
             ):
                 return None
         return None
+
+    def _template_end_tag_boundaries(self, name: str, action: TagAction | None) -> frozenset[str]:
+        # Generic in-body end tags inside a template still obey scope: block and
+        # special names close within the default scope, while other names stop at
+        # any special element (§13.2.6.4.7 "any other end tag"). The template
+        # element is a member of both sets, so the walk cannot escape it.
+        if name in self._special_elements or (action is not None and action.p_closing):
+            return _DEFAULT_SCOPE_BOUNDARIES
+        return _GENERAL_END_TAG_BOUNDARIES
 
     def _find_open_heading_index(self) -> int | None:
         stack = self._stack
