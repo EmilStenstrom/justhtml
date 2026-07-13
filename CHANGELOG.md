@@ -7,10 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.1] - 2026-07-13
+
 ### Fixed
+
 - Keep processing instructions inside a scripting-disabled head `noscript`, and process them in body mode inside templates as required by the latest WHATWG parsing rules.
 
 ### Changed
+
 - Move raw parser input/output regressions from Python unit tests into the shared tree-construction fixture format.
 
 ## [3.6.0] - 2026-07-13
