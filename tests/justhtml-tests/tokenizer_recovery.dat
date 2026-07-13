@@ -219,6 +219,14 @@ a<?x>b
 |       "w"
 
 #data
+<?pi>
+#errors
+#document-fragment
+div
+#document
+| <?pi ?>
+
+#data
 <!doctype html><div\x0d/>x
 #errors
 #document
