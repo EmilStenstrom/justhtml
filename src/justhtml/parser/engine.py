@@ -2321,8 +2321,15 @@ class ParseEngine:
                 # unhandled end tags and must be ignored rather than switching
                 # to the after-body/after-html modes.
                 return pos
-            parent_name = getattr(self._current_parent(), "name", None)
-            if self._find_open_index("table") is not None and parent_name not in {"body", "html"}:
+            if (
+                self._find_open_html_index("body") is not None
+                and self._find_open_index_before_boundary("body", _DEFAULT_SCOPE_BOUNDARIES) is None
+            ):
+                # With body on the open stack, </body> and </html> are ignored
+                # unless body is in scope (§13.2.6.4.7); an open scope marker such
+                # as marquee, object, or applet keeps it out of scope. When body
+                # is not on the stack yet (in head/after head), fall through so
+                # the head-to-body transition still runs.
                 return pos
             self._in_colgroup = False
             if self._head is not None and self._stack[-1] is self._head:

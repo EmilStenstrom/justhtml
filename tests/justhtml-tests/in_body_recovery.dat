@@ -24,3 +24,17 @@
 |       <u>
 |     <section>
 |       <meta>
+
+#data
+<marquee></body><!
+#errors
+(1,9): expected-doctype-but-got-start-tag
+(1,10): unexpected-end-tag
+(1,18): eof-in-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <marquee>
+|       <!--  -->
