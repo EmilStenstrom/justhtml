@@ -169,6 +169,20 @@ _TEMPLATE_MODE_COLGROUP = "colgroup"
 _TEMPLATE_TABLE_CONTEXT_START_TAGS = {"caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr"}
 _TEMPLATE_TABLE_BODY_IGNORED_START_TAGS = {"caption", "col", "colgroup", "table"}
 _TEMPLATE_ROW_STRUCTURE_START_TAGS = {"caption", "col", "colgroup", "tbody", "tfoot", "thead", "tr", "table"}
+# Start tags that move the "in template" mode into the body without going through
+# _handle_template_mode_start: void head elements handled inline plus the raw
+# text / RCDATA elements that are not head content (iframe, noembed, xmp,
+# textarea), which are dispatched before the template-mode handler runs.
+_TEMPLATE_INITIAL_BODY_SWITCH_TAGS = {
+    "base",
+    "basefont",
+    "bgsound",
+    "noframes",
+    "iframe",
+    "noembed",
+    "xmp",
+    "textarea",
+}
 _FRAMESET_BODY_OK_TAGS = {"div", "figure", "p", "param", "source", "track"} | FORMATTING_ELEMENTS
 _FRAMESET_BLOCKING_START_TAGS = {
     "applet",
@@ -2716,12 +2730,9 @@ class ParseEngine:
             self._close_until("select")
             return pos
 
-        if self._current_template_mode() == _TEMPLATE_MODE_INITIAL and name in {
-            "base",
-            "basefont",
-            "bgsound",
-            "noframes",
-        }:  # pragma: no cover - compiled sanitizer drops parser-only template contents
+        if (
+            self._current_template_mode() == _TEMPLATE_MODE_INITIAL and name in _TEMPLATE_INITIAL_BODY_SWITCH_TAGS
+        ):  # pragma: no cover - compiled sanitizer drops parser-only template contents
             self._set_current_template_mode(_TEMPLATE_MODE_BODY)  # pragma: no cover
 
         if in_parser_only_template and self._current_template_mode() == _TEMPLATE_MODE_COLGROUP:
@@ -3136,12 +3147,7 @@ class ParseEngine:
         ):
             self._close_html_until("select")
 
-        if self._current_template_mode() == _TEMPLATE_MODE_INITIAL and name in {
-            "base",
-            "basefont",
-            "bgsound",
-            "noframes",
-        }:
+        if self._current_template_mode() == _TEMPLATE_MODE_INITIAL and name in _TEMPLATE_INITIAL_BODY_SWITCH_TAGS:
             self._set_current_template_mode(_TEMPLATE_MODE_BODY)
 
         if html_text_parsing and self._current_template_mode() == _TEMPLATE_MODE_COLGROUP:

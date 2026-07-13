@@ -362,3 +362,16 @@
 |         <tbody>
 |           <tr>
 |   <body>
+
+#data
+<template><xmp></xmp><td>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <xmp>
+|   <body>
