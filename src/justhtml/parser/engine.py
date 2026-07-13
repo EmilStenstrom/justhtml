@@ -3563,6 +3563,19 @@ class ParseEngine:
             attrs = self._prepare_foreign_attrs(namespace, attrs)
         return name, attrs, namespace
 
+    def _pop_foreign_for_breakout(self) -> None:
+        # Pop the foreign-content elements a breakout start tag returns through,
+        # stopping at the fragment context node and at integration points where
+        # HTML content resumes.
+        while (
+            len(self._stack) > 1
+            and self._stack[-1].namespace not in {None, "html", _PARSER_ONLY_NAMESPACE}
+            and self._stack[-1] is not self._fragment_context_node
+            and not self._is_html_integration_point(self._stack[-1])
+            and not self._is_mathml_text_integration_point(self._stack[-1])
+        ):
+            self._stack.pop()
+
     def _namespace_for_raw_start(self, name: str, attrs: dict[str, str | None]) -> str:
         current = self._stack[-1] if self._stack else None
         current_ns = getattr(current, "namespace", None)
@@ -3578,14 +3591,7 @@ class ParseEngine:
             )
             if not breaks_out:
                 return current_ns or "html"
-            while (
-                len(self._stack) > 1
-                and self._stack[-1].namespace not in {None, "html", _PARSER_ONLY_NAMESPACE}
-                and self._stack[-1] is not self._fragment_context_node
-                and not self._is_html_integration_point(self._stack[-1])
-                and not self._is_mathml_text_integration_point(self._stack[-1])
-            ):
-                self._stack.pop()
+            self._pop_foreign_for_breakout()
 
         if name == "svg":
             return "svg"
@@ -4306,9 +4312,14 @@ class ParseEngine:
                 self._stack.pop()
             return
 
-        if name in HEADING_ELEMENTS and getattr(self._stack[-1], "name", None) in HEADING_ELEMENTS:
-            self._mark_active_formatting_dirty()
-            self._stack.pop()
+        if name in HEADING_ELEMENTS:
+            # Headings are foreign-content breakout elements; pop the foreign
+            # ancestors first so the "current node is a heading" check runs
+            # against the HTML element the breakout returns to (§13.2.6.5).
+            self._pop_foreign_for_breakout()
+            if getattr(self._stack[-1], "name", None) in HEADING_ELEMENTS:
+                self._mark_active_formatting_dirty()
+                self._stack.pop()
 
     def _repair_table_for_start(self, name: str) -> None:
         table_idx = self._find_open_index("table")

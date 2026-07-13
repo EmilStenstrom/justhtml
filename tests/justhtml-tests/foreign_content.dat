@@ -133,3 +133,16 @@
 |     <svg svg>
 |       <svg colgroup>
 |         "x"
+
+#data
+<h1><math><h3>
+#errors
+(1,4): expected-doctype-but-got-start-tag
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <h1>
+|       <math math>
+|     <h3>
