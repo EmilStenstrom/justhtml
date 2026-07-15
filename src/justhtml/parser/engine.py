@@ -521,6 +521,7 @@ def compile_default_engine_plan(*, fragment: bool, scripting_enabled: bool = Tru
 
     policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
     plan = compile_engine_plan(policy=policy, fragment=fragment, scripting_enabled=scripting_enabled)
+    policy.compile()
     _DEFAULT_ENGINE_PLAN_CACHE[cache_key] = plan
     return plan
 
