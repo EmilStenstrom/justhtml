@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Refresh the web-platform-tests tree-construction fixtures and comparison scores.
+- Make the correctness benchmark skip an optional `html5-parser` installation when its libxml2 ABI conflicts with `lxml`.
 
 ## [3.6.1] - 2026-07-13
 

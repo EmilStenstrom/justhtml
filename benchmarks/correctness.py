@@ -148,7 +148,7 @@ def check_parser_available(parser_name):
             import html5_parser  # noqa: F401
 
             return True
-        except ImportError:
+        except (ImportError, RuntimeError):
             return False
     if parser_name == "markupever":
         try:
