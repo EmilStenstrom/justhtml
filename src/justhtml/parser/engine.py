@@ -1253,31 +1253,7 @@ class ParseEngine:
         if self._has_null and "\0" in data:
             data = data.replace("\0", "\ufffd")
         node = ProcessingInstruction(data=data)
-        self._move_head_template_to_body_for_processing_instruction()
         self._append_misc_node(node, source_pos)
-
-    def _move_head_template_to_body_for_processing_instruction(self) -> None:
-        if self._fragment or self._head is None or self._html is None:
-            return
-        stack = self._stack
-        template_idx = self._open_template_index()
-        if template_idx is None:
-            return
-        outer_template_idx = template_idx
-        for idx in range(template_idx, 0, -1):
-            candidate = stack[idx]
-            if type(candidate) is Template and candidate.parent is self._head:
-                outer_template_idx = idx
-        template = stack[outer_template_idx]
-        if type(template) is not Template or template.parent is not self._head:
-            return
-        head_children = self._head.children
-        if head_children is not None:  # pragma: no branch - Document head always owns a children list
-            head_children.remove(template)
-        self._append(self._body, template)
-        self._stack = _CountingStack([self._doc, self._html, self._body, *stack[outer_template_idx:]])  # type: ignore[list-item]
-        self._body_mode_seen = True
-        self._after_head = False
 
     def _processing_instruction_data(self, content_start: int, content_end: int) -> str | None:
         html = self._html_input

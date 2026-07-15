@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep templates open in the head when they contain a processing instruction, matching the latest web-platform-tests tree-construction fixture.
+
+### Changed
+
+- Refresh the web-platform-tests tree-construction fixtures and comparison scores.
+
 ## [3.6.1] - 2026-07-13
 
 ### Fixed

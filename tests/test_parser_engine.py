@@ -14,6 +14,7 @@ from justhtml.parser.engine import (
 )
 from justhtml.parser.options import ParserOptions
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlRule
+from justhtml.serializer import to_test_format
 from tests.harness.tree import TestRunner
 
 
@@ -47,6 +48,12 @@ class TestParserSyntaxAndRecovery(_ParserEngineTestCase):
     def test_processing_instruction_edges(self) -> None:
         document = JustHTML("<?\ud83d\ude80\ud83dX\ud83d\ude80>", sanitize=False)
         assert document.root.children[0].data == "?🚀\ud83dX🚀"
+
+    def test_processing_instruction_keeps_open_head_template_in_head(self) -> None:
+        document = JustHTML("<template><?pi>", sanitize=False)
+        assert to_test_format(document.root) == (
+            "| <html>\n|   <head>\n|     <template>\n|       content\n|         <?pi ?>\n|   <body>"
+        )
 
     def test_rawtext_processing_instruction_branch(self) -> None:
         script = Element("script", {}, "html")

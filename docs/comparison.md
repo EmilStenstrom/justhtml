@@ -11,7 +11,7 @@ Use a different tool when one narrow requirement matters more than the whole pip
 | Tool | HTML5 parsing [1] | Speed | Query | Build | Sanitize | Notes |
 |------|------------------------------------------|-------|----------|-------|------------------|-------|
 | **JustHTML**<br>Pure Python | ✅ 100% | ⚡ Fast | ✅ CSS selectors | ✅ `element()` | ✅ Built-in | Correct, secure, easy to install, and fast enough. |
-| **`selectolax`**<br>Python wrapper of C-based Lexbor | 🟡 95.4% | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast. |
+| **`selectolax`**<br>Python wrapper of C-based Lexbor | ✅ 100% | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast. |
 | **Chromium**<br>browser engine | 🟡 95.1% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
 | **`turbohtml`**<br>Python wrapper of a C core | 🟡 94.3% | 🚀 Very Fast | ✅ CSS selectors, XPath | ✅ `E.*` builder | ✅ Built-in | Broad, compiled alternative with parsing, querying, and sanitization. |
 | **WebKit**<br>browser engine | 🟡 94.0% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
@@ -23,10 +23,10 @@ Use a different tool when one narrow requirement matters more than the whole pip
 | **`html.parser`**<br>Python stdlib | 🔴 0.3% | ⚡ Fast | ❌ None | ❌ None | ❌ Needs sanitization | Standard library. Chokes on malformed HTML. |
 | **`lxml`**<br>Python wrapper of C-based libxml2 | 🔴 0.3% | 🚀 Very Fast | 🟡 XPath | ✅ `etree` / E-factory | ❌ Needs sanitization | Fast but not HTML5 compliant. Context-fragment cases are skipped; supported cases still perform poorly. Don't use the old lxml.html.clean module! |
 
-[1]: Correctness scores are counted against the [web-platform-tests tree-construction tests](https://github.com/web-platform-tests/wpt/tree/master/html/syntax/parsing/resources). They were run locally at [2026-07-11](https://github.com/web-platform-tests/wpt/commit/ba458f52c8a848bbd9c525ac98fb1f7b30e41dc2).
+[1]: Correctness scores are counted against the [web-platform-tests tree-construction tests](https://github.com/web-platform-tests/wpt/tree/master/html/syntax/parsing/resources). They were run locally at [2026-07-15](https://github.com/web-platform-tests/wpt/commit/4830edb033cb486fd0cd6f85b5e937cfc718704d). JustHTML passed all 1,916 non-script cases; Selectolax 0.4.11 passed all 1,880 cases within its supported scope.
 
 
-[2]: Current local rerun with [`justhtml-html5lib-tests-bench`](https://github.com/EmilStenstrom/justhtml-html5lib-tests-bench) against WPT commit [`ba458f52`](https://github.com/web-platform-tests/wpt/commit/ba458f52c8a848bbd9c525ac98fb1f7b30e41dc2). The browser harness skips 12 `#script-on` cases but includes `#script-off` cases, so these scores are not directly comparable to the 1,879-case Python-parser scores above.
+[2]: Current local rerun with [`justhtml-html5lib-tests-bench`](https://github.com/EmilStenstrom/justhtml-html5lib-tests-bench) against WPT commit [`ba458f52`](https://github.com/web-platform-tests/wpt/commit/ba458f52c8a848bbd9c525ac98fb1f7b30e41dc2). The browser harness skips 12 `#script-on` cases but includes `#script-off` cases, so these scores are not directly comparable to the 1,880-case Python-parser scores above.
 
 ## Why JustHTML
 
