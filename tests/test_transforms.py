@@ -2029,6 +2029,15 @@ class TestTransforms(unittest.TestCase):
             doc = JustHTML(html, fragment=True, sanitize=False, transforms=[CollapseWhitespace()])
             assert doc.to_html(pretty=False) == expected
 
+    def test_collapsewhitespace_ignores_nonrendering_siblings(self) -> None:
+        for tag, content in (("template", "template"), ("script", "script"), ("style", "style {}")):
+            html = f"<div>before <{tag}>{content}</{tag}><p>middle</p><{tag}>{content}</{tag}> after</div>"
+            expected = f"<div>before<{tag}>{content}</{tag}><p>middle</p><{tag}>{content}</{tag}>after</div>"
+
+            doc = JustHTML(html, fragment=True, sanitize=False, transforms=[CollapseWhitespace()])
+
+            assert doc.to_html(pretty=False) == expected
+
     def test_collapsewhitespace_preserves_text_adjacent_to_inline_sibling(self) -> None:
         doc = JustHTML(
             "<div>before <span>middle</span> after</div>",

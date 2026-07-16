@@ -63,6 +63,8 @@ _SELECTOR_CONTEXT_SHAREABLE_KINDS = frozenset(
     {"setattrs", "edit_attrs", "edit_attrs_chain", "strip_invisible_unicode", "merge_attr_tokens"}
 )
 
+_NON_RENDERED_SIBLING_ELEMENTS = frozenset({"script", "style", "template"})
+
 
 def apply_compiled_transforms(
     root: Node,
@@ -333,7 +335,10 @@ def apply_compiled_transforms(
                     sibling_index = start + step
                     while 0 <= sibling_index < len(children):
                         sibling = children[sibling_index]
-                        if sibling.name.lower() == "dialog" and "open" not in (sibling.attrs or {}):
+                        sibling_name = sibling.name.lower()
+                        if sibling_name in _NON_RENDERED_SIBLING_ELEMENTS or (
+                            sibling_name == "dialog" and "open" not in (sibling.attrs or {})
+                        ):
                             sibling_index += step
                             continue
                         if sibling.name.startswith("#"):
