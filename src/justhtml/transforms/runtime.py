@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from justhtml.core.constants import VOID_ELEMENTS
+from justhtml.core.constants import HTML_SPACE_CHARACTERS, VOID_ELEMENTS
 from justhtml.dom import Element, Node, Template, Text
 from justhtml.sanitizer import _sanitize_rawtext_element_contents, _strip_invisible_unicode
 from justhtml.selector import SelectorMatcher, SelectorQueryContext
@@ -310,6 +310,32 @@ def apply_compiled_transforms(
                 node.parent = None
                 return True
 
+            def _nearest_rendered_sibling(
+                children: list[Node],
+                start: int,
+                step: int,
+            ) -> Node | None:
+                sibling_index = start + step
+                while 0 <= sibling_index < len(children):
+                    sibling = children[sibling_index]
+                    sibling_name = sibling.name.lower()
+                    if sibling.name.startswith("#"):
+                        if sibling.name != "#text" or not sibling.data:
+                            sibling_index += step
+                            continue
+                        return sibling
+                    sibling_attrs = sibling.attrs or {}
+                    if (
+                        "hidden" in sibling_attrs
+                        or sibling_name in _NON_RENDERED_SIBLING_ELEMENTS
+                        or (sibling_name == "dialog" and "open" not in sibling_attrs)
+                        or (sibling_name == "input" and (sibling_attrs.get("type") or "").lower() == "hidden")
+                    ):
+                        sibling_index += step
+                        continue
+                    return sibling
+                return None
+
             def _trim_block_edge_text(
                 text_data: str,
                 *,
@@ -331,32 +357,10 @@ def apply_compiled_transforms(
                     lowered = name.lower()
                     return lowered == "br" or lowered in block_tags
 
-                def _nearest_rendered_sibling(start: int, step: int) -> Node | None:
-                    sibling_index = start + step
-                    while 0 <= sibling_index < len(children):
-                        sibling = children[sibling_index]
-                        sibling_name = sibling.name.lower()
-                        if sibling.name.startswith("#"):
-                            if sibling.name != "#text" or not sibling.data:
-                                sibling_index += step
-                                continue
-                            return sibling
-                        sibling_attrs = sibling.attrs or {}
-                        if (
-                            "hidden" in sibling_attrs
-                            or sibling_name in _NON_RENDERED_SIBLING_ELEMENTS
-                            or (sibling_name == "dialog" and "open" not in sibling_attrs)
-                            or (sibling_name == "input" and (sibling_attrs.get("type") or "").lower() == "hidden")
-                        ):
-                            sibling_index += step
-                            continue
-                        return sibling
-                    return None
-
-                previous_sibling = _nearest_rendered_sibling(child_index, -1)
+                previous_sibling = _nearest_rendered_sibling(children, child_index, -1)
                 if previous_sibling is None or _is_block_sibling(previous_sibling):
                     text_data = text_data.lstrip(" \t\n\f\r")
-                next_sibling = _nearest_rendered_sibling(child_index, 1)
+                next_sibling = _nearest_rendered_sibling(children, child_index, 1)
                 if next_sibling is None or _is_block_sibling(next_sibling):
                     text_data = text_data.rstrip(" \t\n\f\r")
                 return text_data
@@ -593,6 +597,15 @@ def apply_compiled_transforms(
                                 text_data = str(node.data or "")
                                 if text_data:
                                     collapsed = _collapse_html_space_characters(text_data)
+                                    previous_sibling = _nearest_rendered_sibling(children, i, -1)
+                                    if (
+                                        collapsed.startswith(" ")
+                                        and previous_sibling is not None
+                                        and previous_sibling.name == "#text"
+                                    ):
+                                        previous_data = str(previous_sibling.data or "")
+                                        if previous_data and previous_data[-1] in HTML_SPACE_CHARACTERS:
+                                            collapsed = collapsed[1:]
                                     normalized = collapsed
                                     if t.trim_blocks:
                                         normalized = _trim_block_edge_text(

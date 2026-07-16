@@ -2003,6 +2003,45 @@ class TestTransforms(unittest.TestCase):
 
         assert target.data == " before"
 
+    def test_collapsewhitespace_collapses_across_adjacent_text_nodes_without_merging(self) -> None:
+        root = Node("div")
+        first = Text("a ")
+        second = Text(" b")
+        root.append_child(first)
+        root.append_child(second)
+
+        apply_compiled_transforms(root, compile_transforms([CollapseWhitespace(trim_blocks=False)]))
+
+        assert root.children == [first, second]
+        assert first.data == "a "
+        assert second.data == "b"
+
+    def test_collapsewhitespace_collapses_across_nonrendering_siblings(self) -> None:
+        doc = JustHTML(
+            "<div>a <!-- comment --> b</div>",
+            fragment=True,
+            sanitize=False,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div>a <!-- comment -->b</div>"
+
+    def test_collapsewhitespace_collapses_text_exposed_by_earlier_transforms(self) -> None:
+        doc = JustHTML(
+            "<div>a <span> b</span></div>",
+            fragment=True,
+            sanitize=False,
+            transforms=[Unwrap("span"), CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div>a b</div>"
+
+        doc = JustHTML(
+            "<div>a <!-- comment --> b</div>",
+            fragment=True,
+            sanitize=False,
+            transforms=[DropComments(), CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div>a b</div>"
+
     def test_collapsewhitespace_preserves_spaces_around_closed_dialogs(self) -> None:
         doc = JustHTML(
             "<div>before <dialog>middle</dialog> after</div>",
@@ -2010,7 +2049,7 @@ class TestTransforms(unittest.TestCase):
             sanitize=False,
             transforms=[CollapseWhitespace()],
         )
-        assert doc.to_html(pretty=False) == "<div>before <dialog>middle</dialog> after</div>"
+        assert doc.to_html(pretty=False) == "<div>before <dialog>middle</dialog>after</div>"
 
         doc = JustHTML(
             "<div>before <dialog open>middle</dialog> after</div>",
@@ -2027,7 +2066,7 @@ class TestTransforms(unittest.TestCase):
             sanitize=False,
             transforms=[CollapseWhitespace()],
         )
-        assert doc.to_html(pretty=False) == "<div>before <p hidden>middle</p> after</div>"
+        assert doc.to_html(pretty=False) == "<div>before <p hidden>middle</p>after</div>"
 
         doc = JustHTML(
             "<div>before <span hidden>middle</span><p>block</p> after</div>",
