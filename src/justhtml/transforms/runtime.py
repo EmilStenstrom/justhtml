@@ -330,6 +330,9 @@ def apply_compiled_transforms(
                     sibling_index = start + step
                     while 0 <= sibling_index < len(children):
                         sibling = children[sibling_index]
+                        if sibling.name.lower() == "dialog" and "open" not in (sibling.attrs or {}):
+                            sibling_index += step
+                            continue
                         if sibling.name.startswith("#"):
                             if sibling.name != "#text" or not sibling.data:
                                 sibling_index += step

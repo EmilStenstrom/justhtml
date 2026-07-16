@@ -2003,6 +2003,23 @@ class TestTransforms(unittest.TestCase):
 
         assert target.data == " before"
 
+    def test_collapsewhitespace_preserves_spaces_around_closed_dialogs(self) -> None:
+        doc = JustHTML(
+            "<div>before <dialog>middle</dialog> after</div>",
+            fragment=True,
+            sanitize=False,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div>before <dialog>middle</dialog> after</div>"
+
+        doc = JustHTML(
+            "<div>before <dialog open>middle</dialog> after</div>",
+            fragment=True,
+            sanitize=False,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div>before<dialog open>middle</dialog>after</div>"
+
     def test_collapsewhitespace_preserves_text_adjacent_to_inline_sibling(self) -> None:
         doc = JustHTML(
             "<div>before <span>middle</span> after</div>",
