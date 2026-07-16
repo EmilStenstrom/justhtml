@@ -324,7 +324,10 @@ def apply_compiled_transforms(
 
                 def _is_block_sibling(sib: Node) -> bool:
                     name = sib.name
-                    return not name.startswith("#") and name.lower() in block_tags
+                    if name.startswith("#"):
+                        return False
+                    lowered = name.lower()
+                    return lowered == "br" or lowered in block_tags
 
                 def _nearest_rendered_sibling(start: int, step: int) -> Node | None:
                     sibling_index = start + step

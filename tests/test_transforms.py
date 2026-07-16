@@ -2020,6 +2020,15 @@ class TestTransforms(unittest.TestCase):
         )
         assert doc.to_html(pretty=False) == "<div>before<dialog open>middle</dialog>after</div>"
 
+    def test_collapsewhitespace_trims_text_at_pre_hr_and_br_boundaries(self) -> None:
+        for html, expected in (
+            ("<div>before <pre>middle</pre> after</div>", "<div>before<pre>middle</pre>after</div>"),
+            ("<div>before <hr> after</div>", "<div>before<hr>after</div>"),
+            ("<div>before <br> after</div>", "<div>before<br>after</div>"),
+        ):
+            doc = JustHTML(html, fragment=True, sanitize=False, transforms=[CollapseWhitespace()])
+            assert doc.to_html(pretty=False) == expected
+
     def test_collapsewhitespace_preserves_text_adjacent_to_inline_sibling(self) -> None:
         doc = JustHTML(
             "<div>before <span>middle</span> after</div>",
