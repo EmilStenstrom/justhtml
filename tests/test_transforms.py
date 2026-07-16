@@ -1931,6 +1931,22 @@ class TestTransforms(unittest.TestCase):
         )
         assert doc.to_html(pretty=False) == "<p><b>a</b> middle <i>b</i></p>"
 
+    def test_collapsewhitespace_trims_text_adjacent_to_block_siblings(self) -> None:
+        doc = JustHTML(
+            "<div>before <p>middle</p> after</div>",
+            fragment=True,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div>before<p>middle</p>after</div>"
+
+    def test_collapsewhitespace_preserves_text_adjacent_to_inline_siblings(self) -> None:
+        doc = JustHTML(
+            "<div>before <span>middle</span> after</div>",
+            fragment=True,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div>before <span>middle</span> after</div>"
+
     def test_collapsewhitespace_block_tags_can_include_custom_tags(self) -> None:
         doc = JustHTML(
             "<x-card>\n      test\n</x-card>",
