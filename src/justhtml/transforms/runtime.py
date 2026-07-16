@@ -336,15 +336,19 @@ def apply_compiled_transforms(
                     while 0 <= sibling_index < len(children):
                         sibling = children[sibling_index]
                         sibling_name = sibling.name.lower()
-                        if sibling_name in _NON_RENDERED_SIBLING_ELEMENTS or (
-                            sibling_name == "dialog" and "open" not in (sibling.attrs or {})
-                        ):
-                            sibling_index += step
-                            continue
                         if sibling.name.startswith("#"):
                             if sibling.name != "#text" or not sibling.data:
                                 sibling_index += step
                                 continue
+                            return sibling
+                        sibling_attrs = sibling.attrs or {}
+                        if (
+                            "hidden" in sibling_attrs
+                            or sibling_name in _NON_RENDERED_SIBLING_ELEMENTS
+                            or (sibling_name == "dialog" and "open" not in sibling_attrs)
+                        ):
+                            sibling_index += step
+                            continue
                         return sibling
                     return None
 

@@ -2020,6 +2020,23 @@ class TestTransforms(unittest.TestCase):
         )
         assert doc.to_html(pretty=False) == "<div>before<dialog open>middle</dialog>after</div>"
 
+    def test_collapsewhitespace_ignores_elements_with_hidden_attribute(self) -> None:
+        doc = JustHTML(
+            "<div>before <p hidden>middle</p> after</div>",
+            fragment=True,
+            sanitize=False,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div>before <p hidden>middle</p> after</div>"
+
+        doc = JustHTML(
+            "<div>before <span hidden>middle</span><p>block</p> after</div>",
+            fragment=True,
+            sanitize=False,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div>before<span hidden>middle</span><p>block</p>after</div>"
+
     def test_collapsewhitespace_trims_text_at_pre_hr_and_br_boundaries(self) -> None:
         for html, expected in (
             ("<div>before <pre>middle</pre> after</div>", "<div>before<pre>middle</pre>after</div>"),
