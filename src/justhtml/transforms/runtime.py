@@ -326,9 +326,22 @@ def apply_compiled_transforms(
                     name = sib.name
                     return not name.startswith("#") and name.lower() in block_tags
 
-                if child_index == 0 or _is_block_sibling(children[child_index - 1]):
+                def _nearest_rendered_sibling(start: int, step: int) -> Node | None:
+                    sibling_index = start + step
+                    while 0 <= sibling_index < len(children):
+                        sibling = children[sibling_index]
+                        if sibling.name.startswith("#"):
+                            if sibling.name != "#text" or not sibling.data:
+                                sibling_index += step
+                                continue
+                        return sibling
+                    return None
+
+                previous_sibling = _nearest_rendered_sibling(child_index, -1)
+                if previous_sibling is None or _is_block_sibling(previous_sibling):
                     text_data = text_data.lstrip(" \t\n\f\r")
-                if child_index == len(children) - 1 or _is_block_sibling(children[child_index + 1]):
+                next_sibling = _nearest_rendered_sibling(child_index, 1)
+                if next_sibling is None or _is_block_sibling(next_sibling):
                     text_data = text_data.rstrip(" \t\n\f\r")
                 return text_data
 

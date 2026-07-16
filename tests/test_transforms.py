@@ -5,7 +5,7 @@ from typing import Any
 
 from justhtml import JustHTML as _JustHTML
 from justhtml import SelectorError
-from justhtml.dom import Comment, Document, DocumentFragment, Element, Node, Template, Text
+from justhtml.dom import Comment, Document, DocumentFragment, Element, Node, ProcessingInstruction, Template, Text
 from justhtml.sanitizer import SanitizationPolicy, UrlPolicy, UrlRule
 from justhtml.selector import SelectorLimits
 from justhtml.transforms import (
@@ -1931,15 +1931,79 @@ class TestTransforms(unittest.TestCase):
         )
         assert doc.to_html(pretty=False) == "<p><b>a</b> middle <i>b</i></p>"
 
-    def test_collapsewhitespace_trims_text_adjacent_to_block_siblings(self) -> None:
+    def test_collapsewhitespace_trims_text_before_block_sibling(self) -> None:
         doc = JustHTML(
-            "<div>before <p>middle</p> after</div>",
+            "<div>before <p>middle</p></div>",
             fragment=True,
             transforms=[CollapseWhitespace()],
         )
-        assert doc.to_html(pretty=False) == "<div>before<p>middle</p>after</div>"
+        assert doc.to_html(pretty=False) == "<div>before<p>middle</p></div>"
 
-    def test_collapsewhitespace_preserves_text_adjacent_to_inline_siblings(self) -> None:
+    def test_collapsewhitespace_trims_text_after_block_sibling(self) -> None:
+        doc = JustHTML(
+            "<div><p>middle</p> after</div>",
+            fragment=True,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div><p>middle</p>after</div>"
+
+    def test_collapsewhitespace_ignores_comments_between_text_and_block_siblings(self) -> None:
+        doc = JustHTML(
+            "<div>before <!-- first --><p>middle</p><!-- last --> after</div>",
+            fragment=True,
+            sanitize=False,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div>before<!-- first --><p>middle</p><!-- last -->after</div>"
+
+    def test_collapsewhitespace_ignores_comments_at_block_edges(self) -> None:
+        doc = JustHTML(
+            "<div><!-- first --> before <!-- last --></div>",
+            fragment=True,
+            sanitize=False,
+            transforms=[CollapseWhitespace()],
+        )
+        assert doc.to_html(pretty=False) == "<div><!-- first -->before<!-- last --></div>"
+
+    def test_collapsewhitespace_ignores_empty_text_between_text_and_block_siblings(self) -> None:
+        root = Node("div")
+        root.append_child(Text("before "))
+        root.append_child(Text(""))
+        root.append_child(Node("p"))
+        root.append_child(Text(""))
+        root.append_child(Text(" after"))
+
+        apply_compiled_transforms(root, compile_transforms([CollapseWhitespace()]))
+
+        assert root.to_html(pretty=False) == "<div>before<p></p>after</div>"
+
+    def test_collapsewhitespace_ignores_processing_instructions_at_block_edges(self) -> None:
+        root = Node("div")
+        before = Text("before ")
+        after = Text(" after")
+        root.append_child(before)
+        root.append_child(ProcessingInstruction("note"))
+        root.append_child(Node("p"))
+        root.append_child(ProcessingInstruction("note"))
+        root.append_child(after)
+
+        apply_compiled_transforms(root, compile_transforms([CollapseWhitespace()]))
+
+        assert before.data == "before"
+        assert after.data == "after"
+
+    def test_collapsewhitespace_treats_nonempty_text_as_a_rendered_sibling(self) -> None:
+        root = Node("div")
+        root.append_child(Text("prefix"))
+        target = Text(" before ")
+        root.append_child(target)
+        root.append_child(Node("p"))
+
+        apply_compiled_transforms(root, compile_transforms([CollapseWhitespace()]))
+
+        assert target.data == " before"
+
+    def test_collapsewhitespace_preserves_text_adjacent_to_inline_sibling(self) -> None:
         doc = JustHTML(
             "<div>before <span>middle</span> after</div>",
             fragment=True,
