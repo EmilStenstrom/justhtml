@@ -2055,6 +2055,20 @@ class TestTransforms(unittest.TestCase):
 
             assert doc.to_html(pretty=False) == expected
 
+    def test_collapsewhitespace_ignores_metadata_datalist_and_hidden_input_siblings(self) -> None:
+        for markup, serialized in (
+            ('<meta name="x">', '<meta name="x">'),
+            ('<link rel="x">', '<link rel="x">'),
+            ("<datalist><option>x</option></datalist>", "<datalist><option>x</option></datalist>"),
+            ('<input type="HIDDEN">', '<input type="HIDDEN">'),
+        ):
+            html = f"<div>before {markup}<p>middle</p>{markup} after</div>"
+            expected = f"<div>before{serialized}<p>middle</p>{serialized}after</div>"
+
+            doc = JustHTML(html, fragment=True, sanitize=False, transforms=[CollapseWhitespace()])
+
+            assert doc.to_html(pretty=False) == expected
+
     def test_collapsewhitespace_preserves_text_adjacent_to_inline_sibling(self) -> None:
         doc = JustHTML(
             "<div>before <span>middle</span> after</div>",

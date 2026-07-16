@@ -63,7 +63,7 @@ _SELECTOR_CONTEXT_SHAREABLE_KINDS = frozenset(
     {"setattrs", "edit_attrs", "edit_attrs_chain", "strip_invisible_unicode", "merge_attr_tokens"}
 )
 
-_NON_RENDERED_SIBLING_ELEMENTS = frozenset({"script", "style", "template"})
+_NON_RENDERED_SIBLING_ELEMENTS = frozenset({"datalist", "link", "meta", "script", "style", "template"})
 
 
 def apply_compiled_transforms(
@@ -346,6 +346,7 @@ def apply_compiled_transforms(
                             "hidden" in sibling_attrs
                             or sibling_name in _NON_RENDERED_SIBLING_ELEMENTS
                             or (sibling_name == "dialog" and "open" not in sibling_attrs)
+                            or (sibling_name == "input" and (sibling_attrs.get("type") or "").lower() == "hidden")
                         ):
                             sibling_index += step
                             continue
