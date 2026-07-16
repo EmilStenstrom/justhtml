@@ -321,12 +321,16 @@ def apply_compiled_transforms(
                     return text_data
                 if parent_name.lower() not in block_tags:
                     return text_data
+                
+                def _is_block_sibling(sib: Node) -> bool:
+                    name = sib.name
+                    return not name.startswith("#") and name.lower() in block_tags
 
-                if child_index == 0:
-                    text_data = text_data.lstrip(" \t\n\f\r")
-                if child_index == len(children) - 1:
-                    text_data = text_data.rstrip(" \t\n\f\r")
-                return text_data
+               if child_index == 0 or _is_block_sibling(children[child_index - 1]):
+                   text_data = text_data.lstrip(" \t\n\f\r")
+               if child_index == len(children) - 1 or _is_block_sibling(children[child_index + 1]):
+                   text_data = text_data.rstrip(" \t\n\f\r")
+               return text_data
 
             def apply_to_children(
                 parent: Node,
