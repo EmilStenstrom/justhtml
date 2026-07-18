@@ -186,7 +186,7 @@ _COMPILED_SIMPLE_END_EXCLUSIONS = (
     | {"td", "th"}
     | _ACTIVE_FORMATTING_MARKER_TAGS
 )
-_HTML_VOID_COMPAT_TAGS = {"basefont", "bgsound", "frame", "keygen"}
+_HTML_VOID_ELEMENTS = VOID_ELEMENTS | {"basefont", "bgsound", "frame", "keygen"}
 _DEFINITION_SCOPE_BOUNDARIES = frozenset(DEFINITION_SCOPE_TERMINATORS)
 _LIST_ITEM_SCOPE_BOUNDARIES = frozenset(LIST_ITEM_SCOPE_TERMINATORS)
 _PRE_LINEFEED_IGNORING_TAGS = {"listing", "pre"}
@@ -411,23 +411,32 @@ class TagAction:
     allowed_attrs: frozenset[str]
     state_attrs: frozenset[str]
     url_attrs: Mapping[str, tuple[UrlSinkKind, UrlRule, bool | None]]
-    scan_attrs: bool
-    simple_end: bool
-    simple_start: bool
-    preserve_state_attrs: bool
-    active_formatting: bool
-    blocks_frameset: bool
-    drop_content: bool
-    drop_subtree: bool
-    head_content: bool
-    p_closing: bool
-    plaintext: bool
-    pre_linefeed: bool
-    rawtext_as_text: bool
-    rcdata: bool
-    table_cell: bool
-    table_section: bool
-    void: bool
+    scan_attrs: bool = False
+    simple_end: bool = False
+    simple_start: bool = False
+    preserve_state_attrs: bool = False
+    active_formatting: bool = False
+    blocks_frameset: bool = False
+    drop_content: bool = False
+    drop_subtree: bool = False
+    head_content: bool = False
+    p_closing: bool = False
+    plaintext: bool = False
+    pre_linefeed: bool = False
+    rawtext_as_text: bool = False
+    rcdata: bool = False
+    table_cell: bool = False
+    table_section: bool = False
+    void: bool = False
+
+
+_UNKNOWN_TAG_ACTION = TagAction(
+    name="",
+    allowed=False,
+    allowed_attrs=frozenset(),
+    state_attrs=frozenset(),
+    url_attrs={},
+)
 
 
 def _compile_tag_actions(
@@ -2693,14 +2702,12 @@ class ParseEngine:
         action = self._tag_actions.get(raw_name)
         if action is None:
             name = raw_name.translate(_ASCII_LOWER_TABLE) if self._strict_ascii_fold else raw_name.lower()
-            action = self._tag_actions.get(name)
-            if action is not None:
-                name = action.name
+            action = self._tag_actions.get(name, _UNKNOWN_TAG_ACTION)
         else:
             name = action.name
         if name == "image":
             name = "img"
-            action = self._tag_actions.get(name)
+            action = self._tag_actions.get(name, _UNKNOWN_TAG_ACTION)
         if self._foreign_context_seen:
             namespace = self._stack[-1].namespace
             if namespace is not None and namespace != "html" and namespace != _PARSER_ONLY_NAMESPACE:
@@ -2721,9 +2728,8 @@ class ParseEngine:
         stack = self._stack
         current_parent = stack[-1]
         if (
-            action is not None
-            and action.simple_start
-            and (not action.p_closing or not stack.count_of("p"))
+            action.simple_start
+            and (not action.p_closing or not stack._p_count)
             and self._body_mode_seen
             and not self._fragment
             and not (self._mode_flags & _START_SPECIAL_MODE)
@@ -2791,7 +2797,7 @@ class ParseEngine:
                 self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
                 self._after_head = False
                 return pos
-            if not self._body_mode_seen and not (action.head_content if action is not None else False):
+            if not self._body_mode_seen and not action.head_content:
                 self._body_mode_seen = True
         else:
             current_top = None
@@ -2800,7 +2806,7 @@ class ParseEngine:
             not in_parser_only_template
             and not self._fragment
             and current_top is self._head
-            and not (action.head_content if action is not None else False)
+            and not action.head_content
         ):
             self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
             self._after_head = False
@@ -2815,8 +2821,7 @@ class ParseEngine:
             and name not in {"body", "template"}
         ):
             if (
-                action is not None
-                and action.allowed
+                action.allowed
                 and action.head_content
                 and self._head is not None
                 and not self._body_mode_seen
@@ -2831,13 +2836,7 @@ class ParseEngine:
                 self._body_mode_seen = True
                 current_top = self._body
 
-        if (
-            not in_parser_only_template
-            and not self._fragment
-            and not self._frameset_seen
-            and action is not None
-            and action.blocks_frameset
-        ):
+        if not in_parser_only_template and not self._fragment and not self._frameset_seen and action.blocks_frameset:
             if action.name == "input":
                 input_type = attrs.get("type")
                 if not (isinstance(input_type, str) and input_type.lower() == "hidden"):
@@ -2863,21 +2862,20 @@ class ParseEngine:
             self._close_until("select")
             return pos
 
-        if (
-            self._current_template_mode() == _TEMPLATE_MODE_INITIAL and name in _TEMPLATE_INITIAL_BODY_SWITCH_TAGS
-        ):  # pragma: no cover - compiled sanitizer drops parser-only template contents
-            self._set_current_template_mode(_TEMPLATE_MODE_BODY)  # pragma: no cover
+        if in_parser_only_template:
+            template_mode = self._template_modes[-1]
+            if template_mode == _TEMPLATE_MODE_INITIAL and name in _TEMPLATE_INITIAL_BODY_SWITCH_TAGS:
+                self._set_current_template_mode(_TEMPLATE_MODE_BODY)  # pragma: no cover
+            elif template_mode == _TEMPLATE_MODE_COLGROUP:
+                template_pos = self._handle_template_mode_start(name, attrs, self_closing, pos)
+                if template_pos is not None:
+                    return template_pos
 
-        if in_parser_only_template and self._current_template_mode() == _TEMPLATE_MODE_COLGROUP:
-            template_pos = self._handle_template_mode_start(name, attrs, self_closing, pos)
-            if template_pos is not None:
-                return template_pos
-
-        if action is not None and action.drop_content:
+        if action.drop_content:
             if self._raw_head_text_parent(name) and self._head is not None:
                 self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
             return self._skip_rawtext(name, pos, end)
-        if action is not None and action.drop_subtree:
+        if action.drop_subtree:
             if action.allowed:  # pragma: no branch - opposite edge requires invalid parser state
                 return self._parse_start_tag(
                     name_start, end
@@ -2886,7 +2884,7 @@ class ParseEngine:
             if next_pos == -1:
                 return self._parse_start_tag(name_start, end)
             return next_pos
-        if action is not None and action.rawtext_as_text:
+        if action.rawtext_as_text:
             return self._parse_rawtext_as_text(name, pos, end)
         if (
             name == "noscript"
@@ -2897,9 +2895,9 @@ class ParseEngine:
         ):
             self._set_head_noscript_mode(True)
             return pos
-        if action is not None and action.rcdata:
+        if action.rcdata:
             return self._parse_rcdata_element(name, attrs, self_closing, pos, end)
-        if action is not None and action.plaintext:
+        if action.plaintext:
             return self._parse_plaintext_as_text(pos, end)
 
         if self._fragment_context_name is not None:
@@ -2919,16 +2917,20 @@ class ParseEngine:
         if name == "button" and name not in self._allowed_tags:
             if self._find_open_index_in_current_scope("button") is not None:
                 self._close_until_before_boundary("button", frozenset({"template"}))
-            self._insert_sanitized_element(name, attrs, self_closing, self._current_parent())
+            button_parent = self._current_parent()
+            if button_parent.namespace in {None, "html"}:
+                node = self._insert_compiled_safe_element(name, attrs, self_closing, button_parent)
+                self._nodes_to_unwrap.append(node)
+            else:
+                self._insert_sanitized_element(name, attrs, self_closing, button_parent)
             return pos
 
-        if action is not None and action.active_formatting:
+        if action.active_formatting:
             return self._parse_formatting_start(name, attrs, pos, compiled_safe=True)
 
         parent: Node
         if (  # pragma: no branch - opposite edge requires invalid parser state
-            action is not None
-            and action.allowed
+            action.allowed
             and action.head_content
             and not self._fragment
             and self._head is not None
@@ -2937,9 +2939,7 @@ class ParseEngine:
         ):
             parent = self._head  # pragma: no cover - unreachable after parser-state guards
         else:
-            if name in _STACK_REPAIR_START_TAGS or (
-                action is not None and action.p_closing and self._stack.count_of("p")
-            ):
+            if name in _STACK_REPAIR_START_TAGS or (action.p_closing and self._stack._p_count):
                 self._repair_stack_for_start(name)
             parent = self._stack[-1]
             if parent.namespace == _PARSER_ONLY_NAMESPACE or (
@@ -2958,8 +2958,7 @@ class ParseEngine:
                 parent = self._current_parent()
 
         if not in_parser_only_template and (
-            (action is not None and (action.table_section or action.table_cell))
-            or name in {"caption", "col", "colgroup", "tr"}
+            action.table_section or action.table_cell or name in {"caption", "col", "colgroup", "tr"}
         ):
             self._repair_table_for_start(name)
             parent = self._current_parent()
@@ -2970,7 +2969,7 @@ class ParseEngine:
             elif name in {"col", "colgroup"}:
                 if parent_name != "table":
                     return pos
-            elif action is not None and action.table_section:
+            elif action.table_section:
                 if parent_name != "table":
                     return pos
             elif name == "tr":
@@ -2979,16 +2978,18 @@ class ParseEngine:
             elif parent_name != "tr":
                 return pos
 
-        if action is None or not action.allowed:
-            if (
-                action is not None and action.pre_linefeed
-            ):  # pragma: no branch - opposite edge requires invalid parser state
+        if not action.allowed:
+            if action.pre_linefeed:  # pragma: no branch - opposite edge requires invalid parser state
                 self._ignore_lf = True  # pragma: no cover - unreachable after parser-state guards
             if self._should_insert_unwrapped_element(name, action):
                 if self._active_formatting_dirty:
                     self._reconstruct_active_formatting()
                     parent = self._current_parent()
-                self._insert_sanitized_element(name, attrs, self_closing, parent)
+                if parent.namespace in {None, "html"} and name not in _ACTIVE_FORMATTING_MARKER_TAGS:
+                    node = self._insert_compiled_safe_element(name, attrs, self_closing, parent)
+                    self._nodes_to_unwrap.append(node)
+                else:
+                    self._insert_sanitized_element(name, attrs, self_closing, parent)
             elif (
                 name == "menuitem" and self._active_formatting_dirty
             ):  # pragma: no branch - opposite edge requires invalid parser state
@@ -2999,7 +3000,7 @@ class ParseEngine:
             self._active_formatting_dirty
             and parent.name in _TABLE_FOSTER_TARGETS
             and name not in self._table_allowed_children
-            and (action is None or not action.p_closing)
+            and not action.p_closing
         ):
             self._reconstruct_active_formatting()
             parent = self._current_parent()
@@ -3579,15 +3580,10 @@ class ParseEngine:
         self_closing: bool,
         parent: Node,
     ) -> Element:
-        if name == "template":  # pragma: no branch - opposite edge requires invalid parser state
-            node: Element = Template(
-                name, attrs, namespace="html"
-            )  # pragma: no cover - unreachable after parser-state guards
-        else:
-            node = Element(name, attrs, "html")
+        node = Element(name, attrs, "html")
         if name == "selectedcontent":  # pragma: no branch - opposite edge requires invalid parser state
             self._has_selectedcontent = True  # pragma: no cover - unreachable after parser-state guards
-        is_void = name in VOID_ELEMENTS
+        is_void = name in _HTML_VOID_ELEMENTS
         node._self_closing = self_closing and is_void
         foster = (
             self._foster_parent_for(parent, for_tag=name)
@@ -3654,9 +3650,7 @@ class ParseEngine:
         if name == "selectedcontent":
             self._has_selectedcontent = True
         is_html_namespace = namespace in {None, "html"}
-        is_void = (is_html_namespace and (name in VOID_ELEMENTS or name in _HTML_VOID_COMPAT_TAGS)) or (
-            not is_html_namespace and self_closing
-        )
+        is_void = (is_html_namespace and name in _HTML_VOID_ELEMENTS) or (not is_html_namespace and self_closing)
         node._self_closing = self_closing and is_html_namespace and name in VOID_ELEMENTS
         foster = (
             self._foster_parent_for(parent, for_tag=name)
@@ -3725,9 +3719,7 @@ class ParseEngine:
         if name == "selectedcontent":
             self._has_selectedcontent = True
         is_html_namespace = namespace in {None, "html"}
-        is_void = (is_html_namespace and (name in VOID_ELEMENTS or name in _HTML_VOID_COMPAT_TAGS)) or (
-            not is_html_namespace and self_closing
-        )
+        is_void = (is_html_namespace and name in _HTML_VOID_ELEMENTS) or (not is_html_namespace and self_closing)
         node._self_closing = self_closing and is_html_namespace and name in VOID_ELEMENTS
         foster = (
             self._foster_parent_for(parent, for_tag=name)
@@ -5022,7 +5014,12 @@ class ParseEngine:
         signature_state: _FormattingSignatureState = signature
         if signature_state is None and not compiled_safe and node.attrs is not attrs:
             signature_state = _DeferredFormattingSignature(attrs)
-        self._append_active_formatting_entry(name, node.attrs, node, signature_state, entries)
+        entry = _FormattingEntry(name, node.attrs, node, signature_state, entries)
+        self._active_formatting.append(entry)
+        if entries.pending is None and not entries:
+            entries.pending = entry
+        else:
+            self._index_active_formatting_entry(entries, entry)
         return pos
 
     def _formatting_entry_signature(self, entry: _FormattingEntry) -> _FormattingSignature:
@@ -5036,21 +5033,6 @@ class ParseEngine:
         signature = () if not attrs else frozenset(attrs.items())
         entry.signature = signature
         return signature
-
-    def _append_active_formatting_entry(
-        self,
-        name: str,
-        attrs: dict[str, str | None],
-        node: Element,
-        signature: _FormattingSignatureState,
-        entries: _FormattingSegment,
-    ) -> None:
-        entry = _FormattingEntry(name, attrs, node, signature, entries)
-        self._active_formatting.append(entry)
-        if entries.pending is None and not entries:
-            entries.pending = entry
-        else:
-            self._index_active_formatting_entry(entries, entry)
 
     def _materialize_pending_active_formatting_entry(self) -> None:
         entries = self._active_formatting_entries[-1]
@@ -5538,23 +5520,11 @@ class ParseEngine:
 
     def _unwrap_node(self, node: Element) -> None:
         parent = node.parent
-        children = parent.children if parent is not None else None
-        if parent is None or children is None:  # pragma: no branch - opposite edge requires invalid parser state
-            return  # pragma: no cover - unreachable after parser-state guards
-        try:
-            index = children.index(node)
-        except ValueError:
-            return
+        children: list[Any] = parent.children  # type: ignore[assignment, union-attr]
+        index = children.index(node)
 
-        moved = list(node.children)
+        moved = node.children
         node.children = []
-        if (
-            type(node) is Template and node.template_content is not None
-        ):  # pragma: no branch - opposite edge requires invalid parser state
-            content = node.template_content  # pragma: no cover - unreachable after parser-state guards
-            if content.children:  # pragma: no cover - unreachable after parser-state guards
-                moved.extend(content.children)  # pragma: no cover - unreachable after parser-state guards
-                content.children = []  # pragma: no cover - unreachable after parser-state guards
         if moved:
             for child in moved:
                 child.parent = parent
@@ -5685,7 +5655,7 @@ class ParseEngine:
             url_action = action.url_attrs.get(key)
             if url_action is not None:
                 kind, rule, fast_allow_relative = url_action
-                if kind == "url" and fast_allow_relative is not None:
+                if fast_allow_relative is not None:
                     sanitized_fast = _sanitize_simple_url_fast(value, rule, fast_allow_relative)
                     if sanitized_fast is None:
                         continue
@@ -5808,7 +5778,7 @@ class ParseEngine:
             url_action = url_attrs.get(key)
             if url_action is not None:
                 kind, rule, fast_allow_relative = url_action
-                if kind == "url" and fast_allow_relative is not None:
+                if fast_allow_relative is not None:
                     sanitized_fast = _sanitize_simple_url_fast(value, rule, fast_allow_relative)
                     if sanitized_fast is None:
                         continue
@@ -5982,10 +5952,7 @@ class ParseEngine:
 
     def _remove_child(self, parent: Node, child: Node) -> None:
         children: list[Any] = parent.children  # type: ignore[assignment]
-        try:
-            children.remove(child)
-        except ValueError:
-            return
+        children.remove(child)
         child.parent = None
 
     def _accept_frameset(self) -> bool:
@@ -5999,6 +5966,8 @@ class ParseEngine:
             return False
         if not self._body_allows_frameset(self._body):
             return False
+        for child in self._body.children:
+            child.parent = None
         self._body.children.clear()
         self._frameset_seen = True
         self._mode_flags |= _MODE_FRAMESET
@@ -6014,6 +5983,8 @@ class ParseEngine:
             return False
         if not self._body_allows_frameset(self._body):
             return False
+        for child in self._body.children or ():
+            child.parent = None
         self._body.children.clear()  # type: ignore[union-attr]
         if self._html is not None and isinstance(
             self._body, Element

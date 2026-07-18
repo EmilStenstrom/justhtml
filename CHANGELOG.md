@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cut fixed default-constructor overhead by reusing built-in execution plans, skipping no-op finalization and error-list work, lazily allocating formatting indexes, and collapsing duplicate shell, mode, and end-of-input state.
 - Collapse common start-tag and text insertion-mode checks into synchronized state flags, avoiding repeated condition ladders in the default `JustHTML()` constructor.
 - Avoid open-elements membership scans for ordinary HTML insertions and batch large disallowed-wrapper projections instead of repeatedly searching and shifting the same child lists.
+- Remove already-resolved sanitizer insertion, unknown-tag condition ladders, template-mode lookups, and wrapper-list copies from the default `JustHTML()` constructor path.
 
 ### Security
 

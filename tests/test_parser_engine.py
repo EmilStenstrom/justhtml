@@ -1194,6 +1194,7 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         raw_plan = compile_raw_engine_plan(fragment=False)
         raw_fragment_plan = compile_raw_engine_plan(fragment=True)
         default_plan = compile_default_engine_plan(fragment=False)
+        default_fragment_plan = compile_default_engine_plan(fragment=True)
 
         comment_engine = ParseEngine("</body>x<!--c-->", fragment=False, plan=raw_plan)
         comment_engine.parse()
@@ -1240,6 +1241,17 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         blocked_frame_engine._parse_start_tag(1, len(blocked_frame_engine._html_input))
         self.assertEqual(blocked_frameset.children, [])
 
+        foreign_button_engine = ParseEngine("", fragment=True, plan=default_fragment_plan)
+        foreign_root = foreign_button_engine.parse()
+        foreign_parent = Element("svg", {}, "svg")
+        foreign_button_engine._append(foreign_root, foreign_parent)
+        foreign_button_engine._stack = type(foreign_button_engine._stack)([foreign_root, foreign_parent])
+        foreign_button_engine._html_input = "<button>"
+        foreign_button_engine._length = len(foreign_button_engine._html_input)
+        foreign_button_engine._foreign_context_seen = False
+        foreign_button_engine._parse_compiled_safe_start_tag(1, foreign_button_engine._length)
+        self.assertEqual([(child.name, child.namespace) for child in foreign_parent.children], [("button", "svg")])
+
         skip_attrs_engine = ParseEngine('/">', fragment=False, plan=default_plan)
         assert skip_attrs_engine._skip_attrs(0, len(skip_attrs_engine._html_input)) == ({}, False, 3, True)
 
@@ -1261,6 +1273,15 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         fragment_engine.parse()
         fragment_engine._append(fragment_engine._body, Element("input", {}, "html"))
         self.assertFalse(fragment_engine._accept_fragment_frameset())
+
+        fragment_frameset_engine = ParseEngine(
+            " <frameset>",
+            fragment=True,
+            fragment_context=FragmentContext("html"),
+            plan=raw_fragment_plan,
+        )
+        fragment_frameset_engine.parse()
+        self.assertTrue(fragment_frameset_engine._frameset_seen)
 
         parser_only_engine = ParseEngine("", fragment=False, plan=raw_plan)
         parser_only_engine.parse()
