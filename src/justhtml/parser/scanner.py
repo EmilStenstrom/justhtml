@@ -9,6 +9,60 @@ ATTR_VALUE_STOP = SPACE + ">"
 TAG_END_NAME_STOP = SPACE + "/>"
 
 
+def ascii_startswith(html: str, needle: str, start: int, end: int) -> bool:
+    """Return whether an ASCII needle matches case-insensitively at start."""
+    stop = start + len(needle)
+    if stop > end:
+        return False
+    candidate = html[start:stop]
+    return candidate == needle or (candidate.isascii() and candidate.lower() == needle.lower())
+
+
+def ascii_find(html: str, needle: str, start: int, end: int) -> int:
+    """Find an ASCII needle case-insensitively without folding all of html."""
+    first = needle[0]
+    if "a" <= first <= "z":
+        alternate_first = first.upper()
+    elif "A" <= first <= "Z":
+        alternate_first = first.lower()
+    else:
+        alternate_first = first
+    while True:
+        found = html.find(first, start, end)
+        if alternate_first != first:
+            alternate_found = html.find(alternate_first, start, end)
+            if found == -1 or (alternate_found != -1 and alternate_found < found):
+                found = alternate_found
+        if found == -1:
+            return -1
+        if ascii_startswith(html, needle, found, end):
+            return found
+        start = found + 1
+
+
+def ascii_rfind(html: str, needle: str, start: int, end: int) -> int:
+    """Find the last ASCII needle case-insensitively without a folded copy."""
+    first = needle[0]
+    if "a" <= first <= "z":
+        alternate_first = first.upper()
+    elif "A" <= first <= "Z":
+        alternate_first = first.lower()
+    else:
+        alternate_first = first
+    search_end = end
+    while True:
+        found = html.rfind(first, start, search_end)
+        if alternate_first != first:
+            alternate_found = html.rfind(alternate_first, start, search_end)
+            if alternate_found > found:
+                found = alternate_found
+        if found == -1:
+            return -1
+        if ascii_startswith(html, needle, found, end):
+            return found
+        search_end = found
+
+
 def find_tag_end(html: str, pos: int, end: int) -> int:
     quote: str | None = None
     while pos < end:
@@ -24,12 +78,12 @@ def find_tag_end(html: str, pos: int, end: int) -> int:
     return -1
 
 
-def find_rawtext_end_tag(html: str, lower: str, name: str, pos: int, end: int) -> tuple[int | None, int]:
+def find_rawtext_end_tag(html: str, name: str, pos: int, end: int) -> tuple[int | None, int]:
     needle = f"</{name}"
     needle_len = len(needle)
     search = pos
     while True:
-        close = lower.find(needle, search, end)
+        close = ascii_find(html, needle, search, end)
         if close == -1:
             return None, end
         after_name = close + needle_len
@@ -49,17 +103,17 @@ def find_rawtext_end_tag(html: str, lower: str, name: str, pos: int, end: int) -
         return close, tag_end + 1
 
 
-def find_script_end_tag(html: str, lower: str, pos: int, end: int) -> tuple[int | None, int]:
+def find_script_end_tag(html: str, pos: int, end: int) -> tuple[int | None, int]:
     search = pos
     escaped = False
     double_escaped = False
 
     while True:
-        close, next_pos = find_rawtext_end_tag(html, lower, "script", search, end)
+        close, next_pos = find_rawtext_end_tag(html, "script", search, end)
         if close is None:
             return None, end
         if not escaped:
-            comment_start = lower.find("<!--", search, close)
+            comment_start = html.find("<!--", search, close)
             if comment_start == -1 or close < comment_start:
                 return close, next_pos
             escaped = True
@@ -70,8 +124,8 @@ def find_script_end_tag(html: str, lower: str, pos: int, end: int) -> tuple[int 
             search = comment_start + 2
             continue
 
-        script_start = find_script_start_marker(html, lower, search, close, end) if not double_escaped else -1
-        comment_end = lower.find("-->", search, close)
+        script_start = find_script_start_marker(html, search, close, end) if not double_escaped else -1
+        comment_end = html.find("-->", search, close)
         if (
             comment_end != -1
             and comment_end < close
@@ -86,7 +140,7 @@ def find_script_end_tag(html: str, lower: str, pos: int, end: int) -> tuple[int 
             search = script_start + 7
             continue
         if double_escaped:
-            later_end = lower.find("</script", close + 8, next_pos)
+            later_end = ascii_find(html, "</script", close + 8, next_pos)
             if later_end != -1:
                 after_name = later_end + 8
                 if after_name >= end or html[after_name] in TAG_END_NAME_STOP:
@@ -102,7 +156,7 @@ def find_script_end_tag(html: str, lower: str, pos: int, end: int) -> tuple[int 
         return close, next_pos
 
 
-def find_script_start_marker(html: str, lower: str, pos: int, end: int, text_end: int) -> int:
+def find_script_start_marker(html: str, pos: int, end: int, text_end: int) -> int:
     # `end` bounds where a "<script" marker may start; `text_end` bounds the real
     # input so the script-data-double-escape-start terminator is checked against
     # the actual following character. When these differ, a marker whose name ends
@@ -112,7 +166,7 @@ def find_script_start_marker(html: str, lower: str, pos: int, end: int, text_end
     needle = "<script"
     needle_len = len(needle)
     while True:
-        start = lower.find(needle, search, end)
+        start = ascii_find(html, needle, search, end)
         if start == -1:
             return -1
         after_name = start + needle_len

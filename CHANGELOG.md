@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
-- Speed up the default `JustHTML()` parsing path by reusing the parser's ASCII-folded input for names, bypassing attribute scanners for bare tags, skipping impossible paragraph and active-formatting recovery, and closing ordinary well-nested elements before entering the general end-tag recovery path.
+- Speed up the default `JustHTML()` constructor by compiling common start/end-tag and URL-sanitization decisions, and by folding only names that the parser encounters instead of copying and lowercasing the full input.
+- Reduce tree-construction overhead by adaptively tracking open elements, removing completed formatting entries without leaving tombstones, and deferring formatting-attribute signatures until duplicate tracking actually needs them.
 
 ## [3.7.1] - 2026-07-17
 

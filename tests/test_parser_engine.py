@@ -1,4 +1,5 @@
 import unittest
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
@@ -6,7 +7,9 @@ from justhtml import JustHTML
 from justhtml.dom import DocumentFragment, Element
 from justhtml.parser.context import FragmentContext
 from justhtml.parser.engine import (
+    _STACK_COUNT_THRESHOLD,
     ParseEngine,
+    _CountingStack,
     _FormattingEntry,
     compile_default_engine_plan,
     compile_engine_plan,
@@ -23,6 +26,80 @@ class _ParserEngineTestCase(unittest.TestCase):
         document = JustHTML(html, **kwargs)
         assert document.to_html(pretty=False) == expected
         return document
+
+
+class TestCountingStack(unittest.TestCase):
+    def assert_counts_match(self, stack: _CountingStack) -> None:
+        expected = Counter(node.name for node in stack)
+        assert stack.count_of("p") == expected["p"]
+        assert stack.count_of("div") == expected["div"]
+        assert stack.count_of("span") == expected["span"]
+        assert stack.count_of("missing") == 0
+        if stack._name_counts is not None:
+            assert {name: count for name, count in stack._name_counts.items() if count} == expected
+
+    def test_shallow_stack_tracks_parser_mutations_without_a_name_map(self) -> None:
+        div = Element("div", {}, "html")
+        first_p = Element("p", {}, "html")
+        second_p = Element("p", {}, "html")
+        span = Element("span", {}, "html")
+        stack = _CountingStack([div, first_p])
+        assert stack._name_counts is None
+
+        stack.append(second_p)
+        stack.insert(1, span)
+        self.assert_counts_match(stack)
+
+        stack[1] = Element("span", {}, "html")
+        stack[1] = Element("p", {}, "html")
+        stack[1] = Element("div", {}, "html")
+        self.assert_counts_match(stack)
+
+        stack.remove(first_p)
+        stack.pop(0)
+        del stack[0]
+        stack.append(Element("p", {}, "html"))
+        stack.append(Element("span", {}, "html"))
+        del stack[:]
+        self.assert_counts_match(stack)
+
+    def test_deep_stack_keeps_the_name_map_after_shrinking(self) -> None:
+        stack = _CountingStack(Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD))
+        assert stack._name_counts is not None
+
+        p = Element("p", {}, "html")
+        span = Element("span", {}, "html")
+        stack.append(p)
+        stack.insert(1, span)
+        stack[1] = Element("p", {}, "html")
+        stack.remove(p)
+        stack.append(Element("p", {}, "html"))
+        stack.pop()
+        del stack[-2:]
+        self.assert_counts_match(stack)
+
+        del stack[1:]
+        assert stack._name_counts is not None
+        stack.append(Element("span", {}, "html"))
+        self.assert_counts_match(stack)
+
+    def test_append_and_insert_activate_name_tracking_at_the_threshold(self) -> None:
+        shallow = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD - 1)]
+
+        appended = _CountingStack(shallow)
+        appended.append(Element("span", {}, "html"))
+        self.assert_counts_match(appended)
+
+        inserted = _CountingStack(shallow)
+        inserted.insert(0, Element("p", {}, "html"))
+        self.assert_counts_match(inserted)
+
+    def test_deep_adoption_agency_keeps_name_tracking_exact(self) -> None:
+        engine = ParseEngine("<div>" * _STACK_COUNT_THRESHOLD + "<b><i><p>1</b>2</i>", fragment=True)
+        engine.parse()
+
+        assert engine._stack._name_counts is not None
+        self.assert_counts_match(engine._stack)
 
 
 class TestParserSyntaxAndRecovery(_ParserEngineTestCase):
@@ -167,6 +244,40 @@ class TestParserFormattingAndLists(_ParserEngineTestCase):
         )
         assert engine._find_active_formatting_duplicate("b", signature) is matches[0]
 
+    def test_active_formatting_signatures_ignore_attribute_order(self) -> None:
+        engine = ParseEngine("<b class=x id=y>" * 3 + "<b id=y class=x>", fragment=True)
+        engine.parse()
+        signature = frozenset({("class", "x"), ("id", "y")})
+
+        matches = engine._active_formatting_entries[-1][("b", signature)]
+
+        assert len(matches) == 3
+        assert engine._find_active_formatting_duplicate("b", signature) is matches[0]
+
+    def test_first_active_formatting_signature_is_deferred_until_indexed(self) -> None:
+        engine = ParseEngine("<b class=x>", fragment=True)
+        engine.parse()
+        entry = engine._active_formatting[-1]
+        assert isinstance(entry, _FormattingEntry)
+        segment = engine._active_formatting_entries[-1]
+
+        assert entry.signature is None
+        assert segment.pending is entry
+        assert segment == {}
+
+        engine._materialize_pending_active_formatting_entry()
+
+        signature = frozenset({("class", "x")})
+        assert entry.signature == signature
+        assert segment.pending is None
+        assert segment[("b", signature)] == [entry]
+
+    def test_pending_formatting_signature_uses_pre_projection_attributes(self) -> None:
+        self.assert_parses_to(
+            "<p><svg><b onclick=1><svg><b><svg><b><svg><b></p>y",
+            "<html><head></head><body><p><b><b><b><b></b></b></b></b></p><b><b><b><b>y</b></b></b></b></body></html>",
+        )
+
     def test_active_formatting_retirement_compacts_in_batches(self) -> None:
         engine = ParseEngine("<b>" * 70, fragment=True)
         engine.parse()
@@ -186,6 +297,35 @@ class TestParserFormattingAndLists(_ParserEngineTestCase):
 
         assert entry.active is False
         assert engine._active_formatting_entries[0] == {}
+        assert engine._active_formatting_retired == 1
+
+        engine._clear_active_formatting_to_marker()
+        engine._clear_active_formatting_to_marker()
+
+        assert engine._active_formatting == []
+        assert engine._active_formatting_retired == 0
+
+    def test_active_formatting_tail_retirement_avoids_a_tombstone(self) -> None:
+        engine = ParseEngine("", fragment=True)
+        entry = _FormattingEntry("b", {}, Element("b", {}, "html"), ())
+        segment = engine._active_formatting_entries[-1]
+        engine._active_formatting.append(entry)
+        segment[("b", ())] = [entry]
+        entry.segment = segment
+
+        engine._retire_active_formatting_entry(entry)
+
+        assert entry.active is False
+        assert engine._active_formatting == []
+        assert engine._active_formatting_retired == 0
+        assert segment == {}
+
+    def test_compiled_well_nested_formatting_end_closes_the_live_tail(self) -> None:
+        engine = ParseEngine("<b>x</b>", fragment=True)
+
+        assert engine.parse().to_html(pretty=False) == "<b>x</b>"
+        assert engine._active_formatting == []
+        assert engine._active_formatting_entries == [{}]
 
 
 class TestParserFragmentsAndTextModes(_ParserEngineTestCase):
@@ -799,6 +939,29 @@ class TestParserAttributeProjection(_ParserEngineTestCase):
             '<el-custom></el-custom><el-custom data-url="https://example.com"></el-custom>'
         )
 
+    def test_compiled_url_policy_falls_back_for_non_allowing_rules(self) -> None:
+        base = DEFAULT_DOCUMENT_POLICY
+        rules = dict(base.url_policy.allow_rules)
+        rules[("a", "href")] = replace(rules[("a", "href")], handling="strip")
+        policy = replace(base, url_policy=replace(base.url_policy, allow_rules=rules))
+        plan = compile_engine_plan(policy=policy, fragment=False)
+        action = plan.tag_actions["a"]
+        engine = ParseEngine('<a href="https://example.com">x</a>', fragment=False, plan=plan)
+
+        assert action.url_attrs["href"][2] is None
+        assert engine._sanitize_parsed_attrs(action, {"href": "https://example.com"}) == {}
+        assert engine.parse().to_html(pretty=False) == "<html><head></head><body><a>x</a></body></html>"
+
+    def test_full_start_tag_parser_recovers_null_before_action_lookup(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"x\ufffd"},
+            allowed_attributes={"*": set()},
+        )
+        plan = replace(compile_engine_plan(policy=policy, fragment=True), raw_mode=True)
+        engine = ParseEngine("<x\0>y</x\0>", fragment=True, plan=plan)
+
+        assert engine.parse().to_html(pretty=False) == "<x\ufffd>y</x\ufffd>"
+
     def test_deep_recovery_interactions(self) -> None:
         self.assert_parses_to(
             "<template type=hidden><nobr selected>x<select selected>\n"
@@ -1067,7 +1230,7 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         parser_only_colgroup_engine = ParseEngine("", fragment=False, plan=parser_only_plan)
         parser_only_colgroup_engine.parse()
         parser_only_colgroup_engine._html_input = "<div>"
-        parser_only_colgroup_engine._lower_input = "<div>"
+        parser_only_colgroup_engine._strict_ascii_fold = False
         parser_only_colgroup_engine._length = len(parser_only_colgroup_engine._html_input)
         parser_template = Element("template", {}, "justhtml-parser-only")
         table = Element("table", {}, "html")

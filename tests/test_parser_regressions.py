@@ -46,11 +46,11 @@ class TestEngineBehaviorRegressions(unittest.TestCase):
 
 
 class TestAsciiCaseFoldingRegressions(unittest.TestCase):
-    """The lowered scan copy must stay index-aligned with the original input.
+    """Case-insensitive scans must stay index-aligned with the original input.
 
     "İ" (U+0130) is the only character whose str.lower() expands to two
-    characters, shifting every later index of a Unicode-lowered copy. Markup
-    matching is ASCII case-insensitive per §13.2.5, so only A-Z may fold.
+    characters. Markup matching is ASCII case-insensitive per §13.2.5, so only
+    A-Z may fold and source offsets must continue to address the original text.
     """
 
     def test_rawtext_end_tag_found_after_length_changing_case_char(self) -> None:

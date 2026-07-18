@@ -33,7 +33,7 @@ from justhtml.core.constants import (
 from justhtml.core.doctype import doctype_error_and_quirks
 from justhtml.core.entities import decode_entities_in_text
 from justhtml.core.errors import generate_error_message
-from justhtml.core.text import ascii_lower
+from justhtml.core.text import _ASCII_LOWER_TABLE
 from justhtml.core.types import Doctype, ParseError
 from justhtml.dom import Comment, Document, DocumentFragment, Element, Node, ProcessingInstruction, Template, Text
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, _strip_invisible_unicode
@@ -42,7 +42,7 @@ from justhtml.sanitizer.url import (
     _sanitize_url_sink_value,
     _url_sink_kind_for_attr,
 )
-from justhtml.sanitizer.url.runtime import _URL_CONTROL_CHAR_REGEX, _get_scheme, _normalize_url_for_checking
+from justhtml.sanitizer.url.runtime import _get_scheme, _normalize_url_for_checking
 
 from . import scanner as _scanner
 
@@ -148,6 +148,24 @@ _INLINE_HEAD_VOID_START_TAGS = {"base", "basefont", "bgsound", "link", "meta"}
 # formatting elements.
 _RUBY_START_TAGS = {"rb", "rp", "rt", "rtc"}
 _STACK_REPAIR_START_TAGS = {"dd", "dt", "li", "optgroup", "option"} | HEADING_ELEMENTS
+_COMPILED_SIMPLE_START_EXCLUSIONS = {
+    "body",
+    "button",
+    "caption",
+    "col",
+    "colgroup",
+    "form",
+    "head",
+    "html",
+    "select",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "tr",
+} | _STACK_REPAIR_START_TAGS
 _COMPILED_SIMPLE_END_EXCLUSIONS = (
     {
         "body",
@@ -224,6 +242,69 @@ _FRAMESET_BLOCKING_START_TAGS = {
 _UNWRAP_CONSTRUCTION_SKIP_TAGS = {"col", "colgroup", "form", "menuitem"}
 _FOREIGN_FULL_PARSE_TAGS = FOREIGN_BREAKOUT_ELEMENTS | {"annotation-xml", "desc", "font", "foreignobject", "title"}
 _URL_FAST_FALLBACK = object()
+
+
+def _sanitize_simple_url_fast(value: str, rule: UrlRule, allow_relative: bool) -> str | None | object:
+    if not value.isascii():
+        return _URL_FAST_FALLBACK
+
+    stripped = value.strip()
+    if not stripped:
+        return None
+
+    allowed_schemes = rule.allowed_schemes
+    if stripped.startswith("https://") and " " not in stripped and stripped.isprintable():
+        return stripped if "https" in allowed_schemes else None
+    if stripped.startswith("http://") and " " not in stripped and stripped.isprintable():
+        return stripped if "http" in allowed_schemes else None
+
+    if not stripped.isprintable():
+        return None
+
+    if ":" not in stripped:
+        if "\\" in stripped:
+            return None
+        if stripped.startswith("#"):
+            return stripped if rule.allow_fragment else None
+        if stripped.startswith("//"):
+            resolved = rule.resolve_protocol_relative
+            if not resolved:
+                return None
+            resolved_scheme = resolved.lower()
+            if (
+                resolved_scheme not in rule.allowed_schemes
+            ):  # pragma: no branch - opposite edge requires invalid parser state
+                return None  # pragma: no cover - unreachable after parser-state guards
+            return f"{resolved_scheme}:{stripped}"
+        return stripped if allow_relative else None
+
+    normalized = _normalize_url_for_checking(stripped)
+    if not normalized or "\\" in normalized:  # pragma: no branch - opposite edge requires invalid parser state
+        return None  # pragma: no cover - unreachable after parser-state guards
+
+    if normalized.startswith("#"):  # pragma: no branch - opposite edge requires invalid parser state
+        return stripped if rule.allow_fragment else None  # pragma: no cover - unreachable after parser-state guards
+
+    if normalized.startswith("//"):  # pragma: no branch - opposite edge requires invalid parser state
+        resolved = rule.resolve_protocol_relative  # pragma: no cover - unreachable after parser-state guards
+        if not resolved:  # pragma: no cover - unreachable after parser-state guards
+            return None  # pragma: no cover - unreachable after parser-state guards
+        resolved_scheme = resolved.lower()  # pragma: no cover - unreachable after parser-state guards
+        if resolved_scheme not in allowed_schemes:  # pragma: no cover - unreachable after parser-state guards
+            return None  # pragma: no cover - unreachable after parser-state guards
+        return f"{resolved_scheme}:{normalized}"  # pragma: no cover - unreachable after parser-state guards
+
+    scheme = _get_scheme(normalized)
+    if scheme is not None:  # pragma: no branch - opposite edge requires invalid parser state
+        if scheme not in allowed_schemes:
+            return None
+        if (
+            scheme in {"http", "https"} and not normalized.startswith(f"{scheme}://") and not allow_relative
+        ):  # pragma: no branch - opposite edge requires invalid parser state
+            return None  # pragma: no cover - unreachable after parser-state guards
+        return stripped
+
+    return stripped if allow_relative else None  # pragma: no cover - unreachable after parser-state guards
 
 
 def _xml_coercion_callback(match: re.Match[str]) -> str:
@@ -333,9 +414,10 @@ class TagAction:
     allowed: bool
     allowed_attrs: frozenset[str]
     state_attrs: frozenset[str]
-    url_attr_kinds: Mapping[str, UrlSinkKind]
-    url_attr_rules: Mapping[str, UrlRule]
+    url_attrs: Mapping[str, tuple[UrlSinkKind, UrlRule, bool | None]]
     scan_attrs: bool
+    simple_end: bool
+    simple_start: bool
     preserve_state_attrs: bool
     active_formatting: bool
     blocks_frameset: bool
@@ -357,6 +439,7 @@ def _compile_tag_actions(
     allowed_tags: frozenset[str],
     allowed_global: Collection[str],
     allowed_by_tag: Mapping[str, frozenset[str]],
+    url_policy: UrlPolicy,
     url_rules: Mapping[tuple[str, str], UrlRule],
     drop_content_tags: frozenset[str],
     drop_subtree_tags: frozenset[str],
@@ -392,8 +475,7 @@ def _compile_tag_actions(
         else:
             state_attrs = frozenset()
         preserve_state_attrs = tag in _ACTIVE_FORMATTING_TAGS and not allowed
-        url_attr_kinds: dict[str, UrlSinkKind] = {}
-        url_attr_rules: dict[str, UrlRule] = {}
+        url_attrs: dict[str, tuple[UrlSinkKind, UrlRule, bool | None]] = {}
         for attr in allowed_attrs:
             rule = url_rules.get((tag, attr)) or url_rules.get(("*", attr))
             if attr not in _URL_SINK_ATTRS and rule is None:
@@ -406,17 +488,43 @@ def _compile_tag_actions(
                 kind = "url"
             if kind is None:  # pragma: no cover - guarded URL sink attrs require matching state attrs
                 continue
-            url_attr_kinds[attr] = kind
-            url_attr_rules[attr] = rule
+            handling = rule.handling if rule.handling is not None else url_policy.default_handling
+            fast_allow_relative = None
+            if (
+                kind == "url"
+                and handling == "allow"
+                and rule.proxy is None
+                and url_policy.proxy is None
+                and url_policy.url_filter is None
+                and rule.allowed_hosts is None
+            ):
+                fast_allow_relative = (
+                    rule.allow_relative if rule.allow_relative is not None else url_policy.default_allow_relative
+                )
+            url_attrs[attr] = (kind, rule, fast_allow_relative)
 
         actions[tag] = TagAction(
             name=tag,
             allowed=allowed,
             allowed_attrs=allowed_attrs,
             state_attrs=state_attrs,
-            url_attr_kinds=url_attr_kinds,
-            url_attr_rules=url_attr_rules,
+            url_attrs=url_attrs,
             scan_attrs=bool(allowed_attrs or state_attrs or preserve_state_attrs),
+            simple_end=tag not in _ACTIVE_FORMATTING_TAGS and tag not in _COMPILED_SIMPLE_END_EXCLUSIONS,
+            simple_start=(
+                allowed
+                and tag not in _COMPILED_SIMPLE_START_EXCLUSIONS
+                and tag not in _ACTIVE_FORMATTING_TAGS
+                and tag not in _FRAMESET_BLOCKING_START_TAGS
+                and tag not in drop_content_tags
+                and tag not in drop_subtree_tags
+                and tag not in _HEAD_CONTENT_TAGS
+                and tag not in _PLAINTEXT_TAGS
+                and tag not in rawtext_as_text_tags
+                and tag not in _RCDATA_TAGS
+                and tag not in _TABLE_CELL_TAGS
+                and tag not in _TABLE_SECTION_TAGS
+            ),
             preserve_state_attrs=preserve_state_attrs,
             active_formatting=tag in _ACTIVE_FORMATTING_TAGS,
             blocks_frameset=tag in _FRAMESET_BLOCKING_START_TAGS,
@@ -490,6 +598,7 @@ def compile_engine_plan(
         allowed_tags=policy.allowed_tags,
         allowed_global=allowed_global,
         allowed_by_tag=allowed_by_tag,
+        url_policy=policy.url_policy,
         url_rules=policy.url_policy.allow_rules,
         drop_content_tags=drop_content_tags,
         drop_subtree_tags=drop_subtree_tags,
@@ -591,6 +700,7 @@ def compile_raw_engine_plan(*, fragment: bool, scripting_enabled: bool = True) -
         allowed_tags=allowed_tags,
         allowed_global=frozenset(),
         allowed_by_tag={},
+        url_policy=DEFAULT_POLICY.url_policy,
         url_rules={},
         drop_content_tags=frozenset(),
         drop_subtree_tags=frozenset(),
@@ -634,14 +744,39 @@ def compile_raw_engine_plan(*, fragment: bool, scripting_enabled: bool = True) -
     return plan
 
 
+_FormattingSignature = tuple[()] | frozenset[tuple[str, str | None]]
+
+
+@dataclass(frozen=True, slots=True)
+class _DeferredFormattingSignature:
+    attrs: dict[str, str | None]
+
+
+_FormattingSignatureState = _FormattingSignature | _DeferredFormattingSignature | None
+
+
 @dataclass(slots=True)
 class _FormattingEntry:
     name: str
     attrs: dict[str, str | None]
     node: Element
-    signature: tuple[tuple[str, str], ...]
+    signature: _FormattingSignatureState
     active: bool = True
-    segment: dict[tuple[str, tuple[tuple[str, str], ...]], list[_FormattingEntry]] | None = None
+    segment: _FormattingSegment | None = None
+
+
+class _FormattingSegment(dict[tuple[str, _FormattingSignature], list[_FormattingEntry]]):
+    """One marker-bounded Noah index, with one lazily indexed entry."""
+
+    __slots__ = ("pending",)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pending: _FormattingEntry | None = None
+
+    def clear(self) -> None:
+        self.pending = None
+        super().clear()
 
 
 class _FormattingMarker:
@@ -651,55 +786,122 @@ class _FormattingMarker:
     attrs: dict[str, str | None]
     name: str
     node: Element
-    signature: tuple[tuple[str, str], ...]
+    signature: _FormattingSignature
 
 
 _ACTIVE_FORMATTING_MARKER = _FormattingMarker()
+_STACK_COUNT_THRESHOLD = 32
 
 
 class _CountingStack(list[Node]):
-    """The open-elements stack, tracking a live count of names it holds.
+    """The open-elements stack, adaptively tracking the names it holds.
 
     Scope-check helpers like `_find_open_index_before_boundary` scan from the
     top of this stack down to a boundary tag. Deeply nested elements that are
     never themselves the target (e.g. many `<div>` while scanning for an open
     `<p>`) would otherwise force an O(depth) scan on every single start tag,
-    making nested markup quadratic overall. Tracking per-name counts lets
-    those helpers return "not found" in O(1) whenever the target name isn't
-    open anywhere on the stack, without changing any parsing behavior.
+    making nested markup quadratic overall. Shallow stacks track the especially
+    common `p` lookup directly and scan at most 31 nodes for other names. At
+    the configured depth threshold, the stack permanently switches to per-name
+    counts so hostile deep nesting retains constant-time negative lookups.
     """
 
-    __slots__ = ("_name_counts",)
+    __slots__ = ("_name_counts", "_p_count")
 
     def __init__(self, iterable: Iterable[Node] = ()) -> None:
         items = list(iterable)
         super().__init__(items)
+        self._p_count = sum(item.name == "p" for item in items)
+        self._name_counts: dict[str, int] | None = None
+        if len(items) < _STACK_COUNT_THRESHOLD:
+            return
+        self._name_counts = self._collect_name_counts()
+
+    def _collect_name_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for item in items:
+        for item in self:
             counts[item.name] = counts.get(item.name, 0) + 1
-        self._name_counts = counts
+        return counts
 
     def count_of(self, name: str) -> int:
-        return self._name_counts.get(name, 0)
+        if name == "p":
+            return self._p_count
+        counts = self._name_counts
+        if counts is not None:
+            return counts.get(name, 0)
+        count = 0
+        for item in self:
+            count += item.name == name
+        return count
 
     def append(self, item: Node) -> None:  # type: ignore[override]
         list.append(self, item)
-        self._name_counts[item.name] = self._name_counts.get(item.name, 0) + 1
+        name = item.name
+        if name == "p":
+            self._p_count += 1
+        counts = self._name_counts
+        if counts is not None:
+            counts[name] = counts.get(name, 0) + 1
+        elif len(self) >= _STACK_COUNT_THRESHOLD:
+            self._name_counts = self._collect_name_counts()
+
+    def insert(self, index: SupportsIndex, item: Node) -> None:  # type: ignore[override]
+        list.insert(self, index, item)
+        name = item.name
+        if name == "p":
+            self._p_count += 1
+        counts = self._name_counts
+        if counts is not None:
+            counts[name] = counts.get(name, 0) + 1
+        elif len(self) >= _STACK_COUNT_THRESHOLD:
+            self._name_counts = self._collect_name_counts()
+
+    def __setitem__(self, key: SupportsIndex, item: Node) -> None:  # type: ignore[override]
+        previous_name = self[key].name
+        name = item.name
+        list.__setitem__(self, key, item)
+        if previous_name == name:
+            return
+        if previous_name == "p":
+            self._p_count -= 1
+        if name == "p":
+            self._p_count += 1
+        counts = self._name_counts
+        if counts is not None:
+            counts[previous_name] -= 1
+            counts[name] = counts.get(name, 0) + 1
 
     def pop(self, index: int = -1) -> Node:  # type: ignore[override]
         item = list.pop(self, index)
-        self._name_counts[item.name] -= 1
+        name = item.name
+        if name == "p":
+            self._p_count -= 1
+        counts = self._name_counts
+        if counts is not None:
+            counts[name] -= 1
         return item
 
     def remove(self, item: Node) -> None:  # type: ignore[override]
         list.remove(self, item)
-        self._name_counts[item.name] -= 1
+        name = item.name
+        if name == "p":
+            self._p_count -= 1
+        counts = self._name_counts
+        if counts is not None:
+            counts[name] -= 1
 
     def __delitem__(self, key: SupportsIndex | slice) -> None:
         removed = self[key] if isinstance(key, slice) else [self[key]]
         list.__delitem__(self, key)
+        p_count = self._p_count
+        counts = self._name_counts
         for item in removed:
-            self._name_counts[item.name] -= 1
+            name = item.name
+            if name == "p":
+                p_count -= 1
+            if counts is not None:
+                counts[name] -= 1
+        self._p_count = p_count
 
 
 class ParseEngine:
@@ -760,7 +962,6 @@ class ParseEngine:
         "_length",
         "_line_starts",
         "_list_item_scope_boundaries",
-        "_lower_input",
         "_max_errors",
         "_nodes_to_drop",
         "_nodes_to_unwrap",
@@ -777,6 +978,7 @@ class ParseEngine:
         "_skip_escaped_comment_space",
         "_special_elements",
         "_stack",
+        "_strict_ascii_fold",
         "_strip_invisible_unicode",
         "_table_allowed_children",
         "_table_cell_tags",
@@ -809,10 +1011,10 @@ class ParseEngine:
     ) -> None:
         self._html_input = html
         self._length = len(html)
-        # ASCII-only fold: positions in self._html_input are reused against
-        # self._lower_input, so the fold must be length-preserving
-        # (str.lower() is not, e.g. for U+0130).
-        self._lower_input = ascii_lower(html)
+        # Most local name slices can use str.lower(). U+0130 changes length and
+        # U+212A folds into an ASCII letter, so either shape requires strict
+        # ASCII-only translation to preserve HTML's name-matching semantics.
+        self._strict_ascii_fold = not html.isascii() and ("\u0130" in html or "\u212a" in html)
         self._fragment = bool(fragment)
         self._collect_errors = bool(collect_errors)
         self._max_errors = max_errors
@@ -901,10 +1103,9 @@ class ParseEngine:
         self._active_formatting: list[_FormattingEntry | _FormattingMarker] = []
         # One direct index per Noah's Ark marker segment. A signature retains
         # at most its three live entries, so finding the oldest duplicate does
-        # not require scanning the whole active-formatting list.
-        self._active_formatting_entries: list[
-            dict[tuple[str, tuple[tuple[str, str], ...]], list[_FormattingEntry]]
-        ] = [{}]
+        # not require scanning the whole active-formatting list. The first
+        # entry stays pending until a second formatting start needs the index.
+        self._active_formatting_entries: list[_FormattingSegment] = [_FormattingSegment()]
         self._active_formatting_retired = 0
         self._active_formatting_dirty = False
         self._nodes_to_drop: list[Element] = []
@@ -1046,7 +1247,6 @@ class ParseEngine:
 
     def _collect_basic_errors(self) -> None:
         html = self._html_input
-        lower = self._lower_input
         end = self._length
         self._emit_null_errors(0, end)
 
@@ -1054,7 +1254,7 @@ class ParseEngine:
             first = 0
             while first < end and html[first] in _SPACE:
                 first += 1
-            if first < end and not lower.startswith("<!doctype", first):
+            if first < end and not _scanner.ascii_startswith(html, "<!doctype", first, end):
                 if html[first] == "<" and first + 1 < end and html[first + 1].isalpha():
                     tag_end = self._find_tag_end(first + 2, end)
                     self._emit_error(
@@ -1319,7 +1519,7 @@ class ParseEngine:
     def _append_misc_node(self, node: Node, source_pos: int | None = None) -> None:
         if self._after_document and source_pos is not None:
             marker = "</html" if self._after_html else "</body"
-            close_start = self._lower_input.rfind(marker, 0, source_pos)
+            close_start = _scanner.ascii_rfind(self._html_input, marker, 0, source_pos)
             close_end = self._html_input.find(">", close_start, source_pos) if close_start != -1 else -1
             trailing = self._html_input[close_end + 1 : source_pos] if close_end != -1 else ""
             if trailing and "<" not in trailing and trailing.strip(_SPACE):
@@ -1593,7 +1793,7 @@ class ParseEngine:
                     continue
                 if (
                     self._raw_mode
-                    and self._lower_input.startswith("<![cdata[", lt)
+                    and _scanner.ascii_startswith(html, "<![cdata[", lt, end)
                     and self._stack[-1].namespace not in {None, "html"}
                 ):
                     close = html.find("]]>", pos + 8, end)
@@ -1601,7 +1801,7 @@ class ParseEngine:
                     self._append_raw_literal_text(html[pos + 8 : cdata_end], pos + 8)
                     pos = end if close == -1 else close + 3
                     continue
-                if self._lower_input.startswith("<!doctype", lt):
+                if _scanner.ascii_startswith(html, "<!doctype", lt, end):
                     gt = html.find(">", pos + 8, end)
                     can_insert_doctype = (
                         not self._fragment
@@ -2120,10 +2320,17 @@ class ParseEngine:
         pos += 1
         while pos < end and html[pos] not in _TAG_NAME_STOP:
             pos += 1
-        name = self._lower_input[name_start:pos]
+        raw_name = html[name_start:pos]
+        action = self._tag_actions.get(raw_name)
+        if action is None:
+            name = raw_name.translate(_ASCII_LOWER_TABLE) if self._strict_ascii_fold else raw_name.lower()
+            action = self._tag_actions.get(name)
+            if action is not None:
+                name = action.name
+        else:
+            name = action.name
         if not self._initial_mode_done:
             self._mark_initial_content()
-        action = self._tag_actions.get(name)
         if pos < end and html[pos] == ">":
             pos += 1
             gt = pos - 1
@@ -2135,8 +2342,7 @@ class ParseEngine:
         stack = self._stack
         if (
             action is not None
-            and not action.active_formatting
-            and name not in _COMPILED_SIMPLE_END_EXCLUSIONS
+            and action.simple_end
             and not self._parser_only_template_depth
             and not self._frameset_seen
             and not self._in_head_noscript
@@ -2148,6 +2354,26 @@ class ParseEngine:
             self._mark_active_formatting_dirty()
             stack.pop()
             return pos
+
+        if (
+            action is not None
+            and action.active_formatting
+            and not self._parser_only_template_depth
+            and not self._in_head_noscript
+            and (not self._frameset_seen or self._body_explicit)
+        ):
+            active = self._active_formatting
+            if active:
+                entry = active[-1]
+                if (
+                    entry is not _ACTIVE_FORMATTING_MARKER
+                    and entry.active
+                    and entry.name == name
+                    and stack[-1] is entry.node
+                ):
+                    stack.pop()
+                    self._retire_active_formatting_entry(entry)
+                    return pos
 
         if not self._fragment and name in {"html", "body"}:
             self._in_colgroup = False
@@ -2634,10 +2860,18 @@ class ParseEngine:
         pos += 1
         while pos < end and html[pos] not in _TAG_NAME_STOP:
             pos += 1
-        name = self._lower_input[name_start:pos]
+        raw_name = html[name_start:pos]
+        action = self._tag_actions.get(raw_name)
+        if action is None:
+            name = raw_name.translate(_ASCII_LOWER_TABLE) if self._strict_ascii_fold else raw_name.lower()
+            action = self._tag_actions.get(name)
+            if action is not None:
+                name = action.name
+        else:
+            name = action.name
         if name == "image":
             name = "img"
-        action = self._tag_actions.get(name)
+            action = self._tag_actions.get(name)
         if self._foreign_context_seen:
             namespace = self._stack[-1].namespace
             if namespace is not None and namespace != "html" and namespace != _PARSER_ONLY_NAMESPACE:
@@ -2654,6 +2888,34 @@ class ParseEngine:
             attrs, self_closing, pos, tag_closed = self._parse_attrs_for_action(action, pos, end)
         if not tag_closed:
             return pos
+
+        stack = self._stack
+        current_parent = stack[-1]
+        if (
+            action is not None
+            and action.simple_start
+            and (not action.p_closing or not stack.count_of("p"))
+            and self._body_mode_seen
+            and not self._fragment
+            and not self._parser_only_template_depth
+            and not self._frameset_seen
+            and not self._in_colgroup
+            and not self._in_head_noscript
+            and not self._after_body
+            and not self._after_document
+            and not self._after_html
+            and current_parent.namespace in {None, "html"}
+            and current_parent is not self._head
+            and current_parent is not self._html
+            and current_parent.name not in self._table_foster_targets
+            and current_parent.name not in {"optgroup", "option", "select"}
+            and type(current_parent) is not Template
+        ):
+            self._insert_compiled_safe_element(name, attrs, self_closing, current_parent)
+            if action.pre_linefeed:
+                self._ignore_lf = True
+            return pos
+
         in_parser_only_template = self._parser_only_template_depth > 0
         if not in_parser_only_template:
             if name == "colgroup":
@@ -2932,16 +3194,27 @@ class ParseEngine:
         pos += 1
         while pos < end and html[pos] not in _TAG_NAME_STOP:
             pos += 1
-        name = self._lower_input[name_start:pos]
+        raw_name = html[name_start:pos]
+        action = self._tag_actions.get(raw_name)
+        if action is None:
+            name = raw_name.translate(_ASCII_LOWER_TABLE) if self._strict_ascii_fold else raw_name.lower()
+            action = self._tag_actions.get(name)
+            if action is not None:
+                name = action.name
+        else:
+            name = action.name
         if self._has_null and "\0" in name:
             name = name.replace("\0", "\ufffd")
+            action = self._tag_actions.get(name)
+            if action is not None:
+                name = action.name
         if not self._initial_mode_done:
             self._mark_initial_content()
 
         in_foreign_context = self._stack[-1].namespace not in {None, "html", _PARSER_ONLY_NAMESPACE}
         if name == "image" and not in_foreign_context:
             name = "img"
-        action = self._tag_actions.get(name)
+            action = self._tag_actions.get(name)
         foreign_state_parse = not raw_mode and (name in {"math", "svg"} or in_foreign_context)
         if raw_mode or foreign_state_parse:
             attrs, self_closing, pos, tag_closed = self._parse_all_attrs(pos, end)
@@ -4580,7 +4853,7 @@ class ParseEngine:
 
     def _push_active_formatting_marker(self) -> None:
         self._active_formatting.append(_ACTIVE_FORMATTING_MARKER)
-        self._active_formatting_entries.append({})
+        self._active_formatting_entries.append(_FormattingSegment())
 
     def _clear_active_formatting_to_marker(self) -> None:
         active = self._active_formatting
@@ -4648,14 +4921,14 @@ class ParseEngine:
         return html[pos:close], next_pos
 
     def _find_rawtext_end_tag(self, name: str, pos: int, end: int) -> tuple[int | None, int]:
-        return _scanner.find_rawtext_end_tag(self._html_input, self._lower_input, name, pos, end)
+        return _scanner.find_rawtext_end_tag(self._html_input, name, pos, end)
 
     def _find_script_end_tag(self, pos: int, end: int) -> tuple[int | None, int]:
-        return _scanner.find_script_end_tag(self._html_input, self._lower_input, pos, end)
+        return _scanner.find_script_end_tag(self._html_input, pos, end)
 
     def _find_script_start_marker(self, pos: int, end: int) -> int:
         return _scanner.find_script_start_marker(
-            self._html_input, self._lower_input, pos, end, end
+            self._html_input, pos, end, end
         )  # pragma: no cover - unreachable after parser-state guards
 
     def _find_tag_end(self, pos: int, end: int) -> int:
@@ -4740,7 +5013,7 @@ class ParseEngine:
             self._append(node, self._new_text(text, text_start))
         if self._stack and self._stack[-1] is node:  # pragma: no branch - opposite edge requires invalid parser state
             if pos <= end:  # pragma: no branch - opposite edge requires invalid parser state
-                close_start = self._lower_input.rfind(f"</{name}", tag_end or 0, pos)
+                close_start = _scanner.ascii_rfind(self._html_input, f"</{name}", tag_end or 0, pos)
                 if close_start != -1 and self._track_tag_spans:
                     self._set_end_span(node, name, close_start, pos)
             self._stack.pop()
@@ -4895,7 +5168,12 @@ class ParseEngine:
         compiled_safe: bool = False,
     ) -> int:
         self._compact_active_formatting_if_needed()
-        if name == "a" and self._active_formatting_entries[-1] and self._find_active_formatting_index("a") is not None:
+        entries = self._active_formatting_entries[-1]
+        if (
+            name == "a"
+            and (entries.pending is not None or entries)
+            and self._find_active_formatting_index("a") is not None
+        ):
             self._adoption_agency("a")
             self._remove_last_active_formatting_by_name("a")
             self._remove_last_open_element_by_name("a")
@@ -4906,10 +5184,14 @@ class ParseEngine:
 
         if self._active_formatting_dirty:
             self._reconstruct_active_formatting()
-        signature = () if not attrs else self._attrs_signature(attrs)
-        duplicate = self._find_active_formatting_duplicate(name, signature)
-        if duplicate is not None:
-            self._retire_active_formatting_entry(duplicate)
+        self._materialize_pending_active_formatting_entry()
+        entries = self._active_formatting_entries[-1]
+        signature = None
+        if entries:
+            signature = () if not attrs else self._attrs_signature(attrs)
+            duplicate = self._find_active_formatting_duplicate(name, signature)
+            if duplicate is not None:
+                self._retire_active_formatting_entry(duplicate)
 
         if compiled_safe:
             node = self._insert_compiled_safe_element(name, attrs, False, self._current_parent())
@@ -4917,35 +5199,63 @@ class ParseEngine:
             node = self._insert_sanitized_element(
                 name, attrs, False, self._current_parent(), tag_start=tag_start, tag_end=tag_end
             )
-        self._append_active_formatting_entry(name, node.attrs, node, signature)
+        signature_state: _FormattingSignatureState = signature
+        if signature_state is None and not compiled_safe and node.attrs is not attrs:
+            signature_state = _DeferredFormattingSignature(attrs)
+        self._append_active_formatting_entry(name, node.attrs, node, signature_state)
         return pos
 
-    def _attrs_signature(self, attrs: dict[str, str | None]) -> tuple[tuple[str, str], ...]:
+    def _attrs_signature(self, attrs: dict[str, str | None]) -> _FormattingSignature:
         if not attrs:  # pragma: no branch - opposite edge requires invalid parser state
             return ()  # pragma: no cover - unreachable after parser-state guards
-        if len(attrs) == 1:
-            name, value = next(iter(attrs.items()))
-            return ((name, value or ""),)
-        items = [(name, value or "") for name, value in attrs.items()]
-        items.sort()
-        return tuple(items)
+        return frozenset(attrs.items())
+
+    def _formatting_entry_signature(self, entry: _FormattingEntry) -> _FormattingSignature:
+        signature = entry.signature
+        if isinstance(signature, _DeferredFormattingSignature):
+            attrs = signature.attrs
+        elif signature is None:
+            attrs = entry.attrs
+        else:
+            return signature
+        signature = () if not attrs else self._attrs_signature(attrs)
+        entry.signature = signature
+        return signature
 
     def _append_active_formatting_entry(
         self,
         name: str,
         attrs: dict[str, str | None],
         node: Element,
-        signature: tuple[tuple[str, str], ...],
+        signature: _FormattingSignatureState,
     ) -> None:
         entry_attrs = attrs if attrs else {}
         entry = _FormattingEntry(name, entry_attrs, node, signature)
         self._active_formatting.append(entry)
         entries = self._active_formatting_entries[-1]
         entry.segment = entries
-        key = (name, signature)
+        if entries.pending is None and not entries:
+            entries.pending = entry
+        else:
+            self._index_active_formatting_entry(entries, entry)
+        self._active_formatting_dirty = False
+
+    def _materialize_pending_active_formatting_entry(self) -> None:
+        entries = self._active_formatting_entries[-1]
+        pending = entries.pending
+        if pending is None:
+            return
+        entries.pending = None
+        self._index_active_formatting_entry(entries, pending)
+
+    def _index_active_formatting_entry(
+        self,
+        entries: _FormattingSegment,
+        entry: _FormattingEntry,
+    ) -> None:
+        key = (entry.name, self._formatting_entry_signature(entry))
         matches = entries.setdefault(key, [])
         matches.append(entry)
-        self._active_formatting_dirty = False
 
     def _find_active_formatting_index(self, name: str) -> int | None:
         active = self._active_formatting
@@ -4965,9 +5275,7 @@ class ParseEngine:
                 return idx
         return None
 
-    def _find_active_formatting_duplicate(
-        self, name: str, signature: tuple[tuple[str, str], ...]
-    ) -> _FormattingEntry | None:
+    def _find_active_formatting_duplicate(self, name: str, signature: _FormattingSignature) -> _FormattingEntry | None:
         key = (name, signature)
         matches = self._active_formatting_entries[-1].get(key)
         if matches is not None and len(matches) == 3:
@@ -4986,14 +5294,21 @@ class ParseEngine:
         if not entry.active:  # pragma: no cover - callers only retire live entries
             return
         entry.active = False
-        key = (entry.name, entry.signature)
         entries = entry.segment
         if entries is not None:  # pragma: no branch - parser-created entries always belong to a segment
-            matches = entries[key]
-            matches.remove(entry)
-            if not matches:
-                del entries[key]
-        self._active_formatting_retired += 1
+            if entries.pending is entry:
+                entries.pending = None
+            else:
+                key = (entry.name, self._formatting_entry_signature(entry))
+                matches = entries[key]
+                matches.remove(entry)
+                if not matches:
+                    del entries[key]
+        active = self._active_formatting
+        if active and active[-1] is entry:
+            active.pop()
+        else:
+            self._active_formatting_retired += 1
 
     def _compact_active_formatting_if_needed(self) -> None:
         active = self._active_formatting
@@ -5216,8 +5531,11 @@ class ParseEngine:
 
             self._append_moved_node(furthest_block, new_formatting_element)
 
+            if TYPE_CHECKING:
+                assert isinstance(entry, _FormattingEntry)
+            signature = self._formatting_entry_signature(entry)
             self._retire_active_formatting_entry(entry)
-            replacement = _FormattingEntry(entry.name, entry.attrs, new_formatting_element, entry.signature)
+            replacement = _FormattingEntry(entry.name, entry.attrs, new_formatting_element, signature)
             bookmark -= 1
             if bookmark < 0:  # pragma: no branch - opposite edge requires invalid parser state
                 bookmark = 0  # pragma: no cover - unreachable after parser-state guards
@@ -5228,7 +5546,8 @@ class ParseEngine:
             self._active_formatting.insert(bookmark, replacement)
             entries = self._active_formatting_entries[-1]
             replacement.segment = entries
-            entries.setdefault((replacement.name, replacement.signature), []).append(replacement)
+            self._materialize_pending_active_formatting_entry()
+            self._index_active_formatting_entry(entries, replacement)
 
             try:
                 self._mark_active_formatting_dirty()
@@ -5481,7 +5800,7 @@ class ParseEngine:
 
     def _parse_all_attrs(self, pos: int, end: int) -> tuple[dict[str, str | None], bool, int, bool]:
         html = self._html_input
-        lower = self._lower_input
+        strict_ascii_fold = self._strict_ascii_fold
         space = _SPACE
         attr_name_stop = _ATTR_NAME_STOP
         attr_value_stop = _ATTR_VALUE_STOP
@@ -5508,7 +5827,8 @@ class ParseEngine:
                 pos += 1
                 while pos < end and html[pos] not in attr_name_stop:
                     pos += 1
-            key = lower[name_start:pos]
+            raw_key = html[name_start:pos]
+            key = raw_key.translate(_ASCII_LOWER_TABLE) if strict_ascii_fold else raw_key.lower()
             if "\0" in key:
                 key = key.replace("\0", "\ufffd")
 
@@ -5561,13 +5881,11 @@ class ParseEngine:
             value = raw_value or ""
             if self._strip_invisible_unicode and value and not value.isascii():
                 value = _strip_invisible_unicode(value)
-            kind = action.url_attr_kinds.get(key)
-            if kind is not None:
-                rule = action.url_attr_rules.get(key)
-                if rule is None:  # pragma: no branch - opposite edge requires invalid parser state
-                    continue  # pragma: no cover - unreachable after parser-state guards
-                if kind == "url":  # pragma: no branch - opposite edge requires invalid parser state
-                    sanitized_fast = self._sanitize_simple_url_fast(value, rule)
+            url_action = action.url_attrs.get(key)
+            if url_action is not None:
+                kind, rule, fast_allow_relative = url_action
+                if kind == "url" and fast_allow_relative is not None:
+                    sanitized_fast = _sanitize_simple_url_fast(value, rule, fast_allow_relative)
                     if sanitized_fast is None:
                         continue
                     if sanitized_fast is not _URL_FAST_FALLBACK:
@@ -5587,82 +5905,6 @@ class ParseEngine:
             sanitized[key] = value
         return sanitized
 
-    def _sanitize_simple_url_fast(self, value: str, rule: UrlRule) -> str | None | object:
-        url_policy = self._url_policy
-        handling = rule.handling if rule.handling is not None else url_policy.default_handling
-        allow_relative = rule.allow_relative if rule.allow_relative is not None else url_policy.default_allow_relative
-        if (  # pragma: no branch - opposite edge requires invalid parser state
-            handling != "allow"
-            or rule.proxy is not None
-            or url_policy.proxy is not None
-            or url_policy.url_filter is not None
-            or rule.allowed_hosts is not None
-        ):
-            return _URL_FAST_FALLBACK  # pragma: no cover - unreachable after parser-state guards
-
-        if not value.isascii():
-            return _URL_FAST_FALLBACK
-
-        stripped = value.strip()
-        if not stripped:
-            return None
-
-        allowed_schemes = rule.allowed_schemes
-        if stripped.startswith("https://") and " " not in stripped and stripped.isprintable():
-            return stripped if "https" in allowed_schemes else None
-        if stripped.startswith("http://") and " " not in stripped and stripped.isprintable():
-            return stripped if "http" in allowed_schemes else None
-
-        if _URL_CONTROL_CHAR_REGEX.search(stripped):
-            return None
-
-        if ":" not in stripped:
-            if "\\" in stripped:
-                return None
-            if stripped.startswith("#"):
-                return stripped if rule.allow_fragment else None
-            if stripped.startswith("//"):
-                resolved = rule.resolve_protocol_relative
-                if not resolved:
-                    return None
-                resolved_scheme = resolved.lower()
-                if (
-                    resolved_scheme not in rule.allowed_schemes
-                ):  # pragma: no branch - opposite edge requires invalid parser state
-                    return None  # pragma: no cover - unreachable after parser-state guards
-                return f"{resolved_scheme}:{stripped}"
-            return stripped if allow_relative else None
-
-        normalized = _normalize_url_for_checking(stripped)
-        if not normalized or "\\" in normalized:  # pragma: no branch - opposite edge requires invalid parser state
-            return None  # pragma: no cover - unreachable after parser-state guards
-
-        if normalized.startswith("#"):  # pragma: no branch - opposite edge requires invalid parser state
-            return (
-                stripped if rule.allow_fragment else None
-            )  # pragma: no cover - unreachable after parser-state guards
-
-        if normalized.startswith("//"):  # pragma: no branch - opposite edge requires invalid parser state
-            resolved = rule.resolve_protocol_relative  # pragma: no cover - unreachable after parser-state guards
-            if not resolved:  # pragma: no cover - unreachable after parser-state guards
-                return None  # pragma: no cover - unreachable after parser-state guards
-            resolved_scheme = resolved.lower()  # pragma: no cover - unreachable after parser-state guards
-            if resolved_scheme not in allowed_schemes:  # pragma: no cover - unreachable after parser-state guards
-                return None  # pragma: no cover - unreachable after parser-state guards
-            return f"{resolved_scheme}:{normalized}"  # pragma: no cover - unreachable after parser-state guards
-
-        scheme = _get_scheme(normalized)
-        if scheme is not None:  # pragma: no branch - opposite edge requires invalid parser state
-            if scheme not in allowed_schemes:
-                return None
-            if (
-                scheme in {"http", "https"} and not normalized.startswith(f"{scheme}://") and not allow_relative
-            ):  # pragma: no branch - opposite edge requires invalid parser state
-                return None  # pragma: no cover - unreachable after parser-state guards
-            return stripped
-
-        return stripped if allow_relative else None  # pragma: no cover - unreachable after parser-state guards
-
     def _parse_attrs_for_action(
         self,
         action: TagAction | None,
@@ -5673,15 +5915,14 @@ class ParseEngine:
             return self._skip_attrs(pos, end)
 
         html = self._html_input
-        lower = self._lower_input
+        strict_ascii_fold = self._strict_ascii_fold
         space = _SPACE
         attr_name_stop = _ATTR_NAME_STOP
         attr_value_stop = _ATTR_VALUE_STOP
         attrs: dict[str, str | None] = {}
         allowed_attrs = action.allowed_attrs
         state_attrs = action.state_attrs
-        url_attr_kinds = action.url_attr_kinds
-        url_attr_rules = action.url_attr_rules
+        url_attrs = action.url_attrs
         preserve_state_attrs = action.preserve_state_attrs
         tag = action.name
 
@@ -5708,7 +5949,8 @@ class ParseEngine:
                     continue  # pragma: no cover - unreachable after earlier delimiter handling
                 pos += 1  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
                 continue  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
-            key = lower[name_start:pos]
+            raw_key = html[name_start:pos]
+            key = raw_key.translate(_ASCII_LOWER_TABLE) if strict_ascii_fold else raw_key.lower()
             if "\0" in key:
                 key = key.replace("\0", "\ufffd")
             keep_output = key in allowed_attrs
@@ -5763,13 +6005,11 @@ class ParseEngine:
                 continue
             if self._strip_invisible_unicode and value and not value.isascii():
                 value = _strip_invisible_unicode(value)
-            kind = url_attr_kinds.get(key)
-            if kind is not None:
-                rule = url_attr_rules.get(key)
-                if rule is None:  # pragma: no branch - opposite edge requires invalid parser state
-                    continue  # pragma: no cover - unreachable after parser-state guards
-                if kind == "url":  # pragma: no branch - opposite edge requires invalid parser state
-                    sanitized_fast = self._sanitize_simple_url_fast(value, rule)
+            url_action = url_attrs.get(key)
+            if url_action is not None:
+                kind, rule, fast_allow_relative = url_action
+                if kind == "url" and fast_allow_relative is not None:
+                    sanitized_fast = _sanitize_simple_url_fast(value, rule, fast_allow_relative)
                     if sanitized_fast is None:
                         continue
                     if sanitized_fast is not _URL_FAST_FALLBACK:
@@ -5809,6 +6049,7 @@ class ParseEngine:
 
     def _skip_subtree(self, name: str, pos: int, end: int, *, detect_foreign_breakout: bool = False) -> int:
         html = self._html_input
+        strict_ascii_fold = self._strict_ascii_fold
         depth = 1
         while pos < end and depth:
             lt = html.find("<", pos, end)
@@ -5818,7 +6059,7 @@ class ParseEngine:
                 self._dropped_to_eof = True  # pragma: no cover - unreachable after parser-state guards
                 return end  # pragma: no cover - unreachable after parser-state guards
             p = lt + 1
-            if self._lower_input.startswith("<![cdata[", lt):
+            if _scanner.ascii_startswith(html, "<![cdata[", lt, end):
                 close = html.find("]]>", p + 8, end)
                 if close == -1:  # pragma: no branch - opposite edge requires invalid parser state
                     self._dropped_to_eof = True  # pragma: no cover - unreachable after parser-state guards
@@ -5832,7 +6073,8 @@ class ParseEngine:
             if not match:  # pragma: no branch - opposite edge requires invalid parser state
                 pos = p  # pragma: no cover - unreachable after parser-state guards
                 continue  # pragma: no cover - unreachable after parser-state guards
-            tag = self._lower_input[match.start() : match.end()]
+            raw_tag = html[match.start() : match.end()]
+            tag = raw_tag.translate(_ASCII_LOWER_TABLE) if strict_ascii_fold else raw_tag.lower()
             gt = html.find(">", match.end(), end)
             pos = end if gt == -1 else gt + 1
             if (
@@ -5871,7 +6113,7 @@ class ParseEngine:
             next_markup = pos
             while next_markup < end and html[next_markup] in _SPACE:
                 next_markup += 1
-            if self._lower_input.startswith("<frameset", next_markup, end):
+            if _scanner.ascii_startswith(html, "<frameset", next_markup, end):
                 return -1
         return pos
 
@@ -5922,7 +6164,10 @@ class ParseEngine:
         )
 
     def _script_eof_keeps_shell(self, pos: int, end: int) -> bool:
-        raw = self._lower_input[pos:end].rstrip(_SPACE)
+        raw_source = self._html_input[pos:end]
+        raw = (raw_source.translate(_ASCII_LOWER_TABLE) if self._strict_ascii_fold else raw_source.lower()).rstrip(
+            _SPACE
+        )
         if not raw.endswith("</script>"):
             return False
         comment = raw.find("<!--")

@@ -10,7 +10,6 @@ from justhtml.core.constants import (
     SVG_TAG_NAME_ADJUSTMENTS,
 )
 from justhtml.core.entities import decode_entities_in_text
-from justhtml.core.text import ascii_lower
 
 from . import scanner as _scanner
 from .encoding import decode_html
@@ -53,19 +52,14 @@ class _StreamNode:
 
 
 class _StreamScanner:
-    __slots__ = ("_html", "_lower", "_name_counts", "_open_elements")
+    __slots__ = ("_html", "_name_counts", "_open_elements")
 
     _html: str
-    _lower: str
     _open_elements: list[_StreamNode]
     _name_counts: dict[str, int]
 
     def __init__(self, html: str) -> None:
         self._html = html
-        # ASCII-only fold: positions in self._html are reused against
-        # self._lower, so the fold must be length-preserving (str.lower() is
-        # not, e.g. for U+0130).
-        self._lower = ascii_lower(html)
         self._open_elements = []
         self._name_counts = {}
 
@@ -213,7 +207,6 @@ class _StreamScanner:
         self, pos: int, end: int
     ) -> tuple[bool, CommentEvent | DoctypeEvent | None, int, str | None]:
         html = self._html
-        lower = self._lower
 
         if html.startswith("--", pos):
             comment_start = pos + 2
@@ -233,7 +226,7 @@ class _StreamScanner:
             data = data.removesuffix("--")
             return True, ("comment", data.replace("\0", "\ufffd")), end, None
 
-        if lower.startswith("doctype", pos):
+        if _scanner.ascii_startswith(html, "doctype", pos, end):
             # A ">" terminates a DOCTYPE even inside a quoted identifier.
             # Quote-aware tag scanning can otherwise swallow following text
             # when the declaration is malformed.
@@ -270,7 +263,7 @@ class _StreamScanner:
                 system_id = system_id.replace("\0", "\ufffd")
             return True, ("doctype", (name, public_id, system_id)), next_pos, None
 
-        if lower.startswith("[cdata[", pos) and self._in_foreign_context():
+        if _scanner.ascii_startswith(html, "[cdata[", pos, end) and self._in_foreign_context():
             cdata_start = pos + 7
             cdata_end = html.find("]]>", cdata_start, end)
             if cdata_end == -1:
@@ -373,8 +366,8 @@ class _StreamScanner:
 
     def _find_rawtext_end_tag(self, name: str, pos: int, end: int) -> tuple[int | None, int]:
         if name == "script":
-            return _scanner.find_script_end_tag(self._html, self._lower, pos, end)
-        return _scanner.find_rawtext_end_tag(self._html, self._lower, name, pos, end)
+            return _scanner.find_script_end_tag(self._html, pos, end)
+        return _scanner.find_rawtext_end_tag(self._html, name, pos, end)
 
     def _find_tag_end(self, pos: int, end: int) -> int:
         return _scanner.find_tag_end(self._html, pos, end)

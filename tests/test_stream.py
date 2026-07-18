@@ -2,7 +2,13 @@ import unittest
 
 from justhtml import stream
 from justhtml.core.text import ascii_lower
-from justhtml.parser.scanner import find_rawtext_end_tag, find_script_end_tag
+from justhtml.parser.scanner import (
+    ascii_find,
+    ascii_rfind,
+    ascii_startswith,
+    find_rawtext_end_tag,
+    find_script_end_tag,
+)
 from justhtml.parser.stream import _StreamScanner
 
 
@@ -424,21 +430,45 @@ class TestStream(unittest.TestCase):
         assert text_buffer == ["\n\0&"]
         assert list(empty._flush_text([""])) == []
 
+    def test_ascii_marker_searches_fold_only_ascii_candidates(self):
+        html = "<sty\u212ae><STYLE>x</style>"
+
+        assert ascii_startswith(html, "<style", 7, len(html)) is True
+        assert ascii_startswith(html, "<style", 0, len(html)) is False
+        assert ascii_startswith("DOCTYPE", "doctype", 0, 3) is False
+        assert ascii_find(html, "<style", 0, len(html)) == 7
+        assert ascii_find(html, "<script", 0, len(html)) == -1
+        assert ascii_rfind(html, "</style", 0, len(html)) == 15
+        assert ascii_rfind(html, "</script", 0, len(html)) == -1
+        assert ascii_startswith("doctype", "DOCTYPE", 0, 7) is True
+        assert ascii_find("xDOCTYPEdoctype", "doctype", 0, 15) == 1
+        assert ascii_find("DOCTYPE", "doctype", 0, 7) == 0
+        assert ascii_find("doctypeDOCTYPE", "doctype", 0, 14) == 0
+        assert ascii_find("doctype", "DOCTYPE", 0, 7) == 0
+        assert ascii_rfind("DOCTYPEdoctype", "DOCTYPE", 0, 14) == 7
+        assert ascii_rfind("DOCTYPE", "doctype", 0, 7) == 0
+        assert ascii_rfind("DOCTYPE", "DOCTYPE", 0, 7) == 0
+
     def test_script_scanner_rejects_nested_invalid_end_markers(self):
         invalid_inner = "<!--<script X </scriptx </script>"
-        assert find_script_end_tag(invalid_inner, invalid_inner.lower(), 0, len(invalid_inner)) == (
+        assert find_script_end_tag(invalid_inner, 0, len(invalid_inner)) == (
             None,
             len(invalid_inner),
         )
 
         invalid_quoted = '<!--<script X </script foo="</scriptx">tail</script>'
-        assert find_script_end_tag(invalid_quoted, invalid_quoted.lower(), 0, len(invalid_quoted)) == (43, 52)
+        assert find_script_end_tag(invalid_quoted, 0, len(invalid_quoted)) == (43, 52)
+
+        # A terminated inner end marker inside the outer end tag's quoted
+        # attributes leaves the double-escaped state before that inner marker.
+        valid_quoted = '<!--<script X </script foo="</script>">tail</script>'
+        assert find_script_end_tag(valid_quoted, 0, len(valid_quoted)) == (28, 37)
 
         # A "<script" immediately followed by "</script>" is not a
         # script-data-double-escape-start (its following character "<" is not a
         # terminator), so the trailing "</script>" must still close the element.
         unterminated_marker = "<!--<script</script>"
-        assert find_script_end_tag(unterminated_marker, unterminated_marker.lower(), 0, len(unterminated_marker)) == (
+        assert find_script_end_tag(unterminated_marker, 0, len(unterminated_marker)) == (
             11,
             20,
         )
@@ -447,17 +477,17 @@ class TestStream(unittest.TestCase):
         # toward the "-->"), so the following "<script>" is plain script data and
         # does not start a double escape; the "</script>" still closes it.
         short_comment = "<!--><script></script>"
-        assert find_script_end_tag(short_comment, short_comment.lower(), 0, len(short_comment)) == (13, 22)
+        assert find_script_end_tag(short_comment, 0, len(short_comment)) == (13, 22)
 
     def test_rawtext_end_tag_slash_terminated_without_gt(self):
         # "</style/x" terminates the end-tag name with "/", so at EOF the end tag
         # is emitted (attributes dropped) and the raw text ends, even though no
         # ">" ever appears.
         slashed = "</style/x"
-        assert find_rawtext_end_tag(slashed, slashed.lower(), "style", 0, len(slashed)) == (0, len(slashed))
+        assert find_rawtext_end_tag(slashed, "style", 0, len(slashed)) == (0, len(slashed))
         # A bare "</style" at EOF with no terminator stays raw text.
         bare = "</style"
-        assert find_rawtext_end_tag(bare, bare.lower(), "style", 0, len(bare)) == (None, len(bare))
+        assert find_rawtext_end_tag(bare, "style", 0, len(bare)) == (None, len(bare))
 
     def test_rawtext_end_tag_after_length_changing_case_char(self):
         # "İ" (U+0130) lowers to two characters, so a str.lower() copy of the
