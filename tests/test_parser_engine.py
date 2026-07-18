@@ -9,6 +9,7 @@ from justhtml.parser.context import FragmentContext
 from justhtml.parser.engine import (
     _AFTER_BODY,
     _STACK_COUNT_THRESHOLD,
+    _UNWRAP_BATCH_THRESHOLD,
     ParseEngine,
     _CountingStack,
     _FormattingEntry,
@@ -982,6 +983,18 @@ class TestParserAttributeProjection(_ParserEngineTestCase):
         engine = ParseEngine("x</p>y</br>z", fragment=True, plan=plan)
 
         assert engine.parse().to_html(pretty=False) == "xyz"
+
+    def test_compiled_engine_plan_batches_many_disallowed_wrappers(self) -> None:
+        siblings = "<x>a</x><span>b</span>" * _UNWRAP_BATCH_THRESHOLD
+        assert JustHTML(siblings, fragment=True).to_html(pretty=False) == ("a<span>b</span>" * _UNWRAP_BATCH_THRESHOLD)
+
+        nested = "<x>" * _UNWRAP_BATCH_THRESHOLD + "z" + "</x>" * _UNWRAP_BATCH_THRESHOLD
+        assert JustHTML(nested, fragment=True).to_html(pretty=False) == "z"
+
+        engine = ParseEngine("", fragment=True)
+        engine._nodes_to_unwrap = [Element("x", {}, "html") for _ in range(_UNWRAP_BATCH_THRESHOLD)]
+        engine._unwrap_recorded_nodes()
+        assert engine._nodes_to_unwrap == []
 
     def test_compiled_url_policy_falls_back_for_non_allowing_rules(self) -> None:
         base = DEFAULT_DOCUMENT_POLICY

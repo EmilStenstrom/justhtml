@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reduce tree-construction overhead by adaptively tracking open elements, removing completed formatting entries without leaving tombstones, and deferring formatting-attribute signatures until duplicate tracking actually needs them.
 - Remove redundant constructor-path work for discarded end-tag attributes, canonical attribute names, shallow non-paragraph stack updates, active-formatting bookkeeping, and parser state that could never become active.
 - Cut fixed default-constructor overhead by reusing built-in execution plans, skipping no-op finalization and error-list work, lazily allocating formatting indexes, and collapsing duplicate shell, mode, and end-of-input state.
+- Collapse common start-tag and text insertion-mode checks into synchronized state flags, avoiding repeated condition ladders in the default `JustHTML()` constructor.
+- Avoid open-elements membership scans for ordinary HTML insertions and batch large disallowed-wrapper projections instead of repeatedly searching and shifting the same child lists.
+
+### Security
+
+- (Severity: Low) Keep sanitization projection linear for large runs of disallowed sibling wrappers and avoid depth-proportional parent validation for nested wrappers. Previously, crafted wrapper-heavy HTML could make the default `JustHTML()` constructor take quadratic time.
 
 ## [3.7.1] - 2026-07-17
 
