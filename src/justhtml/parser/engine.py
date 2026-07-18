@@ -148,6 +148,24 @@ _INLINE_HEAD_VOID_START_TAGS = {"base", "basefont", "bgsound", "link", "meta"}
 # formatting elements.
 _RUBY_START_TAGS = {"rb", "rp", "rt", "rtc"}
 _STACK_REPAIR_START_TAGS = {"dd", "dt", "li", "optgroup", "option"} | HEADING_ELEMENTS
+_COMPILED_SIMPLE_END_EXCLUSIONS = (
+    {
+        "body",
+        "br",
+        "colgroup",
+        "head",
+        "html",
+        "table",
+        "tbody",
+        "template",
+        "tfoot",
+        "thead",
+        "tr",
+    }
+    | HEADING_ELEMENTS
+    | {"td", "th"}
+    | _ACTIVE_FORMATTING_MARKER_TAGS
+)
 _HTML_VOID_COMPAT_TAGS = {"basefont", "bgsound", "frame", "keygen"}
 _DEFINITION_SCOPE_BOUNDARIES = frozenset(DEFINITION_SCOPE_TERMINATORS)
 _LIST_ITEM_SCOPE_BOUNDARIES = frozenset(LIST_ITEM_SCOPE_TERMINATORS)
@@ -2114,6 +2132,23 @@ class ParseEngine:
             gt = pos - 1 if tag_closed else -1
             pos = end if gt == -1 else pos
 
+        stack = self._stack
+        if (
+            action is not None
+            and not action.active_formatting
+            and name not in _COMPILED_SIMPLE_END_EXCLUSIONS
+            and not self._parser_only_template_depth
+            and not self._frameset_seen
+            and not self._in_head_noscript
+            and len(stack) > 1
+            and stack[-1].name == name
+            and stack[-1] is not self._fragment_context_node
+            and stack[-1] is not self._head
+        ):
+            self._mark_active_formatting_dirty()
+            stack.pop()
+            return pos
+
         if not self._fragment and name in {"html", "body"}:
             self._in_colgroup = False
             parent_name = getattr(self._current_parent(), "name", None)
@@ -2192,7 +2227,6 @@ class ParseEngine:
                 self._reconstruct_active_formatting()
             self._insert_compiled_safe_element("br", {}, False, self._current_parent())
             return pos
-        stack = self._stack
         if name in HEADING_ELEMENTS:
             idx = self._find_open_heading_index()
             if idx is None:
@@ -2818,7 +2852,9 @@ class ParseEngine:
         ):
             parent = self._head  # pragma: no cover - unreachable after parser-state guards
         else:
-            if (action is not None and action.p_closing) or name in _STACK_REPAIR_START_TAGS:
+            if name in _STACK_REPAIR_START_TAGS or (
+                action is not None and action.p_closing and self._stack.count_of("p")
+            ):
                 self._repair_stack_for_start(name)
             parent = self._stack[-1]
             if parent.namespace == _PARSER_ONLY_NAMESPACE or (
@@ -4859,7 +4895,7 @@ class ParseEngine:
         compiled_safe: bool = False,
     ) -> int:
         self._compact_active_formatting_if_needed()
-        if name == "a" and self._find_active_formatting_index("a") is not None:
+        if name == "a" and self._active_formatting_entries[-1] and self._find_active_formatting_index("a") is not None:
             self._adoption_agency("a")
             self._remove_last_active_formatting_by_name("a")
             self._remove_last_open_element_by_name("a")
@@ -5727,11 +5763,12 @@ class ParseEngine:
                 continue
             if self._strip_invisible_unicode and value and not value.isascii():
                 value = _strip_invisible_unicode(value)
-            if key in url_attr_kinds:
+            kind = url_attr_kinds.get(key)
+            if kind is not None:
                 rule = url_attr_rules.get(key)
                 if rule is None:  # pragma: no branch - opposite edge requires invalid parser state
                     continue  # pragma: no cover - unreachable after parser-state guards
-                if url_attr_kinds[key] == "url":  # pragma: no branch - opposite edge requires invalid parser state
+                if kind == "url":  # pragma: no branch - opposite edge requires invalid parser state
                     sanitized_fast = self._sanitize_simple_url_fast(value, rule)
                     if sanitized_fast is None:
                         continue
@@ -5743,7 +5780,7 @@ class ParseEngine:
                     rule=rule,
                     tag=tag,
                     attr=key,
-                    kind=url_attr_kinds[key],
+                    kind=kind,
                     value=value,
                 )
                 if sanitized is None:
