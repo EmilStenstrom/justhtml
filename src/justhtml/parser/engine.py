@@ -147,6 +147,7 @@ _INLINE_HEAD_VOID_START_TAGS = {"base", "basefont", "bgsound", "link", "meta"}
 # and insert; unlike "any other start tag" they do not reconstruct the active
 # formatting elements.
 _RUBY_START_TAGS = {"rb", "rp", "rt", "rtc"}
+_STACK_REPAIR_START_TAGS = {"dd", "dt", "li", "optgroup", "option"} | HEADING_ELEMENTS
 _HTML_VOID_COMPAT_TAGS = {"basefont", "bgsound", "frame", "keygen"}
 _DEFINITION_SCOPE_BOUNDARIES = frozenset(DEFINITION_SCOPE_TERMINATORS)
 _LIST_ITEM_SCOPE_BOUNDARIES = frozenset(LIST_ITEM_SCOPE_TERMINATORS)
@@ -628,6 +629,12 @@ class _FormattingEntry:
 class _FormattingMarker:
     __slots__ = ()
 
+    active: bool
+    attrs: dict[str, str | None]
+    name: str
+    node: Element
+    signature: tuple[tuple[str, str], ...]
+
 
 _ACTIVE_FORMATTING_MARKER = _FormattingMarker()
 
@@ -658,21 +665,21 @@ class _CountingStack(list[Node]):
         return self._name_counts.get(name, 0)
 
     def append(self, item: Node) -> None:  # type: ignore[override]
-        super().append(item)
+        list.append(self, item)
         self._name_counts[item.name] = self._name_counts.get(item.name, 0) + 1
 
     def pop(self, index: int = -1) -> Node:  # type: ignore[override]
-        item = super().pop(index)
+        item = list.pop(self, index)
         self._name_counts[item.name] -= 1
         return item
 
     def remove(self, item: Node) -> None:  # type: ignore[override]
-        super().remove(item)
+        list.remove(self, item)
         self._name_counts[item.name] -= 1
 
     def __delitem__(self, key: SupportsIndex | slice) -> None:
         removed = self[key] if isinstance(key, slice) else [self[key]]
-        super().__delitem__(key)
+        list.__delitem__(self, key)
         for item in removed:
             self._name_counts[item.name] -= 1
 
@@ -2095,15 +2102,17 @@ class ParseEngine:
         pos += 1
         while pos < end and html[pos] not in _TAG_NAME_STOP:
             pos += 1
-        name = html[name_start:pos]
-        if not name.islower():
-            name = name.lower()
+        name = self._lower_input[name_start:pos]
         if not self._initial_mode_done:
             self._mark_initial_content()
         action = self._tag_actions.get(name)
-        _, _, pos, tag_closed = self._parse_all_attrs(pos, end)
-        gt = pos - 1 if tag_closed else -1
-        pos = end if gt == -1 else pos
+        if pos < end and html[pos] == ">":
+            pos += 1
+            gt = pos - 1
+        else:
+            _, _, pos, tag_closed = self._parse_all_attrs(pos, end)
+            gt = pos - 1 if tag_closed else -1
+            pos = end if gt == -1 else pos
 
         if not self._fragment and name in {"html", "body"}:
             self._in_colgroup = False
@@ -2591,8 +2600,7 @@ class ParseEngine:
         pos += 1
         while pos < end and html[pos] not in _TAG_NAME_STOP:
             pos += 1
-        raw_name = html[name_start:pos]
-        name = raw_name if raw_name.islower() else raw_name.lower()
+        name = self._lower_input[name_start:pos]
         if name == "image":
             name = "img"
         action = self._tag_actions.get(name)
@@ -2603,7 +2611,13 @@ class ParseEngine:
         if not self._initial_mode_done:
             self._mark_initial_content()
 
-        attrs, self_closing, pos, tag_closed = self._parse_attrs_for_action(action, pos, end)
+        if pos < end and html[pos] == ">":
+            attrs: dict[str, str | None] = {}
+            self_closing = False
+            pos += 1
+            tag_closed = True
+        else:
+            attrs, self_closing, pos, tag_closed = self._parse_attrs_for_action(action, pos, end)
         if not tag_closed:
             return pos
         in_parser_only_template = self._parser_only_template_depth > 0
@@ -2804,7 +2818,8 @@ class ParseEngine:
         ):
             parent = self._head  # pragma: no cover - unreachable after parser-state guards
         else:
-            self._repair_stack_for_start(name)
+            if (action is not None and action.p_closing) or name in _STACK_REPAIR_START_TAGS:
+                self._repair_stack_for_start(name)
             parent = self._stack[-1]
             if parent.namespace == _PARSER_ONLY_NAMESPACE or (
                 type(parent) is Template and parent.template_content is not None
@@ -2881,10 +2896,9 @@ class ParseEngine:
         pos += 1
         while pos < end and html[pos] not in _TAG_NAME_STOP:
             pos += 1
-        raw_name = html[name_start:pos]
-        if self._has_null and "\0" in raw_name:
-            raw_name = raw_name.replace("\0", "\ufffd")
-        name = raw_name if raw_name.islower() else raw_name.lower()
+        name = self._lower_input[name_start:pos]
+        if self._has_null and "\0" in name:
+            name = name.replace("\0", "\ufffd")
         if not self._initial_mode_done:
             self._mark_initial_content()
 
@@ -4901,7 +4915,7 @@ class ParseEngine:
         active = self._active_formatting
         for idx in range(len(active) - 1, -1, -1):
             entry = active[idx]
-            if isinstance(entry, _FormattingMarker):
+            if entry is _ACTIVE_FORMATTING_MARKER:
                 break
             if entry.active and entry.name == name:
                 return idx
@@ -4911,7 +4925,7 @@ class ParseEngine:
         active = self._active_formatting
         for idx in range(len(active) - 1, -1, -1):
             entry = active[idx]
-            if not isinstance(entry, _FormattingMarker) and entry.active and entry.node is node:
+            if entry is not _ACTIVE_FORMATTING_MARKER and entry.active and entry.node is node:
                 return idx
         return None
 
@@ -4924,13 +4938,15 @@ class ParseEngine:
             return matches[0]
         return None
 
-    def _retire_active_formatting_entry(self, entry: _FormattingEntry) -> None:
+    def _retire_active_formatting_entry(self, entry: _FormattingEntry | _FormattingMarker) -> None:
         """Remove an entry logically, postponing list compaction.
 
         Physical deletion shifts every later entry. Retiring old Noah's Ark
         entries avoids that work on each fourth duplicate; compaction keeps
         the occasional scans elsewhere bounded.
         """
+        if TYPE_CHECKING:
+            assert isinstance(entry, _FormattingEntry)
         if not entry.active:  # pragma: no cover - callers only retire live entries
             return
         entry.active = False
@@ -4947,14 +4963,14 @@ class ParseEngine:
         active = self._active_formatting
         if self._active_formatting_retired < 64 or self._active_formatting_retired * 2 < len(active):
             return
-        active[:] = [entry for entry in active if isinstance(entry, _FormattingMarker) or entry.active]
+        active[:] = [entry for entry in active if entry is _ACTIVE_FORMATTING_MARKER or entry.active]
         self._active_formatting_retired = 0
 
     def _remove_last_active_formatting_by_name(self, name: str) -> None:
         active = self._active_formatting
         for idx in range(len(active) - 1, -1, -1):
             entry = active[idx]
-            if isinstance(entry, _FormattingMarker):
+            if entry is _ACTIVE_FORMATTING_MARKER:
                 break
             if entry.active and entry.name == name:
                 self._retire_active_formatting_entry(entry)
@@ -4976,14 +4992,14 @@ class ParseEngine:
         last_index = len(active) - 1
         while last_index >= 0:
             candidate = active[last_index]
-            if isinstance(candidate, _FormattingMarker) or candidate.active:
+            if candidate is _ACTIVE_FORMATTING_MARKER or candidate.active:
                 break
             last_index -= 1
         if last_index < 0:
             self._active_formatting_dirty = False
             return
         last_entry = active[last_index]
-        if isinstance(last_entry, _FormattingMarker):
+        if last_entry is _ACTIVE_FORMATTING_MARKER:
             self._active_formatting_dirty = False
             return
         if (
@@ -4994,14 +5010,14 @@ class ParseEngine:
         idx = last_index
         while idx >= 0:
             entry = active[idx]
-            if isinstance(entry, _FormattingMarker) or (entry.active and entry.node in self._stack):
+            if entry is _ACTIVE_FORMATTING_MARKER or (entry.active and entry.node in self._stack):
                 break
             idx -= 1
         idx += 1
 
         while idx < len(active):
             entry = active[idx]
-            if isinstance(entry, _FormattingMarker):  # pragma: no branch - opposite edge requires invalid parser state
+            if entry is _ACTIVE_FORMATTING_MARKER:  # pragma: no branch - opposite edge requires invalid parser state
                 idx += 1  # pragma: no cover - unreachable after parser-state guards
                 continue  # pragma: no cover - unreachable after parser-state guards
             if not entry.active:
@@ -5027,6 +5043,20 @@ class ParseEngine:
     ) -> None:
         stack = self._stack
         active = self._active_formatting
+        if active:
+            entry = active[-1]
+            if (
+                entry is not _ACTIVE_FORMATTING_MARKER
+                and entry.active
+                and entry.name == subject
+                and stack
+                and stack[-1] is entry.node
+            ):
+                if self._track_tag_spans:
+                    self._set_end_span(entry.node, subject, tag_start, tag_end)
+                stack.pop()
+                self._retire_active_formatting_entry(entry)
+                return
         for _ in range(8):
             formatting_index = self._find_active_formatting_index(subject)
             if formatting_index is None:
@@ -5037,7 +5067,7 @@ class ParseEngine:
                 return
 
             entry = active[formatting_index]
-            if isinstance(entry, _FormattingMarker):  # pragma: no branch - opposite edge requires invalid parser state
+            if entry is _ACTIVE_FORMATTING_MARKER:  # pragma: no branch - opposite edge requires invalid parser state
                 return  # pragma: no cover - unreachable after parser-state guards
             formatting_element = entry.node
             if stack and stack[-1] is formatting_element:
@@ -5094,7 +5124,7 @@ class ParseEngine:
                 node_formatting_index = self._find_active_formatting_index_by_node(node)
                 if inner_counter > 3 and node_formatting_index is not None:
                     node_entry = self._active_formatting[node_formatting_index]
-                    if isinstance(node_entry, _FormattingMarker):  # pragma: no cover - lookup excludes markers
+                    if node_entry is _ACTIVE_FORMATTING_MARKER:  # pragma: no cover - lookup excludes markers
                         return
                     self._retire_active_formatting_entry(node_entry)
                     if node_formatting_index < bookmark:
@@ -5107,8 +5137,8 @@ class ParseEngine:
                     continue
 
                 node_entry = self._active_formatting[node_formatting_index]
-                if isinstance(
-                    node_entry, _FormattingMarker
+                if (
+                    node_entry is _ACTIVE_FORMATTING_MARKER
                 ):  # pragma: no branch - opposite edge requires invalid parser state
                     return  # pragma: no cover - unreachable after parser-state guards
                 new_node = self._clone_formatting_entry(node_entry)
@@ -5194,10 +5224,12 @@ class ParseEngine:
             return
         stack = self._stack
         self._active_formatting_dirty = any(
-            not isinstance(entry, _FormattingMarker) and entry.active and entry.node not in stack for entry in active
+            entry is not _ACTIVE_FORMATTING_MARKER and entry.active and entry.node not in stack for entry in active
         )
 
-    def _clone_formatting_entry(self, entry: _FormattingEntry) -> Element:
+    def _clone_formatting_entry(self, entry: _FormattingEntry | _FormattingMarker) -> Element:
+        if TYPE_CHECKING:
+            assert isinstance(entry, _FormattingEntry)
         node = Element(entry.name, entry.attrs.copy(), "html")
         node._source_html = entry.node._source_html
         node._origin_pos = entry.node._origin_pos
@@ -5413,6 +5445,7 @@ class ParseEngine:
 
     def _parse_all_attrs(self, pos: int, end: int) -> tuple[dict[str, str | None], bool, int, bool]:
         html = self._html_input
+        lower = self._lower_input
         space = _SPACE
         attr_name_stop = _ATTR_NAME_STOP
         attr_value_stop = _ATTR_VALUE_STOP
@@ -5439,10 +5472,7 @@ class ParseEngine:
                 pos += 1
                 while pos < end and html[pos] not in attr_name_stop:
                     pos += 1
-                raw_key = html[name_start:pos]
-            else:
-                raw_key = html[name_start:pos]
-            key = raw_key if raw_key.islower() else raw_key.lower()
+            key = lower[name_start:pos]
             if "\0" in key:
                 key = key.replace("\0", "\ufffd")
 
@@ -5607,6 +5637,7 @@ class ParseEngine:
             return self._skip_attrs(pos, end)
 
         html = self._html_input
+        lower = self._lower_input
         space = _SPACE
         attr_name_stop = _ATTR_NAME_STOP
         attr_value_stop = _ATTR_VALUE_STOP
@@ -5641,8 +5672,7 @@ class ParseEngine:
                     continue  # pragma: no cover - unreachable after earlier delimiter handling
                 pos += 1  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
                 continue  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
-            raw_key = html[name_start:pos]
-            key = raw_key if raw_key.islower() else raw_key.lower()
+            key = lower[name_start:pos]
             if "\0" in key:
                 key = key.replace("\0", "\ufffd")
             keep_output = key in allowed_attrs
@@ -5765,9 +5795,7 @@ class ParseEngine:
             if not match:  # pragma: no branch - opposite edge requires invalid parser state
                 pos = p  # pragma: no cover - unreachable after parser-state guards
                 continue  # pragma: no cover - unreachable after parser-state guards
-            tag = match.group(0)
-            if not tag.islower():
-                tag = tag.lower()
+            tag = self._lower_input[match.start() : match.end()]
             gt = html.find(">", match.end(), end)
             pos = end if gt == -1 else gt + 1
             if (
