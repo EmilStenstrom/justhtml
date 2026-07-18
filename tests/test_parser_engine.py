@@ -7,10 +7,13 @@ from justhtml import JustHTML
 from justhtml.dom import DocumentFragment, Element
 from justhtml.parser.context import FragmentContext
 from justhtml.parser.engine import (
+    _AFTER_BODY,
     _STACK_COUNT_THRESHOLD,
     ParseEngine,
     _CountingStack,
     _FormattingEntry,
+    _FormattingSegment,
+    can_compile_engine_plan,
     compile_default_engine_plan,
     compile_engine_plan,
     compile_raw_engine_plan,
@@ -286,8 +289,10 @@ class TestParserFormattingAndLists(_ParserEngineTestCase):
         assert len(engine._active_formatting_entries[-1][("b", ())]) == 3
 
         guarded = ParseEngine("", fragment=True)
+        segment = _FormattingSegment()
         guarded._active_formatting = [
-            _FormattingEntry("b", {}, Element("b", {}, "html"), (), active=index >= 64) for index in range(129)
+            _FormattingEntry("b", {}, Element("b", {}, "html"), (), segment, active=index >= 64)
+            for index in range(129)
         ]
         guarded._active_formatting_retired = 64
         guarded._compact_active_formatting_if_needed()
@@ -297,10 +302,12 @@ class TestParserFormattingAndLists(_ParserEngineTestCase):
 
     def test_active_formatting_retirement_removes_entries_from_their_marker_segment(self) -> None:
         engine = ParseEngine("", fragment=True)
-        entry = _FormattingEntry("b", {}, Element("b", {}, "html"), ())
+        engine._stack = _CountingStack()
+        segment = _FormattingSegment()
+        engine._active_formatting_entries.append(segment)
+        entry = _FormattingEntry("b", {}, Element("b", {}, "html"), (), segment)
         engine._active_formatting.append(entry)
-        engine._active_formatting_entries[-1][("b", ())] = [entry]
-        entry.segment = engine._active_formatting_entries[-1]
+        segment[("b", ())] = [entry]
         engine._push_active_formatting_marker()
 
         engine._retire_active_formatting_entry(entry)
@@ -315,13 +322,23 @@ class TestParserFormattingAndLists(_ParserEngineTestCase):
         assert engine._active_formatting == []
         assert engine._active_formatting_retired == 0
 
+    def test_active_formatting_index_is_allocated_on_first_use(self) -> None:
+        engine = ParseEngine("", fragment=True)
+        engine._stack = _CountingStack()
+
+        assert engine._active_formatting_entries == []
+
+        engine._clear_active_formatting_to_marker()
+
+        assert engine._active_formatting_entries == []
+
     def test_active_formatting_tail_retirement_avoids_a_tombstone(self) -> None:
         engine = ParseEngine("", fragment=True)
-        entry = _FormattingEntry("b", {}, Element("b", {}, "html"), ())
-        segment = engine._active_formatting_entries[-1]
+        segment = _FormattingSegment()
+        engine._active_formatting_entries.append(segment)
+        entry = _FormattingEntry("b", {}, Element("b", {}, "html"), (), segment)
         engine._active_formatting.append(entry)
         segment[("b", ())] = [entry]
-        entry.segment = segment
 
         engine._retire_active_formatting_entry(entry)
 
@@ -503,6 +520,13 @@ class TestParserFragmentsAndTextModes(_ParserEngineTestCase):
 
 
 class TestParserPolicyProjection(_ParserEngineTestCase):
+    def test_only_cached_default_policies_use_the_constructor_fast_path(self) -> None:
+        assert can_compile_engine_plan(DEFAULT_POLICY, fragment=True)
+        assert can_compile_engine_plan(DEFAULT_DOCUMENT_POLICY, fragment=False)
+        assert not can_compile_engine_plan(DEFAULT_POLICY, fragment=False)
+        assert not can_compile_engine_plan(DEFAULT_DOCUMENT_POLICY, fragment=True)
+        assert not can_compile_engine_plan(replace(DEFAULT_POLICY), fragment=True)
+
     def test_url_projection_variants(self) -> None:
         anchor_cases = [
             ("", "<a>x</a>"),
@@ -1082,6 +1106,10 @@ class TestParserAttributeProjection(_ParserEngineTestCase):
             "<html><head></head><body></body></html>",
         )
         self.assert_parses_to(
+            "<a =href=https://example.com>x</a>",
+            '<html><head></head><body><a href="https://example.com">x</a></body></html>',
+        )
+        self.assert_parses_to(
             '<x/"><p>',
             '<html><head></head><body><x "><p></p></x></body></html>',
             sanitize=False,
@@ -1156,27 +1184,19 @@ class TestParserEngineInternals(_ParserEngineTestCase):
 
         comment_engine = ParseEngine("</body>x<!--c-->", fragment=False, plan=raw_plan)
         comment_engine.parse()
-        comment_engine._after_body = True
-        comment_engine._after_document = True
-        comment_engine._after_html = False
+        comment_engine._after_document_mode = _AFTER_BODY
         comment_engine._body_mode_seen = False
         comment_engine._append_comment("c", source_pos=8)
-        self.assertFalse(comment_engine._after_body)
-        self.assertFalse(comment_engine._after_document)
-        self.assertFalse(comment_engine._after_html)
+        self.assertEqual(comment_engine._after_document_mode, 0)
         self.assertTrue(comment_engine._body_mode_seen)
 
         text_engine = ParseEngine("</body>x", fragment=False, plan=raw_plan)
         text_engine.parse()
-        text_engine._after_body = True
-        text_engine._after_document = True
-        text_engine._after_html = False
+        text_engine._after_document_mode = _AFTER_BODY
         text_engine._body_mode_seen = False
         text_engine._stack = [text_engine._doc, text_engine._html]  # type: ignore[list-item]
         text_engine._append_text("x", source_pos=7)
-        self.assertFalse(text_engine._after_body)
-        self.assertFalse(text_engine._after_document)
-        self.assertFalse(text_engine._after_html)
+        self.assertEqual(text_engine._after_document_mode, 0)
         self.assertTrue(text_engine._body_mode_seen)
 
         end_tag_engine = ParseEngine("</body>", fragment=False, plan=raw_plan)
@@ -1185,8 +1205,7 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         end_tag_engine._body_explicit = False
         end_tag_engine._stack = [end_tag_engine._doc, end_tag_engine._html, end_tag_engine._head]  # type: ignore[list-item]
         end_tag_engine._parse_end_tag(2, len(end_tag_engine._html_input))
-        self.assertTrue(end_tag_engine._after_document)
-        self.assertFalse(end_tag_engine._after_html)
+        self.assertEqual(end_tag_engine._after_document_mode, _AFTER_BODY)
 
         frame_engine = ParseEngine("<frame>", fragment=False, plan=raw_plan)
         frame_engine.parse()

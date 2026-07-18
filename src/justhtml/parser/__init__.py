@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from justhtml.core.types import ParseError
 from justhtml.dom import Document, DocumentFragment, Node, QueryMatch, Text
@@ -20,7 +20,6 @@ from .engine import (
     ParseEngine,
     can_compile_engine_plan,
     compile_default_engine_plan,
-    compile_engine_plan,
     compile_raw_engine_plan,
 )
 
@@ -150,7 +149,9 @@ class JustHTML:
         self.encoding = None
 
         html_str: str
-        if isinstance(html, (Node, Text)):
+        if type(html) is str:
+            html_str = html
+        elif isinstance(html, (Node, Text)):
             html_for_serialization = html
             if sanitize_enabled or has_sanitize_transform or has_harden_rawtext_transform:
                 from justhtml.sanitizer import (  # noqa: PLC0415
@@ -179,40 +180,28 @@ class JustHTML:
         # Node location tracking is opt-in to avoid slowing down the common case.
         should_collect = collect_errors or strict
 
-        engine_policy: SanitizationPolicy | None = None
-        if sanitize_enabled and not transforms:
-            if policy is not None:
-                engine_policy = policy
-            else:
-                from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
-
-                engine_policy = DEFAULT_POLICY if fragment else DEFAULT_DOCUMENT_POLICY
-
-        xml_coercion = False
-        emit_bogus_markup_as_text = False
-        discard_bom = bool(getattr(_parser_opts, "discard_bom", True))
-        if discard_bom and html_str.startswith("\ufeff"):
-            html_str = html_str[1:]
-        if _parser_opts is not None:
-            xml_coercion = bool(getattr(_parser_opts, "xml_coercion", False))
-            emit_bogus_markup_as_text = bool(getattr(_parser_opts, "emit_bogus_markup_as_text", False))
+        if _parser_opts is None:
+            discard_bom = True
+            xml_coercion = False
+            emit_bogus_markup_as_text = False
+        else:
+            discard_bom = _parser_opts.discard_bom
+            xml_coercion = _parser_opts.xml_coercion
+            emit_bogus_markup_as_text = _parser_opts.emit_bogus_markup_as_text
             if emit_bogus_markup_as_text:
                 track_tag_spans = True
+        if discard_bom and html_str.startswith("\ufeff"):
+            html_str = html_str[1:]
 
         use_compiled_safe_engine = (
-            engine_policy is not None and not transforms and can_compile_engine_plan(engine_policy, fragment=fragment)
+            sanitize_enabled
+            and not transforms
+            and (policy is None or can_compile_engine_plan(policy, fragment=fragment))
         )
         if use_compiled_safe_engine:
-            if policy is None:
-                engine_plan = compile_default_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
-            else:
-                engine_plan = compile_engine_plan(
-                    policy=cast("SanitizationPolicy", engine_policy),
-                    fragment=fragment,
-                    scripting_enabled=scripting_enabled,
-                )
+            engine_plan = compile_default_engine_plan(fragment, scripting_enabled)
         else:
-            engine_plan = compile_raw_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
+            engine_plan = compile_raw_engine_plan(fragment, scripting_enabled)
 
         engine = ParseEngine(
             html_str,
@@ -223,14 +212,14 @@ class JustHTML:
             collect_errors=should_collect,
             max_errors=max_errors,
             iframe_srcdoc=iframe_srcdoc,
-            track_node_locations=bool(track_node_locations),
-            track_tag_spans=bool(track_node_locations) or track_tag_spans,
+            track_node_locations=track_node_locations,
+            track_tag_spans=track_node_locations or track_tag_spans,
             emit_bogus_markup_as_text=emit_bogus_markup_as_text,
             xml_coercion=xml_coercion,
         )
         self.root = engine.parse()
 
-        transform_errors: list[ParseError] = _BoundedErrorList(max_errors - len(engine.errors))
+        errors = engine.errors
         if not use_compiled_safe_engine:
             transform_errors = self._apply_constructor_transforms(
                 transforms=transforms,
@@ -239,11 +228,9 @@ class JustHTML:
                 has_sanitize_transform=has_sanitize_transform,
                 max_errors=max_errors - len(engine.errors),
             )
+            errors = engine.errors + transform_errors if should_collect else transform_errors
 
-        if should_collect:
-            self.errors = self._sorted_errors(engine.errors + transform_errors)
-        else:
-            self.errors = transform_errors
+        self.errors = self._sorted_errors(errors) if should_collect else errors
         if strict and self.errors:
             raise StrictModeError(self.errors[0])
 
