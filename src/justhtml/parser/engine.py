@@ -148,24 +148,28 @@ _INLINE_HEAD_VOID_START_TAGS = {"base", "basefont", "bgsound", "link", "meta"}
 # formatting elements.
 _RUBY_START_TAGS = {"rb", "rp", "rt", "rtc"}
 _STACK_REPAIR_START_TAGS = {"dd", "dt", "li", "optgroup", "option"} | HEADING_ELEMENTS
-_COMPILED_SIMPLE_START_EXCLUSIONS = {
-    "body",
-    "button",
-    "caption",
-    "col",
-    "colgroup",
-    "form",
-    "head",
-    "html",
-    "select",
-    "table",
-    "tbody",
-    "td",
-    "tfoot",
-    "th",
-    "thead",
-    "tr",
-} | _STACK_REPAIR_START_TAGS
+_COMPILED_SIMPLE_START_EXCLUSIONS = (
+    {
+        "body",
+        "button",
+        "caption",
+        "col",
+        "colgroup",
+        "form",
+        "head",
+        "html",
+        "select",
+        "table",
+        "tbody",
+        "td",
+        "tfoot",
+        "th",
+        "thead",
+        "tr",
+    }
+    | _STACK_REPAIR_START_TAGS
+    | _ACTIVE_FORMATTING_MARKER_TAGS
+)
 _COMPILED_SIMPLE_END_EXCLUSIONS = (
     {
         "body",
@@ -368,21 +372,14 @@ class EnginePlan:
     boundary.
     """
 
-    policy: SanitizationPolicy | None
     raw_mode: bool
     allowed_tags: frozenset[str]
-    allowed_global_attrs: Collection[str]
-    allowed_attrs_by_tag: Mapping[str, frozenset[str]]
     url_policy: UrlPolicy
-    url_rules: Mapping[tuple[str, str], UrlRule]
     definition_scope_boundaries: frozenset[str]
     drop_comments: bool
     drop_doctype: bool
     drop_content_tags: frozenset[str]
-    drop_subtree_tags: frozenset[str]
-    active_formatting_tags: frozenset[str]
     frameset_body_ok_tags: frozenset[str]
-    frameset_blocking_start_tags: frozenset[str]
     head_content_tags: frozenset[str]
     implied_end_tags: frozenset[str]
     list_item_scope_boundaries: frozenset[str]
@@ -605,21 +602,14 @@ def compile_engine_plan(
         rawtext_as_text_tags=rawtext_as_text_tags,
     )
     return EnginePlan(
-        policy=policy,
         raw_mode=False,
         allowed_tags=policy.allowed_tags,
-        allowed_global_attrs=allowed_global,
-        allowed_attrs_by_tag=allowed_by_tag,
         url_policy=policy.url_policy,
-        url_rules=policy.url_policy.allow_rules,
         definition_scope_boundaries=frozenset(_DEFINITION_SCOPE_BOUNDARIES),
         drop_comments=policy.drop_comments,
         drop_doctype=policy.drop_doctype,
         drop_content_tags=drop_content_tags,
-        drop_subtree_tags=drop_subtree_tags,
-        active_formatting_tags=frozenset(_ACTIVE_FORMATTING_TAGS),
         frameset_body_ok_tags=frozenset(_FRAMESET_BODY_OK_TAGS),
-        frameset_blocking_start_tags=frozenset(_FRAMESET_BLOCKING_START_TAGS),
         head_content_tags=frozenset(_HEAD_CONTENT_TAGS),
         implied_end_tags=frozenset(IMPLIED_END_TAGS),
         list_item_scope_boundaries=frozenset(_LIST_ITEM_SCOPE_BOUNDARIES),
@@ -707,21 +697,14 @@ def compile_raw_engine_plan(*, fragment: bool, scripting_enabled: bool = True) -
         rawtext_as_text_tags=frozenset(),
     )
     plan = EnginePlan(
-        policy=None,
         raw_mode=True,
         allowed_tags=allowed_tags,
-        allowed_global_attrs=frozenset(),
-        allowed_attrs_by_tag={},
         url_policy=DEFAULT_POLICY.url_policy,
-        url_rules={},
         definition_scope_boundaries=frozenset(_DEFINITION_SCOPE_BOUNDARIES),
         drop_comments=False,
         drop_doctype=False,
         drop_content_tags=frozenset(),
-        drop_subtree_tags=frozenset(),
-        active_formatting_tags=frozenset(_ACTIVE_FORMATTING_TAGS),
         frameset_body_ok_tags=frozenset(_FRAMESET_BODY_OK_TAGS),
-        frameset_blocking_start_tags=frozenset(_FRAMESET_BLOCKING_START_TAGS),
         head_content_tags=frozenset(_HEAD_CONTENT_TAGS),
         implied_end_tags=frozenset(IMPLIED_END_TAGS),
         list_item_scope_boundaries=frozenset(_LIST_ITEM_SCOPE_BOUNDARIES),
@@ -910,7 +893,6 @@ class ParseEngine:
         "_active_formatting_dirty",
         "_active_formatting_entries",
         "_active_formatting_retired",
-        "_active_formatting_tags",
         "_after_body",
         "_after_document",
         "_after_head",
@@ -922,16 +904,15 @@ class ParseEngine:
         "_collect_errors",
         "_definition_scope_boundaries",
         "_doc",
-        "_doctype_seen",
         "_drop_comments",
         "_drop_content_tags",
         "_drop_doctype",
-        "_drop_subtree_tags",
         "_dropped_to_eof",
         "_emit_bogus_markup_as_text",
         "_errors",
         "_explicit_head",
         "_explicit_html",
+        "_fast_text_options",
         "_foreign_context_seen",
         "_form_element",
         "_foster_next_table_whitespace",
@@ -940,7 +921,6 @@ class ParseEngine:
         "_fragment_context_namespace",
         "_fragment_context_node",
         "_frameset_blocked",
-        "_frameset_blocking_start_tags",
         "_frameset_body_ok_tags",
         "_frameset_seen",
         "_has_carriage_return",
@@ -968,14 +948,12 @@ class ParseEngine:
         "_p_closing_start_tags",
         "_parser_only_template_depth",
         "_plaintext_tags",
-        "_plan",
         "_pre_linefeed_ignoring_tags",
         "_quirks_mode",
         "_raw_mode",
         "_rawtext_as_text_tags",
         "_rawtext_element_tags",
         "_rcdata_tags",
-        "_skip_escaped_comment_space",
         "_special_elements",
         "_stack",
         "_strict_ascii_fold",
@@ -1035,47 +1013,46 @@ class ParseEngine:
                 fragment_context_name = SVG_TAG_NAME_ADJUSTMENTS.get(fragment_context_name, fragment_context_name)
         self._fragment_context_name = fragment_context_name
         self._fragment_context_node: Element | None = None
-        self._plan = (
+        self._fast_text_options = (
+            fragment_context_name is None and not self._track_node_locations and not self._xml_coercion
+        )
+        plan = (
             plan
             if plan is not None
             else compile_default_engine_plan(fragment=fragment, scripting_enabled=scripting_enabled)
         )
-        self._active_formatting_tags = self._plan.active_formatting_tags
-        self._raw_mode = self._plan.raw_mode
-        self._allowed_tags = self._plan.allowed_tags
-        self._url_policy = self._plan.url_policy
-        self._definition_scope_boundaries = self._plan.definition_scope_boundaries
-        self._drop_comments = self._plan.drop_comments
-        self._drop_doctype = self._plan.drop_doctype
-        self._drop_content_tags = self._plan.drop_content_tags
-        self._drop_subtree_tags = self._plan.drop_subtree_tags
-        self._frameset_body_ok_tags = self._plan.frameset_body_ok_tags
-        self._frameset_blocking_start_tags = self._plan.frameset_blocking_start_tags
-        self._head_content_tags = self._plan.head_content_tags
-        self._implied_end_tags = self._plan.implied_end_tags
-        self._list_item_scope_boundaries = self._plan.list_item_scope_boundaries
-        self._p_closing_start_tags = self._plan.p_closing_start_tags
+        self._raw_mode = plan.raw_mode
+        self._allowed_tags = plan.allowed_tags
+        self._url_policy = plan.url_policy
+        self._definition_scope_boundaries = plan.definition_scope_boundaries
+        self._drop_comments = plan.drop_comments
+        self._drop_doctype = plan.drop_doctype
+        self._drop_content_tags = plan.drop_content_tags
+        self._frameset_body_ok_tags = plan.frameset_body_ok_tags
+        self._head_content_tags = plan.head_content_tags
+        self._implied_end_tags = plan.implied_end_tags
+        self._list_item_scope_boundaries = plan.list_item_scope_boundaries
+        self._p_closing_start_tags = plan.p_closing_start_tags
         self._parser_only_template_depth = 0
-        self._plaintext_tags = self._plan.plaintext_tags
-        self._pre_linefeed_ignoring_tags = self._plan.pre_linefeed_ignoring_tags
-        self._rawtext_element_tags = self._plan.rawtext_element_tags
-        self._rawtext_as_text_tags = self._plan.rawtext_as_text_tags
-        self._rcdata_tags = self._plan.rcdata_tags
-        self._special_elements = self._plan.special_elements
-        self._strip_invisible_unicode = self._plan.strip_invisible_unicode
-        self._table_allowed_children = self._plan.table_allowed_children
-        self._table_cell_tags = self._plan.table_cell_tags
-        self._table_foster_targets = self._plan.table_foster_targets
-        self._table_section_tags = self._plan.table_section_tags
-        self._tag_actions = self._plan.tag_actions
-        self._void_elements = self._plan.void_elements
+        self._plaintext_tags = plan.plaintext_tags
+        self._pre_linefeed_ignoring_tags = plan.pre_linefeed_ignoring_tags
+        self._rawtext_element_tags = plan.rawtext_element_tags
+        self._rawtext_as_text_tags = plan.rawtext_as_text_tags
+        self._rcdata_tags = plan.rcdata_tags
+        self._special_elements = plan.special_elements
+        self._strip_invisible_unicode = plan.strip_invisible_unicode
+        self._table_allowed_children = plan.table_allowed_children
+        self._table_cell_tags = plan.table_cell_tags
+        self._table_foster_targets = plan.table_foster_targets
+        self._table_section_tags = plan.table_section_tags
+        self._tag_actions = plan.tag_actions
+        self._void_elements = plan.void_elements
         self._doc: Document | DocumentFragment
         self._after_body = False
         self._after_document = False
         self._after_head = False
         self._after_html = False
         self._dropped_to_eof = False
-        self._doctype_seen = False
         self._explicit_head = False
         self._explicit_html = False
         self._foster_next_table_whitespace = 0
@@ -1093,7 +1070,6 @@ class ParseEngine:
         self._in_head_noscript = False
         self._initial_mode_done = bool(fragment)
         self._keep_empty_shell_on_eof = False
-        self._skip_escaped_comment_space = False
         self._quirks_mode = "no-quirks"
         self._body_explicit = False
         self._body_mode_seen = False
@@ -1746,14 +1722,6 @@ class ParseEngine:
             else self._parse_end_tag
         )
         while pos < end:
-            if self._skip_escaped_comment_space:  # pragma: no branch - opposite edge requires invalid parser state
-                self._skip_escaped_comment_space = False  # pragma: no cover - unreachable after parser-state guards
-                if (
-                    pos < end and html[pos] in _SPACE and html.startswith("-->", pos + 1)
-                ):  # pragma: no cover - unreachable after parser-state guards
-                    pos += 1  # pragma: no cover - unreachable after parser-state guards
-                    if pos >= end:  # pragma: no cover - unreachable after parser-state guards
-                        return end  # pragma: no cover - unreachable after parser-state guards
             lt = find("<", pos, end)
             if lt == -1:
                 append_text(html[pos:end], pos)
@@ -1943,7 +1911,7 @@ class ParseEngine:
         if (
             self._initial_mode_done
             and not self._frameset_seen
-            and self._fragment_context_name is None
+            and self._fast_text_options
             and not self._template_modes
             and not self._after_document
             and not self._active_formatting_dirty
@@ -1951,8 +1919,6 @@ class ParseEngine:
             and not self._in_colgroup
             and not self._in_head_noscript
             and not self._ignore_lf
-            and not self._track_node_locations
-            and not self._xml_coercion
             and (parent.namespace is None or parent.namespace == "html")
             and type(parent) is not Template
             and parent is not self._head
@@ -1971,13 +1937,12 @@ class ParseEngine:
                 text = _strip_invisible_unicode(text)
             if text:
                 children = parent.children
-                if children is not None:  # pragma: no branch - opposite edge requires invalid parser state
-                    if children and type(children[-1]) is Text:
-                        children[-1].data = (children[-1].data or "") + text
-                    else:
-                        node = Text(text)
-                        children.append(node)
-                        node.parent = parent
+                if children and type(children[-1]) is Text:
+                    children[-1].data = (children[-1].data or "") + text
+                else:
+                    node = Text(text)
+                    children.append(node)  # type: ignore[union-attr]
+                    node.parent = parent
             return
         raw_is_space: bool | None = None
         pending_table_whitespace = 0
@@ -2301,7 +2266,6 @@ class ParseEngine:
             insert_at += 1
         children.insert(insert_at, node)
         node.parent = self._doc
-        self._doctype_seen = True
         self._initial_mode_done = True
 
     def _parse_compiled_safe_end_tag(self, pos: int, end: int) -> int:
@@ -2333,11 +2297,8 @@ class ParseEngine:
             self._mark_initial_content()
         if pos < end and html[pos] == ">":
             pos += 1
-            gt = pos - 1
         else:
-            _, _, pos, tag_closed = self._parse_all_attrs(pos, end)
-            gt = pos - 1 if tag_closed else -1
-            pos = end if gt == -1 else pos
+            _, _, pos, _ = self._skip_attrs(pos, end)
 
         stack = self._stack
         if (
@@ -2346,13 +2307,13 @@ class ParseEngine:
             and not self._parser_only_template_depth
             and not self._frameset_seen
             and not self._in_head_noscript
-            and len(stack) > 1
             and stack[-1].name == name
             and stack[-1] is not self._fragment_context_node
-            and stack[-1] is not self._head
         ):
-            self._mark_active_formatting_dirty()
-            stack.pop()
+            if name == "p" or stack._name_counts is not None:
+                stack.pop()
+            else:
+                list.pop(stack)
             return pos
 
         if (
@@ -2371,7 +2332,10 @@ class ParseEngine:
                     and entry.name == name
                     and stack[-1] is entry.node
                 ):
-                    stack.pop()
+                    if stack._name_counts is None:
+                        list.pop(stack)
+                    else:
+                        stack.pop()
                     self._retire_active_formatting_entry(entry)
                     return pos
 
@@ -2451,7 +2415,9 @@ class ParseEngine:
         if name == "br":
             if self._active_formatting_dirty:
                 self._reconstruct_active_formatting()
-            self._insert_compiled_safe_element("br", {}, False, self._current_parent())
+            node = self._insert_compiled_safe_element("br", {}, False, self._current_parent())
+            if "br" not in self._allowed_tags:
+                self._nodes_to_unwrap.append(node)
             return pos
         if name in HEADING_ELEMENTS:
             idx = self._find_open_heading_index()
@@ -2513,7 +2479,9 @@ class ParseEngine:
                     and not self._body_has_content()
                 ):
                     return pos
-                self._insert_compiled_safe_element("p", {}, False, self._current_parent())
+                node = self._insert_compiled_safe_element("p", {}, False, self._current_parent())
+                if "p" not in self._allowed_tags:
+                    self._nodes_to_unwrap.append(node)
                 self._close_until_before_boundary("p", _P_SCOPE_BOUNDARIES)
             return pos
         if self._fragment_context_node is not None and stack[idx] is self._fragment_context_node:
@@ -2901,17 +2869,23 @@ class ParseEngine:
             and not self._frameset_seen
             and not self._in_colgroup
             and not self._in_head_noscript
-            and not self._after_body
             and not self._after_document
-            and not self._after_html
-            and current_parent.namespace in {None, "html"}
             and current_parent is not self._head
             and current_parent is not self._html
             and current_parent.name not in self._table_foster_targets
             and current_parent.name not in {"optgroup", "option", "select"}
             and type(current_parent) is not Template
         ):
-            self._insert_compiled_safe_element(name, attrs, self_closing, current_parent)
+            is_void = action.void
+            node = Element(name, attrs, "html")
+            node._self_closing = self_closing and is_void
+            current_parent.children.append(node)  # type: ignore[union-attr]
+            node.parent = current_parent
+            if not is_void:
+                if name == "p" or stack._name_counts is not None or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
+                    stack.append(node)
+                else:
+                    list.append(stack, node)
             if action.pre_linefeed:
                 self._ignore_lf = True
             return pos
@@ -3182,6 +3156,8 @@ class ParseEngine:
             parent = self._current_parent()
 
         self._insert_compiled_safe_element(name, attrs, self_closing, parent)
+        if action.table_cell or name in _ACTIVE_FORMATTING_MARKER_TAGS:
+            self._push_active_formatting_marker()
         if action.pre_linefeed:
             self._ignore_lf = True
         return pos
@@ -3774,22 +3750,17 @@ class ParseEngine:
         )
         if foster is None:
             children = parent.children
-            if children is not None:  # pragma: no branch - opposite edge requires invalid parser state
-                children.append(node)
-                node.parent = parent
+            children.append(node)  # type: ignore[union-attr]
+            node.parent = parent
         else:
             foster_parent, position = foster
             self._insert_at(foster_parent, position, node)
-        if name not in self._allowed_tags:
-            self._nodes_to_unwrap.append(node)
         if not is_void:
-            self._stack.append(node)
-            if name in self._table_cell_tags:
-                self._push_active_formatting_marker()
-            elif (
-                name in _ACTIVE_FORMATTING_MARKER_TAGS
-            ):  # pragma: no branch - opposite edge requires invalid parser state
-                self._push_active_formatting_marker()  # pragma: no cover - unreachable after parser-state guards
+            stack = self._stack
+            if name == "p" or stack._name_counts is not None or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
+                stack.append(node)
+            else:
+                list.append(stack, node)
         return node
 
     def _insert_sanitized_element(
@@ -5167,7 +5138,8 @@ class ParseEngine:
         tag_end: int | None = None,
         compiled_safe: bool = False,
     ) -> int:
-        self._compact_active_formatting_if_needed()
+        if self._active_formatting_retired >= 64:
+            self._compact_active_formatting_if_needed()
         entries = self._active_formatting_entries[-1]
         if (
             name == "a"
@@ -5184,8 +5156,10 @@ class ParseEngine:
 
         if self._active_formatting_dirty:
             self._reconstruct_active_formatting()
-        self._materialize_pending_active_formatting_entry()
-        entries = self._active_formatting_entries[-1]
+        pending = entries.pending
+        if pending is not None:
+            entries.pending = None
+            self._index_active_formatting_entry(entries, pending)
         signature = None
         if entries:
             signature = () if not attrs else self._attrs_signature(attrs)
@@ -5195,6 +5169,8 @@ class ParseEngine:
 
         if compiled_safe:
             node = self._insert_compiled_safe_element(name, attrs, False, self._current_parent())
+            if name not in self._allowed_tags:
+                self._nodes_to_unwrap.append(node)
         else:
             node = self._insert_sanitized_element(
                 name, attrs, False, self._current_parent(), tag_start=tag_start, tag_end=tag_end
@@ -5202,7 +5178,7 @@ class ParseEngine:
         signature_state: _FormattingSignatureState = signature
         if signature_state is None and not compiled_safe and node.attrs is not attrs:
             signature_state = _DeferredFormattingSignature(attrs)
-        self._append_active_formatting_entry(name, node.attrs, node, signature_state)
+        self._append_active_formatting_entry(name, node.attrs, node, signature_state, entries)
         return pos
 
     def _attrs_signature(self, attrs: dict[str, str | None]) -> _FormattingSignature:
@@ -5228,17 +5204,15 @@ class ParseEngine:
         attrs: dict[str, str | None],
         node: Element,
         signature: _FormattingSignatureState,
+        entries: _FormattingSegment,
     ) -> None:
-        entry_attrs = attrs if attrs else {}
-        entry = _FormattingEntry(name, entry_attrs, node, signature)
+        entry = _FormattingEntry(name, attrs, node, signature)
         self._active_formatting.append(entry)
-        entries = self._active_formatting_entries[-1]
         entry.segment = entries
         if entries.pending is None and not entries:
             entries.pending = entry
         else:
             self._index_active_formatting_entry(entries, entry)
-        self._active_formatting_dirty = False
 
     def _materialize_pending_active_formatting_entry(self) -> None:
         entries = self._active_formatting_entries[-1]
@@ -5291,8 +5265,6 @@ class ParseEngine:
         """
         if TYPE_CHECKING:
             assert isinstance(entry, _FormattingEntry)
-        if not entry.active:  # pragma: no cover - callers only retire live entries
-            return
         entry.active = False
         entries = entry.segment
         if entries is not None:  # pragma: no branch - parser-created entries always belong to a segment
@@ -5312,7 +5284,7 @@ class ParseEngine:
 
     def _compact_active_formatting_if_needed(self) -> None:
         active = self._active_formatting
-        if self._active_formatting_retired < 64 or self._active_formatting_retired * 2 < len(active):
+        if self._active_formatting_retired * 2 < len(active):
             return
         active[:] = [entry for entry in active if entry is _ACTIVE_FORMATTING_MARKER or entry.active]
         self._active_formatting_retired = 0
@@ -5775,12 +5747,10 @@ class ParseEngine:
             name_start = pos
             while pos < end and html[pos] not in attr_name_stop:
                 pos += 1
-            if pos == name_start:  # pragma: no branch - stop chars that reach here collapse into one recovery path
-                if html[pos] == "=":  # pragma: no cover - unreachable after earlier delimiter handling
-                    pos += 1  # pragma: no cover - unreachable after earlier delimiter handling
-                    continue  # pragma: no cover - unreachable after earlier delimiter handling
-                pos += 1  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
-                continue  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
+            if pos == name_start:
+                pos += 1
+                while pos < end and html[pos] not in attr_name_stop:
+                    pos += 1
             while pos < end and html[pos] in space:
                 pos += 1
             if pos < end and html[pos] == "=":
@@ -5924,7 +5894,6 @@ class ParseEngine:
         state_attrs = action.state_attrs
         url_attrs = action.url_attrs
         preserve_state_attrs = action.preserve_state_attrs
-        tag = action.name
 
         while pos < end:
             while pos < end and html[pos] in space:
@@ -5950,11 +5919,16 @@ class ParseEngine:
                 pos += 1  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
                 continue  # pragma: no cover - all other stop chars are handled before attr scanning reaches this point
             raw_key = html[name_start:pos]
-            key = raw_key.translate(_ASCII_LOWER_TABLE) if strict_ascii_fold else raw_key.lower()
-            if "\0" in key:
-                key = key.replace("\0", "\ufffd")
-            keep_output = key in allowed_attrs
-            keep_state = preserve_state_attrs or key in state_attrs
+            keep_output = raw_key in allowed_attrs
+            if keep_output:
+                key = raw_key
+                keep_state = preserve_state_attrs
+            else:
+                key = raw_key.translate(_ASCII_LOWER_TABLE) if strict_ascii_fold else raw_key.lower()
+                if "\0" in key:
+                    key = key.replace("\0", "\ufffd")
+                keep_output = key in allowed_attrs
+                keep_state = preserve_state_attrs or key in state_attrs
 
             while pos < end and html[pos] in space:
                 pos += 1
@@ -6018,7 +5992,7 @@ class ParseEngine:
                 sanitized = _sanitize_url_sink_value(
                     url_policy=self._url_policy,
                     rule=rule,
-                    tag=tag,
+                    tag=action.name,
                     attr=key,
                     kind=kind,
                     value=value,
@@ -6043,7 +6017,6 @@ class ParseEngine:
             return end
         self._append_text_boundary(self._current_parent())
         if name in {"script", "style"}:  # pragma: no branch - opposite edge requires invalid parser state
-            self._skip_escaped_comment_space = False
             self._foster_next_table_whitespace = 0
         return next_pos
 

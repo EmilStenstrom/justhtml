@@ -285,6 +285,16 @@ class TestParserFormattingAndLists(_ParserEngineTestCase):
         assert engine._active_formatting_retired < 64
         assert len(engine._active_formatting_entries[-1][("b", ())]) == 3
 
+        guarded = ParseEngine("", fragment=True)
+        guarded._active_formatting = [
+            _FormattingEntry("b", {}, Element("b", {}, "html"), (), active=index >= 64) for index in range(129)
+        ]
+        guarded._active_formatting_retired = 64
+        guarded._compact_active_formatting_if_needed()
+
+        assert len(guarded._active_formatting) == 129
+        assert guarded._active_formatting_retired == 64
+
     def test_active_formatting_retirement_removes_entries_from_their_marker_segment(self) -> None:
         engine = ParseEngine("", fragment=True)
         entry = _FormattingEntry("b", {}, Element("b", {}, "html"), ())
@@ -938,6 +948,16 @@ class TestParserAttributeProjection(_ParserEngineTestCase):
         assert engine.parse().to_html(pretty=False) == (
             '<el-custom></el-custom><el-custom data-url="https://example.com"></el-custom>'
         )
+
+    def test_compiled_engine_plan_unwraps_synthetic_paragraphs_and_breaks(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"template"},
+            allowed_attributes={"*": set()},
+        )
+        plan = compile_engine_plan(policy=policy, fragment=True)
+        engine = ParseEngine("x</p>y</br>z", fragment=True, plan=plan)
+
+        assert engine.parse().to_html(pretty=False) == "xyz"
 
     def test_compiled_url_policy_falls_back_for_non_allowing_rules(self) -> None:
         base = DEFAULT_DOCUMENT_POLICY

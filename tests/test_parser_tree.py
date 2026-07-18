@@ -42,6 +42,15 @@ class TestParserTreeConstruction(unittest.TestCase):
         )
         assert document.to_html(pretty=False) == "<html><head></head><body><table></table></body></html>"
 
+    def test_compiled_safe_path_skips_end_tag_attributes_with_tokenizer_recovery(self) -> None:
+        assert JustHTML('</Z\n">"').to_html(pretty=False) == '<html><head></head><body>"</body></html>'
+        assert JustHTML('/</Z ==">\n').to_html(pretty=False) == "<html><head></head><body>/</body></html>"
+
+    def test_compiled_safe_path_closes_deep_formatting_stack(self) -> None:
+        document = JustHTML("<b>" * 40 + "x" + "</b>" * 40)
+
+        assert document.to_text() == "x"
+
     def test_deep_adoption_agency_keeps_the_standard_three_node_limit(self) -> None:
         cases = [
             "<b><em><foo><foob><fooc><aside></b></em>",
