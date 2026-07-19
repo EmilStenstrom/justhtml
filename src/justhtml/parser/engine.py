@@ -1680,6 +1680,30 @@ class ParseEngine:
                 return end
 
             ch = html[pos]
+            if ch == "/":
+                self._foster_next_table_whitespace = 0
+                if self._ignore_lf:
+                    end_tag_name_pos = pos + 1
+                    if end_tag_name_pos < end:
+                        end_tag_ch = html[end_tag_name_pos]
+                        end_tag_starts_with_letter = ("a" <= end_tag_ch <= "z") or ("A" <= end_tag_ch <= "Z")
+                        if (
+                            end_tag_starts_with_letter and self._find_tag_end(end_tag_name_pos + 1, end) != -1
+                        ) or not end_tag_starts_with_letter:
+                            # A complete end tag, or a bogus-comment token from
+                            # an invalid end-tag opener, intervenes before any
+                            # later character data.
+                            self._ignore_lf = False
+                pos = parse_end_tag(pos + 1, end)
+                continue
+            if ("a" <= ch <= "z") or ("A" <= ch <= "Z"):
+                self._foster_next_table_whitespace = 0
+                if self._ignore_lf and self._find_tag_end(pos + 1, end) != -1:
+                    # A complete start tag is the next token, so a pending
+                    # <pre>/<listing> leading-LF exception cannot leak past it.
+                    self._ignore_lf = False
+                pos = parse_start_tag(pos, end)
+                continue
             if ch == "!":
                 self._foster_next_table_whitespace = 0
                 if html.startswith("<!--", lt):
@@ -1747,22 +1771,6 @@ class ParseEngine:
                     self._append_comment(html[pos + 1 : comment_end].replace("\0", "\ufffd"), lt)
                 pos = end if gt == -1 else gt + 1
                 continue
-            if ch == "/":
-                self._foster_next_table_whitespace = 0
-                if self._ignore_lf:
-                    end_tag_name_pos = pos + 1
-                    if end_tag_name_pos < end:
-                        end_tag_ch = html[end_tag_name_pos]
-                        end_tag_starts_with_letter = ("a" <= end_tag_ch <= "z") or ("A" <= end_tag_ch <= "Z")
-                        if (
-                            end_tag_starts_with_letter and self._find_tag_end(end_tag_name_pos + 1, end) != -1
-                        ) or not end_tag_starts_with_letter:
-                            # A complete end tag, or a bogus-comment token from
-                            # an invalid end-tag opener, intervenes before any
-                            # later character data.
-                            self._ignore_lf = False
-                pos = parse_end_tag(pos + 1, end)
-                continue
             if ch == "?":
                 self._foster_next_table_whitespace = 0
                 self._ignore_lf = False
@@ -1805,19 +1813,11 @@ class ParseEngine:
                     self._append_comment(html[pos:gt].replace("\0", "\ufffd"), lt)
                 pos = end if gt == -1 else gt + 1
                 continue
-            if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
-                if ch == "\0":
-                    append_text("<\ufffd", lt)
-                    pos += 1
-                else:
-                    append_text("<", lt)
-                continue
-            self._foster_next_table_whitespace = 0
-            if self._ignore_lf and self._find_tag_end(pos + 1, end) != -1:
-                # A complete start tag is the next token, so a pending
-                # <pre>/<listing> leading-LF exception cannot leak past it.
-                self._ignore_lf = False
-            pos = parse_start_tag(pos, end)
+            if ch == "\0":
+                append_text("<\ufffd", lt)
+                pos += 1
+            else:
+                append_text("<", lt)
         return pos
 
     def _find_comment_end(self, pos: int, end: int) -> int:
@@ -5971,7 +5971,7 @@ class ParseEngine:
                 self._eof_drop_mode = _DROPPED_TO_EOF  # pragma: no cover - unreachable after parser-state guards
                 return end  # pragma: no cover - unreachable after parser-state guards
             p = lt + 1
-            if _scanner.ascii_startswith(html, "<![cdata[", lt, end):
+            if p < end and html[p] == "!" and _scanner.ascii_startswith(html, "<![cdata[", lt, end):
                 close = html.find("]]>", p + 8, end)
                 if close == -1:  # pragma: no branch - opposite edge requires invalid parser state
                     self._eof_drop_mode = _DROPPED_TO_EOF  # pragma: no cover - unreachable after parser-state guards
@@ -5985,9 +5985,10 @@ class ParseEngine:
             if not match:  # pragma: no branch - opposite edge requires invalid parser state
                 pos = p  # pragma: no cover - unreachable after parser-state guards
                 continue  # pragma: no cover - unreachable after parser-state guards
-            raw_tag = html[match.start() : match.end()]
+            match_end = match.end()
+            raw_tag = html[p:match_end]
             tag = raw_tag.translate(_ASCII_LOWER_TABLE) if strict_ascii_fold else raw_tag.lower()
-            gt = html.find(">", match.end(), end)
+            gt = html.find(">", match_end, end)
             pos = end if gt == -1 else gt + 1
             if (
                 detect_foreign_breakout
