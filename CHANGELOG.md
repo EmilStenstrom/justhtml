@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+On the web100k parser benchmark (1,000 documents, three iterations), the default `JustHTML()` constructor now completes in 13.020 seconds rather than 21.648 seconds in 3.7.1: a 40% reduction in parse time, or about 1.7× higher throughput.
+
 - Speed up the default `JustHTML()` constructor by compiling common start/end-tag and URL-sanitization decisions, and by folding only names that the parser encounters instead of copying and lowercasing the full input.
 - Reduce tree-construction overhead by adaptively tracking open elements, removing completed formatting entries without leaving tombstones, and deferring formatting-attribute signatures until duplicate tracking actually needs them.
 - Remove redundant constructor-path work for discarded end-tag attributes, canonical attribute names, shallow non-paragraph stack updates, active-formatting bookkeeping, and parser state that could never become active.
