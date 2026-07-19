@@ -354,6 +354,7 @@ class TestParserFormattingAndLists(_ParserEngineTestCase):
         assert engine.parse().to_html(pretty=False) == "<b>x</b>"
         assert engine._active_formatting == []
         assert engine._active_formatting_entries == [{}]
+        assert JustHTML("<b></b><tt>x</tt>", fragment=True).to_html(pretty=False) == "<b></b>x"
 
 
 class TestParserFragmentsAndTextModes(_ParserEngineTestCase):
@@ -896,6 +897,32 @@ class TestParserRecoveryRegressions(_ParserEngineTestCase):
 
 
 class TestParserAttributeProjection(_ParserEngineTestCase):
+    def test_projected_attribute_scanners_share_fallback_semantics(self) -> None:
+        def project(raw, action=None):
+            engine = ParseEngine(raw, fragment=True)
+            return engine._parse_attrs_for_action(action or engine._tag_actions["a"], 0, len(raw))
+
+        assert project("") == ({}, False, 0, False)
+        assert project("\0=x>") == ({}, False, 4, True)
+        assert project(' bad="unterminated') == ({}, False, 18, False)
+        assert project(' title="&amp;\u200b">') == ({"title": "&"}, False, 16, True)
+        assert project(' href="https://é">')[0] == {"href": "https://é"}
+
+        engine = ParseEngine("", fragment=True)
+        action = engine._tag_actions["a"]
+        kind, rule, _ = action.url_attrs["href"]
+        slow_action = replace(
+            action,
+            url_attrs={"href": (kind, replace(rule, allowed_hosts={"example.com"}), None)},
+        )
+        assert project(' href="https://example.com">', slow_action)[0] == {"href": "https://example.com"}
+        assert project(' href="https://invalid.example">', slow_action)[0] == {}
+
+        self.assert_parses_to(
+            "<a bad=   x title=   y>z</a>",
+            '<html><head></head><body><a title="y">z</a></body></html>',
+        )
+
     def test_foreign_integration_attribute_projection(self) -> None:
         values = [
             "",

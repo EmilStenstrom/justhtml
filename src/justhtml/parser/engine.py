@@ -1613,6 +1613,7 @@ class ParseEngine:
     def _parse_range(self, pos: int, end: int) -> int:
         html = self._html_input
         append_text = self._append_text
+        fast_text_options = self._fast_text_options
         find = html.find
         parse_start_tag = (
             self._parse_compiled_safe_start_tag
@@ -1632,11 +1633,47 @@ class ParseEngine:
         )
         while pos < end:
             lt = find("<", pos, end)
+            text_end = end if lt == -1 else lt
+            if text_end > pos:
+                raw = html[pos:text_end]
+                parent = self._stack[-1]
+                if (
+                    self._quirks_mode
+                    and fast_text_options
+                    and not (self._mode_flags & _TEXT_SPECIAL_MODE)
+                    and not self._active_formatting_dirty
+                    and not self._foster_next_table_whitespace
+                    and not self._ignore_lf
+                    and (parent.namespace is None or parent.namespace == "html")
+                    and parent.name not in _SLOW_TEXT_PARENT_TAGS
+                    and (
+                        parent is not self._body
+                        or self._body_explicit
+                        or self._body_mode_seen
+                        or self._body_has_content()
+                    )
+                ):
+                    text = raw
+                    if self._has_carriage_return and "\r" in text:
+                        text = text.replace("\r\n", "\n").replace("\r", "\n")
+                    if self._has_null and "\0" in text:
+                        text = text.replace("\0", "")
+                    if "&" in text:
+                        text = decode_entities_in_text(text)
+                    if self._strip_invisible_unicode and text and not text.isascii():
+                        text = _strip_invisible_unicode(text)
+                    if text:
+                        children: list[Any] = parent.children  # type: ignore[assignment]
+                        if children and type(children[-1]) is Text:
+                            children[-1].data = (children[-1].data or "") + text
+                        else:
+                            node = Text(text)
+                            children.append(node)
+                            node.parent = parent
+                else:
+                    append_text(raw, pos)
             if lt == -1:
-                append_text(html[pos:end], pos)
                 return end
-            if lt > pos:
-                append_text(html[pos:lt], pos)
             pos = lt + 1
             if pos >= end:
                 append_text("<", lt)
@@ -1815,35 +1852,6 @@ class ParseEngine:
     def _append_text(self, raw: str, source_pos: int | None = None) -> None:
         stack = self._stack
         parent = stack[-1]
-        if (
-            self._quirks_mode
-            and self._fast_text_options
-            and not (self._mode_flags & _TEXT_SPECIAL_MODE)
-            and not self._active_formatting_dirty
-            and not self._foster_next_table_whitespace
-            and not self._ignore_lf
-            and (parent.namespace is None or parent.namespace == "html")
-            and parent.name not in _SLOW_TEXT_PARENT_TAGS
-            and (parent is not self._body or self._body_explicit or self._body_mode_seen or self._body_has_content())
-        ):
-            text = raw
-            if self._has_carriage_return and "\r" in text:
-                text = text.replace("\r\n", "\n").replace("\r", "\n")
-            if self._has_null and "\0" in text:
-                text = text.replace("\0", "")
-            if "&" in text:
-                text = decode_entities_in_text(text)
-            if self._strip_invisible_unicode and text and not text.isascii():
-                text = _strip_invisible_unicode(text)
-            if text:
-                children: list[Any] = parent.children  # type: ignore[assignment]
-                if children and type(children[-1]) is Text:
-                    children[-1].data = (children[-1].data or "") + text
-                else:
-                    node = Text(text)
-                    children.append(node)
-                    node.parent = parent
-            return
         raw_is_space: bool | None = None
         pending_table_whitespace = 0
         if self._foster_next_table_whitespace:  # pragma: no branch - opposite edge requires invalid parser state
@@ -2720,8 +2728,132 @@ class ParseEngine:
             self_closing = False
             pos += 1
             tag_closed = True
+        elif not action.scan_attrs:
+            attrs, self_closing, pos, tag_closed = self._skip_attrs(pos, end)
         else:
-            attrs, self_closing, pos, tag_closed = self._parse_attrs_for_action(action, pos, end)
+            strict_ascii_fold = self._strict_ascii_fold
+            space = _SPACE
+            attr_name_stop = _ATTR_NAME_STOP
+            attr_value_stop = _ATTR_VALUE_STOP
+            attrs = {}
+            allowed_attrs = action.allowed_attrs
+            state_attrs = action.state_attrs
+            url_attrs = action.url_attrs
+            preserve_state_attrs = action.preserve_state_attrs
+            self_closing = False
+            tag_closed = False
+
+            while pos < end:
+                while pos < end and html[pos] in space:
+                    pos += 1
+                if pos >= end:  # pragma: no branch - opposite edge requires invalid parser state
+                    self_closing = False  # pragma: no cover - unreachable after parser-state guards
+                    tag_closed = False  # pragma: no cover - unreachable after parser-state guards
+                    break  # pragma: no cover - unreachable after parser-state guards
+                ch = html[pos]
+                if ch == ">":
+                    self_closing = False
+                    pos += 1
+                    tag_closed = True
+                    break
+                if ch == "/" and pos + 1 < end and html[pos + 1] == ">":
+                    self_closing = True
+                    pos += 2
+                    tag_closed = True
+                    break
+                if ch in "/=":
+                    pos += 1
+                    continue
+
+                name_start = pos
+                pos += 1
+                while pos < end and html[pos] not in attr_name_stop:
+                    pos += 1
+                raw_key = html[name_start:pos]
+                keep_output = raw_key in allowed_attrs
+                if keep_output:
+                    key = raw_key
+                    keep_state = preserve_state_attrs
+                else:
+                    key = raw_key.translate(_ASCII_LOWER_TABLE) if strict_ascii_fold else raw_key.lower()
+                    if "\0" in key:
+                        key = key.replace("\0", "\ufffd")
+                    keep_output = key in allowed_attrs
+                    keep_state = preserve_state_attrs or key in state_attrs
+
+                while pos < end and html[pos] in space:
+                    pos += 1
+                if not keep_output and not keep_state:
+                    if pos < end and html[pos] == "=":
+                        pos += 1
+                        while pos < end and html[pos] in space:
+                            pos += 1
+                        if pos < end and html[pos] in "\"'":
+                            quote = html[pos]
+                            close = html.find(quote, pos + 1, end)
+                            if close == -1:
+                                self_closing = False
+                                pos = end
+                                tag_closed = False
+                                break
+                            pos = close + 1
+                        else:
+                            while pos < end and html[pos] not in attr_value_stop:
+                                pos += 1
+                    continue
+
+                value = ""
+                if pos < end and html[pos] == "=":
+                    pos += 1
+                    while pos < end and html[pos] in space:
+                        pos += 1
+                    if pos < end and html[pos] in "\"'":
+                        quote = html[pos]
+                        pos += 1
+                        value_start = pos
+                        close = html.find(quote, pos, end)
+                        if close == -1:
+                            self_closing = False
+                            pos = end
+                            tag_closed = False
+                            break
+                        value = html[value_start:close]
+                        pos = close + 1
+                    else:
+                        value_start = pos
+                        while pos < end and html[pos] not in attr_value_stop:
+                            pos += 1
+                        value = html[value_start:pos]
+
+                if "&" in value:
+                    value = decode_entities_in_text(value, in_attribute=True)
+                if keep_state and not keep_output:
+                    attrs[key] = value
+                    continue
+                if self._strip_invisible_unicode and value and not value.isascii():
+                    value = _strip_invisible_unicode(value)
+                url_action = url_attrs.get(key)
+                if url_action is not None:
+                    kind, rule, fast_allow_relative = url_action
+                    if fast_allow_relative is not None:
+                        sanitized_fast = _sanitize_simple_url_fast(value, rule, fast_allow_relative)
+                        if sanitized_fast is None:
+                            continue
+                        if sanitized_fast is not _URL_FAST_FALLBACK:
+                            attrs[key] = sanitized_fast  # type: ignore[assignment]
+                            continue
+                    sanitized = _sanitize_url_sink_value(
+                        url_policy=self._url_policy,
+                        rule=rule,
+                        tag=action.name,
+                        attr=key,
+                        kind=kind,
+                        value=value,
+                    )
+                    if sanitized is None:
+                        continue
+                    value = sanitized
+                attrs[key] = value
         if not tag_closed:
             return pos
 
@@ -2926,6 +3058,17 @@ class ParseEngine:
             return pos
 
         if action.active_formatting:
+            segments = self._active_formatting_entries
+            if self._active_formatting_retired < 64 and not self._active_formatting_dirty and segments:
+                entries = segments[-1]
+                if entries.pending is None and not entries and name != "nobr":
+                    node = self._insert_compiled_safe_element(name, attrs, False, self._current_parent())
+                    if not action.allowed:
+                        self._nodes_to_unwrap.append(node)
+                    entry = _FormattingEntry(name, node.attrs, node, None, entries)
+                    self._active_formatting.append(entry)
+                    entries.pending = entry
+                    return pos
             return self._parse_formatting_start(name, attrs, pos, compiled_safe=True)
 
         parent: Node
