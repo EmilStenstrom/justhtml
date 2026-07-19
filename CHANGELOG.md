@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.0] - 2026-07-19
+
 ### Performance
 
 On the web100k parser benchmark (1,000 documents, three iterations), the default `JustHTML()` constructor now completes in 13.020 seconds rather than 21.648 seconds in 3.7.1: a 40% reduction in parse time, or about 1.7× higher throughput.
