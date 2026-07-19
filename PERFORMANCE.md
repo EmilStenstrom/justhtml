@@ -22,6 +22,31 @@ Set `WEB100K_DIR` to use another location, or pass `--batches-dir` and
 pip install -e ".[benchmark]"
 ```
 
+`html5-parser` (the Gumbo benchmark) and `lxml` must use the same libxml2
+implementation. The `html5-parser` wheel uses the system libxml2, while a
+current `lxml` wheel embeds a newer one. Remove that wheel and rebuild only
+`lxml` against the local library:
+
+```bash
+pip uninstall -y lxml
+pip install --no-cache-dir --no-binary=lxml 'lxml==6.1.1'
+```
+
+Confirm that they agree before running the benchmark:
+
+```bash
+python -c 'from lxml import etree; import html5_parser; print(etree.LIBXML_VERSION)'
+```
+
+If pip cannot build lxml, install your platform's libxml2 development package
+and C compiler, then repeat the second command. Reinstalling the project extra
+after this step is unnecessary and can reselect the binary lxml wheel.
+
+The latest MarkupEver and TurboHTML wheels do not currently load on Python
+3.15 pre-releases. On that interpreter they are reported as unavailable while
+the remaining benchmark parsers, including Gumbo, still run. Use a supported
+stable Python release when those comparisons are required.
+
 ## Measure the right pipeline
 
 The benchmark has separate modes for parsing alone and parsing followed by

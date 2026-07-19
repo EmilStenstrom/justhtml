@@ -454,6 +454,8 @@ def benchmark_gumbo(html_source, iterations=1):
         import html5_parser
     except ImportError:
         return {"error": "html5-parser not installed (pip install html5-parser)"}
+    except RuntimeError as e:
+        return {"error": f"html5-parser unavailable ({e})"}
     times = []
     errors = 0
     total_bytes = 0
@@ -493,8 +495,10 @@ def benchmark_markupever(html_source, iterations=1):
     """Benchmark markupever parser."""
     try:
         from markupever import parse
-    except ImportError:
-        return {"error": "markupever not installed (pip install markupever)"}
+    except ImportError as e:
+        return {"error": f"markupever unavailable ({e})"}
+    except (RuntimeError, SystemError) as e:
+        return {"error": f"markupever unavailable ({e})"}
     times = []
     errors = 0
     total_bytes = 0
@@ -534,8 +538,10 @@ def benchmark_turbohtml(html_source, iterations=1):
     """Benchmark TurboHTML parser."""
     try:
         from turbohtml import parse
-    except ImportError:
-        return {"error": "turbohtml not installed (pip install turbohtml)"}
+    except ImportError as e:
+        return {"error": f"turbohtml unavailable ({e})"}
+    except (RuntimeError, SystemError) as e:
+        return {"error": f"turbohtml unavailable ({e})"}
     times = []
     errors = 0
     total_bytes = 0
