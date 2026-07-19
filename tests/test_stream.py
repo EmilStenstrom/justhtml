@@ -445,6 +445,7 @@ class TestStream(unittest.TestCase):
         assert ascii_find("DOCTYPE", "doctype", 0, 7) == 0
         assert ascii_find("doctypeDOCTYPE", "doctype", 0, 14) == 0
         assert ascii_find("doctype", "DOCTYPE", 0, 7) == 0
+        assert ascii_find("xDOCTYPE", "doctype", 0, 7) == -1
         assert ascii_rfind("DOCTYPEdoctype", "DOCTYPE", 0, 14) == 7
         assert ascii_rfind("DOCTYPE", "doctype", 0, 7) == 0
         assert ascii_rfind("DOCTYPE", "DOCTYPE", 0, 7) == 0

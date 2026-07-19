@@ -21,6 +21,8 @@ def ascii_startswith(html: str, needle: str, start: int, end: int) -> bool:
 def ascii_find(html: str, needle: str, start: int, end: int) -> int:
     """Find an ASCII needle case-insensitively without folding all of html."""
     first = needle[0]
+    needle_lower = needle.lower()
+    needle_len = len(needle)
     if "a" <= first <= "z":
         alternate_first = first.upper()
     elif "A" <= first <= "Z":
@@ -35,7 +37,11 @@ def ascii_find(html: str, needle: str, start: int, end: int) -> int:
                 found = alternate_found
         if found == -1:
             return -1
-        if ascii_startswith(html, needle, found, end):
+        match_end = found + needle_len
+        if match_end > end:
+            return -1
+        candidate = html[found:match_end]
+        if candidate == needle or (candidate.isascii() and candidate.lower() == needle_lower):
             return found
         start = found + 1
 

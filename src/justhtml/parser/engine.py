@@ -64,6 +64,7 @@ _DOCTYPE_RE = re.compile(
     re.IGNORECASE,
 )
 _SPACE = _scanner.SPACE
+_ASCII_LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 _TAG_NAME_STOP = _scanner.TAG_NAME_STOP + "\r"
 _ATTR_NAME_STOP = _scanner.ATTR_NAME_STOP + "\r"
 _ATTR_VALUE_STOP = _scanner.ATTR_VALUE_STOP
@@ -365,11 +366,11 @@ def _normalize_surrogate_pairs(text: str) -> str:
 
 
 def _is_processing_instruction_name_start(ch: str) -> bool:
-    return ch == "_" or ("a" <= ch <= "z") or ("A" <= ch <= "Z")
+    return ch == "_" or ch in _ASCII_LETTERS
 
 
 def _is_processing_instruction_name_char(ch: str) -> bool:
-    return ch == "_" or ch == "-" or ("a" <= ch <= "z") or ("A" <= ch <= "Z") or ("0" <= ch <= "9")
+    return ch == "_" or ch == "-" or ch in _ASCII_LETTERS or ("0" <= ch <= "9")
 
 
 def _is_hidden_input(name: str, attrs: dict[str, str | None]) -> bool:
@@ -1686,7 +1687,7 @@ class ParseEngine:
                     end_tag_name_pos = pos + 1
                     if end_tag_name_pos < end:
                         end_tag_ch = html[end_tag_name_pos]
-                        end_tag_starts_with_letter = ("a" <= end_tag_ch <= "z") or ("A" <= end_tag_ch <= "Z")
+                        end_tag_starts_with_letter = end_tag_ch in _ASCII_LETTERS
                         if (
                             end_tag_starts_with_letter and self._find_tag_end(end_tag_name_pos + 1, end) != -1
                         ) or not end_tag_starts_with_letter:
@@ -1696,7 +1697,7 @@ class ParseEngine:
                             self._ignore_lf = False
                 pos = parse_end_tag(pos + 1, end)
                 continue
-            if ("a" <= ch <= "z") or ("A" <= ch <= "Z"):
+            if ch in _ASCII_LETTERS:
                 self._foster_next_table_whitespace = 0
                 if self._ignore_lf and self._find_tag_end(pos + 1, end) != -1:
                     # A complete start tag is the next token, so a pending
@@ -2158,12 +2159,13 @@ class ParseEngine:
         if self._foreign_context_seen:
             if any(node.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} for node in self._stack[1:]):
                 return self._parse_end_tag(pos, end)
+            self._foreign_context_seen = False
         html = self._html_input
         if pos >= end:
             self._append_text("</")
             return end
         ch = html[pos]
-        if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
+        if ch not in _ASCII_LETTERS:
             gt = html.find(">", pos, end)
             return end if gt == -1 else gt + 1
         name_start = pos
@@ -2388,7 +2390,7 @@ class ParseEngine:
             self._append_text("</", pos - 2)
             return end
         ch = html[pos]
-        if not (("a" <= ch <= "z") or ("A" <= ch <= "Z")):
+        if ch not in _ASCII_LETTERS:
             gt = html.find(">", pos, end)
             if ch == ">" and not (raw_mode and self._track_tag_spans):
                 return pos + 1
