@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.9.0] - 2026-07-20
+
 ### Performance
 
 Combined, the changes below reduce default-constructor parse time by about 9.5% relative to 3.8.0, on top of that release's 40% reduction from 3.7.1.
