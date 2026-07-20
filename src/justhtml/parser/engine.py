@@ -1026,14 +1026,27 @@ class ParseEngine:
     def _set_origin(self, node: Node | Text, pos: int | None) -> None:
         if not self._track_node_locations or pos is None:
             return
-        node._origin_pos = pos
-        node._origin_line, node._origin_col = self._line_col_at_pos(pos)
+        line, column = self._line_col_at_pos(pos)
+        if isinstance(node, Text):
+            node._metadata = [pos, line, column]
+            return
+        metadata = node._metadata
+        if metadata is None:
+            metadata = [None] * 8
+            node._metadata = metadata
+        metadata[1] = pos
+        metadata[2] = line
+        metadata[3] = column
 
     def _set_source_span(self, node: Element, start: int | None, end: int | None) -> None:
         if self._track_tag_spans and start is not None and end is not None:
-            node._source_html = self._html_input
-            node._start_tag_start = start
-            node._start_tag_end = end
+            metadata = node._metadata
+            if metadata is None:
+                metadata = [None] * 8
+                node._metadata = metadata
+            metadata[0] = self._html_input
+            metadata[4] = start
+            metadata[5] = end
 
     def _set_end_span(self, node: Node, name: str, start: int | None, end: int | None) -> None:
         if not isinstance(node, Element):  # pragma: no cover - end spans are only assigned to elements
@@ -1043,15 +1056,19 @@ class ParseEngine:
             return
         node._end_tag_present = True
         if self._track_tag_spans and start is not None and end is not None:
-            node._source_html = self._html_input
-            node._end_tag_start = start
-            node._end_tag_end = end
+            metadata = node._metadata
+            if metadata is None:
+                metadata = [None] * 8
+                node._metadata = metadata
+            metadata[0] = self._html_input
+            metadata[6] = start
+            metadata[7] = end
 
     def _new_text(self, data: str, source_pos: int | None = None) -> Text:
         node = Text(data)
         if self._track_node_locations and source_pos is not None:
-            node._origin_pos = source_pos
-            node._origin_line, node._origin_col = self._line_col_at_pos(source_pos)
+            line, column = self._line_col_at_pos(source_pos)
+            node._metadata = [source_pos, line, column]
         return node
 
     def _end_tag_stays_in_foreign_context(self, name: str, tag_start: int, tag_end: int) -> bool:
@@ -2198,10 +2215,12 @@ class ParseEngine:
             and stack[-1].name == name
             and stack[-1] is not self._fragment_context_node
         ):
-            if name == "p" or stack._name_counts is not None:
-                stack.pop()
-            else:
+            if stack._name_counts is None:
                 list.pop(stack)
+                if name == "p":
+                    stack._p_count -= 1
+            else:
+                stack.pop()
             return pos
 
         if (
@@ -2312,7 +2331,10 @@ class ParseEngine:
             if idx is None:
                 return pos
             self._mark_active_formatting_dirty()
-            del stack[idx:]
+            if stack._name_counts is None and not stack._p_count:
+                list.__delitem__(stack, slice(idx, None))
+            else:
+                del stack[idx:]
             return pos
         if action is not None and action.active_formatting:
             self._adoption_agency(name)
@@ -2325,7 +2347,12 @@ class ParseEngine:
         ):
             if name in _TABLE_CELL_TAGS or name in _ACTIVE_FORMATTING_MARKER_TAGS:
                 self._clear_active_formatting_to_marker()
-            stack.pop()
+            if stack._name_counts is None:
+                list.pop(stack)
+                if name == "p":
+                    stack._p_count -= 1
+            else:
+                stack.pop()
             return pos
 
         if name == "p":
@@ -2379,7 +2406,10 @@ class ParseEngine:
             self._clear_active_formatting_to_marker()
         elif name in _ACTIVE_FORMATTING_MARKER_TAGS:  # pragma: no branch - opposite edge requires invalid parser state
             self._clear_active_formatting_to_marker()  # pragma: no cover - unreachable after parser-state guards
-        del stack[idx:]
+        if stack._name_counts is None and not stack._p_count:
+            list.__delitem__(stack, slice(idx, None))
+        else:
+            del stack[idx:]
         return pos
 
     def _parse_end_tag(self, pos: int, end: int) -> int:
@@ -3786,12 +3816,10 @@ class ParseEngine:
             node = Element(name, attrs, namespace)
         track_node_locations = self._track_node_locations
         if track_node_locations and tag_start is not None:
-            node._origin_pos = tag_start
-            node._origin_line, node._origin_col = self._line_col_at_pos(tag_start)
+            line, column = self._line_col_at_pos(tag_start)
+            node._metadata = [None, tag_start, line, column, None, None, None, None]
         if self._track_tag_spans and tag_start is not None and tag_end is not None:
-            node._source_html = self._html_input
-            node._start_tag_start = tag_start
-            node._start_tag_end = tag_end
+            self._set_source_span(node, tag_start, tag_end)
         if name == "selectedcontent":
             self._has_selectedcontent = True
         is_html_namespace = namespace in {None, "html"}
@@ -3855,12 +3883,10 @@ class ParseEngine:
         else:
             node = Element(name, attrs, namespace)
         if self._track_node_locations and tag_start is not None:
-            node._origin_pos = tag_start
-            node._origin_line, node._origin_col = self._line_col_at_pos(tag_start)
+            line, column = self._line_col_at_pos(tag_start)
+            node._metadata = [None, tag_start, line, column, None, None, None, None]
         if self._track_tag_spans and tag_start is not None and tag_end is not None:
-            node._source_html = self._html_input
-            node._start_tag_start = tag_start
-            node._start_tag_end = tag_end
+            self._set_source_span(node, tag_start, tag_end)
         if name == "selectedcontent":
             self._has_selectedcontent = True
         is_html_namespace = namespace in {None, "html"}
@@ -5298,12 +5324,8 @@ class ParseEngine:
                 idx += 1
                 continue
             node = self._insert_sanitized_element(entry.name, entry.attrs.copy(), False, self._current_parent())
-            node._source_html = entry.node._source_html
-            node._origin_pos = entry.node._origin_pos
-            node._origin_line = entry.node._origin_line
-            node._origin_col = entry.node._origin_col
-            node._start_tag_start = entry.node._start_tag_start
-            node._start_tag_end = entry.node._start_tag_end
+            metadata = entry.node._metadata
+            node._metadata = [*metadata[:6], None, None] if metadata is not None else None
             entry.node = node
             idx += 1
         self._active_formatting_dirty = False
@@ -5501,12 +5523,8 @@ class ParseEngine:
 
     def _clone_formatting_entry(self, entry: _FormattingEntry) -> Element:
         node = Element(entry.name, entry.attrs.copy(), "html")
-        node._source_html = entry.node._source_html
-        node._origin_pos = entry.node._origin_pos
-        node._origin_line = entry.node._origin_line
-        node._origin_col = entry.node._origin_col
-        node._start_tag_start = entry.node._start_tag_start
-        node._start_tag_end = entry.node._start_tag_end
+        metadata = entry.node._metadata
+        node._metadata = [*metadata[:6], None, None] if metadata is not None else None
         if not self._raw_mode and entry.name not in self._allowed_tags:
             self._nodes_to_unwrap.append(node)
         return node

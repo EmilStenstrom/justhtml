@@ -4,6 +4,7 @@ from justhtml import JustHTML
 from justhtml.dom import (
     Comment,
     Document,
+    DocumentFragment,
     Element,
     Node,
     ProcessingInstruction,
@@ -23,6 +24,66 @@ from justhtml.serializer.markdown import (
 
 
 class TestNode(unittest.TestCase):
+    def test_source_metadata_is_lazy_and_clones_independently(self):
+        fields = (
+            ("_source_html", "<div></div>"),
+            ("_origin_pos", 1),
+            ("_origin_line", 2),
+            ("_origin_col", 3),
+            ("_start_tag_start", 4),
+            ("_start_tag_end", 5),
+            ("_end_tag_start", 6),
+            ("_end_tag_end", 7),
+        )
+        for field, value in fields:
+            with self.subTest(field=field):
+                element = Element("div", {}, "html")
+                assert element._metadata is None
+                setattr(element, field, None)
+                assert element._metadata is None
+                setattr(element, field, value)
+                assert getattr(element, field) == value
+
+        nodes = (
+            Node("div"),
+            Document(),
+            DocumentFragment(),
+            Comment("comment"),
+            ProcessingInstruction("target data"),
+            Element("div", {}, "html"),
+            Template("template", namespace="html"),
+        )
+        for node in nodes:
+            with self.subTest(node=type(node).__name__):
+                assert node.clone_node()._metadata is None
+                node._source_html = "source"
+                node._origin_pos = 1
+                clone = node.clone_node()
+                assert clone._metadata == node._metadata
+                assert clone._metadata is not node._metadata
+                clone._origin_pos = 2
+                assert node._origin_pos == 1
+
+        for field, value in (("_origin_pos", 1), ("_origin_line", 2), ("_origin_col", 3)):
+            with self.subTest(text_field=field):
+                text = Text("text")
+                assert text._metadata is None
+                setattr(text, field, None)
+                assert text._metadata is None
+                setattr(text, field, value)
+                assert getattr(text, field) == value
+                setattr(text, field, value + 1)
+                assert getattr(text, field) == value + 1
+
+        text = Text("text")
+        assert text.clone_node()._metadata is None
+        text._origin_pos = 1
+        clone_text = text.clone_node()
+        assert clone_text._metadata == text._metadata
+        assert clone_text._metadata is not text._metadata
+        clone_text._origin_pos = 2
+        assert text._origin_pos == 1
+
     def test_simple_dom_text_node_text_property(self):
         node = Text("Hi")
         assert node.text == "Hi"

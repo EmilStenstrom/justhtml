@@ -132,10 +132,7 @@ def _to_text_collect_block_chunks(node: NodeType, chunks: list[list[str]], strip
 
 class Node:
     __slots__ = (
-        "_origin_col",
-        "_origin_line",
-        "_origin_pos",
-        "_source_html",
+        "_metadata",
         "attrs",
         "children",
         "data",
@@ -150,10 +147,7 @@ class Node:
     children: list[Any] | None
     data: str | Doctype | None
     namespace: str | None
-    _origin_pos: int | None
-    _origin_line: int | None
-    _origin_col: int | None
-    _source_html: str | None
+    _metadata: list[str | int | None] | None
 
     def __init__(
         self,
@@ -165,10 +159,7 @@ class Node:
         self.name = name
         self.parent = None
         self.data = data
-        self._source_html = None
-        self._origin_pos = None
-        self._origin_line = None
-        self._origin_col = None
+        self._metadata = None
 
         if name.startswith("#") or name == "!doctype":
             self.namespace = namespace
@@ -219,6 +210,66 @@ class Node:
                 old_children.pop(old_index)
         node.parent = None
         return old_parent, old_index
+
+    @property
+    def _source_html(self) -> str | None:
+        metadata = self._metadata
+        return None if metadata is None else cast("str | None", metadata[0])
+
+    @_source_html.setter
+    def _source_html(self, value: str | None) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            if value is None:
+                return
+            metadata = [None] * 8
+            self._metadata = metadata
+        metadata[0] = value
+
+    @property
+    def _origin_pos(self) -> int | None:
+        metadata = self._metadata
+        return None if metadata is None else cast("int | None", metadata[1])
+
+    @_origin_pos.setter
+    def _origin_pos(self, value: int | None) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            if value is None:
+                return
+            metadata = [None] * 8
+            self._metadata = metadata
+        metadata[1] = value
+
+    @property
+    def _origin_line(self) -> int | None:
+        metadata = self._metadata
+        return None if metadata is None else cast("int | None", metadata[2])
+
+    @_origin_line.setter
+    def _origin_line(self, value: int | None) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            if value is None:
+                return
+            metadata = [None] * 8
+            self._metadata = metadata
+        metadata[2] = value
+
+    @property
+    def _origin_col(self) -> int | None:
+        metadata = self._metadata
+        return None if metadata is None else cast("int | None", metadata[3])
+
+    @_origin_col.setter
+    def _origin_col(self, value: int | None) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            if value is None:
+                return
+            metadata = [None] * 8
+            self._metadata = metadata
+        metadata[3] = value
 
     @property
     def origin_offset(self) -> int | None:
@@ -429,10 +480,7 @@ class Node:
             self.data,
             self.namespace,
         )
-        clone._source_html = self._source_html
-        clone._origin_pos = self._origin_pos
-        clone._origin_line = self._origin_line
-        clone._origin_col = self._origin_col
+        clone._metadata = self._metadata.copy() if self._metadata is not None else None
         if deep:
             return _clone_subtree_iterative(self)
         return clone
@@ -447,10 +495,7 @@ class Document(Node):
     def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> Document:
         _ = override_attrs
         clone = Document()
-        clone._source_html = self._source_html
-        clone._origin_pos = self._origin_pos
-        clone._origin_line = self._origin_line
-        clone._origin_col = self._origin_col
+        clone._metadata = self._metadata.copy() if self._metadata is not None else None
         if deep:
             return cast("Document", _clone_subtree_iterative(self))
         return clone
@@ -465,10 +510,7 @@ class DocumentFragment(Node):
     def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> DocumentFragment:
         _ = override_attrs
         clone = DocumentFragment()
-        clone._source_html = self._source_html
-        clone._origin_pos = self._origin_pos
-        clone._origin_line = self._origin_line
-        clone._origin_col = self._origin_col
+        clone._metadata = self._metadata.copy() if self._metadata is not None else None
         if deep:
             return cast("DocumentFragment", _clone_subtree_iterative(self))
         return clone
@@ -484,10 +526,7 @@ class Comment(Node):
         _ = override_attrs
         _ = deep
         clone = Comment(self.data if isinstance(self.data, str) else None)
-        clone._source_html = self._source_html
-        clone._origin_pos = self._origin_pos
-        clone._origin_line = self._origin_line
-        clone._origin_col = self._origin_col
+        clone._metadata = self._metadata.copy() if self._metadata is not None else None
         return clone
 
 
@@ -503,31 +542,20 @@ class ProcessingInstruction(Node):
         _ = override_attrs
         _ = deep
         clone = ProcessingInstruction(self.data if isinstance(self.data, str) else None)
-        clone._source_html = self._source_html
-        clone._origin_pos = self._origin_pos
-        clone._origin_line = self._origin_line
-        clone._origin_col = self._origin_col
+        clone._metadata = self._metadata.copy() if self._metadata is not None else None
         return clone
 
 
 class Element(Node):
     __slots__ = (
-        "_end_tag_end",
         "_end_tag_present",
-        "_end_tag_start",
         "_self_closing",
-        "_start_tag_end",
-        "_start_tag_start",
         "template_content",
     )
 
     template_content: Node | None
     children: list[Any]
     attrs: dict[str, str | None]
-    _start_tag_start: int | None
-    _start_tag_end: int | None
-    _end_tag_start: int | None
-    _end_tag_end: int | None
     _end_tag_present: bool
     _self_closing: bool
 
@@ -539,28 +567,74 @@ class Element(Node):
         self.children = []
         self.attrs = attrs if attrs is not None else {}
         self.template_content = None
-        self._source_html = None
-        self._origin_pos = None
-        self._origin_line = None
-        self._origin_col = None
-        self._start_tag_start = None
-        self._start_tag_end = None
-        self._end_tag_start = None
-        self._end_tag_end = None
+        self._metadata = None
         self._end_tag_present = False
         self._self_closing = False
+
+    @property
+    def _start_tag_start(self) -> int | None:
+        metadata = self._metadata
+        return None if metadata is None else cast("int | None", metadata[4])
+
+    @_start_tag_start.setter
+    def _start_tag_start(self, value: int | None) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            if value is None:
+                return
+            metadata = [None] * 8
+            self._metadata = metadata
+        metadata[4] = value
+
+    @property
+    def _start_tag_end(self) -> int | None:
+        metadata = self._metadata
+        return None if metadata is None else cast("int | None", metadata[5])
+
+    @_start_tag_end.setter
+    def _start_tag_end(self, value: int | None) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            if value is None:
+                return
+            metadata = [None] * 8
+            self._metadata = metadata
+        metadata[5] = value
+
+    @property
+    def _end_tag_start(self) -> int | None:
+        metadata = self._metadata
+        return None if metadata is None else cast("int | None", metadata[6])
+
+    @_end_tag_start.setter
+    def _end_tag_start(self, value: int | None) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            if value is None:
+                return
+            metadata = [None] * 8
+            self._metadata = metadata
+        metadata[6] = value
+
+    @property
+    def _end_tag_end(self) -> int | None:
+        metadata = self._metadata
+        return None if metadata is None else cast("int | None", metadata[7])
+
+    @_end_tag_end.setter
+    def _end_tag_end(self, value: int | None) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            if value is None:
+                return
+            metadata = [None] * 8
+            self._metadata = metadata
+        metadata[7] = value
 
     def clone_node(self, deep: bool = False, override_attrs: dict[str, str | None] | None = None) -> Element:
         attrs = override_attrs.copy() if override_attrs is not None else (self.attrs.copy() if self.attrs else {})
         clone = Element(self.name, attrs, self.namespace)
-        clone._source_html = self._source_html
-        clone._origin_pos = self._origin_pos
-        clone._origin_line = self._origin_line
-        clone._origin_col = self._origin_col
-        clone._start_tag_start = self._start_tag_start
-        clone._start_tag_end = self._start_tag_end
-        clone._end_tag_start = self._end_tag_start
-        clone._end_tag_end = self._end_tag_end
+        clone._metadata = self._metadata.copy() if self._metadata is not None else None
         clone._end_tag_present = self._end_tag_present
         clone._self_closing = self._self_closing
         if deep:
@@ -593,14 +667,7 @@ class Template(Element):
             None,
             self.namespace,
         )
-        clone._source_html = self._source_html
-        clone._origin_pos = self._origin_pos
-        clone._origin_line = self._origin_line
-        clone._origin_col = self._origin_col
-        clone._start_tag_start = self._start_tag_start
-        clone._start_tag_end = self._start_tag_end
-        clone._end_tag_start = self._end_tag_start
-        clone._end_tag_end = self._end_tag_end
+        clone._metadata = self._metadata.copy() if self._metadata is not None else None
         clone._end_tag_present = self._end_tag_present
         clone._self_closing = self._self_closing
         if deep:
@@ -637,24 +704,65 @@ def _clone_subtree_iterative(root: Node) -> Node:
 
 
 class Text:
-    __slots__ = ("_origin_col", "_origin_line", "_origin_pos", "data", "name", "namespace", "parent")
+    __slots__ = ("_metadata", "data", "name", "namespace", "parent")
 
     data: str | None
     name: str
     namespace: None
     parent: Node | None
-    _origin_pos: int | None
-    _origin_line: int | None
-    _origin_col: int | None
+    _metadata: list[int | None] | None
 
     def __init__(self, data: str | None) -> None:
         self.data = data
         self.parent = None
         self.name = "#text"
         self.namespace = None
-        self._origin_pos = None
-        self._origin_line = None
-        self._origin_col = None
+        self._metadata = None
+
+    @property
+    def _origin_pos(self) -> int | None:
+        metadata = self._metadata
+        return None if metadata is None else metadata[0]
+
+    @_origin_pos.setter
+    def _origin_pos(self, value: int | None) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            if value is None:
+                return
+            metadata = [None, None, None]
+            self._metadata = metadata
+        metadata[0] = value
+
+    @property
+    def _origin_line(self) -> int | None:
+        metadata = self._metadata
+        return None if metadata is None else metadata[1]
+
+    @_origin_line.setter
+    def _origin_line(self, value: int | None) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            if value is None:
+                return
+            metadata = [None, None, None]
+            self._metadata = metadata
+        metadata[1] = value
+
+    @property
+    def _origin_col(self) -> int | None:
+        metadata = self._metadata
+        return None if metadata is None else metadata[2]
+
+    @_origin_col.setter
+    def _origin_col(self, value: int | None) -> None:
+        metadata = self._metadata
+        if metadata is None:
+            if value is None:
+                return
+            metadata = [None, None, None]
+            self._metadata = metadata
+        metadata[2] = value
 
     @property
     def origin_offset(self) -> int | None:
@@ -712,9 +820,7 @@ class Text:
     def clone_node(self, deep: bool = False) -> Text:
         _ = deep
         clone = Text(self.data)
-        clone._origin_pos = self._origin_pos
-        clone._origin_line = self._origin_line
-        clone._origin_col = self._origin_col
+        clone._metadata = self._metadata.copy() if self._metadata is not None else None
         return clone
 
 

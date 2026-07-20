@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Speed up the default `JustHTML()` constructor by about 3% on the web100k parser benchmark by moving the common text and compiled-attribute paths into their callers and avoiding full active-formatting bookkeeping for uncomplicated first entries.
 - Reduce another 1.2% of default-constructor parse time by dispatching start and end tags before uncommon markup and removing redundant CDATA probes and regular-expression offset lookups while skipping dropped subtrees.
 - Reduce default-constructor parse time by another 2% on a 1,000-document web100k sample by clearing stale foreign-context scan state, using C-level membership for ASCII tag dispatch, and inlining bounded case-insensitive raw-text matching.
+- Reduce default-constructor parse time by another 3.6% on a 1,000-document web100k sample and shrink ordinary element nodes by one third by lazily allocating source-location metadata and bypassing adaptive stack bookkeeping for shallow end-tag mutations.
 
 ## [3.8.0] - 2026-07-19
 

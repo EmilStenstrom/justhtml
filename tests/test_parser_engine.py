@@ -4,7 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from justhtml import JustHTML
-from justhtml.dom import DocumentFragment, Element
+from justhtml.dom import DocumentFragment, Element, Text
 from justhtml.parser.context import FragmentContext
 from justhtml.parser.engine import (
     _AFTER_BODY,
@@ -104,6 +104,44 @@ class TestCountingStack(unittest.TestCase):
 
         assert engine._stack._name_counts is not None
         self.assert_counts_match(engine._stack)
+
+    def test_compiled_end_tag_fast_paths_keep_shallow_and_deep_counts_exact(self) -> None:
+        for name in ("div", "h1"):
+            html = f"</{name}>"
+            stack = _CountingStack(
+                [DocumentFragment()]
+                + [Element("span", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD - 2)]
+                + [Element(name, {}, "html")]
+            )
+            engine = ParseEngine(html, fragment=True)
+            engine._stack = stack
+
+            assert engine._parse_compiled_safe_end_tag(2, len(html)) == len(html)
+            self.assert_counts_match(stack)
+
+        html = "</p>"
+        stack = _CountingStack([DocumentFragment(), Element("p", {}, "html")])
+        engine = ParseEngine(html, fragment=True)
+        engine._stack = stack
+        engine._frameset_seen = True
+        engine._body_explicit = True
+
+        assert engine._parse_compiled_safe_end_tag(2, len(html)) == len(html)
+        assert stack._p_count == 0
+        self.assert_counts_match(stack)
+
+    def test_parser_metadata_helpers_allocate_for_text_and_unlocated_elements(self) -> None:
+        location_engine = ParseEngine("x", fragment=True, track_node_locations=True)
+        text = Text("x")
+        location_engine._set_origin(text, 0)
+        assert text.origin_location == (1, 1)
+
+        span_engine = ParseEngine("<p>", fragment=True, track_tag_spans=True)
+        element = Element("p", {}, "html")
+        span_engine._set_source_span(element, 0, 3)
+        assert element._source_html == "<p>"
+        assert element._start_tag_start == 0
+        assert element._start_tag_end == 3
 
 
 class TestParserSyntaxAndRecovery(_ParserEngineTestCase):
