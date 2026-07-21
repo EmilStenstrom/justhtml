@@ -2,9 +2,11 @@ import unittest
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
+from statistics import median
+from time import perf_counter
 
 from justhtml import JustHTML
-from justhtml.dom import DocumentFragment, Element, Text
+from justhtml.dom import DocumentFragment, Element, Template, Text
 from justhtml.parser.context import FragmentContext
 from justhtml.parser.engine import (
     _AFTER_BODY,
@@ -23,6 +25,45 @@ from justhtml.parser.options import ParserOptions
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlRule
 from justhtml.serializer import to_test_format
 from tests.harness.tree import TestRunner
+
+
+def _assert_parse_scales_linearly(
+    make_source,
+    *,
+    collect_errors: bool = False,
+    fragment: bool = True,
+    sanitize: bool = False,
+) -> None:
+    def duration(size: int) -> float:
+        source = make_source(size)
+        samples = []
+        for _ in range(3):
+            start = perf_counter()
+            JustHTML(source, fragment=fragment, sanitize=sanitize, collect_errors=collect_errors)
+            samples.append(perf_counter() - start)
+        return median(samples)
+
+    duration(64)
+    small = duration(2_000)
+    large = duration(4_000)
+    assert large < small * 3, f"doubling input took {large / small:.2f}x as long"
+
+
+def _assert_basic_error_collection_scales_linearly(make_source) -> None:
+    def duration(size: int) -> float:
+        source = make_source(size)
+        samples = []
+        for _ in range(3):
+            engine = ParseEngine(source, fragment=True, collect_errors=True, max_errors=max(size, 1_000))
+            start = perf_counter()
+            engine._collect_basic_errors()
+            samples.append(perf_counter() - start)
+        return median(samples)
+
+    duration(64)
+    small = duration(2_000)
+    large = duration(4_000)
+    assert large < small * 3, f"doubling diagnostic input took {large / small:.2f}x as long"
 
 
 class _ParserEngineTestCase(unittest.TestCase):
@@ -86,6 +127,212 @@ class TestCountingStack(unittest.TestCase):
         assert stack._name_counts is not None
         stack.append(Element("span", {}, "html"))
         self.assert_counts_match(stack)
+
+    def test_last_index_cache_survives_unrelated_mutations_and_repairs_shifted_indices(self) -> None:
+        predicate_calls = []
+
+        def is_html_table(node):
+            predicate_calls.append(node)
+            return node.namespace == "html"
+
+        table = Element("table", {}, "html")
+        stack = _CountingStack(
+            [DocumentFragment()] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)] + [table]
+        )
+        table_index = len(stack) - 1
+
+        assert stack.last_index_of("table", is_html_table) == table_index
+        assert predicate_calls == [table]
+
+        stack.append(Element("div", {}, "html"))
+        assert stack.last_index_of("table", is_html_table) == table_index
+        assert predicate_calls == [table]
+
+        stack.insert(1, Element("span", {}, "html"))
+        table_index += 1
+        assert stack.last_index_of("table", is_html_table) == table_index
+        assert predicate_calls == [table]
+
+        foreign_table = Element("table", {}, "svg")
+        stack.append(foreign_table)
+        assert stack.last_index_of("table") == len(stack) - 1
+        assert stack.last_index_of("table", is_html_table) == table_index
+        assert predicate_calls[-2:] == [foreign_table, table]
+
+        replacement = Element("table", {}, "svg")
+        stack[table_index] = replacement
+        assert stack.last_index_of("table", is_html_table) is None
+        assert predicate_calls[-2:] == [foreign_table, replacement]
+
+    def test_cached_position_survives_adoption_agency_mutations_without_rescanning(self) -> None:
+        class AccessTrackingStack(_CountingStack):
+            def __init__(self, nodes):
+                super().__init__(nodes)
+                self.accesses = []
+
+            def __getitem__(self, key):
+                self.accesses.append(key)
+                return super().__getitem__(key)
+
+        template = Template("template", {}, namespace="html")
+        formatting = Element("b", {}, "html")
+        inner_formatting = Element("i", {}, "html")
+        stack = AccessTrackingStack(
+            [DocumentFragment(), template]
+            + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            + [formatting, Element("span", {}, "html"), inner_formatting, Element("p", {}, "html")]
+        )
+        template_index = 1
+
+        assert stack.last_index_of("template") == template_index
+
+        # These are the middle mutations used by the adoption agency: discard
+        # a non-formatting node, replace a formatting node, remove the original,
+        # and insert its reconstructed replacement. All occur above the scope
+        # marker, so its position remains stable.
+        del stack[-2]
+        stack[-2] = Element("i", {}, "html")
+        stack.remove(formatting)
+        stack.insert(len(stack) - 1, Element("b", {}, "html"))
+        stack.pop()
+        del stack[-1:]
+
+        stack.accesses.clear()
+        assert stack.last_index_of("template") == template_index
+        assert stack.accesses == [template_index]
+
+    def test_predicate_cache_tracks_parser_only_template_suffix_mutations(self) -> None:
+        class AccessTrackingStack(_CountingStack):
+            def __init__(self, nodes):
+                super().__init__(nodes)
+                self.accesses = []
+
+            def __getitem__(self, key):
+                self.accesses.append(key)
+                return super().__getitem__(key)
+
+        parent = Element("div", {}, "html")
+        stack = AccessTrackingStack(
+            [DocumentFragment(), parent]
+            + [Element("template", {}, "justhtml-parser-only") for _ in range(_STACK_COUNT_THRESHOLD * 2)]
+        )
+
+        assert stack.last_index_matching(lambda node: node.namespace != "justhtml-parser-only") == 1
+        predicate = next(iter(stack._predicate_index_cache))
+
+        stack.accesses.clear()
+        stack.append(Element("template", {}, "justhtml-parser-only"))
+        assert stack.last_index_matching(predicate) == 1
+        assert stack.accesses == [1]
+
+        stack.insert(1, Element("span", {}, "html"))
+        assert stack.last_index_matching(predicate) == 2
+        stack.remove(stack[1])
+        assert stack.last_index_matching(predicate) == 1
+
+    def test_predicate_cache_handles_negative_replacement_and_removal_paths(self) -> None:
+        def is_html(node):
+            return node.namespace == "html"
+
+        def is_math(node):
+            return node.namespace == "math"
+
+        first = Element("div", {}, "html")
+        stack = _CountingStack(
+            [DocumentFragment(), Element("span", {}, "svg"), first]
+            + [Element("template", {}, "justhtml-parser-only") for _ in range(_STACK_COUNT_THRESHOLD)]
+        )
+
+        assert stack.last_index_matching(is_html) == 2
+        assert stack.last_index_matching(is_math) is None
+        assert stack.last_index_matching(is_math) is None
+
+        math = Element("math", {}, "math")
+        stack.append(math)
+        assert stack.last_index_matching(is_math) == len(stack) - 1
+        assert stack.pop() is math
+        assert stack.last_index_matching(is_math) is None
+
+        stack.insert(1, Element("span", {}, "svg"))
+        assert stack.last_index_matching(is_html) == 3
+        del stack[1]
+        assert stack.last_index_matching(is_html) == 2
+
+        stack[2] = Element("template", {}, "justhtml-parser-only")
+        assert stack.last_index_matching(is_html) is None
+        stack[2] = Element("div", {}, "html")
+        assert stack.last_index_matching(is_html) == 2
+        stack[2] = Element("section", {}, "html")
+        assert stack.last_index_matching(is_html) == 2
+
+        list.insert(stack, 1, Element("span", {}, "svg"))
+        assert stack.last_index_matching(is_html) == 3
+
+        stack._shift_cached_indices_for_removals([])
+
+    def test_name_cache_repairs_unexpected_direct_mutation_and_tracks_middle_removal(self) -> None:
+        target = Element("table", {}, "html")
+        stack = _CountingStack(
+            [DocumentFragment(), Element("span", {}, "html")]
+            + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            + [target]
+        )
+        assert stack.last_index_of("table") == len(stack) - 1
+
+        del stack[1]
+        assert stack.last_index_of("table") == len(stack) - 1
+
+        list.insert(stack, 1, Element("span", {}, "html"))
+        assert stack.last_index_of("table") == len(stack) - 1
+
+    def test_absent_open_element_helpers_share_constant_time_name_tracking(self) -> None:
+        class AccessTrackingStack(_CountingStack):
+            def __init__(self, nodes):
+                super().__init__(nodes)
+                self.accesses = []
+
+            def __getitem__(self, key):
+                self.accesses.append(key)
+                return super().__getitem__(key)
+
+        stack = AccessTrackingStack(Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD))
+        engine = ParseEngine("", fragment=True)
+        engine._stack = stack
+
+        assert engine._find_open_index("table") is None
+        assert engine._find_open_html_index("select") is None
+        assert engine._find_open_index_in_current_scope("ruby") is None
+        assert stack.accesses == []
+
+        assert engine._find_open_index("table") is None
+        assert engine._find_open_html_index("select") is None
+        assert engine._find_open_index_in_current_scope("ruby") is None
+        assert stack.accesses == []
+
+    def test_open_template_helper_reuses_a_cached_deep_position(self) -> None:
+        class AccessTrackingStack(_CountingStack):
+            def __init__(self, nodes):
+                super().__init__(nodes)
+                self.accesses = []
+
+            def __getitem__(self, key):
+                self.accesses.append(key)
+                return super().__getitem__(key)
+
+        template = Template("template", {}, namespace="html")
+        stack = AccessTrackingStack(
+            [DocumentFragment(), template] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD * 2)]
+        )
+        engine = ParseEngine("", fragment=True)
+        engine._stack = stack
+
+        assert engine._open_template_index() == 1
+        assert len(stack.accesses) > _STACK_COUNT_THRESHOLD
+
+        stack.accesses.clear()
+        stack.append(Element("span", {}, "html"))
+        assert engine._open_template_index() == 1
+        assert stack.accesses == [1]
 
     def test_append_and_insert_activate_name_tracking_at_the_threshold(self) -> None:
         shallow = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD - 1)]
@@ -1196,6 +1443,99 @@ class TestParserAttributeProjection(_ParserEngineTestCase):
 
 
 class TestParserEngineInternals(_ParserEngineTestCase):
+    def test_fostered_formatting_is_reconstructed_after_table_markers(self) -> None:
+        self.assert_parses_to(
+            "<table><a>1<td>2</td>3</table>",
+            "<html><head></head><body><a>1</a><a>3</a><table><tbody><tr><td>2</td></tr></tbody></table></body></html>",
+        )
+        self.assert_parses_to(
+            "<table><b><tr><td>aaa</td></tr>bbb</table>ccc",
+            "<html><head></head><body><b></b><b>bbb</b><table><tbody><tr><td>aaa</td></tr></tbody></table>"
+            "<b>ccc</b></body></html>",
+        )
+
+    def test_shallow_foster_parenting_scales_linearly(self) -> None:
+        _assert_parse_scales_linearly(lambda size: "<!doctype html><table>" + "<br>" * size + "</table>")
+
+    def test_deep_absent_template_lookup_scales_linearly(self) -> None:
+        _assert_parse_scales_linearly(
+            lambda size: "<div>" * size + "<table>" + "<br>" * size + "</table>" + "</div>" * size
+        )
+
+    def test_deep_open_template_lookup_scales_linearly(self) -> None:
+        _assert_parse_scales_linearly(
+            lambda size: "<template>"
+            + "<div>" * size
+            + "<table>"
+            + "<br>" * size
+            + "</table>"
+            + "</div>" * size
+            + "</template>"
+        )
+
+    def test_absent_ruby_lookup_scales_linearly(self) -> None:
+        _assert_parse_scales_linearly(lambda size: "<div>" * size + "</ruby>" * size)
+
+    def test_collect_errors_parse_scales_linearly(self) -> None:
+        _assert_parse_scales_linearly(
+            lambda size: "<x>" * size + "</missing>" * size + "</x>" * size,
+            collect_errors=True,
+        )
+
+    def test_nested_parser_only_templates_scale_linearly(self) -> None:
+        _assert_parse_scales_linearly(
+            lambda size: "<template>" * size + "x" + "</template>" * size,
+            fragment=False,
+            sanitize=True,
+        )
+
+    def test_basic_error_collection_handles_repeated_duplicate_tag_names(self) -> None:
+        source = "<x>" * 64 + "</x>" * 64
+        engine = ParseEngine(source, fragment=True, collect_errors=True)
+
+        engine._collect_basic_errors()
+
+        assert engine.errors == []
+
+    def test_basic_error_collection_handles_large_suffix_truncations(self) -> None:
+        source = "<a>" + "<b>" * 64 + "</a>" + "</b>" * 64
+        engine = ParseEngine(source, fragment=True, collect_errors=True)
+
+        engine._collect_basic_errors()
+
+        assert [error.code for error in engine.errors] == ["unexpected-end-tag"] * 64
+
+    def test_basic_error_collection_respects_paragraph_scope_boundaries(self) -> None:
+        engine = ParseEngine("<p><object><div></p></object>", fragment=True, collect_errors=True)
+
+        engine._collect_basic_errors()
+
+        assert [(error.code, error.message) for error in engine.errors] == [
+            ("unexpected-end-tag", "Unexpected </object> end tag"),
+        ]
+
+    def test_basic_error_collection_handles_malformed_deep_input(self) -> None:
+        source = "<x>" * 64 + "</missing>" * 64 + "</x>" * 64
+        engine = ParseEngine(source, fragment=True, collect_errors=True)
+
+        engine._collect_basic_errors()
+
+        assert [error.code for error in engine.errors] == ["unexpected-end-tag"] * 64
+
+    def test_basic_error_collection_duplicate_names_scale_linearly(self) -> None:
+        _assert_basic_error_collection_scales_linearly(lambda size: "<x>" * size + "</x>" * size)
+
+    def test_basic_error_collection_large_suffix_truncation_scales_linearly(self) -> None:
+        _assert_basic_error_collection_scales_linearly(lambda size: "<a>" + "<x>" * size + "</a>")
+
+    def test_basic_error_collection_paragraph_boundaries_scale_linearly(self) -> None:
+        _assert_basic_error_collection_scales_linearly(
+            lambda size: "<p><object>" + "<div></div>" * size + "</p></object>"
+        )
+
+    def test_basic_error_collection_malformed_deep_input_scales_linearly(self) -> None:
+        _assert_basic_error_collection_scales_linearly(lambda size: "<x>" * size + "</missing>" * size + "</x>" * size)
+
     def test_direct_engine_state_transitions(self) -> None:
         raw_plan = compile_raw_engine_plan(fragment=False)
         raw_fragment_plan = compile_raw_engine_plan(fragment=True)
@@ -1254,6 +1594,142 @@ class TestParserEngineInternals(_ParserEngineTestCase):
             sanitize=False,
             track_node_locations=True,
         )
+
+    def test_foster_parent_reuses_the_last_child_table_anchor_without_searching(self) -> None:
+        class NoSearchList(list):
+            def index(self, value, start=0, stop=None):
+                raise AssertionError("the attached table anchor must not require a sibling search")
+
+        engine = ParseEngine("", fragment=True)
+        container = Element("div", {}, "html")
+        table = Element("table", {}, "html")
+        children = NoSearchList([table])
+        container.children = children
+        table.parent = container
+        engine._stack = _CountingStack([DocumentFragment(), container, table])
+
+        for _ in range(64):
+            assert engine._foster_parent_for(table) == (container, len(children) - 1)
+            node = Element("br", {}, "html")
+            children.insert(len(children) - 1, node)
+            node.parent = container
+
+        assert children[-1] is table
+
+        following = Element("span", {}, "html")
+        container.children = [*children, following]
+        following.parent = container
+        assert engine._foster_parent_for(table) == (container, len(children) - 1)
+
+    def test_open_element_helpers_keep_the_plain_list_private_contract(self) -> None:
+        engine = ParseEngine("", fragment=True)
+        root = DocumentFragment()
+        div = Element("div", {}, "html")
+        foreign_body = Element("body", {}, "svg")
+        html_body = Element("body", {}, "html")
+        template = Template("template", {}, namespace="html")
+        parser_template = Element("template", {}, "justhtml-parser-only")
+
+        engine._stack = [root, div, foreign_body, html_body, template]
+        assert engine._find_open_index("div") == 1
+        assert engine._find_open_index("missing") is None
+        assert engine._find_open_html_index("body") == 3
+        assert engine._find_open_html_index("missing") is None
+        assert engine._open_template_index() == 4
+        assert engine._open_parser_only_template_index() is None
+        assert engine._find_open_index_in_current_scope("div") is None
+        assert engine._find_open_index_in_current_scope("missing") is None
+
+        engine._stack = [root, div]
+        assert engine._open_template_index() is None
+        assert engine._find_open_index_in_current_scope("div") == 1
+        assert engine._find_open_index_in_current_scope("missing") is None
+
+        engine._stack = [root, div, foreign_body, html_body, template]
+        engine._stack.append(parser_template)
+        assert engine._open_parser_only_template_index() == 5
+        assert engine._open_template_index() == 5
+        assert engine._find_open_index_in_current_scope("template") == 5
+
+    def test_deep_reverse_stack_helpers_use_indexed_absence_and_repair_paths(self) -> None:
+        engine = ParseEngine("", fragment=True)
+        root = DocumentFragment()
+
+        engine._stack = _CountingStack([root] + [Element("g", {}, "svg") for _ in range(_STACK_COUNT_THRESHOLD)])
+        assert engine._end_tag_stays_in_foreign_context("missing", 0, 0)
+
+        engine._stack = _CountingStack([root] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)])
+        assert engine._find_open_special_end_index("audio") is None
+        assert engine._find_open_heading_index() is None
+        assert not engine._close_until_before_boundary("p", frozenset({"template"}))
+        engine._close_open_li_for_start()
+        assert engine._find_open_table_scoped_end_index("tbody") is None
+
+        table = Element("table", {}, "html")
+        tbody = Element("tbody", {}, "html")
+        engine._stack = _CountingStack(
+            [root, tbody, table] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        )
+        assert engine._find_open_table_scoped_end_index("tbody") is None
+        engine._stack.append(tbody)
+        assert engine._find_open_table_scoped_end_index("tbody") == len(engine._stack) - 1
+
+        template = Template("template", {}, namespace="html")
+        engine._stack = _CountingStack(
+            [root, tbody, template] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        )
+        assert engine._find_open_table_scoped_end_index("tbody") is None
+        assert not engine._close_open_template_table_section()
+
+        td = Element("td", {}, "html")
+        engine._stack = _CountingStack(
+            [root, td, template] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        )
+        assert not engine._close_template_cell()
+
+        engine._stack = _CountingStack([root] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)])
+        engine._close_stray_table_content_to_section()
+        engine._close_table_cell()
+
+        engine._stack = _CountingStack(
+            [root, tbody, table] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        )
+        engine._close_stray_table_content_to_section()
+        assert len(engine._stack) > _STACK_COUNT_THRESHOLD
+
+        engine._stack = _CountingStack(
+            [root, table, tbody] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        )
+        engine._close_stray_table_content_to_section()
+        assert [node.name for node in engine._stack] == ["#document-fragment", "table", "tbody"]
+
+        engine._stack = _CountingStack(
+            [root] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)] + [tbody]
+        )
+        engine._close_stray_table_content_to_section()
+        assert engine._stack[-1] is tbody
+
+        engine._stack = _CountingStack(
+            [root, td, table] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        )
+        engine._close_table_cell()
+        assert len(engine._stack) > _STACK_COUNT_THRESHOLD
+
+        engine._stack = _CountingStack(
+            [root, table, td] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        )
+        engine._close_table_cell()
+        assert [node.name for node in engine._stack] == ["#document-fragment", "table"]
+
+        template_engine = ParseEngine("", fragment=True)
+        template_engine.parse()
+        nested_template = Template("template", {}, namespace="html")
+        template_engine._stack = _CountingStack(
+            [template_engine._doc, tbody, nested_template]
+            + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        )
+        template_engine._template_modes = ["table_body"]
+        assert template_engine._handle_template_table_body_start("td", {}, False, 0) == 0
 
     def test_engine_private_helper_contracts(self) -> None:
         raw_plan = compile_raw_engine_plan(fragment=False)

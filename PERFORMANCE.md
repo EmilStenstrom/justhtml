@@ -82,6 +82,46 @@ Available modes are `parse`, `fragment`, `compact-html`, `pretty-html`, and
 on functions that dominate cumulative work across many documents, not an
 isolated slow malformed sample.
 
+For parser availability work, run the focused hostile-input benchmark as well:
+
+```bash
+python benchmarks/parser_adversarial.py --sizes 1000 2000 4000
+```
+
+It warms each shape once and reports the median of repeated runs. Use the same
+Python version, options, sizes, and repeat count for before/after comparisons.
+
+## Open-element reverse-scan audit
+
+`_CountingStack.last_index_of()` caches exact-name and filtered last positions;
+`last_index_matching()` does the same for stable predicates. Parser mutations
+update cached indices, and same-name changes invalidate affected entries. The
+following helpers have been migrated to those facilities: template lookup,
+current-parent lookup through parser-only templates, table-scope lookup,
+template table-section and cell repair, ordinary table repair, `menuitem`
+lookup, and formatting-element removal.
+
+The remaining production reverse walks require token-specific scope semantics:
+
+- `_end_tag_stays_in_foreign_context()` and
+  `_find_open_special_end_index()` stop at namespace and integration-point
+  boundaries. On deep stacks, exact and SVG-adjusted name counts make absent
+  targets constant-time; a successful foreign match removes the scanned suffix.
+- `_find_open_index_before_boundary()` and `_find_open_heading_index()` stop at
+  HTML or foreign integration boundaries. Deep-stack name counts make absent
+  targets constant-time; successful callers close the matching suffix.
+- `_close_until_before_boundary()` and `_close_open_li_for_start()` have the
+  same deep-stack absence guard and truncate the suffix on success.
+- `_has_node_in_scope()` is confined to the adoption-agency algorithm. Its
+  target is already known to be present, and the outer algorithm is capped at
+  eight iterations before removing or replacing the formatting target.
+
+Reverse loops in `_find_open_index()`, `_find_open_html_index()`,
+`_last_open_index_of_any()`, template lookup, table-scope lookup, and
+current-template-scope lookup are compatibility fallbacks for tests that
+replace the private `_CountingStack` with a plain list. Parser-created stacks
+always use the indexed path.
+
 ## Make a speed improvement
 
 - Preserve parser and sanitizer semantics. Run the parser differential suite

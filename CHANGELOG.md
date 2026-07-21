@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Keep repeated open-element and template lookups constant-time while their targets remain stable, and avoid searching a growing sibling prefix when foster-parenting malformed table content.
+
+### Security
+
+- Keep tree construction and diagnostic collection linear for deeply nested or heavily foster-parented untrusted HTML. Previously, repeated open-stack, sibling, and diagnostic-tag searches could make small malformed inputs take quadratic time.
+
 ## [3.9.0] - 2026-07-20
 
 ### Performance
