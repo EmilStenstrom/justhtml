@@ -47,7 +47,7 @@ from justhtml.sanitizer.url.runtime import _get_scheme, _normalize_url_for_check
 from . import scanner as _scanner
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterable, Mapping
+    from collections.abc import Callable, Collection, Iterable, Mapping
 
     from justhtml.parser.context import FragmentContext
     from justhtml.sanitizer.url import UrlPolicy, UrlRule
@@ -722,6 +722,30 @@ _STACK_COUNT_THRESHOLD = 32
 _UNWRAP_BATCH_THRESHOLD = 32
 
 
+def _is_open_html_node(node: Node) -> bool:
+    return node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}
+
+
+def _is_open_html_namespace_node(node: Node) -> bool:
+    return node.namespace in {None, "html"}
+
+
+def _is_open_template_node(node: Node) -> bool:
+    return node.namespace == _PARSER_ONLY_NAMESPACE or (type(node) is Template and node.namespace in {None, "html"})
+
+
+def _is_open_html_template_node(node: Node) -> bool:
+    return type(node) is Template and node.namespace in {None, "html"}
+
+
+def _is_open_parser_only_template_node(node: Node) -> bool:
+    return node.namespace == _PARSER_ONLY_NAMESPACE
+
+
+def _is_rendered_open_node(node: Node) -> bool:
+    return node.namespace != _PARSER_ONLY_NAMESPACE
+
+
 class _CountingStack(list[Node]):
     """The open-elements stack, adaptively tracking the names it holds.
 
@@ -732,13 +756,24 @@ class _CountingStack(list[Node]):
     making nested markup quadratic overall. Shallow stacks track the especially
     common `p` lookup directly and scan at most 31 nodes for other names. At
     the configured depth threshold, the stack permanently switches to per-name
-    counts so hostile deep nesting retains constant-time negative lookups.
+    counts and mutation-aware last-index caches. Stable positive and negative
+    lookups then remain constant-time across unrelated stack mutations.
+
+    Parser mutations either change a suffix or use the methods overridden
+    below. Suffix changes cannot move a retained node. Middle insertions and
+    removals shift cached indices in place, while mutations involving the
+    cached name advance its version. The identity check in `last_index_of` is
+    therefore a defensive repair for unexpected direct list mutation, not a
+    path parser input can repeatedly force.
     """
 
-    __slots__ = ("_name_counts", "_p_count")
+    __slots__ = ("_last_index_cache", "_name_counts", "_name_versions", "_p_count", "_predicate_index_cache")
 
     def __init__(self, iterable: Iterable[Node] = ()) -> None:
         super().__init__(iterable)
+        self._last_index_cache: dict[tuple[str, Callable[[Node], bool] | None], tuple[int, Node | None, int]] = {}
+        self._name_versions: dict[str, int] = {}
+        self._predicate_index_cache: dict[Callable[[Node], bool], tuple[Node | None, int]] = {}
         self._name_counts: dict[str, int] | None = None
         if len(self) < _STACK_COUNT_THRESHOLD:
             p_count = 0
@@ -767,9 +802,124 @@ class _CountingStack(list[Node]):
             count += item.name == name
         return count
 
+    def last_index_of(self, name: str, predicate: Callable[[Node], bool] | None = None) -> int | None:
+        """Return the last matching open-element index, caching stable positions."""
+        counts = self._name_counts
+        if counts is None:
+            for index in range(len(self) - 1, 0, -1):
+                node = self[index]
+                if node.name == name and (predicate is None or predicate(node)):
+                    return index
+            return None
+
+        versions = self._name_versions
+        version = versions.setdefault(name, 0)
+        key = (name, predicate)
+        cached = self._last_index_cache.get(key)
+        if cached is not None and cached[0] == version:
+            cached_node = cached[1]
+            index = cached[2]
+            if cached_node is None:
+                return None
+            if index < len(self) and self[index] is cached_node:
+                return index
+
+        if counts.get(name, 0) == 0:
+            self._last_index_cache[key] = (version, None, -1)
+            return None
+        for index in range(len(self) - 1, 0, -1):
+            node = self[index]
+            if node.name == name and (predicate is None or predicate(node)):
+                self._last_index_cache[key] = (version, node, index)
+                return index
+        self._last_index_cache[key] = (version, None, -1)
+        return None
+
+    def last_index_matching(self, predicate: Callable[[Node], bool]) -> int | None:
+        """Return the last predicate match, caching it across parser mutations."""
+        if self._name_counts is None:
+            for index in range(len(self) - 1, 0, -1):
+                if predicate(self[index]):
+                    return index
+            return None
+
+        cached = self._predicate_index_cache.get(predicate)
+        if cached is not None:
+            node, index = cached
+            if node is None:
+                return None
+            if index < len(self) and self[index] is node:
+                return index
+
+        for index in range(len(self) - 1, 0, -1):
+            node = self[index]
+            if predicate(node):
+                self._predicate_index_cache[predicate] = (node, index)
+                return index
+        self._predicate_index_cache[predicate] = (None, -1)
+        return None
+
+    def discard_predicate_cache(self, predicate: Callable[[Node], bool]) -> None:
+        self._predicate_index_cache.pop(predicate, None)
+
+    def _mark_name_changed(self, name: str) -> None:
+        versions = self._name_versions
+        if name in versions:
+            versions[name] += 1
+
+    def _shift_cached_indices_for_insert(self, index: int) -> None:
+        for key, (version, node, cached_index) in self._last_index_cache.items():
+            if node is not None and cached_index >= index:
+                self._last_index_cache[key] = (version, node, cached_index + 1)
+        for predicate, (node, cached_index) in self._predicate_index_cache.items():
+            if node is not None and cached_index >= index:
+                self._predicate_index_cache[predicate] = (node, cached_index + 1)
+
+    def _shift_cached_indices_for_removals(self, indices: list[int]) -> None:
+        if not indices:
+            return
+        first = indices[0]
+        for key, (version, node, cached_index) in self._last_index_cache.items():
+            if node is not None and cached_index > first:
+                self._last_index_cache[key] = (
+                    version,
+                    node,
+                    cached_index - bisect_right(indices, cached_index),
+                )
+        for predicate, (node, cached_index) in self._predicate_index_cache.items():
+            if node is not None and cached_index > first:
+                self._predicate_index_cache[predicate] = (
+                    node,
+                    cached_index - bisect_right(indices, cached_index),
+                )
+
+    def _update_predicate_caches_for_insert(self, index: int, item: Node) -> None:
+        for predicate, (node, cached_index) in self._predicate_index_cache.items():
+            if predicate(item) and (node is None or index > cached_index):
+                self._predicate_index_cache[predicate] = (item, index)
+
+    def _update_predicate_caches_for_replacement(self, index: int, previous: Node, item: Node) -> None:
+        for predicate, (node, cached_index) in list(self._predicate_index_cache.items()):
+            if node is previous:
+                if predicate(item):
+                    self._predicate_index_cache[predicate] = (item, index)
+                else:
+                    del self._predicate_index_cache[predicate]
+            elif predicate(item) and (node is None or index > cached_index):
+                self._predicate_index_cache[predicate] = (item, index)
+
+    def _invalidate_removed_predicate_matches(self, removed: list[Node]) -> None:
+        for predicate, (node, _) in list(self._predicate_index_cache.items()):
+            if node is not None and any(node is item for item in removed):
+                del self._predicate_index_cache[predicate]
+
     def append(self, item: Node) -> None:  # type: ignore[override]
+        index = len(self)
         list.append(self, item)
+        if self._predicate_index_cache:
+            self._update_predicate_caches_for_insert(index, item)
         name = item.name
+        self._mark_name_changed(name)
         if name == "p":
             self._p_count += 1
         counts = self._name_counts
@@ -779,8 +929,16 @@ class _CountingStack(list[Node]):
             self._name_counts = self._collect_name_counts()
 
     def insert(self, index: SupportsIndex, item: Node) -> None:  # type: ignore[override]
+        length = len(self)
+        raw_index = index.__index__()
+        normalized_index = max(0, min(raw_index if raw_index >= 0 else length + raw_index, length))
         list.insert(self, index, item)
+        if normalized_index < length:
+            self._shift_cached_indices_for_insert(normalized_index)
+        if self._predicate_index_cache:
+            self._update_predicate_caches_for_insert(normalized_index, item)
         name = item.name
+        self._mark_name_changed(name)
         if name == "p":
             self._p_count += 1
         counts = self._name_counts
@@ -790,9 +948,17 @@ class _CountingStack(list[Node]):
             self._name_counts = self._collect_name_counts()
 
     def __setitem__(self, key: SupportsIndex, item: Node) -> None:  # type: ignore[override]
-        previous_name = self[key].name
+        raw_index = key.__index__()
+        normalized_index = raw_index if raw_index >= 0 else len(self) + raw_index
+        previous = self[key]
+        previous_name = previous.name
         name = item.name
         list.__setitem__(self, key, item)
+        if self._predicate_index_cache:
+            self._update_predicate_caches_for_replacement(normalized_index, previous, item)
+        self._mark_name_changed(previous_name)
+        if name != previous_name:
+            self._mark_name_changed(name)
         if previous_name == name:
             return
         if previous_name == "p":
@@ -805,8 +971,15 @@ class _CountingStack(list[Node]):
             counts[name] = counts.get(name, 0) + 1
 
     def pop(self, index: int = -1) -> Node:  # type: ignore[override]
+        length = len(self)
+        normalized_index = index if index >= 0 else length + index
         item = list.pop(self, index)
+        if self._predicate_index_cache:
+            self._invalidate_removed_predicate_matches([item])
+        if normalized_index < length - 1:
+            self._shift_cached_indices_for_removals([normalized_index])
         name = item.name
+        self._mark_name_changed(name)
         if name == "p":
             self._p_count -= 1
         counts = self._name_counts
@@ -815,8 +988,14 @@ class _CountingStack(list[Node]):
         return item
 
     def remove(self, item: Node) -> None:  # type: ignore[override]
-        list.remove(self, item)
-        name = item.name
+        index = list.index(self, item)
+        removed = list.pop(self, index)
+        if self._predicate_index_cache:
+            self._invalidate_removed_predicate_matches([removed])
+        if index < len(self):
+            self._shift_cached_indices_for_removals([index])
+        name = removed.name
+        self._mark_name_changed(name)
         if name == "p":
             self._p_count -= 1
         counts = self._name_counts
@@ -824,12 +1003,24 @@ class _CountingStack(list[Node]):
             counts[name] -= 1
 
     def __delitem__(self, key: SupportsIndex | slice) -> None:
-        removed = self[key] if isinstance(key, slice) else [self[key]]
+        if isinstance(key, slice):
+            indices = sorted(range(len(self))[key])
+            removed = list.__getitem__(self, key)
+        else:
+            raw_index = key.__index__()
+            normalized_index = raw_index if raw_index >= 0 else len(self) + raw_index
+            indices = [normalized_index]
+            removed = [list.__getitem__(self, key)]
         list.__delitem__(self, key)
+        if self._predicate_index_cache:
+            self._invalidate_removed_predicate_matches(removed)
+        if indices and indices[0] < len(self):
+            self._shift_cached_indices_for_removals(indices)
         p_count = self._p_count
         counts = self._name_counts
         for item in removed:
             name = item.name
+            self._mark_name_changed(name)
             if name == "p":
                 p_count -= 1
             if counts is not None:
@@ -1081,6 +1272,14 @@ class ParseEngine:
         if name in {"br", "p"}:
             return False
 
+        adjusted_name = SVG_TAG_NAME_ADJUSTMENTS.get(name, name)
+        if (
+            stack._name_counts is not None
+            and stack.count_of(name) == 0
+            and (adjusted_name == name or stack.count_of(adjusted_name) == 0)
+        ):
+            return True
+
         crossed_integration_point = False
         for idx in range(len(stack) - 1, 0, -1):
             node = stack[idx]
@@ -1168,6 +1367,16 @@ class ParseEngine:
                     self._emit_error("expected-doctype-but-got-chars", first, category="treebuilder")
 
         open_tags: list[str] = []
+        open_tag_positions: dict[str, list[int]] = {}
+
+        def truncate_open_tags(index: int) -> None:
+            for removed_name in reversed(open_tags[index:]):
+                positions = open_tag_positions[removed_name]
+                positions.pop()
+                if not positions:
+                    del open_tag_positions[removed_name]
+            del open_tags[index:]
+
         pos = 0
         while pos < end:
             lt = html.find("<", pos, end)
@@ -1207,15 +1416,11 @@ class ParseEngine:
                 if tag_end == -1:
                     self._emit_error("eof-in-tag", end - 1)
                     return
-                if name == "br" or name not in open_tags:
+                positions = open_tag_positions.get(name)
+                if name == "br" or not positions:
                     self._emit_error("unexpected-end-tag", lt, tag_name=name, category="treebuilder", end_pos=tag_end)
                 else:
-                    for idx in range(
-                        len(open_tags) - 1, -1, -1
-                    ):  # pragma: no branch - opposite edge requires invalid parser state
-                        if open_tags[idx] == name:
-                            del open_tags[idx:]
-                            break
+                    truncate_open_tags(positions[-1])
                 pos = tag_end + 1
                 continue
             if not ch.isalpha():
@@ -1227,13 +1432,20 @@ class ParseEngine:
                 self._emit_error("eof-in-tag", end - 1)
                 return
             if name in _P_CLOSING_START_TAGS:
-                for idx in range(len(open_tags) - 1, -1, -1):
-                    if open_tags[idx] == "p":
-                        del open_tags[idx:]
-                        break
-                    if open_tags[idx] in _P_SCOPE_BOUNDARIES:
-                        break
+                p_positions = open_tag_positions.get("p")
+                if p_positions:
+                    boundary_index = max(
+                        (
+                            positions[-1]
+                            for boundary in _P_SCOPE_BOUNDARIES
+                            if (positions := open_tag_positions.get(boundary))
+                        ),
+                        default=-1,
+                    )
+                    if p_positions[-1] > boundary_index:
+                        truncate_open_tags(p_positions[-1])
             if name not in VOID_ELEMENTS and not self._is_self_closing_source_tag(pos + len(name), tag_end):
+                open_tag_positions.setdefault(name, []).append(len(open_tags))
                 open_tags.append(name)
             pos = tag_end + 1
 
@@ -1508,34 +1720,29 @@ class ParseEngine:
         stack = self._stack
         current = stack[-1]
         if current.namespace == _PARSER_ONLY_NAMESPACE:
-            idx = len(stack) - 2
-            while idx > 0:
-                current = stack[idx]
-                if current.namespace != _PARSER_ONLY_NAMESPACE:
-                    break
-                idx -= 1
+            index = stack.last_index_matching(_is_rendered_open_node)
+            if index is not None:  # pragma: no branch - parser-only markers are pushed above a rendered context
+                current = stack[index]
         if type(current) is Template and current.template_content is not None:
             return current.template_content
         return current  # type: ignore[return-value]
 
     def _open_parser_only_template_index(self) -> int | None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            if node.name == "template" and node.namespace == _PARSER_ONLY_NAMESPACE:
-                return idx
+        if isinstance(stack, _CountingStack):
+            return stack.last_index_of("template", _is_open_parser_only_template_node)
+        for index in range(len(stack) - 1, 0, -1):
+            if stack[index].name == "template" and _is_open_parser_only_template_node(stack[index]):
+                return index
         return None
 
     def _open_template_index(self) -> int | None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            if node.name != "template":
-                continue
-            if node.namespace == _PARSER_ONLY_NAMESPACE or (
-                type(node) is Template and node.namespace in {None, "html"}
-            ):
-                return idx
+        if isinstance(stack, _CountingStack):
+            return stack.last_index_of("template", _is_open_template_node)
+        for index in range(len(stack) - 1, 0, -1):
+            if stack[index].name == "template" and _is_open_template_node(stack[index]):
+                return index
         return None
 
     def _current_template_mode(self) -> str | None:
@@ -1590,17 +1797,19 @@ class ParseEngine:
             ):  # pragma: no cover - one policy cannot make nested templates both parser-only and real
                 parent = parent.template_content
             self._append_text_boundary(parent)
-        self._mark_active_formatting_dirty()
+        # Entries opened inside this template are removed with its marker below,
+        # so deleting the matching stack suffix cannot dirty retained entries.
         del self._stack[idx:]
         if node.namespace == _PARSER_ONLY_NAMESPACE:
             self._parser_only_template_depth -= 1
             if not self._parser_only_template_depth:
                 self._mode_flags &= ~_MODE_PARSER_TEMPLATE
+                self._stack.discard_predicate_cache(_is_rendered_open_node)
         if self._template_modes:  # pragma: no branch - opposite edge requires invalid parser state
             self._template_modes.pop()
             if not self._template_modes:
                 self._mode_flags &= ~_MODE_TEMPLATE
-        self._clear_active_formatting_to_marker()
+        self._clear_active_formatting_to_marker(refresh=self._active_formatting_dirty)
         return True
 
     def _mark_initial_content(self) -> None:
@@ -2362,14 +2571,7 @@ class ParseEngine:
         elif name in {"dd", "dt"}:
             idx = self._find_open_index_before_boundary(name, _DEFINITION_SCOPE_BOUNDARIES)
         elif name in {"audio", "noscript", "slot", "title"}:
-            idx = None
-            for candidate_idx in range(len(stack) - 1, 0, -1):  # pragma: no branch
-                candidate = stack[candidate_idx]
-                if self._node_matches_end_name(candidate, name):
-                    idx = candidate_idx
-                    break
-                if self._is_special_node(candidate):
-                    break
+            idx = self._find_open_special_end_index(name)
         elif name == "summary":
             idx = self._find_open_index_before_boundary(name, _DEFAULT_SCOPE_BOUNDARIES)
         elif self._parser_only_template_depth:
@@ -2590,12 +2792,10 @@ class ParseEngine:
                 else:
                     return pos
         if name == "menuitem":
-            for node in reversed(self._stack):
-                node_name = getattr(node, "name", None)
-                if node_name == "p":
-                    return pos
-                if node_name == "menuitem":
-                    break
+            menuitem_idx = self._find_open_index("menuitem")
+            p_idx = self._find_open_index("p")
+            if p_idx is not None and (menuitem_idx is None or p_idx > menuitem_idx):
+                return pos
         if (
             not self._fragment
             and self._head is not None
@@ -2689,14 +2889,7 @@ class ParseEngine:
         elif name in _TABLE_SCOPED_END_TAGS:
             idx = self._find_open_table_scoped_end_index(name)
         elif name in {"audio", "noscript", "slot", "title"}:
-            idx = None
-            for candidate_idx in range(len(stack) - 1, 0, -1):
-                candidate = stack[candidate_idx]
-                if self._node_matches_end_name(candidate, name):
-                    idx = candidate_idx
-                    break
-                if self._is_special_node(candidate):
-                    break
+            idx = self._find_open_special_end_index(name)
         elif name == "summary":
             idx = self._find_open_index_before_boundary(name, _DEFAULT_SCOPE_BOUNDARIES)
         elif self._template_modes:
@@ -4052,17 +4245,47 @@ class ParseEngine:
 
     def _find_open_index(self, name: str) -> int | None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            if stack[idx].name == name:
-                return idx
+        if isinstance(stack, _CountingStack):
+            return stack.last_index_of(name)
+        for index in range(len(stack) - 1, 0, -1):
+            if stack[index].name == name:
+                return index
         return None
 
     def _find_open_html_index(self, name: str) -> int | None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            if node.name == name and node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
-                return idx
+        if isinstance(stack, _CountingStack):
+            return stack.last_index_of(name, _is_open_html_node)
+        for index in range(len(stack) - 1, 0, -1):
+            node = stack[index]
+            if node.name == name and _is_open_html_node(node):
+                return index
+        return None
+
+    def _last_open_index_of_any(self, names: Collection[str]) -> int | None:
+        stack = self._stack
+        if isinstance(stack, _CountingStack) and stack._name_counts is not None:
+            return max((index for name in names if (index := stack.last_index_of(name)) is not None), default=None)
+        for index in range(len(stack) - 1, 0, -1):
+            if stack[index].name in names:
+                return index
+        return None
+
+    def _find_open_special_end_index(self, name: str) -> int | None:
+        stack = self._stack
+        adjusted_name = SVG_TAG_NAME_ADJUSTMENTS.get(name, name)
+        if (
+            stack._name_counts is not None
+            and stack.count_of(name) == 0
+            and (adjusted_name == name or stack.count_of(adjusted_name) == 0)
+        ):
+            return None
+        for index in range(len(stack) - 1, 0, -1):
+            candidate = stack[index]
+            if self._node_matches_end_name(candidate, name):
+                return index
+            if self._is_special_node(candidate):
+                return None
         return None
 
     def _find_open_index_before_boundary(self, name: str, boundaries: frozenset[str]) -> int | None:
@@ -4084,28 +4307,44 @@ class ParseEngine:
         return None  # pragma: no cover - the count_of fast path above already rules out index 0 as the only match
 
     def _find_open_table_scoped_end_index(self, name: str) -> int | None:
-        for idx in range(len(self._stack) - 1, 0, -1):
-            node = self._stack[idx]
-            if node.namespace in {None, "html"} and node.name == name:
-                return idx
-            if node.namespace in {None, "html"} and node.name == "table":
-                return None
-            if type(node) is Template and node.namespace in {None, "html"}:
-                return None
-        return None
+        stack = self._stack
+        if not isinstance(stack, _CountingStack) or stack._name_counts is None:
+            for index in range(len(stack) - 1, 0, -1):
+                node = stack[index]
+                if _is_open_html_namespace_node(node) and node.name == name:
+                    return index
+                if _is_open_html_namespace_node(node) and node.name == "table":
+                    return None
+                if type(node) is Template and _is_open_html_namespace_node(node):
+                    return None
+            return None
+
+        target_index = stack.last_index_of(name, _is_open_html_namespace_node)
+        if target_index is None:
+            return None
+        table_index = stack.last_index_of("table", _is_open_html_namespace_node)
+        template_index = stack.last_index_of("template", _is_open_html_template_node)
+        boundary_index = max(
+            (candidate for candidate in (table_index, template_index) if candidate is not None),
+            default=-1,
+        )
+        return target_index if target_index > boundary_index else None
 
     def _find_open_index_in_current_scope(self, name: str) -> int | None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            if node.name == name:
-                return idx
-            if node.name == "template" and (
-                node.namespace == _PARSER_ONLY_NAMESPACE
-                or (type(node) is Template and node.namespace in {None, "html"})
-            ):
-                return None
-        return None
+        if not isinstance(stack, _CountingStack):
+            for index in range(len(stack) - 1, 0, -1):
+                node = stack[index]
+                if node.name == name:
+                    return index
+                if node.name == "template" and _is_open_template_node(node):
+                    return None
+            return None
+        index = stack.last_index_of(name)
+        if index is None:
+            return None
+        template_index = stack.last_index_of("template", _is_open_template_node)
+        return index if template_index is None or index >= template_index else None
 
     def _template_end_tag_boundaries(self, name: str, action: TagAction | None) -> frozenset[str]:
         # Generic in-body end tags inside a template still obey scope: block and
@@ -4118,6 +4357,8 @@ class ParseEngine:
 
     def _find_open_heading_index(self) -> int | None:
         stack = self._stack
+        if stack._name_counts is not None and self._last_open_index_of_any(HEADING_ELEMENTS) is None:
+            return None
         for idx in range(len(stack) - 1, 0, -1):  # pragma: no branch
             node = stack[idx]
             if node.name in HEADING_ELEMENTS:
@@ -4440,14 +4681,9 @@ class ParseEngine:
     ) -> int | None:
         if name == "tr":
             template_idx = self._open_template_index()
-            section_idx = next(
-                (
-                    idx
-                    for idx in range(len(self._stack) - 1, 0, -1)
-                    if self._stack[idx].name in _TABLE_SECTION_TAGS and (template_idx is None or idx > template_idx)
-                ),
-                None,
-            )
+            section_idx = self._last_open_index_of_any(_TABLE_SECTION_TAGS)
+            if section_idx is not None and template_idx is not None and section_idx < template_idx:
+                section_idx = None
             insertion_context_idx = section_idx if section_idx is not None else template_idx
             if insertion_context_idx is not None:  # pragma: no branch - template modes always have a context
                 del self._stack[insertion_context_idx + 1 :]
@@ -4456,14 +4692,9 @@ class ParseEngine:
             return pos
         if name in _TABLE_CELL_TAGS:
             template_idx = self._open_template_index()
-            section_idx = next(
-                (
-                    idx
-                    for idx in range(len(self._stack) - 1, 0, -1)
-                    if self._stack[idx].name in _TABLE_SECTION_TAGS and (template_idx is None or idx > template_idx)
-                ),
-                None,
-            )
+            section_idx = self._last_open_index_of_any(_TABLE_SECTION_TAGS)
+            if section_idx is not None and template_idx is not None and section_idx < template_idx:
+                section_idx = None
             insertion_context_idx = section_idx if section_idx is not None else template_idx
             if insertion_context_idx is not None:  # pragma: no branch - template modes always have a context
                 del self._stack[insertion_context_idx + 1 :]
@@ -4586,34 +4817,34 @@ class ParseEngine:
 
     def _close_open_template_table_section(self) -> bool:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            node_name = stack[idx].name
-            if node_name in _TABLE_SECTION_TAGS:
-                self._mark_active_formatting_dirty()
-                del stack[idx:]
-                return True
-            if node_name == "template":  # pragma: no branch - template scope terminates the scan
-                return False
-        return False  # pragma: no cover - template scope always terminates the scan
+        section_index = self._last_open_index_of_any(_TABLE_SECTION_TAGS)
+        if section_index is None:
+            return False
+        template_index = self._find_open_index("template")
+        if template_index is not None and section_index < template_index:
+            return False
+        self._mark_active_formatting_dirty()
+        del stack[section_index:]
+        return True
 
     def _close_template_cell(self, name: str | None = None) -> bool:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            node_name = stack[idx].name
-            if node_name in _TABLE_CELL_TAGS:
-                # A </td>/</th> end tag only closes the matching cell type; a
-                # mismatched end tag (e.g. </th> for an open <td>) is left for
-                # the generic handling, which ignores it.
-                if name is not None and node_name != name:
-                    return False
-                self._mark_active_formatting_dirty()
-                self._clear_active_formatting_to_marker()
-                del stack[idx:]
-                self._set_current_template_mode(_TEMPLATE_MODE_ROW)
-                return True
-            if node_name == "template":
-                return False
-        return False
+        cell_index = self._last_open_index_of_any(_TABLE_CELL_TAGS)
+        if cell_index is None:
+            return False
+        template_index = self._find_open_index("template")
+        if template_index is not None and cell_index < template_index:
+            return False
+        # A </td>/</th> end tag only closes the matching cell type; a
+        # mismatched end tag (e.g. </th> for an open <td>) is left for the
+        # generic handling, which ignores it.
+        if name is not None and stack[cell_index].name != name:
+            return False
+        self._mark_active_formatting_dirty()
+        self._clear_active_formatting_to_marker()
+        del stack[cell_index:]
+        self._set_current_template_mode(_TEMPLATE_MODE_ROW)
+        return True
 
     def _close_until(self, name: str) -> None:
         idx = self._find_open_index(name)
@@ -4629,6 +4860,8 @@ class ParseEngine:
 
     def _close_until_before_boundary(self, name: str, boundaries: frozenset[str]) -> bool:
         stack = self._stack
+        if stack._name_counts is not None and stack.count_of(name) == 0:
+            return False
         for idx in range(len(stack) - 1, 0, -1):
             node = stack[idx]
             node_name = getattr(node, "name", None)
@@ -4660,6 +4893,8 @@ class ParseEngine:
 
     def _close_open_li_for_start(self) -> None:
         stack = self._stack
+        if stack._name_counts is not None and stack.count_of("li") == 0:
+            return
         for idx in range(len(stack) - 1, 0, -1):
             node = stack[idx]
             node_name = getattr(node, "name", None)
@@ -4798,33 +5033,55 @@ class ParseEngine:
 
     def _close_stray_table_content_to_section(self) -> None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            name = getattr(stack[idx], "name", None)
-            if name in _TABLE_SECTION_TAGS:
-                if len(stack) > idx + 1:
-                    self._mark_active_formatting_dirty()
-                    del stack[idx + 1 :]
-                return
-            if name == "table" or name in _TABLE_CELL_TAGS or name == "tr":
-                return
+        if stack._name_counts is None:
+            for index in range(len(stack) - 1, 0, -1):
+                name = stack[index].name
+                if name in _TABLE_SECTION_TAGS:
+                    if len(stack) > index + 1:
+                        self._mark_active_formatting_dirty()
+                        del stack[index + 1 :]
+                    return
+                if name == "table" or name in _TABLE_CELL_TAGS or name == "tr":
+                    return
+            return
+        section_index = self._last_open_index_of_any(_TABLE_SECTION_TAGS)
+        if section_index is None:
+            return
+        blocker_index = self._last_open_index_of_any({"table", "td", "th", "tr"})
+        if blocker_index is not None and blocker_index > section_index:
+            return
+        if len(stack) > section_index + 1:
+            self._mark_active_formatting_dirty()
+            del stack[section_index + 1 :]
 
     def _close_table_cell(self) -> None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            name = getattr(stack[idx], "name", None)
-            if name == "table":
-                return
-            if name in _TABLE_CELL_TAGS:
-                self._mark_active_formatting_dirty()
-                self._clear_active_formatting_to_marker()
-                del stack[idx:]
-                return
+        if stack._name_counts is None:
+            for index in range(len(stack) - 1, 0, -1):
+                name = stack[index].name
+                if name == "table":
+                    return
+                if name in _TABLE_CELL_TAGS:
+                    self._mark_active_formatting_dirty()
+                    self._clear_active_formatting_to_marker()
+                    del stack[index:]
+                    return
+            return
+        cell_index = self._last_open_index_of_any(_TABLE_CELL_TAGS)
+        if cell_index is None:
+            return
+        table_index = self._find_open_index("table")
+        if table_index is not None and table_index > cell_index:
+            return
+        self._mark_active_formatting_dirty()
+        self._clear_active_formatting_to_marker()
+        del stack[cell_index:]
 
     def _push_active_formatting_marker(self) -> None:
         self._active_formatting.append(_ACTIVE_FORMATTING_MARKER)
         self._active_formatting_entries.append(_FormattingSegment())
 
-    def _clear_active_formatting_to_marker(self) -> None:
+    def _clear_active_formatting_to_marker(self, *, refresh: bool = True) -> None:
         active = self._active_formatting
         while active:
             entry = active.pop()
@@ -4837,7 +5094,8 @@ class ParseEngine:
             entries = self._active_formatting_entries
             if entries:
                 entries[-1].clear()
-        self._refresh_active_formatting_dirty()
+        if refresh:
+            self._refresh_active_formatting_dirty()
 
     def _foster_parent_for(self, parent: Node, *, for_tag: str | None = None) -> tuple[Node, int] | None:
         # Foster parenting only applies within an HTML table. A foreign element
@@ -4854,17 +5112,18 @@ class ParseEngine:
         ):  # pragma: no branch - opposite edge requires invalid parser state
             return None  # pragma: no cover - unreachable after parser-state guards
         table_idx = self._find_open_index("table")
-        parser_only_template_idx = self._open_parser_only_template_index()
+        parser_only_template_idx = (
+            self._open_parser_only_template_index() if self._parser_only_template_depth else None
+        )
         if table_idx is not None and parser_only_template_idx is not None and table_idx < parser_only_template_idx:
             return None
-        template_idx = self._open_template_index()
+        template_idx = self._open_template_index() if self._template_modes else None
         if table_idx is not None and template_idx is not None and table_idx < template_idx:
             table_idx = None
         if table_idx is None:
             if self._template_modes:
-                open_template_idx = self._open_template_index()
-                if open_template_idx is not None:  # pragma: no branch - template modes require an open template
-                    template = self._stack[open_template_idx]
+                if template_idx is not None:  # pragma: no branch - template modes require an open template
+                    template = self._stack[template_idx]
                     if type(template) is Template and template.template_content is not None:
                         children = template.template_content.children
                         return template.template_content, len(children or ())
@@ -4881,6 +5140,8 @@ class ParseEngine:
         children = table_parent.children if table_parent is not None else None
         if table_parent is None or children is None:  # pragma: no branch - opposite edge requires invalid parser state
             return None  # pragma: no cover - unreachable after parser-state guards
+        if children and children[-1] is table:
+            return table_parent, len(children) - 1
         try:
             return table_parent, children.index(table)
         except ValueError:  # pragma: no cover - unreachable after parser-state guards
@@ -5288,12 +5549,10 @@ class ParseEngine:
                 return
 
     def _remove_last_open_element_by_name(self, name: str) -> None:
-        stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            if getattr(stack[idx], "name", None) == name:
-                self._mark_active_formatting_dirty()
-                del stack[idx]
-                return
+        index = self._find_open_index(name)
+        if index is not None:
+            self._mark_active_formatting_dirty()
+            del self._stack[index]
 
     def _reconstruct_active_formatting(self) -> None:
         active = self._active_formatting
