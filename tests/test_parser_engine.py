@@ -87,6 +87,24 @@ class TestCountingStack(unittest.TestCase):
         stack.append(Element("span", {}, "html"))
         self.assert_counts_match(stack)
 
+    def test_absent_open_element_lookups_use_name_counts(self) -> None:
+        class TrackingStack(_CountingStack):
+            def __init__(self, nodes):
+                super().__init__(nodes)
+                self.queries = []
+
+            def count_of(self, name):
+                self.queries.append(name)
+                return super().count_of(name)
+
+        stack = TrackingStack(Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD))
+        engine = ParseEngine("", fragment=True)
+        engine._stack = stack
+
+        assert engine._find_open_index("table") is None
+        assert engine._find_open_html_index("select") is None
+        assert stack.queries == ["table", "select"]
+
     def test_append_and_insert_activate_name_tracking_at_the_threshold(self) -> None:
         shallow = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD - 1)]
 

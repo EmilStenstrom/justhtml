@@ -4052,6 +4052,7 @@ class ParseEngine:
 
     def _find_open_index(self, name: str) -> int | None:
         stack = self._stack
+        if isinstance(stack, _CountingStack) and stack.count_of(name) == 0: return None
         for idx in range(len(stack) - 1, 0, -1):
             if stack[idx].name == name:
                 return idx
@@ -4059,6 +4060,7 @@ class ParseEngine:
 
     def _find_open_html_index(self, name: str) -> int | None:
         stack = self._stack
+        if isinstance(stack, _CountingStack) and stack.count_of(name) == 0: return None
         for idx in range(len(stack) - 1, 0, -1):
             node = stack[idx]
             if node.name == name and node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
