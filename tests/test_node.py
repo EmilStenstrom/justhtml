@@ -131,6 +131,22 @@ class TestNode(unittest.TestCase):
         assert child.parent is new_parent
         assert child in new_parent.children
 
+    def test_append_child_splices_document_fragment(self):
+        parent = Node("div")
+        fragment = DocumentFragment()
+        first = Node("span", attrs={"id": "1"})
+        second = Node("span", attrs={"id": "2"})
+        fragment.append_child(first)
+        fragment.append_child(second)
+
+        parent.append_child(fragment)
+
+        assert parent.children == [first, second]
+        assert first.parent is parent
+        assert second.parent is parent
+        assert fragment.children == []
+        assert fragment.parent is None
+
     def test_remove_child_noop_for_comment_node(self):
         parent = Comment(data="comment")
         child = Node("span")
@@ -914,6 +930,24 @@ class TestNode(unittest.TestCase):
 
         assert parent.children == [child2, child1, child3]
 
+    def test_insert_before_splices_document_fragment(self):
+        parent = Node("div")
+        reference = Node("p")
+        parent.append_child(reference)
+        fragment = DocumentFragment()
+        first = Node("span", attrs={"id": "1"})
+        second = Node("span", attrs={"id": "2"})
+        fragment.append_child(first)
+        fragment.append_child(second)
+
+        parent.insert_before(fragment, reference)
+
+        assert parent.children == [first, second, reference]
+        assert first.parent is parent
+        assert second.parent is parent
+        assert fragment.children == []
+        assert fragment.parent is None
+
     def test_insert_before_no_children_allowed(self):
         comment = Comment(data="foo")
         node = Node("div")
@@ -944,6 +978,35 @@ class TestNode(unittest.TestCase):
         assert parent.children == [new_child, child2]
         assert new_child.parent == parent
         assert child1.parent is None
+
+    def test_replace_child_splices_document_fragment(self):
+        parent = Node("div")
+        before = Node("span", attrs={"id": "before"})
+        old = Node("p")
+        after = Node("span", attrs={"id": "after"})
+        parent.append_child(before)
+        parent.append_child(old)
+        parent.append_child(after)
+        fragment = DocumentFragment()
+        first = Node("em")
+        second = Node("strong")
+        fragment.append_child(first)
+        fragment.append_child(second)
+
+        replaced = parent.replace_child(fragment, old)
+
+        assert replaced is old
+        assert parent.children == [before, first, second, after]
+        assert first.parent is parent
+        assert second.parent is parent
+        assert old.parent is None
+        assert fragment.children == []
+        assert fragment.parent is None
+
+        empty = DocumentFragment()
+        assert parent.replace_child(empty, after) is after
+        assert parent.children == [before, first, second]
+        assert after.parent is None
 
     def test_replace_child_invalid(self):
         parent = Node("div")
