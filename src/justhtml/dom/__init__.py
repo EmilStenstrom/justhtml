@@ -175,10 +175,14 @@ class Node:
             self.attrs = attrs if attrs is not None else {}
 
     def append_child(self, node: NodeType) -> None:
-        if self.children is not None:
-            self._adopt_child(node)
-            self.children.append(node)
-            node.parent = self
+        if self.children is None:
+            return
+        if isinstance(node, DocumentFragment):
+            self._insert_fragment(node, None)
+            return
+        self._adopt_child(node)
+        self.children.append(node)
+        node.parent = self
 
     def _adopt_child(self, node: NodeType) -> tuple[Node | None, int | None]:
         if node is self:
@@ -210,6 +214,17 @@ class Node:
                 old_children.pop(old_index)
         node.parent = None
         return old_parent, old_index
+
+    def _insert_fragment(self, fragment: DocumentFragment, reference_node: NodeType | None) -> None:
+        self._adopt_child(fragment)
+        target_children = cast("list[NodeType]", self.children)
+        source_children = cast("list[NodeType]", fragment.children)
+        index = len(target_children) if reference_node is None else target_children.index(reference_node)
+        children = source_children.copy()
+        source_children.clear()
+        for child in children:
+            child.parent = self
+        target_children[index:index] = children
 
     @property
     def _source_html(self) -> str | None:
@@ -419,6 +434,10 @@ class Node:
         except ValueError:
             raise ValueError("Reference node is not a child of this node") from None
 
+        if isinstance(node, DocumentFragment):
+            self._insert_fragment(node, reference_node)
+            return
+
         old_parent, old_index = self._adopt_child(node)
         if old_parent is self and old_index is not None and old_index < index:
             index -= 1
@@ -448,6 +467,11 @@ class Node:
             raise ValueError("The node to be replaced is not a child of this node") from None
 
         if new_node is old_node:
+            return old_node
+
+        if isinstance(new_node, DocumentFragment):
+            self._insert_fragment(new_node, old_node)
+            self.remove_child(old_node)
             return old_node
 
         old_parent, old_index = self._adopt_child(new_node)
