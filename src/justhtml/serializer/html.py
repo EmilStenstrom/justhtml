@@ -30,6 +30,28 @@ _UNQUOTED_ATTR_VALUE_INVALID = re.compile(r'[ \t\n\f\r"\'=>]')
 _LITERAL_TEXT_SERIALIZATION_ELEMENTS = frozenset({"plaintext", "script", "style"})
 _SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][^\t\n\f\r />]*$")
 _SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[^\t\n\f\r />=]+$")
+_BOOLEAN_ATTRIBUTES = {
+    "*": frozenset({"inert", "itemscope"}),
+    "audio": frozenset({"autoplay", "controls", "loop", "muted"}),
+    "button": frozenset({"autofocus", "disabled", "formnovalidate"}),
+    "details": frozenset({"open"}),
+    "dialog": frozenset({"open"}),
+    "fieldset": frozenset({"disabled"}),
+    "form": frozenset({"novalidate"}),
+    "iframe": frozenset({"allowfullscreen", "credentialless"}),
+    "img": frozenset({"ismap"}),
+    "input": frozenset({"autofocus", "checked", "disabled", "formnovalidate", "multiple", "readonly", "required"}),
+    "link": frozenset({"disabled"}),
+    "ol": frozenset({"reversed"}),
+    "optgroup": frozenset({"disabled"}),
+    "option": frozenset({"disabled", "selected"}),
+    "script": frozenset({"async", "defer", "nomodule"}),
+    "select": frozenset({"autofocus", "disabled", "multiple", "required"}),
+    "template": frozenset({"shadowrootclonable", "shadowrootdelegatesfocus", "shadowrootserializable"}),
+    "textarea": frozenset({"autofocus", "disabled", "readonly", "required"}),
+    "track": frozenset({"default"}),
+    "video": frozenset({"autoplay", "controls", "loop", "muted", "playsinline"}),
+}
 
 
 class HTMLContext(str, Enum):
@@ -269,12 +291,15 @@ def serialize_start_tag(
     for raw_key, value in attrs.items():
         key = _validate_serializable_attr_name(raw_key)
         if minimize_boolean_attributes:
-            if value is None or value == "" or value == key:
+            if value is None or value == "":
                 parts_extend((" ", key))
                 continue
-            if len(value) == len(key) and value.lower() == key:
-                parts_extend((" ", key))
-                continue
+            key_lower = key.lower()
+            boolean_attrs = _BOOLEAN_ATTRIBUTES.get(name.lower(), ())
+            if key_lower in _BOOLEAN_ATTRIBUTES["*"] or key_lower in boolean_attrs:
+                if value.lower() == key_lower:
+                    parts_extend((" ", key))
+                    continue
 
         if value is None or value == "":
             parts_extend((" ", key, '=""'))

@@ -802,6 +802,10 @@ class TestSerialize(unittest.TestCase):
         # Attribute values that match the attribute name case-insensitively should be minimized.
         assert serialize_start_tag("input", {"disabled": "DISABLED"}) == "<input disabled>"
 
+    def test_non_boolean_attribute_matching_its_name_is_not_minimized(self):
+        assert serialize_start_tag("p", {"id": "id"}) == '<p id="id">'
+        assert serialize_start_tag("div", {"disabled": "disabled"}) == '<div disabled="disabled">'
+
     def test_serialize_start_tag_quotes(self):
         # Prefer single quotes if the value contains a double quote but no single quote
         tag = serialize_start_tag("span", {"title": 'foo"bar'})
@@ -1137,9 +1141,7 @@ class TestSerialize(unittest.TestCase):
         frag1.append_child(Text("  "))
         frag2 = DocumentFragment()
         frag2.append_child(Text("\n"))
-        div.append_child(frag1)
-        div.append_child(Text(" "))
-        div.append_child(frag2)
+        div.children = [frag1, Text(" "), frag2]
 
         output = div.to_html(pretty=True)
         assert output == "<div> </div>"
