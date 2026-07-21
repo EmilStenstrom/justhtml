@@ -681,6 +681,16 @@ class TestSerialize(unittest.TestCase):
         round_tripped = JustHTML(doc.to_html(pretty=False), strict=True, sanitize=False)
         assert round_tripped.query("style")[0].children[0].data == 'body::before { content: "a > b & c"; }'
 
+    def test_legacy_raw_text_elements_round_trip_without_entity_escaping(self):
+        text = "<b>not markup</b> &amp;"
+        for name in ("iframe", "noembed", "noframes", "xmp"):
+            with self.subTest(name=name):
+                html = f"<{name}>{text}</{name}>"
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                assert doc.to_html(pretty=False) == html
+                round_tripped = JustHTML(doc.to_html(pretty=False), fragment=True, sanitize=False)
+                assert round_tripped.query(name)[0].children[0].data == text
+
     def test_programmatic_style_text_breakout_is_neutralized(self) -> None:
         root = Node("div")
         style = Node("style")

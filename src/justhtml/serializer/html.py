@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 # Note: This matches the logic of the previous loop-based implementation.
 # It checks for space characters, quotes, equals sign, and greater-than.
 _UNQUOTED_ATTR_VALUE_INVALID = re.compile(r'[ \t\n\f\r"\'=>]')
-_LITERAL_TEXT_SERIALIZATION_ELEMENTS = frozenset({"plaintext", "script", "style"})
+_LITERAL_TEXT_SERIALIZATION_ELEMENTS = frozenset({"iframe", "noembed", "noframes", "plaintext", "script", "style", "xmp"})
 _SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][^\t\n\f\r />]*$")
 _SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[^\t\n\f\r />=]+$")
 
