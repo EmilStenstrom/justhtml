@@ -1,3 +1,4 @@
+import sys
 import unittest
 from collections import Counter
 from dataclasses import replace
@@ -10,21 +11,31 @@ from justhtml.dom import DocumentFragment, Element, Template, Text
 from justhtml.parser.context import FragmentContext
 from justhtml.parser.engine import (
     _AFTER_BODY,
-    _STACK_COUNT_THRESHOLD,
+    _DEFAULT_SCOPE_BOUNDARIES,
+    _GENERAL_END_TAG_BOUNDARIES,
+    _P_SCOPE_BOUNDARIES,
+    _STACK_INDEX_THRESHOLD,
+    _TABLE_CONTEXT_BOUNDARIES,
     _UNWRAP_BATCH_THRESHOLD,
     ParseEngine,
     _CountingStack,
     _FormattingEntry,
     _FormattingSegment,
+    _is_open_html_namespace_node,
     can_compile_engine_plan,
     compile_default_engine_plan,
     compile_engine_plan,
     compile_raw_engine_plan,
 )
 from justhtml.parser.options import ParserOptions
+from justhtml.parser.stream import stream
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlRule
 from justhtml.serializer import to_test_format
 from tests.harness.tree import TestRunner
+
+# A stack depth well past anything a well-formed document reaches, used to keep
+# these tests exercising the indexed paths on a realistically deep stack.
+_STACK_DEPTH_SAMPLE = 32
 
 
 def _assert_parse_scales_linearly(
@@ -40,6 +51,30 @@ def _assert_parse_scales_linearly(
         for _ in range(3):
             start = perf_counter()
             JustHTML(source, fragment=fragment, sanitize=sanitize, collect_errors=collect_errors)
+            samples.append(perf_counter() - start)
+        return median(samples)
+
+    duration(64)
+    small = duration(2_000)
+    large = duration(4_000)
+    assert large < small * 3, f"doubling input took {large / small:.2f}x as long"
+
+
+def _assert_scales_linearly(prepare, run) -> None:
+    """Assert an operation stays linear as its input doubles.
+
+    `prepare(size)` builds the payload and is not timed; `run(payload)` is. The
+    shapes below are all quadratic without their fix, so a reintroduced scan
+    shows up as roughly four times the runtime rather than two.
+    """
+
+    def duration(size: int) -> float:
+        payload = prepare(size)
+        run(payload)
+        samples = []
+        for _ in range(3):
+            start = perf_counter()
+            run(payload)
             samples.append(perf_counter() - start)
         return median(samples)
 
@@ -74,31 +109,385 @@ class _ParserEngineTestCase(unittest.TestCase):
 
 
 class TestCountingStack(unittest.TestCase):
-    def assert_counts_match(self, stack: _CountingStack) -> None:
-        expected = Counter(node.name for node in stack)
-        assert stack.count_of("p") == expected["p"]
-        assert stack.count_of("div") == expected["div"]
-        assert stack.count_of("span") == expected["span"]
-        assert stack.count_of("missing") == 0
-        if stack._name_counts is not None:
-            assert {name: count for name, count in stack._name_counts.items() if count} == expected
+    QUERY_NAME_SETS = (
+        frozenset({"div"}),
+        frozenset({"p", "span"}),
+        frozenset({"table", "td", "template"}),
+        frozenset({"missing"}),
+        _GENERAL_END_TAG_BOUNDARIES,
+    )
 
-    def test_shallow_stack_tracks_parser_mutations_without_a_name_map(self) -> None:
+    def assert_index_matches(self, stack: _CountingStack) -> None:
+        """The maintained state must agree with a fresh scan of the list."""
+        expected = Counter(node.name for node in stack)
+        for name in ("p", "div", "span", "template", "missing"):
+            assert stack.count_of(name) == expected[name]
+        assert stack._p_count == expected["p"]
+
+        if not stack._indexed:
+            return
+
+        html_expected: dict[str, list[int]] = {}
+        other_expected: dict[str, list[int]] = {}
+        html_all, foreign_all, parser_only_all = [], [], []
+        for index, node in enumerate(stack):
+            if node.namespace in {None, "html"}:
+                html_expected.setdefault(node.name, []).append(index)
+                html_all.append(index)
+            else:
+                other_expected.setdefault(node.name, []).append(index)
+                if node.namespace == "justhtml-parser-only":
+                    parser_only_all.append(index)
+                else:
+                    foreign_all.append(index)
+
+        assert stack._html_positions == html_expected
+        assert stack._other_positions == other_expected
+        assert stack._html_all == html_all
+        assert stack._foreign_all == foreign_all
+        assert stack._parser_only_all == parser_only_all
+        assert stack._index_of == {node: index for index, node in enumerate(stack)}
+        assert stack.has_foreign_open() == bool(foreign_all)
+
+    def assert_indexed_and_scanned_agree(self, nodes: list) -> None:
+        """The indexed and shallow-scan paths must answer identically.
+
+        Below the depth threshold the stack answers by scanning and keeps no
+        index, so the two implementations of every lookup have to be checked
+        against each other rather than only against the parser's output.
+        """
+        scanned = _CountingStack(nodes)
+        assert not scanned._indexed
+        indexed = _CountingStack(nodes)
+        indexed._build_index()
+
+        for name in ("div", "p", "span", "template", "table", "g", "foreignObject", "missing"):
+            assert scanned.count_of(name) == indexed.count_of(name), name
+            assert scanned.last_index_of(name) == indexed.last_index_of(name), name
+            assert scanned.last_index_of(name, _is_open_html_namespace_node) == indexed.last_index_of(
+                name, _is_open_html_namespace_node
+            ), name
+        for names in self.QUERY_NAME_SETS:
+            assert scanned.last_index_of_any(names) == indexed.last_index_of_any(names), names
+            assert scanned.last_html_index_of_any(names) == indexed.last_html_index_of_any(names), names
+            assert scanned.last_scope_index_of_any(names) == indexed.last_scope_index_of_any(names), names
+        assert scanned.last_foreign_boundary_index() == indexed.last_foreign_boundary_index()
+        assert scanned.last_html_index() == indexed.last_html_index()
+        assert scanned.last_rendered_index() == indexed.last_rendered_index()
+        assert scanned.has_foreign_open() == indexed.has_foreign_open()
+        for node in nodes:
+            assert (node in scanned) == (node in indexed)
+            assert scanned.index_of_node(node) == indexed.index_of_node(node)
+        absent = Element("div", {}, "html")
+        assert (absent in scanned) == (absent in indexed)
+        assert scanned.index_of_node(absent) == indexed.index_of_node(absent)
+
+    def test_indexed_and_scanned_lookups_agree_on_varied_stacks(self) -> None:
+        candidates = [
+            lambda: Element("div", {}, "html"),
+            lambda: Element("p", {}, "html"),
+            lambda: Element("table", {}, "html"),
+            lambda: Element("td", {}, "html"),
+            lambda: Template("template", {}, namespace="html"),
+            lambda: Element("template", {}, "justhtml-parser-only"),
+            lambda: Element("g", {}, "svg"),
+            lambda: Element("foreignObject", {}, "svg"),
+            lambda: Element("desc", {}, "svg"),
+            lambda: Element("mtext", {}, "math"),
+            lambda: Element("annotation-xml", {"encoding": "text/html"}, "math"),
+            lambda: Element("annotation-xml", {"encoding": "other"}, "math"),
+            lambda: Element("span", {}, "svg"),
+        ]
+        # A deterministic spread of shapes: every rotation of the candidate list
+        # truncated to several lengths, so each node kind appears at the top, in
+        # the middle, and at the bottom of a stack.
+        for rotation in range(len(candidates)):
+            ordered = candidates[rotation:] + candidates[:rotation]
+            for length in (1, 2, 5, len(ordered)):
+                nodes = [DocumentFragment()] + [make() for make in ordered[:length]]
+                self.assert_indexed_and_scanned_agree(nodes)
+
+    def test_engine_scope_helpers_agree_across_indexed_and_scanned_stacks(self) -> None:
+        """Scope helpers keep a shallow single-pass path beside the indexed one.
+
+        Both must give the same answer, or a document would parse differently
+        once its stack crossed the depth at which the index is built.
+        """
+        shapes = [
+            ["div", "p", "span"],
+            ["div", "button", "p", "b"],
+            ["table", "tbody", "tr", "td", "div", "p"],
+            ["div", "li", "div", "ul", "li"],
+            ["template", "div", "table", "p"],
+            ["h1", "div", "span"],
+            ["div", "svg:svg", "svg:foreignObject", "div", "svg:g"],
+            ["div", "math:math", "math:annotation-xml", "span"],
+            ["p", "svg:svg", "svg:g", "svg:g"],
+        ]
+
+        def build(names):
+            nodes = [DocumentFragment()]
+            for entry in names:
+                if ":" in entry:
+                    namespace, local = entry.split(":")
+                    attrs = {"encoding": "text/html"} if local == "annotation-xml" else {}
+                    nodes.append(Element(local, attrs, namespace))
+                elif entry == "template":
+                    nodes.append(Template("template", {}, namespace="html"))
+                else:
+                    nodes.append(Element(entry, {}, "html"))
+            return nodes
+
+        boundary_sets = [
+            _P_SCOPE_BOUNDARIES,
+            _DEFAULT_SCOPE_BOUNDARIES,
+            _GENERAL_END_TAG_BOUNDARIES,
+            _TABLE_CONTEXT_BOUNDARIES,
+            frozenset({"template"}),
+        ]
+        probe_names = ["p", "div", "li", "span", "table", "td", "b", "g", "foreignobject", "missing"]
+
+        for shape in shapes:
+            nodes = build(shape)
+            scanned = _CountingStack(nodes)
+            assert not scanned._indexed
+            indexed = _CountingStack(nodes)
+            indexed._build_index()
+
+            engine = ParseEngine("", fragment=True)
+            for name in probe_names:
+                for boundaries in boundary_sets:
+                    engine._stack = scanned
+                    scanned_result = engine._find_open_index_before_boundary(name, boundaries)
+                    engine._stack = indexed
+                    assert scanned_result == engine._find_open_index_before_boundary(name, boundaries), (
+                        shape,
+                        name,
+                        sorted(boundaries)[:3],
+                    )
+                engine._stack = scanned
+                scanned_special = engine._find_open_special_end_index(name)
+                engine._stack = indexed
+                assert scanned_special == engine._find_open_special_end_index(name), (shape, name)
+
+            engine._stack = scanned
+            scanned_heading = engine._find_open_heading_index()
+            engine._stack = indexed
+            assert scanned_heading == engine._find_open_heading_index(), shape
+
+    def test_open_li_close_agrees_across_indexed_and_scanned_stacks(self) -> None:
+        shapes = [
+            ["ul", "li", "div", "p"],
+            ["ul", "li", "div", "table"],
+            ["li", "address", "div"],
+            ["div", "span"],
+            ["ul", "li", "svg:svg", "svg:g"],
+        ]
+        for shape in shapes:
+            nodes = [DocumentFragment()]
+            for entry in shape:
+                if ":" in entry:
+                    namespace, local = entry.split(":")
+                    nodes.append(Element(local, {}, namespace))
+                else:
+                    nodes.append(Element(entry, {}, "html"))
+
+            scanned_engine = ParseEngine("", fragment=True)
+            scanned_engine._stack = _CountingStack(list(nodes))
+            assert not scanned_engine._stack._indexed
+            scanned_engine._close_open_li_for_start()
+
+            indexed_engine = ParseEngine("", fragment=True)
+            indexed_engine._stack = _CountingStack(list(nodes))
+            indexed_engine._stack._build_index()
+            indexed_engine._close_open_li_for_start()
+
+            assert [node.name for node in scanned_engine._stack] == [node.name for node in indexed_engine._stack], (
+                shape
+            )
+
+    def _indexed_stack(self, extra: list | None = None) -> _CountingStack:
+        nodes = [DocumentFragment()] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)]
+        nodes.extend(extra or [])
+        stack = _CountingStack(nodes)
+        assert stack._indexed
+        return stack
+
+    def test_indexed_stack_tracks_every_namespace_group_through_mutations(self) -> None:
+        foreign_boundary = Element("foreignObject", {}, "svg")
+        plain_foreign = Element("g", {}, "svg")
+        parser_only = Element("template", {}, "justhtml-parser-only")
+        paragraph = Element("p", {}, "html")
+        stack = self._indexed_stack()
+
+        for node in (plain_foreign, foreign_boundary, parser_only, paragraph):
+            stack.append(node)
+            self.assert_index_matches(stack)
+        assert stack.last_foreign_boundary_index() == stack.index_of_node(foreign_boundary)
+        assert stack.last_rendered_index() == len(stack) - 1
+        assert stack.count_of("p") == 1
+
+        for _ in range(4):
+            stack.pop()
+            self.assert_index_matches(stack)
+        assert stack.last_foreign_boundary_index() == -1
+        assert stack.count_of("p") == 0
+
+    def test_indexed_stack_rebuilds_on_middle_mutations(self) -> None:
+        marker = Element("section", {}, "html")
+        stack = self._indexed_stack([marker, Element("span", {}, "html")])
+
+        stack.insert(2, Element("p", {}, "html"))
+        self.assert_index_matches(stack)
+        assert stack.count_of("p") == 1
+
+        stack.pop(2)
+        self.assert_index_matches(stack)
+        assert stack.count_of("p") == 0
+
+        del stack[2]
+        self.assert_index_matches(stack)
+
+        del stack[2:4]
+        self.assert_index_matches(stack)
+
+        stack.remove(marker)
+        self.assert_index_matches(stack)
+        assert marker not in stack
+
+        stack[1] = Element("p", {}, "html")
+        self.assert_index_matches(stack)
+        assert stack.count_of("p") == 1
+
+    def test_unindexed_stack_builds_the_index_when_growth_crosses_the_threshold(self) -> None:
+        shallow = _CountingStack(Element("div", {}, "html") for _ in range(_STACK_INDEX_THRESHOLD - 1))
+        assert not shallow._indexed
+        shallow.insert(0, Element("p", {}, "html"))
+        assert shallow._indexed
+        self.assert_index_matches(shallow)
+
+        popped = _CountingStack(Element("p", {}, "html") for _ in range(_STACK_INDEX_THRESHOLD - 1))
+        assert not popped._indexed
+        popped.pop(0)
+        del popped[0]
+        del popped[0:2]
+        popped.remove(popped[0])
+        popped[0] = Element("div", {}, "html")
+        self.assert_index_matches(popped)
+
+    def test_indexed_predicate_lookup_stops_at_the_document_root(self) -> None:
+        root = Element("div", {}, "html")
+        stack = _CountingStack([root] + [Element("div", {}, "html") for _ in range(_STACK_INDEX_THRESHOLD)])
+        assert stack._indexed
+        # Every candidate fails the predicate, so the walk reaches index 0 and
+        # stops there rather than reporting the root.
+        assert stack.last_index_of("div", lambda node: node.namespace == "svg") is None
+
+    def test_annotation_xml_boundary_depends_on_its_encoding(self) -> None:
+        html_integration = Element("annotation-xml", {"ENCODING": "TEXT/HTML"}, "math")
+        other_encoding = Element("annotation-xml", {"encoding": "application/mathml+xml"}, "math")
+        no_attrs = Element("annotation-xml", {}, "math")
+        unrelated_attr = Element("annotation-xml", {"class": "x"}, "math")
+
+        for node, expected in (
+            (html_integration, True),
+            (other_encoding, False),
+            (no_attrs, False),
+            (unrelated_attr, False),
+        ):
+            stack = self._indexed_stack([node])
+            assert (stack.last_foreign_boundary_index() != -1) is expected, node.attrs
+
+    def test_duplicate_node_falls_back_to_list_semantics(self) -> None:
+        repeated = Element("div", {}, "html")
+        stack = self._indexed_stack([repeated])
+        stack.append(repeated)
+        assert stack._duplicated
+        assert repeated in stack
+        assert stack.index_of_node(repeated) == len(stack) - 2
+        assert stack.index_of_node(Element("div", {}, "html")) is None
+
+        # The same conflict noticed while the index is built from scratch.
+        built = _CountingStack(
+            [DocumentFragment(), repeated]
+            + [Element("div", {}, "html") for _ in range(_STACK_INDEX_THRESHOLD)]
+            + [repeated]
+        )
+        assert built._duplicated
+        assert repeated in built
+
+    def test_popping_a_duplicated_node_still_reports_its_lower_position(self) -> None:
+        repeated = Element("div", {}, "html")
+        stack = self._indexed_stack([repeated])
+        lower = stack.index_of_node(repeated)
+        stack.append(repeated)
+        stack.pop()
+        # The identity map cannot describe a node held twice, so lookups fall
+        # back to the list and still find the occurrence that is still open.
+        assert stack._duplicated
+        assert repeated in stack
+        assert stack.index_of_node(repeated) == lower
+
+    def test_deleting_the_last_element_by_index_updates_in_place(self) -> None:
+        stack = self._indexed_stack([Element("span", {}, "html")])
+        del stack[len(stack) - 1]
+        self.assert_index_matches(stack)
+        assert stack.count_of("span") == 0
+
+    def test_table_scoped_end_index_falls_back_for_a_plain_list_stack(self) -> None:
+        root = DocumentFragment()
+        table = Element("table", {}, "html")
+        template = Template("template", {}, namespace="html")
+        engine = ParseEngine("", fragment=True)
+
+        engine._stack = [root, Element("tbody", {}, "html")]  # type: ignore[assignment]
+        assert engine._find_open_table_scoped_end_index("tbody") == 1
+
+        engine._stack = [root, Element("tbody", {}, "html"), table]  # type: ignore[assignment]
+        assert engine._find_open_table_scoped_end_index("tbody") is None
+
+        engine._stack = [root, Element("tbody", {}, "html"), template]  # type: ignore[assignment]
+        assert engine._find_open_table_scoped_end_index("tbody") is None
+
+        engine._stack = [root, Element("div", {}, "html")]  # type: ignore[assignment]
+        assert engine._find_open_table_scoped_end_index("tbody") is None
+
+    def test_misc_nodes_land_before_a_root_that_is_not_the_first_child(self) -> None:
+        document = JustHTML("<!doctype html><!--first--><!--second--><html><body>x", sanitize=False)
+        names = [child.name for child in document.root.children]
+        assert names == ["!doctype", "#comment", "#comment", "html"]
+
+    def test_popping_a_repeated_name_keeps_its_other_positions(self) -> None:
+        stack = self._indexed_stack()
+        assert stack.count_of("div") == _STACK_DEPTH_SAMPLE
+        stack.pop()
+        assert stack.count_of("div") == _STACK_DEPTH_SAMPLE - 1
+        assert stack.last_index_of("div") == len(stack) - 1
+        self.assert_index_matches(stack)
+
+    def test_node_absent_from_the_stack_is_not_in_scope(self) -> None:
+        engine = ParseEngine("", fragment=True)
+        engine._stack = self._indexed_stack()
+        detached = Element("b", {}, "html")
+        assert engine._has_node_in_scope(detached, _DEFAULT_SCOPE_BOUNDARIES) is False
+        # The document root is never reported as being in scope either.
+        assert engine._has_node_in_scope(engine._stack[0], _DEFAULT_SCOPE_BOUNDARIES) is False
+
+    def test_every_mutation_kind_keeps_the_index_exact(self) -> None:
         div = Element("div", {}, "html")
         first_p = Element("p", {}, "html")
         second_p = Element("p", {}, "html")
         span = Element("span", {}, "html")
         stack = _CountingStack([div, first_p])
-        assert stack._name_counts is None
 
         stack.append(second_p)
         stack.insert(1, span)
-        self.assert_counts_match(stack)
+        self.assert_index_matches(stack)
 
         stack[1] = Element("span", {}, "html")
         stack[1] = Element("p", {}, "html")
         stack[1] = Element("div", {}, "html")
-        self.assert_counts_match(stack)
+        self.assert_index_matches(stack)
 
         stack.remove(first_p)
         stack.pop(0)
@@ -106,11 +495,10 @@ class TestCountingStack(unittest.TestCase):
         stack.append(Element("p", {}, "html"))
         stack.append(Element("span", {}, "html"))
         del stack[:]
-        self.assert_counts_match(stack)
+        self.assert_index_matches(stack)
 
-    def test_deep_stack_keeps_the_name_map_after_shrinking(self) -> None:
-        stack = _CountingStack(Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD))
-        assert stack._name_counts is not None
+    def test_deep_stack_index_survives_growth_and_shrinking(self) -> None:
+        stack = _CountingStack(Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE))
 
         p = Element("p", {}, "html")
         span = Element("span", {}, "html")
@@ -121,50 +509,41 @@ class TestCountingStack(unittest.TestCase):
         stack.append(Element("p", {}, "html"))
         stack.pop()
         del stack[-2:]
-        self.assert_counts_match(stack)
+        self.assert_index_matches(stack)
 
         del stack[1:]
-        assert stack._name_counts is not None
         stack.append(Element("span", {}, "html"))
-        self.assert_counts_match(stack)
+        self.assert_index_matches(stack)
 
-    def test_last_index_cache_survives_unrelated_mutations_and_repairs_shifted_indices(self) -> None:
-        predicate_calls = []
-
+    def test_last_index_of_tracks_predicates_across_unrelated_mutations(self) -> None:
         def is_html_table(node):
-            predicate_calls.append(node)
             return node.namespace == "html"
 
         table = Element("table", {}, "html")
         stack = _CountingStack(
-            [DocumentFragment()] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)] + [table]
+            [DocumentFragment()] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)] + [table]
         )
         table_index = len(stack) - 1
 
         assert stack.last_index_of("table", is_html_table) == table_index
-        assert predicate_calls == [table]
 
         stack.append(Element("div", {}, "html"))
         assert stack.last_index_of("table", is_html_table) == table_index
-        assert predicate_calls == [table]
 
         stack.insert(1, Element("span", {}, "html"))
         table_index += 1
         assert stack.last_index_of("table", is_html_table) == table_index
-        assert predicate_calls == [table]
 
         foreign_table = Element("table", {}, "svg")
         stack.append(foreign_table)
         assert stack.last_index_of("table") == len(stack) - 1
         assert stack.last_index_of("table", is_html_table) == table_index
-        assert predicate_calls[-2:] == [foreign_table, table]
 
-        replacement = Element("table", {}, "svg")
-        stack[table_index] = replacement
+        stack[table_index] = Element("table", {}, "svg")
         assert stack.last_index_of("table", is_html_table) is None
-        assert predicate_calls[-2:] == [foreign_table, replacement]
+        self.assert_index_matches(stack)
 
-    def test_cached_position_survives_adoption_agency_mutations_without_rescanning(self) -> None:
+    def test_position_lookup_does_not_scan_after_adoption_agency_mutations(self) -> None:
         class AccessTrackingStack(_CountingStack):
             def __init__(self, nodes):
                 super().__init__(nodes)
@@ -179,7 +558,7 @@ class TestCountingStack(unittest.TestCase):
         inner_formatting = Element("i", {}, "html")
         stack = AccessTrackingStack(
             [DocumentFragment(), template]
-            + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)]
             + [formatting, Element("span", {}, "html"), inner_formatting, Element("p", {}, "html")]
         )
         template_index = 1
@@ -199,9 +578,10 @@ class TestCountingStack(unittest.TestCase):
 
         stack.accesses.clear()
         assert stack.last_index_of("template") == template_index
-        assert stack.accesses == [template_index]
+        # The position is read straight from the index; nothing is walked.
+        assert stack.accesses == []
 
-    def test_predicate_cache_tracks_parser_only_template_suffix_mutations(self) -> None:
+    def test_last_rendered_index_tracks_a_parser_only_template_suffix(self) -> None:
         class AccessTrackingStack(_CountingStack):
             def __init__(self, nodes):
                 super().__init__(nodes)
@@ -214,67 +594,54 @@ class TestCountingStack(unittest.TestCase):
         parent = Element("div", {}, "html")
         stack = AccessTrackingStack(
             [DocumentFragment(), parent]
-            + [Element("template", {}, "justhtml-parser-only") for _ in range(_STACK_COUNT_THRESHOLD * 2)]
+            + [Element("template", {}, "justhtml-parser-only") for _ in range(_STACK_DEPTH_SAMPLE * 2)]
         )
 
-        assert stack.last_index_matching(lambda node: node.namespace != "justhtml-parser-only") == 1
-        predicate = next(iter(stack._predicate_index_cache))
+        assert stack.last_rendered_index() == 1
 
         stack.accesses.clear()
         stack.append(Element("template", {}, "justhtml-parser-only"))
-        assert stack.last_index_matching(predicate) == 1
-        assert stack.accesses == [1]
+        assert stack.last_rendered_index() == 1
+        # A deep run of parser-only markers must not be walked.
+        assert stack.accesses == []
 
         stack.insert(1, Element("span", {}, "html"))
-        assert stack.last_index_matching(predicate) == 2
+        assert stack.last_rendered_index() == 2
         stack.remove(stack[1])
-        assert stack.last_index_matching(predicate) == 1
+        assert stack.last_rendered_index() == 1
+        self.assert_index_matches(stack)
 
-    def test_predicate_cache_handles_negative_replacement_and_removal_paths(self) -> None:
-        def is_html(node):
-            return node.namespace == "html"
-
-        def is_math(node):
-            return node.namespace == "math"
-
+    def test_last_rendered_index_handles_replacement_and_removal_paths(self) -> None:
         first = Element("div", {}, "html")
         stack = _CountingStack(
             [DocumentFragment(), Element("span", {}, "svg"), first]
-            + [Element("template", {}, "justhtml-parser-only") for _ in range(_STACK_COUNT_THRESHOLD)]
+            + [Element("template", {}, "justhtml-parser-only") for _ in range(_STACK_DEPTH_SAMPLE)]
         )
 
-        assert stack.last_index_matching(is_html) == 2
-        assert stack.last_index_matching(is_math) is None
-        assert stack.last_index_matching(is_math) is None
+        assert stack.last_rendered_index() == 2
 
         math = Element("math", {}, "math")
         stack.append(math)
-        assert stack.last_index_matching(is_math) == len(stack) - 1
+        assert stack.last_rendered_index() == len(stack) - 1
         assert stack.pop() is math
-        assert stack.last_index_matching(is_math) is None
+        assert stack.last_rendered_index() == 2
 
         stack.insert(1, Element("span", {}, "svg"))
-        assert stack.last_index_matching(is_html) == 3
+        assert stack.last_rendered_index() == 3
         del stack[1]
-        assert stack.last_index_matching(is_html) == 2
+        assert stack.last_rendered_index() == 2
 
         stack[2] = Element("template", {}, "justhtml-parser-only")
-        assert stack.last_index_matching(is_html) is None
+        assert stack.last_rendered_index() == 1
         stack[2] = Element("div", {}, "html")
-        assert stack.last_index_matching(is_html) == 2
-        stack[2] = Element("section", {}, "html")
-        assert stack.last_index_matching(is_html) == 2
+        assert stack.last_rendered_index() == 2
+        self.assert_index_matches(stack)
 
-        list.insert(stack, 1, Element("span", {}, "svg"))
-        assert stack.last_index_matching(is_html) == 3
-
-        stack._shift_cached_indices_for_removals([])
-
-    def test_name_cache_repairs_unexpected_direct_mutation_and_tracks_middle_removal(self) -> None:
+    def test_index_repairs_itself_after_unexpected_direct_mutation(self) -> None:
         target = Element("table", {}, "html")
         stack = _CountingStack(
             [DocumentFragment(), Element("span", {}, "html")]
-            + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)]
             + [target]
         )
         assert stack.last_index_of("table") == len(stack) - 1
@@ -282,10 +649,41 @@ class TestCountingStack(unittest.TestCase):
         del stack[1]
         assert stack.last_index_of("table") == len(stack) - 1
 
+        # Bypassing the overridden methods leaves the recorded positions stale;
+        # the next lookup must notice and rebuild rather than answer wrongly.
         list.insert(stack, 1, Element("span", {}, "html"))
         assert stack.last_index_of("table") == len(stack) - 1
+        self.assert_index_matches(stack)
 
-    def test_absent_open_element_helpers_share_constant_time_name_tracking(self) -> None:
+    def test_membership_and_position_answer_without_scanning(self) -> None:
+        present = Element("table", {}, "html")
+        absent = Element("table", {}, "html")
+        stack = _CountingStack(
+            [DocumentFragment()] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)] + [present]
+        )
+
+        assert present in stack
+        assert absent not in stack
+        assert stack.index_of_node(present) == len(stack) - 1
+        assert stack.index_of_node(absent) is None
+
+        stack.pop()
+        assert present not in stack
+        assert stack.index_of_node(present) is None
+
+    def test_last_index_of_any_matches_a_reverse_scan(self) -> None:
+        nodes = [DocumentFragment()]
+        nodes.extend(Element(name, {}, "html") for name in ("div", "tbody", "span", "tr", "div", "section"))
+        stack = _CountingStack(nodes)
+
+        for names in ({"tbody", "thead", "tfoot"}, {"tr"}, {"div"}, {"missing"}, _GENERAL_END_TAG_BOUNDARIES):
+            expected = next(
+                (index for index in range(len(stack) - 1, 0, -1) if stack[index].name in names),
+                None,
+            )
+            assert stack.last_index_of_any(names) == expected
+
+    def test_absent_open_element_helpers_never_scan(self) -> None:
         class AccessTrackingStack(_CountingStack):
             def __init__(self, nodes):
                 super().__init__(nodes)
@@ -295,7 +693,7 @@ class TestCountingStack(unittest.TestCase):
                 self.accesses.append(key)
                 return super().__getitem__(key)
 
-        stack = AccessTrackingStack(Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD))
+        stack = AccessTrackingStack(Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE))
         engine = ParseEngine("", fragment=True)
         engine._stack = stack
 
@@ -309,7 +707,7 @@ class TestCountingStack(unittest.TestCase):
         assert engine._find_open_index_in_current_scope("ruby") is None
         assert stack.accesses == []
 
-    def test_open_template_helper_reuses_a_cached_deep_position(self) -> None:
+    def test_open_template_helper_reads_only_the_recorded_position(self) -> None:
         class AccessTrackingStack(_CountingStack):
             def __init__(self, nodes):
                 super().__init__(nodes)
@@ -321,50 +719,39 @@ class TestCountingStack(unittest.TestCase):
 
         template = Template("template", {}, namespace="html")
         stack = AccessTrackingStack(
-            [DocumentFragment(), template] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD * 2)]
+            [DocumentFragment(), template] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE * 2)]
         )
         engine = ParseEngine("", fragment=True)
         engine._stack = stack
 
+        # Only the recorded position is read, to apply the template predicate.
         assert engine._open_template_index() == 1
-        assert len(stack.accesses) > _STACK_COUNT_THRESHOLD
+        assert stack.accesses == [1]
 
         stack.accesses.clear()
         stack.append(Element("span", {}, "html"))
         assert engine._open_template_index() == 1
         assert stack.accesses == [1]
 
-    def test_append_and_insert_activate_name_tracking_at_the_threshold(self) -> None:
-        shallow = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD - 1)]
-
-        appended = _CountingStack(shallow)
-        appended.append(Element("span", {}, "html"))
-        self.assert_counts_match(appended)
-
-        inserted = _CountingStack(shallow)
-        inserted.insert(0, Element("p", {}, "html"))
-        self.assert_counts_match(inserted)
-
     def test_deep_adoption_agency_keeps_name_tracking_exact(self) -> None:
-        engine = ParseEngine("<div>" * _STACK_COUNT_THRESHOLD + "<b><i><p>1</b>2</i>", fragment=True)
+        engine = ParseEngine("<div>" * _STACK_DEPTH_SAMPLE + "<b><i><p>1</b>2</i>", fragment=True)
         engine.parse()
 
-        assert engine._stack._name_counts is not None
-        self.assert_counts_match(engine._stack)
+        self.assert_index_matches(engine._stack)
 
-    def test_compiled_end_tag_fast_paths_keep_shallow_and_deep_counts_exact(self) -> None:
+    def test_compiled_end_tag_fast_paths_keep_counts_exact(self) -> None:
         for name in ("div", "h1"):
             html = f"</{name}>"
             stack = _CountingStack(
                 [DocumentFragment()]
-                + [Element("span", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD - 2)]
+                + [Element("span", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE - 2)]
                 + [Element(name, {}, "html")]
             )
             engine = ParseEngine(html, fragment=True)
             engine._stack = stack
 
             assert engine._parse_compiled_safe_end_tag(2, len(html)) == len(html)
-            self.assert_counts_match(stack)
+            self.assert_index_matches(stack)
 
         html = "</p>"
         stack = _CountingStack([DocumentFragment(), Element("p", {}, "html")])
@@ -375,7 +762,7 @@ class TestCountingStack(unittest.TestCase):
 
         assert engine._parse_compiled_safe_end_tag(2, len(html)) == len(html)
         assert stack._p_count == 0
-        self.assert_counts_match(stack)
+        self.assert_index_matches(stack)
 
     def test_parser_metadata_helpers_allocate_for_text_and_unlocated_elements(self) -> None:
         location_engine = ParseEngine("x", fragment=True, track_node_locations=True)
@@ -1489,6 +1876,95 @@ class TestParserEngineInternals(_ParserEngineTestCase):
             sanitize=True,
         )
 
+    def test_document_shell_comment_placement_scales_linearly(self) -> None:
+        for prefix in ("<!doctype html>", "<html>", "<head></head>"):
+            _assert_scales_linearly(
+                lambda size, prefix=prefix: prefix + "<!---->" * size,
+                lambda source: JustHTML(source, sanitize=False),
+            )
+
+    def test_trailing_comment_placement_scales_linearly(self) -> None:
+        _assert_scales_linearly(
+            lambda size: "<!doctype html><html><head></head><body></body></html>" + "<!---->" * size,
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+    def test_out_of_scope_end_tags_scale_linearly(self) -> None:
+        shapes = [
+            # Target present, but below an ordinary scope boundary.
+            lambda size: "<x><div>" + "<span>" * size + "</x>" * size,
+            # Target below a button-scope boundary.
+            lambda size: "<p><button>" + "<b>" * size + "</p>" * size,
+            # Target below a foreign integration point.
+            lambda size: "<div><svg><foreignObject><svg>" + "<g>" * size + "</div>" * size,
+            # Formatting target below a table boundary.
+            lambda size: "<b><table>" + "<span>" * size + "</b>" * size,
+            # A real stack mutation between each ignored end tag, which defeats
+            # any scheme that caches a scan result until the stack changes.
+            lambda size: "<x><div>" + "<b>" * size + "<i></i></x>" * size,
+        ]
+        for make_source in shapes:
+            _assert_scales_linearly(make_source, lambda source: JustHTML(source, sanitize=False))
+
+    def test_out_of_scope_end_tags_with_diagnostics_scale_linearly(self) -> None:
+        _assert_scales_linearly(
+            lambda size: "<x><div>" + "<b>" * size + "</x>" * size,
+            lambda source: JustHTML(source, sanitize=False, collect_errors=True),
+        )
+
+    def test_absent_formatting_name_lookup_scales_linearly(self) -> None:
+        _assert_scales_linearly(
+            lambda size: "".join(f"<b id={index}>" for index in range(size)) + "</i>" * size,
+            JustHTML,
+        )
+
+    def test_active_formatting_stack_membership_scales_linearly(self) -> None:
+        shapes = [
+            lambda size: "".join(f"<b id={index}>" for index in range(size)) + "<table>" + "<td>x</td>" * 5,
+            lambda size: "<a><b>" * size,
+        ]
+        for make_source in shapes:
+            _assert_scales_linearly(make_source, lambda source: JustHTML(source, sanitize=False))
+
+    def test_foreign_element_insertion_scales_linearly(self) -> None:
+        _assert_scales_linearly(
+            lambda size: "<svg>" + "<g>" * size + "<div>x",
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+    def test_annotation_xml_integration_checks_scale_linearly(self) -> None:
+        def make_source(size: int) -> str:
+            attrs = " ".join(f"a{index}" for index in range(size))
+            return f"<math><annotation-xml {attrs} encoding=text/html>" + "<svg/>" * size + "</annotation-xml></math>"
+
+        _assert_scales_linearly(make_source, lambda source: JustHTML(source, sanitize=False))
+        _assert_scales_linearly(make_source, lambda source: list(stream(source)))
+
+    def test_streaming_out_of_scope_end_tags_scale_linearly(self) -> None:
+        _assert_scales_linearly(
+            lambda size: "<div><span><svg>" + "<g>" * size + "</div>" * size,
+            lambda source: list(stream(source)),
+        )
+
+    def test_selectedcontent_projection_scales_linearly(self) -> None:
+        _assert_scales_linearly(
+            lambda size: (
+                "<select><option selected>x</option>" + "<div><selectedcontent></selectedcontent>" * size + "</select>"
+            ),
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+    def test_deep_frameset_eligibility_does_not_recurse(self) -> None:
+        # The eligibility walk runs over attacker-controlled nesting, so it must
+        # not be bounded by the interpreter's recursion limit.
+        limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(1_000)
+        try:
+            for source in ("<div>" * 5_000 + "<frameset>", "<svg>" * 5_000 + "</svg>" * 5_000 + "<frameset>"):
+                JustHTML(source, sanitize=False)
+        finally:
+            sys.setrecursionlimit(limit)
+
     def test_basic_error_collection_handles_repeated_duplicate_tag_names(self) -> None:
         source = "<x>" * 64 + "</x>" * 64
         engine = ParseEngine(source, fragment=True, collect_errors=True)
@@ -1655,10 +2131,10 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         engine = ParseEngine("", fragment=True)
         root = DocumentFragment()
 
-        engine._stack = _CountingStack([root] + [Element("g", {}, "svg") for _ in range(_STACK_COUNT_THRESHOLD)])
+        engine._stack = _CountingStack([root] + [Element("g", {}, "svg") for _ in range(_STACK_DEPTH_SAMPLE)])
         assert engine._end_tag_stays_in_foreign_context("missing", 0, 0)
 
-        engine._stack = _CountingStack([root] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)])
+        engine._stack = _CountingStack([root] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)])
         assert engine._find_open_special_end_index("audio") is None
         assert engine._find_open_heading_index() is None
         assert not engine._close_until_before_boundary("p", frozenset({"template"}))
@@ -1668,7 +2144,7 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         table = Element("table", {}, "html")
         tbody = Element("tbody", {}, "html")
         engine._stack = _CountingStack(
-            [root, tbody, table] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            [root, tbody, table] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)]
         )
         assert engine._find_open_table_scoped_end_index("tbody") is None
         engine._stack.append(tbody)
@@ -1676,47 +2152,47 @@ class TestParserEngineInternals(_ParserEngineTestCase):
 
         template = Template("template", {}, namespace="html")
         engine._stack = _CountingStack(
-            [root, tbody, template] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            [root, tbody, template] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)]
         )
         assert engine._find_open_table_scoped_end_index("tbody") is None
         assert not engine._close_open_template_table_section()
 
         td = Element("td", {}, "html")
         engine._stack = _CountingStack(
-            [root, td, template] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            [root, td, template] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)]
         )
         assert not engine._close_template_cell()
 
-        engine._stack = _CountingStack([root] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)])
+        engine._stack = _CountingStack([root] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)])
         engine._close_stray_table_content_to_section()
         engine._close_table_cell()
 
         engine._stack = _CountingStack(
-            [root, tbody, table] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            [root, tbody, table] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)]
         )
         engine._close_stray_table_content_to_section()
-        assert len(engine._stack) > _STACK_COUNT_THRESHOLD
+        assert len(engine._stack) > _STACK_DEPTH_SAMPLE
 
         engine._stack = _CountingStack(
-            [root, table, tbody] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            [root, table, tbody] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)]
         )
         engine._close_stray_table_content_to_section()
         assert [node.name for node in engine._stack] == ["#document-fragment", "table", "tbody"]
 
         engine._stack = _CountingStack(
-            [root] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)] + [tbody]
+            [root] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)] + [tbody]
         )
         engine._close_stray_table_content_to_section()
         assert engine._stack[-1] is tbody
 
         engine._stack = _CountingStack(
-            [root, td, table] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            [root, td, table] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)]
         )
         engine._close_table_cell()
-        assert len(engine._stack) > _STACK_COUNT_THRESHOLD
+        assert len(engine._stack) > _STACK_DEPTH_SAMPLE
 
         engine._stack = _CountingStack(
-            [root, table, td] + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            [root, table, td] + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)]
         )
         engine._close_table_cell()
         assert [node.name for node in engine._stack] == ["#document-fragment", "table"]
@@ -1726,7 +2202,7 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         nested_template = Template("template", {}, namespace="html")
         template_engine._stack = _CountingStack(
             [template_engine._doc, tbody, nested_template]
-            + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            + [Element("div", {}, "html") for _ in range(_STACK_DEPTH_SAMPLE)]
         )
         template_engine._template_modes = ["table_body"]
         assert template_engine._handle_template_table_body_start("td", {}, False, 0) == 0

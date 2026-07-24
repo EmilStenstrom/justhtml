@@ -21,6 +21,8 @@ from justhtml.core.constants import (
 from justhtml.core.rawtext import neutralize_rawtext_end_tag_sequences
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
+
     from justhtml.dom import NodeType
 
 # Matches characters that prevent an attribute value from being unquoted.
@@ -513,40 +515,112 @@ def _is_whitespace_text_node(node: Any) -> bool:
     return node.name == "#text" and (node.data or "").strip() == ""
 
 
-def _is_blocky_element(node: Any) -> bool:
-    # Treat elements as block-ish if they are block-level *or* contain any block-level
-    # descendants. This keeps pretty-printing readable for constructs like <a><div>...</div></a>.
-    try:
-        name = node.name
-    except AttributeError:
-        return False
-    if name in {"#text", "#comment", "!doctype"}:
-        return False
-    if name in SPECIAL_ELEMENTS:
-        return True
+_NON_ELEMENT_NODE_NAMES = {"#text", "#comment", "!doctype"}
+# Nodes a direct subtree walk may visit before it is worth folding an answer for
+# every descendant instead. Sized so ordinary markup settles in the direct walk.
+_BLOCK_SCAN_BUDGET = 48
 
+
+class _BlockMemo:
+    """Per-serialization cache of block-descendant classifications.
+
+    The classifiers below are asked about a node and, separately, about each of
+    its descendants. Answering each question by re-walking the subtree makes a
+    deeply nested inline chain quadratic, since every ancestor re-walks
+    everything beneath it. One memo per serialization run keeps the total work
+    proportional to the tree.
+    """
+
+    __slots__ = ("layout", "special")
+
+    def __init__(self) -> None:
+        self.special: dict[Any, bool] = {}
+        self.layout: dict[Any, bool] = {}
+
+
+def _fill_block_descendants(root: Any, blocks: Collection[str], memo: dict[Any, bool]) -> bool:
+    """Record, for `root` and every element beneath it, whether its subtree holds a block.
+
+    The fold is post-order so that a node's answer is composed from answers
+    already recorded for its children, rather than from another traversal.
+    `root` is only reached with children present; the callers below guard that.
+    """
+    stack: list[tuple[Any, bool]] = [(root, False)]
+    while stack:
+        node, expanded = stack.pop()
+        if expanded:
+            result = False
+            for child in node.children:
+                if child is None:
+                    continue
+                if child.name in blocks or memo.get(child, False):
+                    result = True
+                    break
+            memo[node] = result
+            continue
+        # Only nodes with children are ever pushed, and a tree reaches each of
+        # them once, so neither an empty node nor a repeat needs handling here.
+        children = node.children
+        stack.append((node, True))
+        for child in children:
+            if child is None or child.name in _NON_ELEMENT_NODE_NAMES:
+                continue
+            if child.children:
+                stack.append((child, False))
+    return memo[root]
+
+
+def _has_block_descendant(node: Any, blocks: Collection[str], memo: dict[Any, bool] | None) -> bool:
     try:
         children = node.children
     except AttributeError:
         return False
     if not children:
         return False
+    cache = memo if memo is not None else {}
+    cached = cache.get(node)
+    if cached is not None:
+        return cached
 
+    # Nearly every subtree in a real document is small, and usually a block
+    # turns up in its first few nodes. Answer those directly and record only
+    # this node, which is cheaper than folding a result for every descendant.
     stack: list[Any] = list(children)
-    while stack:
+    budget = _BLOCK_SCAN_BUDGET
+    while stack and budget:
         child = stack.pop()
         if child is None:
             continue
+        budget -= 1
         child_name = child.name
-        if child_name in SPECIAL_ELEMENTS:
+        if child_name in blocks:
+            cache[node] = True
             return True
-        if child_name in {"#text", "#comment", "!doctype"}:
+        if child_name in _NON_ELEMENT_NODE_NAMES:
             continue
         grand_children = child.children
         if grand_children:
             stack.extend(grand_children)
+    if not stack:
+        cache[node] = False
+        return False
+    # Too large to settle cheaply, and an ancestor is likely to ask about the
+    # same nodes next. Fold an answer for all of them so that walk happens once.
+    return _fill_block_descendants(node, blocks, cache)
 
-    return False
+
+def _is_blocky_element(node: Any, memo: _BlockMemo | None = None) -> bool:
+    # Treat elements as block-ish if they are block-level *or* contain any block-level
+    # descendants. This keeps pretty-printing readable for constructs like <a><div>...</div></a>.
+    try:
+        name = node.name
+    except AttributeError:
+        return False
+    if name in _NON_ELEMENT_NODE_NAMES:
+        return False
+    if name in SPECIAL_ELEMENTS:
+        return True
+    return _has_block_descendant(node, SPECIAL_ELEMENTS, None if memo is None else memo.special)
 
 
 _LAYOUT_BLOCK_ELEMENTS = {
@@ -609,7 +683,7 @@ _LAYOUT_BLOCK_ELEMENTS = {
 _FORMAT_SEP = object()
 
 
-def _is_layout_blocky_element(node: Any) -> bool:
+def _is_layout_blocky_element(node: Any, memo: _BlockMemo | None = None) -> bool:
     # Similar to _is_blocky_element(), but limited to actual layout blocks.
     # This avoids turning inline-ish "special" elements like <script> into
     # multiline pretty-print breaks in contexts like <p>.
@@ -617,33 +691,11 @@ def _is_layout_blocky_element(node: Any) -> bool:
         name = node.name
     except AttributeError:
         return False
-    if name in {"#text", "#comment", "!doctype"}:
+    if name in _NON_ELEMENT_NODE_NAMES:
         return False
     if name in _LAYOUT_BLOCK_ELEMENTS:
         return True
-
-    try:
-        children = node.children
-    except AttributeError:
-        return False
-    if not children:
-        return False
-
-    stack: list[Any] = list(children)
-    while stack:
-        child = stack.pop()
-        if child is None:
-            continue
-        child_name = child.name
-        if child_name in _LAYOUT_BLOCK_ELEMENTS:
-            return True
-        if child_name in {"#text", "#comment", "!doctype"}:
-            continue
-        grand_children = child.children
-        if grand_children:
-            stack.extend(grand_children)
-
-    return False
+    return _has_block_descendant(node, _LAYOUT_BLOCK_ELEMENTS, None if memo is None else memo.layout)
 
 
 def _pretty_renders_nonempty(node: Any, *, in_pre: bool) -> bool:
@@ -681,7 +733,7 @@ def _is_formatting_whitespace_text(data: str) -> bool:
     return len(data) > 2
 
 
-def _should_pretty_indent_children(children: list[Any]) -> bool:
+def _should_pretty_indent_children(children: list[Any], memo: _BlockMemo | None = None) -> bool:
     for child in children:
         if child is None:
             continue
@@ -698,15 +750,15 @@ def _should_pretty_indent_children(children: list[Any]) -> bool:
         return True
     if len(element_children) == 1:
         only_child = element_children[0]
-        if _is_blocky_element(only_child):
+        if _is_blocky_element(only_child, memo):
             return True
         return False
 
     # Safe indentation rule: only insert inter-element whitespace when we won't
     # be placing it between two adjacent inline/phrasing elements.
-    prev_is_blocky = _is_blocky_element(element_children[0])
+    prev_is_blocky = _is_blocky_element(element_children[0], memo)
     for child in element_children[1:]:
-        current_is_blocky = _is_blocky_element(child)
+        current_is_blocky = _is_blocky_element(child, memo)
         if not prev_is_blocky and not current_is_blocky:
             return False
         prev_is_blocky = current_is_blocky
@@ -758,6 +810,7 @@ def _html_fragment_to_string(fragment: _HTML_FRAGMENT) -> str:
 
 def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: bool) -> str:
     """Helper to convert a node to HTML using an explicit stack."""
+    memo = _BlockMemo()
     tasks: list[Any] = [("visit", node, indent, in_pre)]
     results: list[_HTML_FRAGMENT] = []
 
@@ -922,7 +975,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                             blocky_elements = [
                                 child
                                 for child in run
-                                if child.name not in {"#text", "#comment"} and _is_blocky_element(child)
+                                if child.name not in {"#text", "#comment"} and _is_blocky_element(child, memo)
                             ]
                             if blocky_elements and len(run) != 1:
                                 can_apply = False
@@ -970,14 +1023,14 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                             )
                             continue
 
-            if not _should_pretty_indent_children(children):
+            if not _should_pretty_indent_children(children, memo):
                 if name in SPECIAL_ELEMENTS:
                     has_comment = any(child is not None and child.name == "#comment" for child in children)
                     if not has_comment:
                         has_blocky_child = any(
                             child is not None
                             and child.name not in {"#text", "#comment"}
-                            and _is_layout_blocky_element(child)
+                            and _is_layout_blocky_element(child, memo)
                             for child in children
                         )
                         has_non_whitespace_text = any(
@@ -1028,7 +1081,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                                     inline_parts.append(("lit", _escape_text(_normalize_formatting_whitespace(data))))
                                     continue
 
-                                if _is_layout_blocky_element(child):
+                                if _is_layout_blocky_element(child, memo):
                                     flush_inline_parts()
                                     idx = len(child_specs)
                                     child_specs.append((child, current_indent + 1, False))

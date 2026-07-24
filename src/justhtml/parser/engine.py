@@ -190,6 +190,8 @@ _COMPILED_SIMPLE_END_EXCLUSIONS = (
 _HTML_VOID_ELEMENTS = VOID_ELEMENTS | {"basefont", "bgsound", "frame", "keygen"}
 _DEFINITION_SCOPE_BOUNDARIES = frozenset(DEFINITION_SCOPE_TERMINATORS)
 _LIST_ITEM_SCOPE_BOUNDARIES = frozenset(LIST_ITEM_SCOPE_TERMINATORS)
+# Special elements that stop the implied close of an open `li` before a new one.
+_LIST_ITEM_STOP_ELEMENTS = frozenset(SPECIAL_ELEMENTS) - {"address", "div", "p"}
 _PRE_LINEFEED_IGNORING_TAGS = {"listing", "pre"}
 _TABLE_CONTEXT_BOUNDARIES = frozenset({"table"})
 _GENERAL_END_TAG_BOUNDARIES = frozenset(SPECIAL_ELEMENTS) | _BUTTON_SCOPE_BOUNDARIES | _TABLE_CONTEXT_BOUNDARIES
@@ -700,16 +702,26 @@ class _FormattingEntry:
 
 
 class _FormattingSegment(dict[tuple[str, _FormattingSignature], list[_FormattingEntry]]):
-    """One marker-bounded Noah index, with one lazily indexed entry."""
+    """One marker-bounded Noah index, with one lazily indexed entry.
 
-    __slots__ = ("pending",)
+    `live_names` counts the segment's still-active entries by tag name. Lookups
+    for a formatting element search back to the nearest marker, so without it an
+    end tag naming an element that was never opened walks the whole segment, and
+    a run of such end tags is quadratic in the number of open formatting
+    elements. The counter is segment-scoped, so a marker push or pop carries it
+    without any separate bookkeeping.
+    """
+
+    __slots__ = ("live_names", "pending")
 
     def __init__(self) -> None:
         super().__init__()
         self.pending: _FormattingEntry | None = None
+        self.live_names: dict[str, int] = {}
 
     def clear(self) -> None:
         self.pending = None
+        self.live_names.clear()
         super().clear()
 
 
@@ -717,8 +729,37 @@ class _FormattingMarker:
     __slots__ = ()
 
 
+_HTML_INTEGRATION_ENCODINGS = {"application/xhtml+xml", "text/html"}
+_OPEN_HTML_NAMESPACES = frozenset({None, "html", _PARSER_ONLY_NAMESPACE})
+
+
+def _is_open_foreign_boundary(node: Node) -> bool:
+    """Report whether a foreign element terminates an HTML scope walk.
+
+    These are the integration points of §13.2.6.5. The answer depends only on
+    the namespace, the tag name, and (for `annotation-xml`) an attribute fixed
+    when the start tag was processed, so it is settled once as the element is
+    pushed rather than re-derived on each scope check.
+    """
+    namespace = node.namespace
+    name = node.name
+    if namespace == "math" and name == "annotation-xml":
+        # Checked ahead of the set below, which holds annotation-xml
+        # unconditionally: only an HTML or XHTML encoding makes it an
+        # integration point.
+        attrs = getattr(node, "attrs", None)
+        if not attrs:
+            return False
+        for attr_name, value in attrs.items():
+            if attr_name.lower() == "encoding":
+                return (value or "").lower() in _HTML_INTEGRATION_ENCODINGS
+        return False
+    key = (namespace, name)
+    return key in HTML_INTEGRATION_POINT_SET or (namespace == "math" and key in MATHML_TEXT_INTEGRATION_POINT_SET)
+
+
 _ACTIVE_FORMATTING_MARKER = cast("_FormattingEntry", _FormattingMarker())
-_STACK_COUNT_THRESHOLD = 32
+_STACK_INDEX_THRESHOLD = 32
 _UNWRAP_BATCH_THRESHOLD = 32
 
 
@@ -742,290 +783,452 @@ def _is_open_parser_only_template_node(node: Node) -> bool:
     return node.namespace == _PARSER_ONLY_NAMESPACE
 
 
-def _is_rendered_open_node(node: Node) -> bool:
-    return node.namespace != _PARSER_ONLY_NAMESPACE
-
-
 class _CountingStack(list[Node]):
-    """The open-elements stack, adaptively tracking the names it holds.
+    """The open-elements stack, indexed by tag name, namespace, and node identity.
 
-    Scope-check helpers like `_find_open_index_before_boundary` scan from the
-    top of this stack down to a boundary tag. Deeply nested elements that are
-    never themselves the target (e.g. many `<div>` while scanning for an open
-    `<p>`) would otherwise force an O(depth) scan on every single start tag,
-    making nested markup quadratic overall. Shallow stacks track the especially
-    common `p` lookup directly and scan at most 31 nodes for other names. At
-    the configured depth threshold, the stack permanently switches to per-name
-    counts and mutation-aware last-index caches. Stable positive and negative
-    lookups then remain constant-time across unrelated stack mutations.
+    Parser algorithms ask three things of this stack: where the last element
+    with a given name sits, whether that position is above or below a scope
+    boundary, and whether some node is on the stack at all. Answering any of
+    them by scanning makes deeply nested markup quadratic, because a token that
+    turns out to be out of scope is ignored, leaves the stack unchanged, and
+    lets the next identical token repeat the same walk.
 
-    Parser mutations either change a suffix or use the methods overridden
-    below. Suffix changes cannot move a retained node. Middle insertions and
-    removals shift cached indices in place, while mutations involving the
-    cached name advance its version. The identity check in `last_index_of` is
-    therefore a defensive repair for unexpected direct list mutation, not a
-    path parser input can repeatedly force.
+    A shallow stack is not at risk: a scan bounded by the depth threshold is a
+    constant, and real documents stay far below it. Such a stack therefore
+    carries no index at all, and the parser pushes onto it with `list.append`
+    directly, so ordinary parsing pays nothing for what only hostile nesting
+    needs. Once the depth threshold is reached the index is built and maintained
+    from then on, and every lookup becomes a position comparison:
+
+    - `_html_positions` and `_other_positions` map a tag name to the ascending
+      indices holding it, for HTML elements and for everything else. Names are
+      split by namespace because scope boundaries only count for HTML elements,
+      while the element a token seeks may be in any namespace.
+    - `_html_all`, `_foreign_all` and `_parser_only_all` hold the ascending
+      indices of each namespace group, locating the innermost element of a kind
+      without walking past the ones above it.
+    - `_boundaries` holds the ascending indices of foreign elements that
+      terminate an HTML scope walk, classified once on the way in.
+    - `_index_of` maps a node to its index, answering membership and position
+      queries about a specific node.
+
+    Pushes and pops maintain all of these in constant time, which covers nearly
+    every parser mutation, including the suffix truncation used to close a run
+    of elements. Insertions and removals in the middle renumber everything after
+    them and rebuild instead; the parser reaches those only for form association
+    and select repair.
     """
 
-    __slots__ = ("_last_index_cache", "_name_counts", "_name_versions", "_p_count", "_predicate_index_cache")
+    __slots__ = (
+        "_boundaries",
+        "_duplicated",
+        "_foreign_all",
+        "_html_all",
+        "_html_positions",
+        "_index_of",
+        "_indexed",
+        "_other_positions",
+        "_p_count",
+        "_parser_only_all",
+        "_tracked_length",
+    )
 
     def __init__(self, iterable: Iterable[Node] = ()) -> None:
         super().__init__(iterable)
-        self._last_index_cache: dict[tuple[str, Callable[[Node], bool] | None], tuple[int, Node | None, int]] = {}
-        self._name_versions: dict[str, int] = {}
-        self._predicate_index_cache: dict[Callable[[Node], bool], tuple[Node | None, int]] = {}
-        self._name_counts: dict[str, int] | None = None
-        if len(self) < _STACK_COUNT_THRESHOLD:
-            p_count = 0
-            for item in self:
-                p_count += item.name == "p"
-            self._p_count = p_count
-            return
-        counts = self._collect_name_counts()
-        self._name_counts = counts
-        self._p_count = counts.get("p", 0)
-
-    def _collect_name_counts(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
+        self._duplicated = False
+        self._indexed = False
+        p_count = 0
         for item in self:
-            counts[item.name] = counts.get(item.name, 0) + 1
-        return counts
+            if item.name == "p":
+                p_count += 1
+        self._p_count = p_count
+        if len(self) >= _STACK_INDEX_THRESHOLD:
+            self._build_index()
+
+    def _build_index(self) -> None:
+        html_positions: dict[str, list[int]] = {}
+        other_positions: dict[str, list[int]] = {}
+        index_of: dict[Node, int] = {}
+        html_all: list[int] = []
+        foreign_all: list[int] = []
+        parser_only_all: list[int] = []
+        boundaries: list[int] = []
+        for index, item in enumerate(self):
+            name = item.name
+            namespace = item.namespace
+            if namespace is None or namespace == "html":
+                positions = html_positions
+                html_all.append(index)
+            else:
+                positions = other_positions
+                if namespace == _PARSER_ONLY_NAMESPACE:
+                    parser_only_all.append(index)
+                else:
+                    foreign_all.append(index)
+                    if _is_open_foreign_boundary(item):
+                        boundaries.append(index)
+            bucket = positions.get(name)
+            if bucket is None:
+                positions[name] = [index]
+            else:
+                bucket.append(index)
+            if item in index_of:
+                self._duplicated = True
+            index_of[item] = index
+        self._html_positions = html_positions
+        self._other_positions = other_positions
+        self._index_of = index_of
+        self._html_all = html_all
+        self._foreign_all = foreign_all
+        self._parser_only_all = parser_only_all
+        self._boundaries = boundaries
+        self._tracked_length = len(self)
+        self._indexed = True
+
+    def _note_top(self, item: Node, index: int) -> None:
+        name = item.name
+        namespace = item.namespace
+        if namespace is None or namespace == "html":
+            positions = self._html_positions
+            self._html_all.append(index)
+        else:
+            positions = self._other_positions
+            if namespace == _PARSER_ONLY_NAMESPACE:
+                self._parser_only_all.append(index)
+            else:
+                self._foreign_all.append(index)
+                if _is_open_foreign_boundary(item):
+                    self._boundaries.append(index)
+        bucket = positions.get(name)
+        if bucket is None:
+            positions[name] = [index]
+        else:
+            bucket.append(index)
+        index_of = self._index_of
+        index_of[item] = index
+        self._tracked_length = index + 1
+        if len(index_of) != index + 1:
+            # A node held twice would make a single recorded index ambiguous.
+            # The parser is not expected to do this; if it ever does, fall back
+            # to list semantics rather than answer from a partial record.
+            self._duplicated = True
+
+    def _forget_top(self, item: Node, index: int) -> None:
+        name = item.name
+        namespace = item.namespace
+        if namespace is None or namespace == "html":
+            positions = self._html_positions
+            self._html_all.pop()
+        else:
+            positions = self._other_positions
+            if namespace == _PARSER_ONLY_NAMESPACE:
+                self._parser_only_all.pop()
+            else:
+                self._foreign_all.pop()
+                boundaries = self._boundaries
+                if boundaries and boundaries[-1] == index:
+                    boundaries.pop()
+        bucket = positions.get(name)
+        if bucket is not None:  # pragma: no branch - the popped node is recorded under its own name
+            bucket.pop()
+            if not bucket:
+                del positions[name]
+        if self._index_of.get(item) == index:  # pragma: no branch - the top node is recorded at its own index
+            del self._index_of[item]
+        self._tracked_length = index
+
+    def _ensure_current(self) -> None:
+        if len(self) != self._tracked_length:  # pragma: no cover - guards direct list mutation
+            # Something mutated the underlying list without going through this
+            # class; rebuild so answers stay exact rather than merely cached.
+            self._build_index()
+
+    # -- queries ---------------------------------------------------------
 
     def count_of(self, name: str) -> int:
         if name == "p":
             return self._p_count
-        counts = self._name_counts
-        if counts is not None:
-            return counts.get(name, 0)
-        count = 0
-        for item in self:
-            count += item.name == name
-        return count
+        if not self._indexed:
+            count = 0
+            for item in self:
+                count += item.name == name
+            return count
+        html = self._html_positions.get(name)
+        other = self._other_positions.get(name)
+        return (len(html) if html is not None else 0) + (len(other) if other is not None else 0)
+
+    def has_foreign_open(self) -> bool:
+        """Report whether any element is in a foreign namespace."""
+        if not self._indexed:
+            for item in self:
+                if item.namespace not in _OPEN_HTML_NAMESPACES:
+                    return True
+            return False
+        return bool(self._foreign_all)
 
     def last_index_of(self, name: str, predicate: Callable[[Node], bool] | None = None) -> int | None:
-        """Return the last matching open-element index, caching stable positions."""
-        counts = self._name_counts
-        if counts is None:
+        """Return the last open-element index holding `name`, or None.
+
+        Index 0 is the document root and is never a match, matching the reverse
+        scans this replaces.
+        """
+        if not self._indexed:
             for index in range(len(self) - 1, 0, -1):
                 node = self[index]
                 if node.name == name and (predicate is None or predicate(node)):
                     return index
             return None
-
-        versions = self._name_versions
-        version = versions.setdefault(name, 0)
-        key = (name, predicate)
-        cached = self._last_index_cache.get(key)
-        if cached is not None and cached[0] == version:
-            cached_node = cached[1]
-            index = cached[2]
-            if cached_node is None:
-                return None
-            if index < len(self) and self[index] is cached_node:
-                return index
-
-        if counts.get(name, 0) == 0:
-            self._last_index_cache[key] = (version, None, -1)
+        self._ensure_current()
+        html = self._html_positions.get(name)
+        other = self._other_positions.get(name)
+        if html is None and other is None:
             return None
-        for index in range(len(self) - 1, 0, -1):
-            node = self[index]
-            if node.name == name and (predicate is None or predicate(node)):
-                self._last_index_cache[key] = (version, node, index)
+        if predicate is None:
+            index = max(html[-1] if html else 0, other[-1] if other else 0)
+            return index or None
+        # Walk both namespace groups in descending order without materializing
+        # a merged list; the first match usually comes from the top.
+        left = len(html) - 1 if html else -1
+        right = len(other) - 1 if other else -1
+        while left >= 0 or right >= 0:
+            if right < 0 or (left >= 0 and html[left] > other[right]):  # type: ignore[index]
+                index = html[left]  # type: ignore[index]
+                left -= 1
+            else:
+                index = other[right]  # type: ignore[index]
+                right -= 1
+            if not index:
+                break
+            if predicate(self[index]):
                 return index
-        self._last_index_cache[key] = (version, None, -1)
         return None
 
-    def last_index_matching(self, predicate: Callable[[Node], bool]) -> int | None:
-        """Return the last predicate match, caching it across parser mutations."""
-        if self._name_counts is None:
+    def last_html_index_of_any(self, names: Collection[str]) -> int:
+        """Return the highest index of an HTML element named in `names`, or -1.
+
+        Scope boundaries are given as a set of tag names, sometimes a large one.
+        Iterating whichever side is smaller keeps the cost tied to the variety
+        of names actually on the stack, which stays small even when it is deep.
+        """
+        if not self._indexed:
             for index in range(len(self) - 1, 0, -1):
-                if predicate(self[index]):
+                node = self[index]
+                if node.namespace in {None, "html"} and node.name in names:
+                    return index
+            return -1
+        self._ensure_current()
+        positions = self._html_positions
+        best = -1
+        if len(positions) < len(names):
+            for name, bucket in positions.items():
+                if bucket[-1] > best and name in names:
+                    best = bucket[-1]
+        else:
+            for name in names:
+                found = positions.get(name)
+                if found is not None and found[-1] > best:
+                    best = found[-1]
+        return best
+
+    def last_index_of_any(self, names: Collection[str]) -> int | None:
+        """Return the highest index holding any of `names`, in any namespace."""
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                if self[index].name in names:
                     return index
             return None
+        best = self.last_html_index_of_any(names)
+        other = self._other_positions
+        if other:
+            if len(other) < len(names):
+                for name, bucket in other.items():
+                    if bucket[-1] > best and name in names:
+                        best = bucket[-1]
+            else:
+                for name in names:
+                    found = other.get(name)
+                    if found is not None and found[-1] > best:
+                        best = found[-1]
+        return best if best > 0 else None
 
-        cached = self._predicate_index_cache.get(predicate)
-        if cached is not None:
-            node, index = cached
-            if node is None:
+    def last_scope_index_of_any(self, names: Collection[str]) -> int:
+        """Like `last_html_index_of_any`, also counting parser-only templates."""
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                node = self[index]
+                if node.namespace in _OPEN_HTML_NAMESPACES and node.name in names:
+                    return index
+            return -1
+        best = self.last_html_index_of_any(names)
+        parser_only = self._parser_only_all
+        if parser_only and parser_only[-1] > best and self[parser_only[-1]].name in names:
+            best = parser_only[-1]
+        return best
+
+    def last_scope_boundary_index(self, names: Collection[str]) -> int:
+        """Return the nearest scope boundary: an HTML element named in `names`,
+        or a foreign integration point. -1 when neither is open."""
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                node = self[index]
+                if node.namespace in {None, "html"}:
+                    if node.name in names:
+                        return index
+                elif _is_open_foreign_boundary(node):
+                    return index
+            return -1
+        boundary = self.last_html_index_of_any(names)
+        foreign = self.last_foreign_boundary_index()
+        return max(boundary, foreign)
+
+    def last_foreign_boundary_index(self) -> int:
+        """Return the highest index of a foreign element that ends a scope walk, or -1."""
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                node = self[index]
+                if node.namespace not in _OPEN_HTML_NAMESPACES and _is_open_foreign_boundary(node):
+                    return index
+            return -1
+        self._ensure_current()
+        boundaries = self._boundaries
+        return boundaries[-1] if boundaries else -1
+
+    def last_html_index(self) -> int:
+        """Return the highest index of an HTML element above the root, or -1."""
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                if self[index].namespace in {None, "html"}:
+                    return index
+            return -1
+        self._ensure_current()
+        html_all = self._html_all
+        index = html_all[-1] if html_all else -1
+        return index if index > 0 else -1
+
+    def last_rendered_index(self) -> int | None:
+        """Return the index of the innermost node that is not a parser-only marker."""
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                if self[index].namespace != _PARSER_ONLY_NAMESPACE:
+                    return index
+            return None
+        self._ensure_current()
+        html_all = self._html_all
+        foreign_all = self._foreign_all
+        index = max(html_all[-1] if html_all else 0, foreign_all[-1] if foreign_all else 0)
+        return index or None
+
+    def index_of_node(self, item: Node) -> int | None:
+        if not self._indexed or self._duplicated:
+            try:
+                return list.index(self, item)
+            except ValueError:
                 return None
-            if index < len(self) and self[index] is node:
-                return index
+        self._ensure_current()
+        return self._index_of.get(item)
 
-        for index in range(len(self) - 1, 0, -1):
-            node = self[index]
-            if predicate(node):
-                self._predicate_index_cache[predicate] = (node, index)
-                return index
-        self._predicate_index_cache[predicate] = (None, -1)
-        return None
+    def __contains__(self, item: object) -> bool:
+        if not self._indexed or self._duplicated:
+            return list.__contains__(self, item)
+        self._ensure_current()
+        return item in self._index_of
 
-    def discard_predicate_cache(self, predicate: Callable[[Node], bool]) -> None:
-        self._predicate_index_cache.pop(predicate, None)
-
-    def _mark_name_changed(self, name: str) -> None:
-        versions = self._name_versions
-        if name in versions:
-            versions[name] += 1
-
-    def _shift_cached_indices_for_insert(self, index: int) -> None:
-        for key, (version, node, cached_index) in self._last_index_cache.items():
-            if node is not None and cached_index >= index:
-                self._last_index_cache[key] = (version, node, cached_index + 1)
-        for predicate, (node, cached_index) in self._predicate_index_cache.items():
-            if node is not None and cached_index >= index:
-                self._predicate_index_cache[predicate] = (node, cached_index + 1)
-
-    def _shift_cached_indices_for_removals(self, indices: list[int]) -> None:
-        if not indices:
-            return
-        first = indices[0]
-        for key, (version, node, cached_index) in self._last_index_cache.items():
-            if node is not None and cached_index > first:
-                self._last_index_cache[key] = (
-                    version,
-                    node,
-                    cached_index - bisect_right(indices, cached_index),
-                )
-        for predicate, (node, cached_index) in self._predicate_index_cache.items():
-            if node is not None and cached_index > first:
-                self._predicate_index_cache[predicate] = (
-                    node,
-                    cached_index - bisect_right(indices, cached_index),
-                )
-
-    def _update_predicate_caches_for_insert(self, index: int, item: Node) -> None:
-        for predicate, (node, cached_index) in self._predicate_index_cache.items():
-            if predicate(item) and (node is None or index > cached_index):
-                self._predicate_index_cache[predicate] = (item, index)
-
-    def _update_predicate_caches_for_replacement(self, index: int, previous: Node, item: Node) -> None:
-        for predicate, (node, cached_index) in list(self._predicate_index_cache.items()):
-            if node is previous:
-                if predicate(item):
-                    self._predicate_index_cache[predicate] = (item, index)
-                else:
-                    del self._predicate_index_cache[predicate]
-            elif predicate(item) and (node is None or index > cached_index):
-                self._predicate_index_cache[predicate] = (item, index)
-
-    def _invalidate_removed_predicate_matches(self, removed: list[Node]) -> None:
-        for predicate, (node, _) in list(self._predicate_index_cache.items()):
-            if node is not None and any(node is item for item in removed):
-                del self._predicate_index_cache[predicate]
+    # -- mutations -------------------------------------------------------
 
     def append(self, item: Node) -> None:  # type: ignore[override]
         index = len(self)
         list.append(self, item)
-        if self._predicate_index_cache:
-            self._update_predicate_caches_for_insert(index, item)
-        name = item.name
-        self._mark_name_changed(name)
-        if name == "p":
+        if item.name == "p":
             self._p_count += 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] = counts.get(name, 0) + 1
-        elif len(self) >= _STACK_COUNT_THRESHOLD:
-            self._name_counts = self._collect_name_counts()
+        if self._indexed:
+            self._note_top(item, index)
+        elif index + 1 >= _STACK_INDEX_THRESHOLD:
+            self._build_index()
 
     def insert(self, index: SupportsIndex, item: Node) -> None:  # type: ignore[override]
         length = len(self)
         raw_index = index.__index__()
         normalized_index = max(0, min(raw_index if raw_index >= 0 else length + raw_index, length))
         list.insert(self, index, item)
-        if normalized_index < length:
-            self._shift_cached_indices_for_insert(normalized_index)
-        if self._predicate_index_cache:
-            self._update_predicate_caches_for_insert(normalized_index, item)
-        name = item.name
-        self._mark_name_changed(name)
-        if name == "p":
+        if item.name == "p":
             self._p_count += 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] = counts.get(name, 0) + 1
-        elif len(self) >= _STACK_COUNT_THRESHOLD:
-            self._name_counts = self._collect_name_counts()
+        if not self._indexed:
+            if len(self) >= _STACK_INDEX_THRESHOLD:
+                self._build_index()
+        elif normalized_index == length:
+            self._note_top(item, normalized_index)
+        else:
+            self._build_index()
 
     def __setitem__(self, key: SupportsIndex, item: Node) -> None:  # type: ignore[override]
-        raw_index = key.__index__()
-        normalized_index = raw_index if raw_index >= 0 else len(self) + raw_index
-        previous = self[key]
-        previous_name = previous.name
-        name = item.name
+        previous_name = self[key].name
         list.__setitem__(self, key, item)
-        if self._predicate_index_cache:
-            self._update_predicate_caches_for_replacement(normalized_index, previous, item)
-        self._mark_name_changed(previous_name)
-        if name != previous_name:
-            self._mark_name_changed(name)
-        if previous_name == name:
-            return
-        if previous_name == "p":
-            self._p_count -= 1
-        if name == "p":
-            self._p_count += 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[previous_name] -= 1
-            counts[name] = counts.get(name, 0) + 1
+        if previous_name != item.name:
+            if previous_name == "p":
+                self._p_count -= 1
+            if item.name == "p":
+                self._p_count += 1
+        if self._indexed:
+            self._build_index()
 
     def pop(self, index: int = -1) -> Node:  # type: ignore[override]
-        length = len(self)
-        normalized_index = index if index >= 0 else length + index
-        item = list.pop(self, index)
-        if self._predicate_index_cache:
-            self._invalidate_removed_predicate_matches([item])
-        if normalized_index < length - 1:
-            self._shift_cached_indices_for_removals([normalized_index])
-        name = item.name
-        self._mark_name_changed(name)
-        if name == "p":
+        if index != -1 and index != len(self) - 1:
+            item = list.pop(self, index)
+            if item.name == "p":
+                self._p_count -= 1
+            if self._indexed:
+                self._build_index()
+            return item
+        item = list.pop(self)
+        if item.name == "p":
             self._p_count -= 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] -= 1
+        if self._indexed:
+            self._forget_top(item, len(self))
         return item
 
     def remove(self, item: Node) -> None:  # type: ignore[override]
         index = list.index(self, item)
-        removed = list.pop(self, index)
-        if self._predicate_index_cache:
-            self._invalidate_removed_predicate_matches([removed])
-        if index < len(self):
-            self._shift_cached_indices_for_removals([index])
-        name = removed.name
-        self._mark_name_changed(name)
-        if name == "p":
+        list.__delitem__(self, index)
+        if item.name == "p":
             self._p_count -= 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] -= 1
+        if not self._indexed:
+            return
+        if index == len(self):
+            self._forget_top(item, index)
+        else:
+            self._build_index()
 
     def __delitem__(self, key: SupportsIndex | slice) -> None:
         if isinstance(key, slice):
-            indices = sorted(range(len(self))[key])
-            removed = list.__getitem__(self, key)
-        else:
-            raw_index = key.__index__()
-            normalized_index = raw_index if raw_index >= 0 else len(self) + raw_index
-            indices = [normalized_index]
-            removed = [list.__getitem__(self, key)]
+            start, stop, step = key.indices(len(self))
+            if step == 1 and stop >= len(self):
+                # Closing a run of open elements: the parser's usual bulk move.
+                while len(self) > start:
+                    item = list.pop(self)
+                    if item.name == "p":
+                        self._p_count -= 1
+                    if self._indexed:
+                        self._forget_top(item, len(self))
+                return
+            for item in list.__getitem__(self, key):
+                if item.name == "p":
+                    self._p_count -= 1
+            list.__delitem__(self, key)
+            if self._indexed:
+                self._build_index()
+            return
+        raw_index = key.__index__()
+        normalized_index = raw_index if raw_index >= 0 else len(self) + raw_index
+        item = list.__getitem__(self, normalized_index)
         list.__delitem__(self, key)
-        if self._predicate_index_cache:
-            self._invalidate_removed_predicate_matches(removed)
-        if indices and indices[0] < len(self):
-            self._shift_cached_indices_for_removals(indices)
-        p_count = self._p_count
-        counts = self._name_counts
-        for item in removed:
-            name = item.name
-            self._mark_name_changed(name)
-            if name == "p":
-                p_count -= 1
-            if counts is not None:
-                counts[name] -= 1
-        self._p_count = p_count
+        if item.name == "p":
+            self._p_count -= 1
+        if not self._indexed:
+            return
+        if normalized_index == len(self):
+            self._forget_top(item, normalized_index)
+        else:
+            self._build_index()
 
 
 class ParseEngine:
@@ -1037,10 +1240,13 @@ class ParseEngine:
         "_after_document_mode",
         "_after_head",
         "_allowed_tags",
+        "_annotation_xml_integration",
         "_body",
         "_body_explicit",
         "_body_mode_seen",
+        "_close_tag_scan",
         "_doc",
+        "_doc_html_index",
         "_drop_comments",
         "_drop_content_tags",
         "_drop_doctype",
@@ -1066,6 +1272,7 @@ class ParseEngine:
         "_head",
         "_head_reentry",
         "_html",
+        "_html_anchor_index",
         "_html_input",
         "_iframe_srcdoc",
         "_ignore_lf",
@@ -1174,6 +1381,14 @@ class ParseEngine:
         self._quirks_mode = "no-quirks" if fragment else None
         self._body_explicit = False
         self._body_mode_seen = False
+        # Validated position caches for the document shell. Misc nodes (comments,
+        # processing instructions, doctypes) are placed relative to the same few
+        # anchors over and over, so each is remembered and re-derived only when
+        # the recorded position no longer holds the node it was taken from.
+        self._doc_html_index = -1
+        self._html_anchor_index: tuple[Node | None, int] = (None, -1)
+        self._close_tag_scan: dict[str, tuple[int, int]] = {}
+        self._annotation_xml_integration: dict[Node, bool] = {}
         self._html: Element | None = None
         self._head: Element | None = None
         self._body: Element | DocumentFragment
@@ -1272,36 +1487,33 @@ class ParseEngine:
         if name in {"br", "p"}:
             return False
 
-        adjusted_name = SVG_TAG_NAME_ADJUSTMENTS.get(name, name)
-        if (
-            stack._name_counts is not None
-            and stack.count_of(name) == 0
-            and (adjusted_name == name or stack.count_of(adjusted_name) == 0)
-        ):
-            return True
+        # §13.2.6.5 walks down from the top looking for a matching element, and
+        # stops at the first HTML one. Both ends of that range are recorded, so
+        # a token that finds nothing costs no more than a token that does --
+        # otherwise every unmatched end tag would rescan the whole foreign
+        # suffix, which is quadratic under deep foreign nesting.
+        target_index = self._matching_end_name_index(name)
+        html_index = stack.last_html_index()
+        if target_index is None or target_index < html_index:
+            # The walk stops at the innermost HTML element, or runs off the
+            # bottom when the whole stack above the root is foreign.
+            return html_index < 0
 
-        crossed_integration_point = False
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            if self._node_matches_end_name(node, name):
-                if node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE} and crossed_integration_point:
-                    return True
-                if self._fragment_context_node is not None and node is self._fragment_context_node:
-                    return True
-                if node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
-                    # The foreign-content walk reached a matching HTML element
-                    # (§13.2.6.5 steps 6-7): hand the token to the HTML end-tag
-                    # rules, which may splice a form or run adoption, rather than
-                    # popping the foreign elements sitting above it.
-                    return False
-                if self._track_tag_spans:
-                    self._set_end_span(node, name, tag_start, tag_end)
-                del stack[idx:]
-                return True
-            if self._is_html_integration_point(node) or self._is_mathml_text_integration_point(node):
-                crossed_integration_point = True
-            if node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
-                return False
+        node = stack[target_index]
+        node_is_html = node.namespace in _OPEN_HTML_NAMESPACES
+        if node_is_html and stack.last_foreign_boundary_index() > target_index:
+            return True
+        if self._fragment_context_node is not None and node is self._fragment_context_node:
+            return True
+        if node_is_html:
+            # The foreign-content walk reached a matching HTML element
+            # (§13.2.6.5 steps 6-7): hand the token to the HTML end-tag
+            # rules, which may splice a form or run adoption, rather than
+            # popping the foreign elements sitting above it.
+            return False
+        if self._track_tag_spans:
+            self._set_end_span(node, name, tag_start, tag_end)
+        del stack[target_index:]
         return True
 
     def _emit_error(
@@ -1635,10 +1847,48 @@ class ParseEngine:
             return f"{target} {data}"
         return f"{target} "
 
+    def _insert_before_document_root(self, node: Node) -> None:
+        """Place a misc node ahead of the `html` element, or last if there is none.
+
+        The root's index is remembered rather than rediscovered: each node
+        inserted here lands before it and shifts it right by one, so a run of
+        pre-root comments would otherwise rescan a list it is itself growing.
+        The cached index is checked against the list before use, so any other
+        mutation of the document's children simply costs one rescan.
+        """
+        children: list[Any] = self._doc.children  # type: ignore[assignment]
+        insert_at = self._doc_html_index
+        if not (0 <= insert_at < len(children) and children[insert_at].name == "html"):
+            insert_at = next((index for index, child in enumerate(children) if child.name == "html"), len(children))
+        found_root = insert_at < len(children)
+        children.insert(insert_at, node)
+        node.parent = self._doc
+        self._doc_html_index = insert_at + 1 if found_root else -1
+
+    def _last_close_tag_start(self, marker: str, source_pos: int) -> int:
+        """Return the last `marker` occurrence before `source_pos`, scanning each byte once.
+
+        Misc nodes after the document arrive in source order, so the answer for
+        one is the answer for the previous unless the gap between them holds a
+        newer occurrence. Only that gap is searched, which keeps a long run of
+        trailing comments linear instead of re-scanning the whole input each
+        time. The window overlaps the previous end so a marker straddling the
+        boundary is still found.
+        """
+        scanned_to, best = self._close_tag_scan.get(marker, (0, -1))
+        if source_pos <= scanned_to:  # pragma: no cover - misc nodes are appended in source order
+            return _scanner.ascii_rfind(self._html_input, marker, 0, source_pos)
+        window_start = max(0, scanned_to - len(marker) + 1)
+        found = _scanner.ascii_rfind(self._html_input, marker, window_start, source_pos)
+        if found != -1:
+            best = found
+        self._close_tag_scan[marker] = (source_pos, best)
+        return best
+
     def _append_misc_node(self, node: Node, source_pos: int | None = None) -> None:
         if self._after_document_mode and source_pos is not None:
             marker = "</html" if self._after_document_mode == _AFTER_HTML else "</body"
-            close_start = _scanner.ascii_rfind(self._html_input, marker, 0, source_pos)
+            close_start = self._last_close_tag_start(marker, source_pos)
             close_end = self._html_input.find(">", close_start, source_pos) if close_start != -1 else -1
             trailing = self._html_input[close_end + 1 : source_pos] if close_end != -1 else ""
             if trailing and "<" not in trailing and trailing.strip(_SPACE):
@@ -1675,12 +1925,7 @@ class ParseEngine:
                 and self._current_parent() is self._body
             )
         ):
-            children: list[Any] = self._doc.children  # type: ignore[assignment]
-            insert_at = 0
-            while insert_at < len(children) and children[insert_at].name != "html":
-                insert_at += 1
-            children.insert(insert_at, node)
-            node.parent = self._doc
+            self._insert_before_document_root(node)
             return
         if (
             not self._fragment
@@ -1690,14 +1935,24 @@ class ParseEngine:
             and not self._body_has_content()
             and self._current_parent() in {self._body, self._html}
         ):
-            children = self._html.children
+            children: list[Any] = self._html.children  # type: ignore[assignment]
             anchor = self._body if self._after_head or self._explicit_head else self._head
-            try:
-                insert_at = children.index(anchor)
-            except ValueError:  # pragma: no cover - shell anchor is owned by html
-                insert_at = len(children)
+            cached_anchor, cached_index = self._html_anchor_index
+            if cached_anchor is anchor and 0 <= cached_index < len(children) and children[cached_index] is anchor:
+                insert_at = cached_index
+                found = True
+            else:
+                try:
+                    insert_at = children.index(anchor)
+                except ValueError:  # pragma: no cover - shell anchor is owned by html
+                    insert_at = len(children)
+                    found = False
+                else:
+                    found = True
             children.insert(insert_at, node)
             node.parent = self._html
+            # The anchor shifted right by the node just inserted before it.
+            self._html_anchor_index = (anchor, insert_at + 1) if found else (None, -1)
             return
         self._append(self._current_parent(), node)
 
@@ -1720,7 +1975,7 @@ class ParseEngine:
         stack = self._stack
         current = stack[-1]
         if current.namespace == _PARSER_ONLY_NAMESPACE:
-            index = stack.last_index_matching(_is_rendered_open_node)
+            index = stack.last_rendered_index()
             if index is not None:  # pragma: no branch - parser-only markers are pushed above a rendered context
                 current = stack[index]
         if type(current) is Template and current.template_content is not None:
@@ -1804,7 +2059,6 @@ class ParseEngine:
             self._parser_only_template_depth -= 1
             if not self._parser_only_template_depth:
                 self._mode_flags &= ~_MODE_PARSER_TEMPLATE
-                self._stack.discard_predicate_cache(_is_rendered_open_node)
         if self._template_modes:  # pragma: no branch - opposite edge requires invalid parser state
             self._template_modes.pop()
             if not self._template_modes:
@@ -2373,17 +2627,11 @@ class ParseEngine:
         return end if gt == -1 else gt + 1
 
     def _prepend_doctype(self, doctype: Doctype) -> None:
-        children: list[Any] = self._doc.children  # type: ignore[assignment]
-        node = Node("!doctype", data=doctype)
-        insert_at = 0
-        while insert_at < len(children) and children[insert_at].name != "html":
-            insert_at += 1
-        children.insert(insert_at, node)
-        node.parent = self._doc
+        self._insert_before_document_root(Node("!doctype", data=doctype))
 
     def _parse_compiled_safe_end_tag(self, pos: int, end: int) -> int:
         if self._foreign_context_seen:
-            if any(node.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} for node in self._stack[1:]):
+            if self._stack.has_foreign_open():
                 return self._parse_end_tag(pos, end)
             self._foreign_context_seen = False
         html = self._html_input
@@ -2424,12 +2672,12 @@ class ParseEngine:
             and stack[-1].name == name
             and stack[-1] is not self._fragment_context_node
         ):
-            if stack._name_counts is None:
+            if stack._indexed:
+                stack.pop()
+            else:
                 list.pop(stack)
                 if name == "p":
                     stack._p_count -= 1
-            else:
-                stack.pop()
             return pos
 
         if (
@@ -2448,10 +2696,12 @@ class ParseEngine:
                     and entry.name == name
                     and stack[-1] is entry.node
                 ):
-                    if stack._name_counts is None:
-                        list.pop(stack)
-                    else:
+                    if stack._indexed:
                         stack.pop()
+                    else:
+                        list.pop(stack)
+                        if name == "p":  # pragma: no cover - `p` is not an active-formatting name
+                            stack._p_count -= 1
                     self._retire_active_formatting_entry(entry)
                     return pos
 
@@ -2540,10 +2790,7 @@ class ParseEngine:
             if idx is None:
                 return pos
             self._mark_active_formatting_dirty()
-            if stack._name_counts is None and not stack._p_count:
-                list.__delitem__(stack, slice(idx, None))
-            else:
-                del stack[idx:]
+            del stack[idx:]
             return pos
         if action is not None and action.active_formatting:
             self._adoption_agency(name)
@@ -2556,12 +2803,12 @@ class ParseEngine:
         ):
             if name in _TABLE_CELL_TAGS or name in _ACTIVE_FORMATTING_MARKER_TAGS:
                 self._clear_active_formatting_to_marker()
-            if stack._name_counts is None:
+            if stack._indexed:
+                stack.pop()
+            else:
                 list.pop(stack)
                 if name == "p":
                     stack._p_count -= 1
-            else:
-                stack.pop()
             return pos
 
         if name == "p":
@@ -2608,10 +2855,7 @@ class ParseEngine:
             self._clear_active_formatting_to_marker()
         elif name in _ACTIVE_FORMATTING_MARKER_TAGS:  # pragma: no branch - opposite edge requires invalid parser state
             self._clear_active_formatting_to_marker()  # pragma: no cover - unreachable after parser-state guards
-        if stack._name_counts is None and not stack._p_count:
-            list.__delitem__(stack, slice(idx, None))
-        else:
-            del stack[idx:]
+        del stack[idx:]
         return pos
 
     def _parse_end_tag(self, pos: int, end: int) -> int:
@@ -2856,13 +3100,11 @@ class ParseEngine:
                 if isinstance(
                     entry, _FormattingEntry
                 ):  # pragma: no branch - opposite edge requires invalid parser state
-                    try:
-                        if (
-                            self._stack.index(entry.node) < select_idx
-                        ):  # pragma: no branch - opposite edge requires invalid parser state
-                            return pos  # pragma: no cover - unreachable after parser-state guards
-                    except ValueError:  # pragma: no cover - unreachable after parser-state guards
-                        pass  # pragma: no cover - unreachable after parser-state guards
+                    entry_index = self._stack.index_of_node(entry.node)
+                    if (
+                        entry_index is not None and entry_index < select_idx
+                    ):  # pragma: no branch - opposite edge requires invalid parser state
+                        return pos  # pragma: no cover - unreachable after parser-state guards
             self._adoption_agency(name, tag_start=tag_start, tag_end=tag_end)
             return pos
 
@@ -3098,7 +3340,7 @@ class ParseEngine:
             current_parent.children.append(node)  # type: ignore[union-attr]
             node.parent = current_parent
             if not is_void:
-                if name == "p" or stack._name_counts is not None or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
+                if name == "p" or stack._indexed or len(stack) >= _STACK_INDEX_THRESHOLD - 1:
                     stack.append(node)
                 else:
                     list.append(stack, node)
@@ -3292,6 +3534,8 @@ class ParseEngine:
                         self._nodes_to_unwrap.append(node)
                     entry = _FormattingEntry(name, node.attrs, node, None, entries)
                     self._active_formatting.append(entry)
+                    live = entries.live_names
+                    live[name] = live.get(name, 0) + 1
                     entries.pending = entry
                     return pos
             return self._parse_formatting_start(name, attrs, pos, compiled_safe=True)
@@ -3796,7 +4040,7 @@ class ParseEngine:
             and name in {"td", "th", "tr"}
             and self._find_open_index("table") is None
             and self._stack[-1].namespace in {None, "html", _PARSER_ONLY_NAMESPACE}
-            and any(node.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} for node in self._stack[1:])
+            and self._stack.has_foreign_open()
         ):
             self._mark_active_formatting_dirty()
             if (
@@ -3967,7 +4211,7 @@ class ParseEngine:
             self._insert_at(foster_parent, position, node)
         if not is_void:
             stack = self._stack
-            if name == "p" or stack._name_counts is not None or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
+            if name == "p" or stack._indexed or len(stack) >= _STACK_INDEX_THRESHOLD - 1:
                 stack.append(node)
             else:
                 list.append(stack, node)
@@ -4208,8 +4452,16 @@ class ParseEngine:
 
     def _is_html_integration_point(self, node: Node) -> bool:
         if node.namespace == "math" and node.name == "annotation-xml":
-            encoding = self._node_attr_value(node, "encoding")
-            return encoding is not None and encoding.lower() in {"application/xhtml+xml", "text/html"}
+            # The encoding attribute is fixed once the start tag is processed,
+            # but this is consulted for every token while the element stays
+            # open. Without the memo the case-insensitive attribute sweep costs
+            # attributes times children.
+            cached = self._annotation_xml_integration.get(node)
+            if cached is None:
+                encoding = self._node_attr_value(node, "encoding")
+                cached = encoding is not None and encoding.lower() in _HTML_INTEGRATION_ENCODINGS
+                self._annotation_xml_integration[node] = cached
+            return cached
         return (node.namespace, node.name) in HTML_INTEGRATION_POINT_SET
 
     def _is_mathml_text_integration_point(self, node: Node) -> bool:
@@ -4264,51 +4516,72 @@ class ParseEngine:
 
     def _last_open_index_of_any(self, names: Collection[str]) -> int | None:
         stack = self._stack
-        if isinstance(stack, _CountingStack) and stack._name_counts is not None:
-            return max((index for name in names if (index := stack.last_index_of(name)) is not None), default=None)
+        if isinstance(stack, _CountingStack) and stack._indexed:
+            return stack.last_index_of_any(names)
         for index in range(len(stack) - 1, 0, -1):
             if stack[index].name in names:
                 return index
         return None
 
-    def _find_open_special_end_index(self, name: str) -> int | None:
+    def _matching_end_name_index(self, name: str) -> int | None:
+        """Return the innermost open element an end tag named `name` closes.
+
+        A foreign element matches case-insensitively, which for SVG means the
+        adjusted spelling of the same name.
+        """
         stack = self._stack
+        index = stack.last_index_of(name)
         adjusted_name = SVG_TAG_NAME_ADJUSTMENTS.get(name, name)
-        if (
-            stack._name_counts is not None
-            and stack.count_of(name) == 0
-            and (adjusted_name == name or stack.count_of(adjusted_name) == 0)
-        ):
+        if adjusted_name != name:
+            # Only foreign elements carry an adjusted spelling, so a node found
+            # under it needs no namespace re-check.
+            adjusted_index = stack.last_index_of(adjusted_name)
+            if adjusted_index is not None and (index is None or adjusted_index > index):
+                index = adjusted_index
+        return index
+
+    def _find_open_special_end_index(self, name: str) -> int | None:
+        # The walk this replaces stops at the first special element, and tests
+        # the end-tag name before that, so the target wins a tie at one index.
+        target_index = self._matching_end_name_index(name)
+        if target_index is None:
             return None
-        for index in range(len(stack) - 1, 0, -1):
-            candidate = stack[index]
-            if self._node_matches_end_name(candidate, name):
-                return index
-            if self._is_special_node(candidate):
-                return None
-        return None
+        boundary_index = self._stack.last_html_index_of_any(SPECIAL_ELEMENTS)
+        return target_index if target_index >= boundary_index else None
 
     def _find_open_index_before_boundary(self, name: str, boundaries: frozenset[str]) -> int | None:
+        """Return the innermost open `name`, or None when a scope boundary is nearer.
+
+        This is the scope check of §13.2.4.2. Rather than walk down from the top
+        -- which repeats in full for every token whose target sits below a
+        boundary, and so is quadratic on deeply nested markup -- it compares the
+        target's recorded position against the nearest boundary's. A boundary is
+        either an HTML element named in `boundaries` or a foreign integration
+        point. The comparison is inclusive because the walk tests the target
+        name first, so an element that is both target and boundary matches.
+        """
         stack = self._stack
-        if stack.count_of(name) == 0:
-            return None
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            node_name = node.name
-            if node_name == name:
-                return idx
-            if node.namespace in {None, "html"}:
-                if node_name in boundaries:
+        if not stack._indexed:
+            # A shallow stack answers in one bounded pass, which is cheaper than
+            # three lookups and is what the index below reproduces exactly.
+            for index in range(len(stack) - 1, 0, -1):
+                node = stack[index]
+                if node.name == name:
+                    return index
+                if node.namespace in {None, "html"}:
+                    if node.name in boundaries:
+                        return None
+                elif _is_open_foreign_boundary(node):
                     return None
-            elif self._is_html_integration_point(node) or self._is_mathml_text_integration_point(  # pragma: no branch
-                node
-            ):
-                return None
-        return None  # pragma: no cover - the count_of fast path above already rules out index 0 as the only match
+            return None
+        target_index = stack.last_index_of(name)
+        if target_index is None:
+            return None
+        return target_index if target_index >= stack.last_scope_boundary_index(boundaries) else None
 
     def _find_open_table_scoped_end_index(self, name: str) -> int | None:
         stack = self._stack
-        if not isinstance(stack, _CountingStack) or stack._name_counts is None:
+        if not isinstance(stack, _CountingStack):
             for index in range(len(stack) - 1, 0, -1):
                 node = stack[index]
                 if _is_open_html_namespace_node(node) and node.name == name:
@@ -4328,7 +4601,10 @@ class ParseEngine:
             (candidate for candidate in (table_index, template_index) if candidate is not None),
             default=-1,
         )
-        return target_index if target_index > boundary_index else None
+        # `>=` rather than `>`: the walk this replaces tests the target name
+        # before the boundary names, so a `</table>` closing its own table finds
+        # the target and the boundary at the same index and the target wins.
+        return target_index if target_index >= boundary_index else None
 
     def _find_open_index_in_current_scope(self, name: str) -> int | None:
         stack = self._stack
@@ -4357,20 +4633,10 @@ class ParseEngine:
 
     def _find_open_heading_index(self) -> int | None:
         stack = self._stack
-        if stack._name_counts is not None and self._last_open_index_of_any(HEADING_ELEMENTS) is None:
+        target_index = self._last_open_index_of_any(HEADING_ELEMENTS)
+        if target_index is None:
             return None
-        for idx in range(len(stack) - 1, 0, -1):  # pragma: no branch
-            node = stack[idx]
-            if node.name in HEADING_ELEMENTS:
-                return idx
-            if node.namespace in {None, "html"}:
-                if node.name in _DEFAULT_SCOPE_BOUNDARIES:
-                    return None
-            elif (  # pragma: no branch
-                self._is_html_integration_point(node) or self._is_mathml_text_integration_point(node)
-            ):
-                return None
-        return None
+        return target_index if target_index >= stack.last_scope_boundary_index(_DEFAULT_SCOPE_BOUNDARIES) else None
 
     def _set_current_template_mode(self, mode: str) -> None:
         if self._template_modes:  # pragma: no branch - opposite edge requires invalid parser state
@@ -4398,9 +4664,8 @@ class ParseEngine:
         if context is None:  # pragma: no branch - opposite edge requires invalid parser state
             return False  # pragma: no cover - unreachable after parser-state guards
         stack = self._stack
-        try:
-            idx = stack.index(context)
-        except ValueError:
+        idx = stack.index_of_node(context)
+        if idx is None:
             return False
         if len(stack) > idx + 1:
             self._mark_active_formatting_dirty()
@@ -4416,11 +4681,11 @@ class ParseEngine:
         context = self._fragment_context_node
         if context is None:  # pragma: no branch - opposite edge requires invalid parser state
             return False  # pragma: no cover - unreachable after parser-state guards
-        try:
-            context_idx = self._stack.index(context)
-        except ValueError:  # pragma: no cover - unreachable after parser-state guards
+        context_idx = self._stack.index_of_node(context)
+        if context_idx is None:  # pragma: no cover - unreachable after parser-state guards
             return False  # pragma: no cover - unreachable after parser-state guards
-        return any(node.name == "table" for node in self._stack[context_idx + 1 :])
+        table_index = self._stack.last_index_of("table")
+        return table_index is not None and table_index > context_idx
 
     def _handle_fragment_context_start(
         self,
@@ -4860,26 +5125,23 @@ class ParseEngine:
 
     def _close_until_before_boundary(self, name: str, boundaries: frozenset[str]) -> bool:
         stack = self._stack
-        if stack._name_counts is not None and stack.count_of(name) == 0:
+        idx = stack.last_index_of(name)
+        if idx is None:
             return False
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            node_name = getattr(node, "name", None)
-            if node_name == name:
-                if (
-                    self._fragment_context_node is not None and stack[idx] is self._fragment_context_node
-                ):  # pragma: no branch - opposite edge requires invalid parser state
-                    return False  # pragma: no cover - unreachable after parser-state guards
-                self._mark_active_formatting_dirty()
-                del stack[idx:]
-                return True
-            # Scope boundaries are HTML elements. A foreign element that merely
-            # shares a name with a boundary (e.g. an SVG or MathML "td") must not
-            # stop the scan; callers guard this walk with an in-scope check that
-            # already accounts for foreign integration points.
-            if getattr(node, "namespace", None) in {None, "html", _PARSER_ONLY_NAMESPACE} and node_name in boundaries:
-                return False
-        return False
+        # Scope boundaries are HTML elements. A foreign element that merely
+        # shares a name with a boundary (e.g. an SVG or MathML "td") must not
+        # stop the scan; callers guard this walk with an in-scope check that
+        # already accounts for foreign integration points. The comparison is
+        # inclusive because the walk tests the target name first.
+        if idx < stack.last_scope_index_of_any(boundaries):
+            return False
+        if (
+            self._fragment_context_node is not None and stack[idx] is self._fragment_context_node
+        ):  # pragma: no branch - opposite edge requires invalid parser state
+            return False  # pragma: no cover - unreachable after parser-state guards
+        self._mark_active_formatting_dirty()
+        del stack[idx:]
+        return True
 
     def _generate_implied_end_tags(self, exclude: str | None = None) -> None:
         stack = self._stack
@@ -4893,18 +5155,24 @@ class ParseEngine:
 
     def _close_open_li_for_start(self) -> None:
         stack = self._stack
-        if stack._name_counts is not None and stack.count_of("li") == 0:
-            return
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            node_name = getattr(node, "name", None)
-            if node_name == "li":
-                self._generate_implied_end_tags("li")
-                self._mark_active_formatting_dirty()
-                del stack[idx:]
+        if not stack._indexed:
+            for index in range(len(stack) - 1, 0, -1):
+                node = stack[index]
+                if node.name == "li":
+                    idx = index
+                    break
+                if node.namespace in {None, "html"} and node.name in _LIST_ITEM_STOP_ELEMENTS:
+                    return
+            else:
                 return
-            if self._is_special_node(node) and node_name not in {"address", "div", "p"}:
+        else:
+            found = stack.last_index_of("li")
+            if found is None or found < stack.last_html_index_of_any(_LIST_ITEM_STOP_ELEMENTS):
                 return
+            idx = found
+        self._generate_implied_end_tags("li")
+        self._mark_active_formatting_dirty()
+        del stack[idx:]
 
     def _repair_stack_for_start(self, name: str) -> None:
         if (
@@ -5033,17 +5301,6 @@ class ParseEngine:
 
     def _close_stray_table_content_to_section(self) -> None:
         stack = self._stack
-        if stack._name_counts is None:
-            for index in range(len(stack) - 1, 0, -1):
-                name = stack[index].name
-                if name in _TABLE_SECTION_TAGS:
-                    if len(stack) > index + 1:
-                        self._mark_active_formatting_dirty()
-                        del stack[index + 1 :]
-                    return
-                if name == "table" or name in _TABLE_CELL_TAGS or name == "tr":
-                    return
-            return
         section_index = self._last_open_index_of_any(_TABLE_SECTION_TAGS)
         if section_index is None:
             return
@@ -5056,17 +5313,6 @@ class ParseEngine:
 
     def _close_table_cell(self) -> None:
         stack = self._stack
-        if stack._name_counts is None:
-            for index in range(len(stack) - 1, 0, -1):
-                name = stack[index].name
-                if name == "table":
-                    return
-                if name in _TABLE_CELL_TAGS:
-                    self._mark_active_formatting_dirty()
-                    self._clear_active_formatting_to_marker()
-                    del stack[index:]
-                    return
-            return
         cell_index = self._last_open_index_of_any(_TABLE_CELL_TAGS)
         if cell_index is None:
             return
@@ -5448,6 +5694,8 @@ class ParseEngine:
             signature_state = _DeferredFormattingSignature(attrs)
         entry = _FormattingEntry(name, node.attrs, node, signature_state, entries)
         self._active_formatting.append(entry)
+        live = entries.live_names
+        live[name] = live.get(name, 0) + 1
         if entries.pending is None and not entries:
             entries.pending = entry
         else:
@@ -5484,10 +5732,15 @@ class ParseEngine:
         matches.append(entry)
 
     def _find_active_formatting_index(self, name: str) -> int | None:
+        segments = self._active_formatting_entries
+        if segments and name not in segments[-1].live_names:
+            return None
         active = self._active_formatting
         for idx in range(len(active) - 1, -1, -1):
             entry = active[idx]
-            if entry is _ACTIVE_FORMATTING_MARKER:
+            if (
+                entry is _ACTIVE_FORMATTING_MARKER
+            ):  # pragma: no cover - the live-name guard above implies a match first
                 break
             if entry.active and entry.name == name:
                 return idx
@@ -5517,6 +5770,12 @@ class ParseEngine:
         """
         entry.active = False
         entries = entry.segment
+        live = entries.live_names
+        remaining = live.get(entry.name, 0) - 1
+        if remaining > 0:
+            live[entry.name] = remaining
+        else:
+            live.pop(entry.name, None)
         if entries.pending is entry:
             entries.pending = None
         else:
@@ -5631,9 +5890,8 @@ class ParseEngine:
                 stack.pop()
                 self._retire_active_formatting_entry(entry)
                 return
-            try:
-                formatting_stack_index = stack.index(formatting_element)
-            except ValueError:
+            formatting_stack_index = stack.index_of_node(formatting_element)
+            if formatting_stack_index is None:
                 self._retire_active_formatting_entry(entry)
                 self._refresh_active_formatting_dirty()
                 return
@@ -5744,6 +6002,8 @@ class ParseEngine:
             ):  # pragma: no branch - opposite edge requires invalid parser state
                 bookmark = len(self._active_formatting)  # pragma: no cover - unreachable after parser-state guards
             self._active_formatting.insert(bookmark, replacement)
+            live = entries.live_names
+            live[entry.name] = live.get(entry.name, 0) + 1
             self._materialize_pending_active_formatting_entry()
             self._index_active_formatting_entry(entries, replacement)
 
@@ -5752,8 +6012,8 @@ class ParseEngine:
                 stack.remove(formatting_element)
             except ValueError:  # pragma: no cover - unreachable after parser-state guards
                 pass  # pragma: no cover - unreachable after parser-state guards
-            furthest_stack_index = stack.index(furthest_block)
-            stack.insert(furthest_stack_index + 1, new_formatting_element)
+            furthest_stack_index = stack.index_of_node(furthest_block)
+            stack.insert(furthest_stack_index + 1, new_formatting_element)  # type: ignore[operator]
             self._refresh_active_formatting_dirty()
 
     def _mark_active_formatting_dirty(self) -> None:
@@ -5761,14 +6021,17 @@ class ParseEngine:
             self._active_formatting_dirty = True
 
     def _has_node_in_scope(self, target: Node, boundaries: frozenset[str]) -> bool:
+        # The adoption agency asks this for every formatting end tag. Walking
+        # down to the target repeats the whole distance each time when the
+        # answer is no, so both positions are read from the stack's index
+        # instead. The walk tests the node before the boundary names, so a tie
+        # at one index resolves in the target's favour.
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):  # pragma: no branch - opposite edge requires invalid parser state
-            node = stack[idx]
-            if node is target:
-                return True
-            if node.name in boundaries:
-                return False
-        return False  # pragma: no cover - unreachable after parser-state guards
+        target_index = stack.index_of_node(target)
+        if not target_index:
+            return False
+        boundary_index = stack.last_index_of_any(boundaries)
+        return boundary_index is None or target_index >= boundary_index
 
     def _refresh_active_formatting_dirty(self) -> None:
         active = self._active_formatting
@@ -5884,19 +6147,33 @@ class ParseEngine:
                 pending.extend(reversed(children))
 
     def _project_select_selectedcontent(self, select: Element) -> None:
-        markers: list[Element] = []
+        # A marker nested inside the chosen option is left alone. Which option
+        # is chosen is only known once the walk below finishes, so instead of
+        # climbing each marker's parent chain afterwards -- which costs the
+        # depth of the marker and is quadratic on deeply nested selects -- the
+        # walk records preorder positions. Every option covers a contiguous span
+        # of them, making the descendant test a range check.
+        markers: list[tuple[Element, int]] = []
+        option_spans: dict[Element, list[int]] = {}
         selected_option: Element | None = None
         first_option: Element | None = None
         is_multiple = "multiple" in select.attrs
-        pending: list[tuple[Node, bool, bool]] = [(select, False, False)]
+        pending: list[tuple[Node, bool, bool, bool]] = [(select, False, False, False)]
+        position = 0
         while pending:
-            node, in_disabled_optgroup, in_datalist = pending.pop()
+            node, in_disabled_optgroup, in_datalist, leaving = pending.pop()
+            if leaving:
+                option_spans[node][1] = position  # type: ignore[index]
+                continue
+            position += 1
             attrs = getattr(node, "attrs", None)
             name = node.name
             if node is not select and type(node) is Element:
                 if name == "selectedcontent":
-                    markers.append(node)
+                    markers.append((node, position))
                 if name == "option" and not in_datalist:
+                    option_spans[node] = [position, position]
+                    pending.append((node, in_disabled_optgroup, in_datalist, True))
                     if (
                         first_option is None
                         and not in_disabled_optgroup
@@ -5915,12 +6192,15 @@ class ParseEngine:
                     name == "optgroup" and attrs is not None and "disabled" in attrs
                 )
                 child_in_datalist = in_datalist or name == "datalist"
-                pending.extend((child, child_disabled_optgroup, child_in_datalist) for child in reversed(children))
+                pending.extend(
+                    (child, child_disabled_optgroup, child_in_datalist, False) for child in reversed(children)
+                )
         option = selected_option or first_option
         if not markers:  # pragma: no branch - opposite edge requires invalid parser state
             return  # pragma: no cover - unreachable after parser-state guards
-        for marker in markers:
-            if option is not None and self._is_descendant_of(marker, option):
+        span = option_spans[option] if option is not None else None
+        for marker, marker_position in markers:
+            if span is not None and span[0] < marker_position <= span[1]:
                 continue
             children = marker.children
             if children:
@@ -5931,14 +6211,6 @@ class ParseEngine:
                 for child in option.children or ():
                     clone = child.clone_node(deep=True)
                     self._append(marker, clone)
-
-    def _is_descendant_of(self, node: Node, ancestor: Node) -> bool:
-        parent = node.parent
-        while parent is not None:
-            if parent is ancestor:
-                return True
-            parent = parent.parent
-        return False
 
     def _unwrap_node(self, node: Element) -> None:
         parent = node.parent
@@ -6420,46 +6692,54 @@ class ParseEngine:
         return True
 
     def _body_allows_frameset(self, node: Node) -> bool:
-        children = node.children
-        if not children:
-            return True
-        for child in children:
-            if type(child) is Text:
-                if (child.data or "").strip(_SPACE):
-                    return False
+        """Report whether a late `<frameset>` may still replace the body.
+
+        Walks the body subtree with an explicit stack. Hostile input nests
+        arbitrarily deeply, so recursing here would raise `RecursionError`
+        before the eligibility answer was reached.
+        """
+        pending: list[Node] = [node]
+        while pending:
+            children = pending.pop().children
+            if not children:
                 continue
-            namespace = getattr(child, "namespace", None)
-            if namespace == _PARSER_ONLY_NAMESPACE:
-                return False
-            if namespace not in {None, "html"}:
-                if self._foreign_subtree_allows_frameset(child):
+            for child in children:
+                if type(child) is Text:
+                    if (child.data or "").strip(_SPACE):
+                        return False
                     continue
-                return False
-            if child.name == "input":
-                attrs = getattr(child, "attrs", None)
-                input_type = attrs.get("type") if attrs is not None else None
-                if (
-                    isinstance(input_type, str) and input_type.lower() == "hidden"
-                ):  # pragma: no branch - opposite edge requires invalid parser state
-                    continue
-                return False
-            if child.name not in _FRAMESET_BODY_OK_TAGS:
-                return False
-            if not self._body_allows_frameset(child):
-                return False
+                namespace = getattr(child, "namespace", None)
+                if namespace == _PARSER_ONLY_NAMESPACE:
+                    return False
+                if namespace not in {None, "html"}:
+                    if self._foreign_subtree_allows_frameset(child):
+                        continue
+                    return False
+                if child.name == "input":
+                    attrs = getattr(child, "attrs", None)
+                    input_type = attrs.get("type") if attrs is not None else None
+                    if (
+                        isinstance(input_type, str) and input_type.lower() == "hidden"
+                    ):  # pragma: no branch - opposite edge requires invalid parser state
+                        continue
+                    return False
+                if child.name not in _FRAMESET_BODY_OK_TAGS:
+                    return False
+                pending.append(child)
         return True
 
     def _foreign_subtree_allows_frameset(self, node: Node) -> bool:
-        children = node.children
-        if not children:
-            return True
-        for child in children:
-            if type(child) is Text:
-                if (child.data or "").strip(_SPACE + "\ufffd"):
-                    return False
+        pending: list[Node] = [node]
+        while pending:
+            children = pending.pop().children
+            if not children:
                 continue
-            if not self._foreign_subtree_allows_frameset(child):
-                return False
+            for child in children:
+                if type(child) is Text:
+                    if (child.data or "").strip(_SPACE + "\ufffd"):
+                        return False
+                    continue
+                pending.append(child)
         return True
 
     def _append_frameset_text(self, raw: str) -> None:

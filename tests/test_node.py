@@ -1,4 +1,6 @@
 import unittest
+from statistics import median
+from time import perf_counter
 
 from justhtml import JustHTML
 from justhtml.dom import (
@@ -21,6 +23,30 @@ from justhtml.serializer.markdown import (
     _MarkdownBuilder,
     _to_markdown_walk,
 )
+
+
+def _assert_scales_linearly(prepare, run) -> None:
+    """Assert an operation stays linear as its input doubles.
+
+    `prepare(size)` builds the payload and is not timed; `run(payload)` is.
+    Without its fix the shape below is quadratic, so a reintroduced subtree walk
+    shows up as roughly four times the runtime rather than two.
+    """
+
+    def duration(size: int) -> float:
+        payload = prepare(size)
+        run(payload)
+        samples = []
+        for _ in range(3):
+            start = perf_counter()
+            run(payload)
+            samples.append(perf_counter() - start)
+        return median(samples)
+
+    duration(64)
+    small = duration(2_000)
+    large = duration(4_000)
+    assert large < small * 3, f"doubling input took {large / small:.2f}x as long"
 
 
 class TestNode(unittest.TestCase):
@@ -1281,3 +1307,17 @@ class TestNode(unittest.TestCase):
         text = Text("hello")
         assert text.children == []
         assert not text.has_child_nodes()
+
+
+class TestDeepCloneScaling(unittest.TestCase):
+    def test_cloning_a_template_bearing_tree_scales_linearly(self) -> None:
+        _assert_scales_linearly(
+            lambda size: JustHTML("<div><template></template>" * size, sanitize=False).root,
+            lambda root: root.clone_node(deep=True),
+        )
+
+    def test_cloning_a_deep_tree_without_templates_scales_linearly(self) -> None:
+        _assert_scales_linearly(
+            lambda size: JustHTML("<div>" * size + "x", sanitize=False).root,
+            lambda root: root.clone_node(deep=True),
+        )

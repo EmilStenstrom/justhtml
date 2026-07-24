@@ -38,10 +38,14 @@ _ATTR_VALUE_STOP = _scanner.ATTR_VALUE_STOP
 _TAG_END_NAME_STOP = _scanner.TAG_END_NAME_STOP
 
 
+_HTML_INTEGRATION_ENCODINGS = {"application/xhtml+xml", "text/html"}
+
+
 class _StreamNode:
-    __slots__ = ("attrs", "name", "namespace")
+    __slots__ = ("attrs", "html_integration", "name", "namespace")
 
     attrs: dict[str, str | None]
+    html_integration: bool
     name: str
     namespace: str
 
@@ -49,37 +53,70 @@ class _StreamNode:
         self.attrs = attrs or {}
         self.name = name
         self.namespace = namespace
+        # Classified once here rather than on demand. A MathML annotation-xml
+        # needs a case-insensitive sweep of its attributes, and this question is
+        # asked again for every token while the element stays open, so deferring
+        # it would cost attributes times children.
+        if namespace == "math" and name == "annotation-xml":
+            encoding = self._attribute_value("encoding")
+            self.html_integration = encoding is not None and encoding.lower() in _HTML_INTEGRATION_ENCODINGS
+        else:
+            self.html_integration = (namespace, name) in HTML_INTEGRATION_POINT_SET
+
+    def _attribute_value(self, name: str) -> str | None:
+        for attr_name, attr_value in self.attrs.items():
+            if attr_name.lower() == name:
+                return attr_value or ""
+        return None
 
 
 class _StreamScanner:
-    __slots__ = ("_html", "_name_counts", "_open_elements")
+    __slots__ = ("_html", "_html_positions", "_name_positions", "_open_elements")
 
     _html: str
     _open_elements: list[_StreamNode]
-    _name_counts: dict[str, int]
+    # Ascending open-element indices per lowercased tag name, and the ascending
+    # indices of the HTML-namespace elements. An end tag walk stops at the
+    # nearer of its target and the innermost HTML element, so recording both
+    # keeps it constant-time; scanning would repeat the whole foreign suffix on
+    # every end tag and make deep foreign nesting quadratic.
+    _name_positions: dict[str, list[int]]
+    _html_positions: list[int]
 
     def __init__(self, html: str) -> None:
         self._html = html
         self._open_elements = []
-        self._name_counts = {}
+        self._name_positions = {}
+        self._html_positions = []
 
     def _push_open_element(self, node: _StreamNode) -> None:
+        index = len(self._open_elements)
         self._open_elements.append(node)
+        bucket = self._name_positions.get(node.name.lower())
+        if bucket is None:
+            self._name_positions[node.name.lower()] = [index]
+        else:
+            bucket.append(index)
+        if node.namespace in {None, "html"}:
+            self._html_positions.append(index)
+
+    def _forget_open_element(self, node: _StreamNode) -> None:
         key = node.name.lower()
-        self._name_counts[key] = self._name_counts.get(key, 0) + 1
+        bucket = self._name_positions[key]
+        bucket.pop()
+        if not bucket:
+            del self._name_positions[key]
+        if node.namespace in {None, "html"}:
+            self._html_positions.pop()
 
     def _pop_open_element(self) -> _StreamNode:
         node = self._open_elements.pop()
-        key = node.name.lower()
-        self._name_counts[key] -= 1
+        self._forget_open_element(node)
         return node
 
     def _truncate_open_elements(self, index: int) -> None:
-        removed = self._open_elements[index:]
-        del self._open_elements[index:]
-        for node in removed:
-            key = node.name.lower()
-            self._name_counts[key] -= 1
+        while len(self._open_elements) > index:
+            self._forget_open_element(self._open_elements.pop())
 
     def scan(self) -> Generator[StreamEvent, None, None]:
         html = self._html
@@ -405,18 +442,8 @@ class _StreamScanner:
                 return True
         return False
 
-    def _node_attribute_value(self, node: _StreamNode, name: str) -> str | None:
-        target = name.lower()
-        for attr_name, attr_value in node.attrs.items():
-            if attr_name.lower() == target:
-                return attr_value or ""
-        return None
-
     def _is_html_integration_point(self, node: _StreamNode) -> bool:
-        if node.namespace == "math" and node.name == "annotation-xml":
-            encoding = self._node_attribute_value(node, "encoding")
-            return encoding is not None and encoding.lower() in {"application/xhtml+xml", "text/html"}
-        return (node.namespace, node.name) in HTML_INTEGRATION_POINT_SET
+        return node.html_integration
 
     def _is_mathml_text_integration_point(self, node: _StreamNode) -> bool:
         return (node.namespace, node.name) in MATHML_TEXT_INTEGRATION_POINT_SET
@@ -471,21 +498,17 @@ class _StreamScanner:
             self._pop_foreign_context()
             return
 
-        # Skip the scan entirely when the name isn't open anywhere on the
-        # stack: an unmatched end tag deep inside foreign content (svg/math)
-        # would otherwise scan the whole stack on every single end tag,
-        # making a run of unmatched end tags quadratic overall.
-        if self._name_counts.get(name_lower, 0) > 0:
-            for index in range(len(self._open_elements) - 1, -1, -1):  # pragma: no branch
-                node = self._open_elements[index]
-                if node.name.lower() == name_lower:
-                    self._truncate_open_elements(index)
-                    return
-                if node.namespace in {None, "html"}:
-                    break
-            # Unreachable: count_of > 0 guarantees a match exists at some index
-            # in this exact range, so the loop above always returns or breaks
-            # before exhausting it.
+        # The walk looks for the innermost element with this name and gives up
+        # at the innermost HTML element, testing the name first. Comparing the
+        # two recorded positions answers that without a scan, so an end tag that
+        # matches nothing costs the same as one that does.
+        bucket = self._name_positions.get(name_lower)
+        if bucket is not None:
+            target = bucket[-1]
+            html_positions = self._html_positions
+            if target >= (html_positions[-1] if html_positions else -1):
+                self._truncate_open_elements(target)
+                return
 
         self._pop_open_element()
 

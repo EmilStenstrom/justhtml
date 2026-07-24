@@ -691,10 +691,20 @@ def _clone_subtree_iterative(root: Node) -> Node:
         if not children:
             continue
 
+        target_children = target.children
+        if target_children is None:  # pragma: no cover - a node with children clones to one that accepts them
+            continue
+
         pending: list[tuple[Node, Node]] = []
         for child in children:
             child_clone = child.clone_node(deep=False)
-            target.append_child(child_clone)
+            # Every clone here is freshly created and detached, so it cannot be
+            # an ancestor of `target`. Skipping `append_child()` skips its
+            # adoption check, whose parent walk would otherwise cost the depth
+            # of the tree for each node that misses the detached-leaf fast path
+            # (notably templates, which always carry a content fragment).
+            target_children.append(child_clone)
+            child_clone.parent = target
             if isinstance(child, Node) and isinstance(child_clone, Node):
                 pending.append((child, child_clone))
 

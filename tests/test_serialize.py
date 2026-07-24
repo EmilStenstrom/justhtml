@@ -1,5 +1,7 @@
 import textwrap
 import unittest
+from statistics import median
+from time import perf_counter
 
 from justhtml import HTMLContext, UrlRule
 from justhtml import JustHTML as _JustHTML
@@ -24,12 +26,37 @@ from justhtml.serializer import (
     to_html,
     to_test_format,
 )
+from justhtml.serializer.html import _BlockMemo
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802
     if "sanitize" not in kwargs:
         kwargs["sanitize"] = False
     return _JustHTML(*args, **kwargs)
+
+
+def _assert_scales_linearly(prepare, run) -> None:
+    """Assert an operation stays linear as its input doubles.
+
+    `prepare(size)` builds the payload and is not timed; `run(payload)` is.
+    Without its fix the shape below is quadratic, so a reintroduced subtree walk
+    shows up as roughly four times the runtime rather than two.
+    """
+
+    def duration(size: int) -> float:
+        payload = prepare(size)
+        run(payload)
+        samples = []
+        for _ in range(3):
+            start = perf_counter()
+            run(payload)
+            samples.append(perf_counter() - start)
+        return median(samples)
+
+    duration(64)
+    small = duration(2_000)
+    large = duration(4_000)
+    assert large < small * 3, f"doubling input took {large / small:.2f}x as long"
 
 
 class TestSerialize(unittest.TestCase):
@@ -1368,6 +1395,61 @@ class TestSerialize(unittest.TestCase):
 
     def test_escape_url_value_empty(self):
         assert _JustHTML.escape_url_value("") == ""
+
+    def test_pretty_printing_nested_inline_markup_scales_linearly(self):
+        # `to_html()` pretty-prints by default, so this is the ordinary call.
+        _assert_scales_linearly(
+            lambda size: _JustHTML("<span>" * size + "x", sanitize=False).root,
+            lambda root: root.to_html(pretty=True),
+        )
+
+    def test_pretty_printing_nested_inline_markup_around_a_block_scales_linearly(self):
+        _assert_scales_linearly(
+            lambda size: _JustHTML("<span>" * size + "<div>x", sanitize=False).root,
+            lambda root: root.to_html(pretty=True),
+        )
+
+    def test_large_subtree_classification_handles_gaps_and_leaves(self):
+        # Past the direct-walk budget the classifier folds an answer for every
+        # descendant, so that walk must tolerate the same missing and childless
+        # children the direct walk does.
+        root = Node("span")
+        root.children = [None]
+        branch = Node("span")
+        branch.children = [None, Node("em"), Text("t"), Comment(data="c")]
+        root.children.append(branch)
+        for _ in range(60):
+            deeper = Node("span")
+            deeper.children = [Node("i")]
+            branch.children.append(deeper)
+            branch = deeper
+
+        memo = _BlockMemo()
+        assert _is_blocky_element(root, memo) is False
+        assert _is_blocky_element(root, memo) is False
+
+        branch.children.append(Node("div"))
+        assert _is_blocky_element(root, _BlockMemo()) is True
+
+    def test_block_classification_is_reused_within_one_serialization(self):
+        inner = Node("span")
+        inner.children = [Node("em")]
+        outer = Node("span")
+        outer.children = [inner]
+
+        memo = _BlockMemo()
+        assert _is_blocky_element(outer, memo) is False
+        # The second question is answered from the memo rather than by walking
+        # the subtree again.
+        assert memo.special
+        assert _is_blocky_element(outer, memo) is False
+        assert _is_layout_blocky_element(outer, memo) is False
+        assert _is_layout_blocky_element(outer, memo) is False
+
+        blocky = Node("span")
+        blocky.children = [Node("div")]
+        assert _is_blocky_element(blocky, memo) is True
+        assert _is_blocky_element(blocky, memo) is True
 
 
 if __name__ == "__main__":

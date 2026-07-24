@@ -523,3 +523,23 @@ class TestStream(unittest.TestCase):
             ("text", "x"),
             ("end", "svg"),
         ]
+
+    def test_repeated_names_track_each_open_position(self):
+        # Two elements sharing a name must each be recorded, so closing the
+        # inner one leaves the outer open.
+        assert list(stream("<div><div>x</div>y</div>")) == [
+            ("start", ("div", {})),
+            ("start", ("div", {})),
+            ("text", "x"),
+            ("end", "div"),
+            ("text", "y"),
+            ("end", "div"),
+        ]
+
+    def test_unmatched_end_tag_inside_foreign_content_pops_one_element(self):
+        assert list(stream("<div><svg><g></div>")) == [
+            ("start", ("div", {})),
+            ("start", ("svg", {})),
+            ("start", ("g", {})),
+            ("end", "div"),
+        ]

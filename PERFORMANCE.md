@@ -91,36 +91,90 @@ python benchmarks/parser_adversarial.py --sizes 1000 2000 4000
 It warms each shape once and reports the median of repeated runs. Use the same
 Python version, options, sizes, and repeat count for before/after comparisons.
 
-## Open-element reverse-scan audit
+## Guard against complexity regressions
 
-`_CountingStack.last_index_of()` caches exact-name and filtered last positions;
-`last_index_matching()` does the same for stable predicates. Parser mutations
-update cached indices, and same-name changes invalidate affected entries. The
-following helpers have been migrated to those facilities: template lookup,
-current-parent lookup through parser-only templates, table-scope lookup,
-template table-section and cell repair, ordinary table repair, `menuitem`
-lookup, and formatting-element removal.
+`parser_adversarial.py` reports absolute timings. When the change is about
+*complexity* rather than throughput, use the scaling guard instead:
 
-The remaining production reverse walks require token-specific scope semantics:
+```bash
+python benchmarks/scaling_guard.py --save before.json
+# ... implement the change ...
+python benchmarks/scaling_guard.py --compare before.json
+```
 
-- `_end_tag_stays_in_foreign_context()` and
-  `_find_open_special_end_index()` stop at namespace and integration-point
-  boundaries. On deep stacks, exact and SVG-adjusted name counts make absent
-  targets constant-time; a successful foreign match removes the scanned suffix.
-- `_find_open_index_before_boundary()` and `_find_open_heading_index()` stop at
-  HTML or foreign integration boundaries. Deep-stack name counts make absent
-  targets constant-time; successful callers close the matching suffix.
-- `_close_until_before_boundary()` and `_close_open_li_for_start()` have the
-  same deep-stack absence guard and truncate the suffix on success.
-- `_has_node_in_scope()` is confined to the adoption-agency algorithm. Its
-  target is already known to be present, and the outer algorithm is capped at
-  eight iterations before removing or replacing the formatting target.
+It measures each shape at several input sizes, fits an exponent `k` such that
+`time ~ n**k`, and reports it next to the complexity the shape is expected to
+have. Every adversarial shape is paired with a control that exercises the same
+code path without the pathological property, so a fix has to remove the
+quadratic term rather than slow the control down to match. `--compare` prints
+the per-shape speedup at the largest shared size and exits non-zero when a shape
+gets materially slower or grows a worse exponent, which makes it usable as a
+gate.
+
+Measurements are auto-ranged (fast shapes repeat until a sample lasts at least
+`--min-sample` seconds) and taken with the garbage collector disabled, then
+reported as the minimum across `--repeats` samples. Shapes whose spread stays
+above 15% are listed separately; raise `--repeats` or quiet the machine before
+trusting those rows.
+
+Useful filters: `--controls-only` for a fast regression check on well-formed
+input, `--issues N` to focus one problem, `--only SUBSTRING` for one shape, and
+`--skip-limits` to drop the recursion-depth probes.
+
+Scaling behavior and real-world throughput are different questions. Confirm both
+before landing a complexity fix, since indexing work moves cost onto the normal
+path:
+
+```bash
+python benchmarks/performance.py --parsers justhtml --limit 1000 --iterations 1
+```
+
+## Open-element scope lookups
+
+`_CountingStack` answers three questions the parser asks constantly: where the
+last element with a given name sits, whether that position is above or below a
+scope boundary, and whether a particular node is on the stack at all. All three
+are answered from positions maintained as the stack mutates, not from a walk:
+
+- `_html_positions` / `_other_positions` — ascending indices per tag name, split
+  by namespace because scope boundaries only count for HTML elements while the
+  target may be in any namespace.
+- `_html_all` / `_foreign_all` / `_parser_only_all` — ascending indices per
+  namespace group, for the innermost element of a kind.
+- `_boundaries` — ascending indices of foreign integration points, classified
+  once on the way in by `_is_open_foreign_boundary()`.
+- `_index_of` — node identity to index, for membership and position queries.
+
+A scope check is then a comparison: take the target's position, take the nearest
+boundary's, and prefer the target on a tie, because the walk these replace tests
+the target name before the boundary names. Getting that tie wrong silently
+changes parse results, so `_find_open_index_before_boundary()`,
+`_find_open_special_end_index()`, `_find_open_heading_index()`,
+`_close_until_before_boundary()`, `_close_open_li_for_start()`,
+`_find_open_table_scoped_end_index()`, `_has_node_in_scope()` and
+`_end_tag_stays_in_foreign_context()` all use `>=`.
+
+The index is only built once the stack reaches `_STACK_INDEX_THRESHOLD`. Below
+it a reverse walk is bounded by that constant, so it cannot be quadratic, and
+the stack keeps nothing at all — the parser pushes with `list.append` directly.
+Roughly one document in three hundred of the web100k corpus ever crosses the
+threshold, so ordinary parsing pays nothing for what only hostile nesting needs.
+
+That split means several helpers carry both a bounded single-pass walk and an
+indexed comparison. The two must agree exactly, or a document would parse
+differently once its stack grew past the threshold.
+`TestCountingStack.test_indexed_and_scanned_lookups_agree_on_varied_stacks` and
+`test_engine_scope_helpers_agree_across_indexed_and_scanned_stacks` check that
+correspondence directly; extend them when adding a lookup.
+
+`stream.py` keeps the same shape in miniature: `_name_positions` and
+`_html_positions` bound its end-tag walk, which otherwise rescans the whole
+foreign suffix per token.
 
 Reverse loops in `_find_open_index()`, `_find_open_html_index()`,
 `_last_open_index_of_any()`, template lookup, table-scope lookup, and
-current-template-scope lookup are compatibility fallbacks for tests that
-replace the private `_CountingStack` with a plain list. Parser-created stacks
-always use the indexed path.
+current-template-scope lookup are also compatibility fallbacks for tests that
+replace the private `_CountingStack` with a plain list.
 
 ## Make a speed improvement
 
