@@ -194,6 +194,157 @@ class TestTemplateLookupScaling(unittest.TestCase):
 
 
 class TestCountingStack(unittest.TestCase):
+    QUERY_NAME_SETS = (
+        frozenset({"applet", "caption", "html", "table", "td", "th", "marquee", "object", "template"}),
+        frozenset({"button", "div", "p"}),
+        frozenset({"table", "template", "html"}),
+        frozenset({"missing"}),
+    )
+
+    @staticmethod
+    def _indexed_copy(nodes: list) -> _CountingStack:
+        """Build a stack that answers from the index regardless of its depth."""
+        stack = _CountingStack(nodes)
+        counts = stack._collect_name_counts()
+        stack._name_counts = counts
+        stack._p_count = counts.get("p", 0)
+        stack._build_position_index()
+        return stack
+
+    def assert_indexed_and_scanned_agree(self, nodes: list) -> None:
+        """The indexed and shallow-scan paths must answer identically.
+
+        Below the depth threshold the stack answers by scanning and keeps no
+        index, so every lookup has two implementations. A document must not
+        parse differently once its stack grows past that threshold, which means
+        the two have to be checked against each other rather than only against
+        the parser's output.
+        """
+        scanned = _CountingStack(nodes)
+        assert not scanned._indexed
+        indexed = self._indexed_copy(nodes)
+
+        for name in ("div", "p", "span", "template", "table", "g", "foreignObject", "missing"):
+            assert scanned.count_of(name) == indexed.count_of(name), name
+            assert scanned.last_index_of(name) == indexed.last_index_of(name), name
+            assert scanned.last_html_index_of(name) == indexed.last_html_index_of(name), name
+            assert scanned.last_html_index_of(name, parser_only=True) == indexed.last_html_index_of(
+                name, parser_only=True
+            ), name
+        for names in self.QUERY_NAME_SETS:
+            assert scanned.last_index_of_any(names) == indexed.last_index_of_any(names), names
+            assert scanned.last_html_index_of_any(names) == indexed.last_html_index_of_any(names), names
+        assert scanned.last_foreign_boundary_index() == indexed.last_foreign_boundary_index()
+        assert scanned.last_html_index() == indexed.last_html_index()
+        assert scanned.last_rendered_index() == indexed.last_rendered_index()
+        assert scanned.last_template_boundary_index() == indexed.last_template_boundary_index()
+        for node in nodes:
+            assert (node in scanned) == (node in indexed)
+            assert scanned.index_of_node(node) == indexed.index_of_node(node)
+        absent = Element("div", {}, "html")
+        assert (absent in scanned) == (absent in indexed)
+        assert scanned.index_of_node(absent) == indexed.index_of_node(absent)
+
+    def test_indexed_and_scanned_lookups_agree_on_varied_stacks(self) -> None:
+        candidates = [
+            lambda: Element("div", {}, "html"),
+            lambda: Element("p", {}, "html"),
+            lambda: Element("table", {}, "html"),
+            lambda: Element("td", {}, "html"),
+            lambda: Template("template", {}, namespace="html"),
+            lambda: Element("template", {}, "justhtml-parser-only"),
+            lambda: Element("g", {}, "svg"),
+            lambda: Element("foreignObject", {}, "svg"),
+            lambda: Element("desc", {}, "svg"),
+            lambda: Element("mtext", {}, "math"),
+            lambda: Element("annotation-xml", {"encoding": "text/html"}, "math"),
+            lambda: Element("annotation-xml", {"encoding": "other"}, "math"),
+            lambda: Element("span", {}, "svg"),
+        ]
+        # A deterministic spread of shapes: every rotation of the candidate list
+        # truncated to several lengths, so each node kind appears at the top, in
+        # the middle, and at the bottom of a stack.
+        for rotation in range(len(candidates)):
+            ordered = candidates[rotation:] + candidates[:rotation]
+            for length in (1, 2, 5, len(ordered)):
+                nodes = [DocumentFragment()] + [make() for make in ordered[:length]]
+                self.assert_indexed_and_scanned_agree(nodes)
+
+    def assert_index_matches_contents(self, stack: _CountingStack) -> None:
+        """Every ascending list the stack maintains must still describe it."""
+        html_expected: dict[str, list[int]] = {}
+        other_expected: dict[str, list[int]] = {}
+        rendered: list[int] = []
+        boundaries: list[int] = []
+        for index, node in enumerate(stack):
+            positions = html_expected if node.namespace in {None, "html"} else other_expected
+            positions.setdefault(node.name, []).append(index)
+            if node.namespace != "justhtml-parser-only":
+                rendered.append(index)
+            if node.namespace not in {None, "html", "justhtml-parser-only"} and _CountingStack._is_foreign_boundary(
+                node
+            ):
+                boundaries.append(index)
+        assert stack._html_positions == html_expected
+        assert stack._other_positions == other_expected
+        assert stack._rendered_positions == rendered
+        assert stack._foreign_boundaries == boundaries
+        assert stack._node_positions == {node: index for index, node in enumerate(stack)}
+
+    def test_middle_insert_records_the_new_node_in_every_index(self) -> None:
+        """A node inserted below the top belongs in the ascending lists too.
+
+        The adoption agency reparents a formatting element one slot above the
+        furthest block, so this path runs for every misnested formatting tag on
+        a stack deep enough to be indexed.
+        """
+        root = DocumentFragment()
+        filler = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        above = [Element("span", {}, "html"), Element("g", {}, "svg"), Element("span", {}, "html")]
+        stack = _CountingStack([root, *filler, *above])
+        assert stack._indexed
+
+        inserted = Element("b", {}, "html")
+        stack.insert(len(filler) + 1, inserted)
+        self.assert_index_matches_contents(stack)
+        assert stack.index_of_node(inserted) == len(filler) + 1
+        assert stack.last_index_of("span") == len(stack) - 1
+
+        # Removing a node renumbers the same span back down again.
+        stack.remove(inserted)
+        self.assert_index_matches_contents(stack)
+
+    def test_insert_that_crosses_the_depth_threshold_builds_the_index(self) -> None:
+        """Growing past the threshold through `insert` must index, like `append`.
+
+        Every other path treats a live `_name_counts` as proof that the position
+        index exists, so setting one without the other leaves the next push
+        reading attributes that were never assigned.
+        """
+        root = DocumentFragment()
+        stack = _CountingStack([root])
+        while len(stack) < _STACK_COUNT_THRESHOLD - 1:
+            stack.append(Element("div", {}, "html"))
+        assert not stack._indexed
+
+        stack.insert(1, Element("span", {}, "html"))
+        assert stack._indexed
+        self.assert_index_matches_contents(stack)
+
+        pushed = Element("b", {}, "html")
+        stack.append(pushed)
+        self.assert_index_matches_contents(stack)
+        assert stack.last_index_of("b") == len(stack) - 1
+
+    def test_misnested_formatting_below_deep_nesting_parses(self) -> None:
+        """Regression: the reparent above corrupted the index and then raised.
+
+        Ordinary markup, no adversarial size -- only enough nesting to put the
+        open-elements stack past the depth at which it is indexed.
+        """
+        document = JustHTML("<div>" * 30 + "<i><blockquote><ul></i>")
+        assert document.to_html(pretty=False).count("<ul>") == 1
+
     def test_indexed_template_queries_skip_namesakes_in_each_namespace(self) -> None:
         root = DocumentFragment()
         filler = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
