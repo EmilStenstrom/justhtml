@@ -71,10 +71,16 @@ class TestSelectedContentScaling(unittest.TestCase):
     def test_deep_selectedcontent_projection_scales_linearly(self) -> None:
         assert_scales_linearly(
             lambda size: (
-                "<select><option selected>x</option>"
-                + "<div><selectedcontent></selectedcontent>" * size
-                + "</select>"
+                "<select><option selected>x</option>" + "<div><selectedcontent></selectedcontent>" * size + "</select>"
             ),
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+
+class TestActiveFormattingScaling(unittest.TestCase):
+    def test_absent_formatting_end_tags_scale_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "".join(f"<b id={index}>" for index in range(size)) + "</i>" * size,
             lambda source: JustHTML(source, sanitize=False),
         )
 

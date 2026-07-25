@@ -702,14 +702,16 @@ class _FormattingEntry:
 class _FormattingSegment(dict[tuple[str, _FormattingSignature], list[_FormattingEntry]]):
     """One marker-bounded Noah index, with one lazily indexed entry."""
 
-    __slots__ = ("pending",)
+    __slots__ = ("live_names", "pending")
 
     def __init__(self) -> None:
         super().__init__()
         self.pending: _FormattingEntry | None = None
+        self.live_names: dict[str, int] = {}
 
     def clear(self) -> None:
         self.pending = None
+        self.live_names.clear()
         super().clear()
 
 
@@ -3286,6 +3288,8 @@ class ParseEngine:
                         self._nodes_to_unwrap.append(node)
                     entry = _FormattingEntry(name, node.attrs, node, None, entries)
                     self._active_formatting.append(entry)
+                    live = entries.live_names
+                    live[name] = live.get(name, 0) + 1
                     entries.pending = entry
                     return pos
             return self._parse_formatting_start(name, attrs, pos, compiled_safe=True)
@@ -5371,6 +5375,8 @@ class ParseEngine:
             signature_state = _DeferredFormattingSignature(attrs)
         entry = _FormattingEntry(name, node.attrs, node, signature_state, entries)
         self._active_formatting.append(entry)
+        live = entries.live_names
+        live[name] = live.get(name, 0) + 1
         if entries.pending is None and not entries:
             entries.pending = entry
         else:
@@ -5407,11 +5413,14 @@ class ParseEngine:
         matches.append(entry)
 
     def _find_active_formatting_index(self, name: str) -> int | None:
+        segments = self._active_formatting_entries
+        if segments and name not in segments[-1].live_names:
+            return None
         active = self._active_formatting
         for idx in range(len(active) - 1, -1, -1):
             entry = active[idx]
             if entry is _ACTIVE_FORMATTING_MARKER:
-                break
+                break  # pragma: no cover - live-name guard implies a match before the marker
             if entry.active and entry.name == name:
                 return idx
         return None
@@ -5440,6 +5449,12 @@ class ParseEngine:
         """
         entry.active = False
         entries = entry.segment
+        live = entries.live_names
+        remaining = live.get(entry.name, 0) - 1
+        if remaining > 0:
+            live[entry.name] = remaining
+        else:
+            live.pop(entry.name, None)
         if entries.pending is entry:
             entries.pending = None
         else:
@@ -5669,6 +5684,8 @@ class ParseEngine:
             ):  # pragma: no branch - opposite edge requires invalid parser state
                 bookmark = len(self._active_formatting)  # pragma: no cover - unreachable after parser-state guards
             self._active_formatting.insert(bookmark, replacement)
+            live = entries.live_names
+            live[entry.name] = live.get(entry.name, 0) + 1
             self._materialize_pending_active_formatting_entry()
             self._index_active_formatting_entry(entries, replacement)
 
