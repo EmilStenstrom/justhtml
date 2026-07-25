@@ -1820,23 +1820,22 @@ class ParseEngine:
 
     def _open_parser_only_template_index(self) -> int | None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            if node.name == "template" and node.namespace == _PARSER_ONLY_NAMESPACE:
-                return idx
+        if not stack._indexed:
+            for index in range(len(stack) - 1, 0, -1):
+                node = stack[index]
+                if node.name == "template" and node.namespace == _PARSER_ONLY_NAMESPACE:
+                    return index
+            return None
+        positions = stack._other_positions.get("template")
+        if positions:
+            for index in reversed(positions):
+                if stack[index].namespace == _PARSER_ONLY_NAMESPACE:
+                    return index
         return None
 
     def _open_template_index(self) -> int | None:
-        stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            if node.name != "template":
-                continue
-            if node.namespace == _PARSER_ONLY_NAMESPACE or (
-                type(node) is Template and node.namespace in {None, "html"}
-            ):
-                return idx
-        return None
+        index = self._stack.last_template_boundary_index()
+        return index if index > 0 else None
 
     def _current_template_mode(self) -> str | None:
         modes = self._template_modes
@@ -5180,6 +5179,8 @@ class ParseEngine:
         children = table_parent.children if table_parent is not None else None
         if table_parent is None or children is None:  # pragma: no branch - opposite edge requires invalid parser state
             return None  # pragma: no cover - unreachable after parser-state guards
+        if children and children[-1] is table:
+            return table_parent, len(children) - 1
         try:
             return table_parent, children.index(table)
         except ValueError:  # pragma: no cover - unreachable after parser-state guards

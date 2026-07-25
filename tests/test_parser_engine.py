@@ -156,7 +156,71 @@ class TestOpenElementStackScaling(unittest.TestCase):
             assert_scales_linearly(shape, lambda source: JustHTML(source, sanitize=False))
 
 
+class TestTemplateLookupScaling(unittest.TestCase):
+    def test_foster_parenting_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<!doctype html><table>" + "<br>" * size + "</table>",
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+    def test_deep_foster_template_lookups_scale_linearly(self) -> None:
+        shapes = (
+            lambda size: "<div>" * size + "<table>" + "<br>" * size + "</table>" + "</div>" * size,
+            lambda size: (
+                "<template>"
+                + "<div>" * size
+                + "<table>"
+                + "<br>" * size
+                + "</table>"
+                + "</div>" * size
+                + "</template>"
+            ),
+        )
+        for shape in shapes:
+            assert_scales_linearly(
+                shape,
+                lambda source: JustHTML(
+                    source,
+                    fragment=True,
+                    sanitize=False,
+                ),
+            )
+
+
 class TestCountingStack(unittest.TestCase):
+    def test_indexed_parser_only_template_lookup_skips_foreign_namesakes(self) -> None:
+        engine = ParseEngine("", fragment=True)
+        root = DocumentFragment()
+        foreign_template = Element("template", {}, "svg")
+        parser_template = Element("template", {}, "justhtml-parser-only")
+        engine._stack = _CountingStack(
+            [root]
+            + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            + [foreign_template, parser_template]
+        )
+
+        assert engine._open_parser_only_template_index() == len(engine._stack) - 1
+
+    def test_foster_parent_uses_the_trailing_table_anchor(self) -> None:
+        class NoSearchList(list):
+            def index(self, value, start=0, stop=None):
+                raise AssertionError("the trailing table anchor must not require a sibling search")
+
+        engine = ParseEngine("", fragment=True)
+        container = Element("div", {}, "html")
+        table = Element("table", {}, "html")
+        children = NoSearchList([table])
+        container.children = children
+        table.parent = container
+        engine._stack = _CountingStack([DocumentFragment(), container, table])
+
+        assert engine._foster_parent_for(table) == (container, 0)
+
+        following = Element("span", {}, "html")
+        container.children = [table, following]
+        following.parent = container
+        assert engine._foster_parent_for(table) == (container, 0)
+
     def assert_counts_match(self, stack: _CountingStack) -> None:
         expected = Counter(node.name for node in stack)
         assert stack.count_of("p") == expected["p"]
