@@ -1889,7 +1889,6 @@ class ParseEngine:
             ):  # pragma: no cover - one policy cannot make nested templates both parser-only and real
                 parent = parent.template_content
             self._append_text_boundary(parent)
-        self._mark_active_formatting_dirty()
         del self._stack[idx:]
         if node.namespace == _PARSER_ONLY_NAMESPACE:
             self._parser_only_template_depth -= 1
@@ -1899,7 +1898,7 @@ class ParseEngine:
             self._template_modes.pop()
             if not self._template_modes:
                 self._mode_flags &= ~_MODE_TEMPLATE
-        self._clear_active_formatting_to_marker()
+        self._clear_active_formatting_to_marker(refresh=self._active_formatting_dirty)
         return True
 
     def _mark_initial_content(self) -> None:
@@ -5122,7 +5121,7 @@ class ParseEngine:
         self._active_formatting.append(_ACTIVE_FORMATTING_MARKER)
         self._active_formatting_entries.append(_FormattingSegment())
 
-    def _clear_active_formatting_to_marker(self) -> None:
+    def _clear_active_formatting_to_marker(self, *, refresh: bool = True) -> None:
         active = self._active_formatting
         while active:
             entry = active.pop()
@@ -5135,7 +5134,8 @@ class ParseEngine:
             entries = self._active_formatting_entries
             if entries:
                 entries[-1].clear()
-        self._refresh_active_formatting_dirty()
+        if refresh:
+            self._refresh_active_formatting_dirty()
 
     def _foster_parent_for(self, parent: Node, *, for_tag: str | None = None) -> tuple[Node, int] | None:
         # Foster parenting only applies within an HTML table. A foreign element

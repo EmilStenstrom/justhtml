@@ -157,6 +157,12 @@ class TestOpenElementStackScaling(unittest.TestCase):
 
 
 class TestTemplateLookupScaling(unittest.TestCase):
+    def test_parser_only_template_cleanup_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<template>" * size + "x" + "</template>" * size,
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
     def test_foster_parenting_scales_linearly(self) -> None:
         assert_scales_linearly(
             lambda size: "<!doctype html><table>" + "<br>" * size + "</table>",
