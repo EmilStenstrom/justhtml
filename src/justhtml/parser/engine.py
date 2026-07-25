@@ -849,7 +849,9 @@ class ParseEngine:
         "_body",
         "_body_explicit",
         "_body_mode_seen",
+        "_close_tag_scan",
         "_doc",
+        "_doc_html_index",
         "_drop_comments",
         "_drop_content_tags",
         "_drop_doctype",
@@ -875,6 +877,7 @@ class ParseEngine:
         "_head",
         "_head_reentry",
         "_html",
+        "_html_anchor_index",
         "_html_input",
         "_iframe_srcdoc",
         "_ignore_lf",
@@ -983,6 +986,9 @@ class ParseEngine:
         self._quirks_mode = "no-quirks" if fragment else None
         self._body_explicit = False
         self._body_mode_seen = False
+        self._doc_html_index = -1
+        self._html_anchor_index: tuple[Node | None, int] = (None, -1)
+        self._close_tag_scan: dict[str, tuple[int, int]] = {}
         self._html: Element | None = None
         self._head: Element | None = None
         self._body: Element | DocumentFragment
@@ -1423,10 +1429,31 @@ class ParseEngine:
             return f"{target} {data}"
         return f"{target} "
 
+    def _insert_before_document_root(self, node: Node) -> None:
+        children: list[Any] = self._doc.children  # type: ignore[assignment]
+        insert_at = self._doc_html_index
+        if not (0 <= insert_at < len(children) and children[insert_at].name == "html"):
+            insert_at = next((index for index, child in enumerate(children) if child.name == "html"), len(children))
+        found_root = insert_at < len(children)
+        children.insert(insert_at, node)
+        node.parent = self._doc
+        self._doc_html_index = insert_at + 1 if found_root else -1
+
+    def _last_close_tag_start(self, marker: str, source_pos: int) -> int:
+        scanned_to, best = self._close_tag_scan.get(marker, (0, -1))
+        if source_pos <= scanned_to:  # pragma: no cover - misc nodes arrive in source order
+            return _scanner.ascii_rfind(self._html_input, marker, 0, source_pos)
+        window_start = max(0, scanned_to - len(marker) + 1)
+        found = _scanner.ascii_rfind(self._html_input, marker, window_start, source_pos)
+        if found != -1:
+            best = found
+        self._close_tag_scan[marker] = (source_pos, best)
+        return best
+
     def _append_misc_node(self, node: Node, source_pos: int | None = None) -> None:
         if self._after_document_mode and source_pos is not None:
             marker = "</html" if self._after_document_mode == _AFTER_HTML else "</body"
-            close_start = _scanner.ascii_rfind(self._html_input, marker, 0, source_pos)
+            close_start = self._last_close_tag_start(marker, source_pos)
             close_end = self._html_input.find(">", close_start, source_pos) if close_start != -1 else -1
             trailing = self._html_input[close_end + 1 : source_pos] if close_end != -1 else ""
             if trailing and "<" not in trailing and trailing.strip(_SPACE):
@@ -1463,12 +1490,7 @@ class ParseEngine:
                 and self._current_parent() is self._body
             )
         ):
-            children: list[Any] = self._doc.children  # type: ignore[assignment]
-            insert_at = 0
-            while insert_at < len(children) and children[insert_at].name != "html":
-                insert_at += 1
-            children.insert(insert_at, node)
-            node.parent = self._doc
+            self._insert_before_document_root(node)
             return
         if (
             not self._fragment
@@ -1480,12 +1502,21 @@ class ParseEngine:
         ):
             children = self._html.children
             anchor = self._body if self._after_head or self._explicit_head else self._head
-            try:
-                insert_at = children.index(anchor)
-            except ValueError:  # pragma: no cover - shell anchor is owned by html
-                insert_at = len(children)
+            cached_anchor, cached_index = self._html_anchor_index
+            if cached_anchor is anchor and 0 <= cached_index < len(children) and children[cached_index] is anchor:
+                insert_at = cached_index
+                found = True
+            else:
+                try:
+                    insert_at = children.index(anchor)
+                except ValueError:  # pragma: no cover - shell anchor is owned by html
+                    insert_at = len(children)
+                    found = False
+                else:
+                    found = True
             children.insert(insert_at, node)
             node.parent = self._html
+            self._html_anchor_index = (anchor, insert_at + 1) if found else (None, -1)
             return
         self._append(self._current_parent(), node)
 

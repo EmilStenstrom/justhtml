@@ -22,6 +22,7 @@ from justhtml.parser.engine import (
 from justhtml.parser.options import ParserOptions
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlRule
 from justhtml.serializer import to_test_format
+from tests.harness.scaling import assert_scales_linearly
 from tests.harness.tree import TestRunner
 
 
@@ -30,6 +31,22 @@ class _ParserEngineTestCase(unittest.TestCase):
         document = JustHTML(html, **kwargs)
         assert document.to_html(pretty=False) == expected
         return document
+
+
+class TestDocumentShellScaling(unittest.TestCase):
+    def test_comment_placement_scales_linearly(self) -> None:
+        prefixes = ("<!doctype html>", "<html>", "<head></head>")
+        for prefix in prefixes:
+            assert_scales_linearly(
+                lambda size, prefix=prefix: prefix + "<!---->" * size,
+                lambda source: JustHTML(source, sanitize=False),
+            )
+
+    def test_trailing_comments_scale_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<!doctype html><html><head></head><body></body></html>" + "<!---->" * size,
+            lambda source: JustHTML(source, sanitize=False),
+        )
 
 
 class TestCountingStack(unittest.TestCase):
