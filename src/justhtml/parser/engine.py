@@ -834,11 +834,20 @@ class _CountingStack(list[Node]):
                 if node.namespace in {None, "html"} and node.name in names:
                     return index
             return -1
+        # Scope boundaries arrive as a set of tag names, sometimes a large one.
+        # Iterating whichever side is smaller keeps the cost tied to the variety
+        # of names actually open, which stays small even on a deep stack.
+        positions_by_name = self._html_positions
         best = -1
+        if len(positions_by_name) < len(names):
+            for name, positions in positions_by_name.items():
+                if positions[-1] > best and name in names:
+                    best = positions[-1]
+            return best
         for name in names:
-            positions = self._html_positions.get(name)
-            if positions:
-                best = max(best, positions[-1])
+            found = positions_by_name.get(name)
+            if found and found[-1] > best:
+                best = found[-1]
         return best
 
     def last_html_index(self) -> int:
@@ -874,6 +883,25 @@ class _CountingStack(list[Node]):
                     return index
             return -1
         return self._foreign_boundaries[-1] if self._foreign_boundaries else -1
+
+    def last_scope_boundary_index(self, names: Collection[str]) -> int:
+        """Return the nearest scope boundary, or -1 when none is open.
+
+        A boundary is an HTML element named in `names` or a foreign integration
+        point, which is the pair of lookups every scope check needs. Answering
+        both in one call lets a shallow stack settle them in a single pass.
+        """
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                node = self[index]
+                namespace = node.namespace
+                if namespace is None or namespace == "html":
+                    if node.name in names:
+                        return index
+                elif namespace != _PARSER_ONLY_NAMESPACE and self._is_foreign_boundary(node):
+                    return index
+            return -1
+        return max(self.last_html_index_of_any(names), self.last_foreign_boundary_index())
 
     def last_rendered_index(self) -> int | None:
         if not self._indexed:
@@ -4424,12 +4452,41 @@ class ParseEngine:
         return stack.last_html_index_of(name, parser_only=True)
 
     def _find_open_index_before_boundary(self, name: str, boundaries: frozenset[str]) -> int | None:
+        """Return the innermost open `name`, or None when a scope boundary is nearer.
+
+        This is the scope check of §13.2.4.2, and it runs several times per
+        token, so the order of the tests below is load-bearing rather than
+        cosmetic.
+        """
         stack = self._stack
-        target = stack.last_index_of(name)
-        if target is None:
+        if not stack.count_of(name):
+            # Nothing by that name is open, so no scope can contain it. About
+            # two thirds of the calls here ask for `p`, whose count is
+            # maintained anyway, and an indexed stack answers any name from its
+            # position lists. This returns outright on the majority of calls,
+            # skipping the boundary lookup below.
             return None
-        boundary = max(stack.last_html_index_of_any(boundaries), stack.last_foreign_boundary_index())
-        return target if target >= boundary else None
+        if not stack._indexed:
+            # A shallow stack settles target and boundary in one bounded pass,
+            # which is cheaper than the two index lookups the deep path needs.
+            for index in range(len(stack) - 1, 0, -1):
+                node = stack[index]
+                node_name = node.name
+                if node_name == name:
+                    return index
+                namespace = node.namespace
+                if namespace is None or namespace == "html":
+                    if node_name in boundaries:
+                        return None
+                elif namespace != _PARSER_ONLY_NAMESPACE and _CountingStack._is_foreign_boundary(node):
+                    return None
+            # Only reachable if index 0 held the sole match, and the document
+            # root never carries a name the parser asks for.
+            return None  # pragma: no cover
+        target = stack.last_index_of(name)
+        if target is None:  # pragma: no cover - ruled out by the count guard above
+            return None  # pragma: no cover - ruled out by the count guard above
+        return target if target >= stack.last_scope_boundary_index(boundaries) else None
 
     def _find_open_table_scoped_end_index(self, name: str) -> int | None:
         for idx in range(len(self._stack) - 1, 0, -1):
@@ -4471,12 +4528,11 @@ class ParseEngine:
 
     def _find_open_heading_index(self) -> int | None:
         stack = self._stack
-        target = max((stack.last_index_of(name) or -1 for name in HEADING_ELEMENTS), default=-1)
-        boundary = max(
-            stack.last_html_index_of_any(_DEFAULT_SCOPE_BOUNDARIES),
-            stack.last_foreign_boundary_index(),
-        )
-        return target if target > boundary else None
+        # One pass over the six heading names rather than six separate lookups.
+        target = stack.last_index_of_any(HEADING_ELEMENTS)
+        if target is None:
+            return None
+        return target if target > stack.last_scope_boundary_index(_DEFAULT_SCOPE_BOUNDARIES) else None
 
     def _set_current_template_mode(self, mode: str) -> None:
         if self._template_modes:  # pragma: no branch - opposite edge requires invalid parser state

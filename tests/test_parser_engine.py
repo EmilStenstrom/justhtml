@@ -9,7 +9,11 @@ from justhtml.dom import DocumentFragment, Element, Template, Text
 from justhtml.parser.context import FragmentContext
 from justhtml.parser.engine import (
     _AFTER_BODY,
+    _DEFAULT_SCOPE_BOUNDARIES,
+    _GENERAL_END_TAG_BOUNDARIES,
+    _P_SCOPE_BOUNDARIES,
     _STACK_COUNT_THRESHOLD,
+    _TABLE_CONTEXT_BOUNDARIES,
     _UNWRAP_BATCH_THRESHOLD,
     ParseEngine,
     _CountingStack,
@@ -279,6 +283,76 @@ class TestCountingStack(unittest.TestCase):
             for length in (1, 2, 5, len(ordered)):
                 nodes = [DocumentFragment()] + [make() for make in ordered[:length]]
                 self.assert_indexed_and_scanned_agree(nodes)
+
+    def test_engine_scope_helpers_agree_across_indexed_and_scanned_stacks(self) -> None:
+        """The scope check keeps a shallow single-pass path beside the indexed one.
+
+        Both must give the same answer, or a document would parse differently
+        once its stack crossed the depth at which the index is built.
+        """
+        shapes = [
+            ["div", "p", "span"],
+            ["div", "button", "p", "b"],
+            ["table", "tbody", "tr", "td", "div", "p"],
+            ["div", "li", "div", "ul", "li"],
+            ["template", "div", "table", "p"],
+            ["h1", "div", "span"],
+            ["div", "svg:svg", "svg:foreignObject", "div", "svg:g"],
+            ["div", "math:math", "math:annotation-xml", "span"],
+            ["p", "svg:svg", "svg:g", "svg:g"],
+            ["div", "parser-only:template", "p", "span"],
+        ]
+
+        def build(names):
+            nodes = [DocumentFragment()]
+            for entry in names:
+                if entry.startswith("parser-only:"):
+                    nodes.append(Element(entry.split(":")[1], {}, "justhtml-parser-only"))
+                elif ":" in entry:
+                    namespace, local = entry.split(":")
+                    attrs = {"encoding": "text/html"} if local == "annotation-xml" else {}
+                    nodes.append(Element(local, attrs, namespace))
+                elif entry == "template":
+                    nodes.append(Template("template", {}, namespace="html"))
+                else:
+                    nodes.append(Element(entry, {}, "html"))
+            return nodes
+
+        boundary_sets = [
+            _P_SCOPE_BOUNDARIES,
+            _DEFAULT_SCOPE_BOUNDARIES,
+            _GENERAL_END_TAG_BOUNDARIES,
+            _TABLE_CONTEXT_BOUNDARIES,
+            frozenset({"template"}),
+        ]
+        probe_names = ["p", "div", "li", "span", "table", "td", "b", "g", "foreignObject", "missing"]
+
+        for shape in shapes:
+            nodes = build(shape)
+            scanned = _CountingStack(nodes)
+            assert not scanned._indexed
+            indexed = self._indexed_copy(nodes)
+
+            engine = ParseEngine("", fragment=True)
+            for name in probe_names:
+                for boundaries in boundary_sets:
+                    engine._stack = scanned
+                    scanned_result = engine._find_open_index_before_boundary(name, boundaries)
+                    engine._stack = indexed
+                    assert scanned_result == engine._find_open_index_before_boundary(name, boundaries), (
+                        shape,
+                        name,
+                        sorted(boundaries)[:3],
+                    )
+                for boundaries in boundary_sets:
+                    assert scanned.last_scope_boundary_index(boundaries) == indexed.last_scope_boundary_index(
+                        boundaries
+                    ), (shape, boundaries)
+
+            engine._stack = scanned
+            scanned_heading = engine._find_open_heading_index()
+            engine._stack = indexed
+            assert scanned_heading == engine._find_open_heading_index(), shape
 
     def assert_index_matches_contents(self, stack: _CountingStack) -> None:
         """Every ascending list the stack maintains must still describe it."""
