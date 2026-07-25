@@ -51,6 +51,12 @@ class TestDocumentShellScaling(unittest.TestCase):
 
 
 class TestForeignContentScaling(unittest.TestCase):
+    def test_deep_foreign_parent_membership_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<svg>" + "<g>" * size + "<div>x",
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
     def test_annotation_xml_integration_checks_scale_linearly(self) -> None:
         def source(size: int) -> str:
             attrs = " ".join(f"a{index}" for index in range(size))
