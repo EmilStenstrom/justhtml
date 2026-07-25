@@ -5994,8 +5994,15 @@ class ParseEngine:
                 stack.remove(formatting_element)
             except ValueError:  # pragma: no cover - unreachable after parser-state guards
                 pass  # pragma: no cover - unreachable after parser-state guards
+            # `furthest_block` was read from this stack a few steps earlier and
+            # the removal above targets `formatting_element`, which the adoption
+            # agency has already established sits below it. Narrow rather than
+            # silence: without this, an absent node would reach `+ 1` and raise
+            # `TypeError` from inside the parser instead of being handled.
             furthest_stack_index = stack.index_of_node(furthest_block)
-            stack.insert(furthest_stack_index + 1, new_formatting_element)  # type: ignore[operator]
+            if furthest_stack_index is None:  # pragma: no cover - unreachable after parser-state guards
+                return  # pragma: no cover - unreachable after parser-state guards
+            stack.insert(furthest_stack_index + 1, new_formatting_element)
             self._refresh_active_formatting_dirty()
 
     def _mark_active_formatting_dirty(self) -> None:
@@ -6010,6 +6017,10 @@ class ParseEngine:
         # at one index resolves in the target's favour.
         stack = self._stack
         target_index = stack.index_of_node(target)
+        # Falsy covers both `None` (not open at all) and index 0, deliberately:
+        # index 0 is the document root, and the walk this replaces ran down to
+        # index 1, so it reported a target sitting at the root as out of scope
+        # too. Spelling that as `is None` would change the answer for the root.
         if not target_index:
             return False
         boundary_index = stack.last_index_of_any(boundaries)
