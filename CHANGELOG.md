@@ -7,9 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Keep parsing, sanitization, deep cloning, pretty serialization, streaming, and diagnostic collection linear for deeply nested or repeatedly misnested adversarial input by indexing parser state and avoiding repeated subtree and sibling walks (thanks @kevin-hua-kraken in #72).
+
+### Security
+
+- (Severity: Low) Bound parser and sanitizer work for crafted deep nesting, foreign-content end tags, active formatting recovery, template cleanup, and nested disallowed wrappers that could previously trigger quadratic processing.
+
 ### Fixed
 
-- Make `append_child()`, `insert_before()`, and `replace_child()` splice `DocumentFragment` children into the target and empty the fragment, matching DOM behavior.
+- Make `append_child()`, `insert_before()`, and `replace_child()` splice `DocumentFragment` children into the target and empty the fragment, matching DOM behavior (thanks @jph00 in #68).
+- Preserve literal text when serializing the legacy raw-text elements `iframe`, `noembed`, `noframes`, and `xmp`, so parsing serialized output recovers the same text (thanks @jph00 in #70).
+- Minimize name-matching attribute values only for boolean attributes, preventing ordinary attributes such as `id="id"` from changing value during serialization (thanks @jph00 in #69).
 
 ## [3.9.0] - 2026-07-20
 

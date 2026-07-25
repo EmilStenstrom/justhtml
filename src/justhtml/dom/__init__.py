@@ -715,10 +715,18 @@ def _clone_subtree_iterative(root: Node) -> Node:
         if not children:
             continue
 
+        target_children = target.children
+        if target_children is None:  # pragma: no cover - child-bearing nodes clone to containers
+            continue
+
         pending: list[tuple[Node, Node]] = []
         for child in children:
             child_clone = child.clone_node(deep=False)
-            target.append_child(child_clone)
+            # Fresh clones are detached and cannot be ancestors of the target.
+            # Appending directly avoids walking the target's ancestors once per
+            # template-bearing descendant during the adoption check.
+            target_children.append(child_clone)
+            child_clone.parent = target
             if isinstance(child, Node) and isinstance(child_clone, Node):
                 pending.append((child, child_clone))
 

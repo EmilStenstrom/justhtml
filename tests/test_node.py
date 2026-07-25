@@ -21,6 +21,7 @@ from justhtml.serializer.markdown import (
     _MarkdownBuilder,
     _to_markdown_walk,
 )
+from tests.harness.scaling import assert_scales_linearly
 
 
 class TestNode(unittest.TestCase):
@@ -1344,3 +1345,17 @@ class TestNode(unittest.TestCase):
         text = Text("hello")
         assert text.children == []
         assert not text.has_child_nodes()
+
+
+class TestDeepCloneScaling(unittest.TestCase):
+    def test_cloning_a_template_bearing_tree_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: JustHTML("<div><template></template>" * size, sanitize=False).root,
+            lambda root: root.clone_node(deep=True),
+        )
+
+    def test_cloning_a_deep_plain_tree_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: JustHTML("<div>" * size + "x", sanitize=False).root,
+            lambda root: root.clone_node(deep=True),
+        )

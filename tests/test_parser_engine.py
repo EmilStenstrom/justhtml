@@ -1,10 +1,11 @@
+import sys
 import unittest
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
 from justhtml import JustHTML
-from justhtml.dom import DocumentFragment, Element, Text
+from justhtml.dom import DocumentFragment, Element, Template, Text
 from justhtml.parser.context import FragmentContext
 from justhtml.parser.engine import (
     _AFTER_BODY,
@@ -22,6 +23,7 @@ from justhtml.parser.engine import (
 from justhtml.parser.options import ParserOptions
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlRule
 from justhtml.serializer import to_test_format
+from tests.harness.scaling import assert_scales_linearly
 from tests.harness.tree import TestRunner
 
 
@@ -32,7 +34,199 @@ class _ParserEngineTestCase(unittest.TestCase):
         return document
 
 
+class TestDocumentShellScaling(unittest.TestCase):
+    def test_comment_placement_scales_linearly(self) -> None:
+        prefixes = ("<!doctype html>", "<html>", "<head></head>")
+        for prefix in prefixes:
+            assert_scales_linearly(
+                lambda size, prefix=prefix: prefix + "<!---->" * size,
+                lambda source: JustHTML(source, sanitize=False),
+            )
+
+    def test_trailing_comments_scale_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<!doctype html><html><head></head><body></body></html>" + "<!---->" * size,
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+
+class TestForeignContentScaling(unittest.TestCase):
+    def test_deep_foreign_end_tag_searches_scale_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<div><svg><foreignObject><svg>" + "<g>" * size + "</div>" * size,
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+    def test_deep_foreign_parent_membership_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<svg>" + "<g>" * size + "<div>x",
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+    def test_annotation_xml_integration_checks_scale_linearly(self) -> None:
+        def source(size: int) -> str:
+            attrs = " ".join(f"a{index}" for index in range(size))
+            return f"<math><annotation-xml {attrs} encoding=text/html>" + "<svg/>" * size
+
+        assert_scales_linearly(source, lambda html: JustHTML(html, sanitize=False))
+
+
+class TestSanitizerScaling(unittest.TestCase):
+    def test_nested_disallowed_wrappers_scale_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<section>x" * size,
+            lambda source: JustHTML(source),
+        )
+
+
+class TestSelectedContentScaling(unittest.TestCase):
+    def test_deep_selectedcontent_projection_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: (
+                "<select><option selected>x</option>" + "<div><selectedcontent></selectedcontent>" * size + "</select>"
+            ),
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+
+class TestActiveFormattingScaling(unittest.TestCase):
+    def test_detached_formatting_node_is_not_in_scope(self) -> None:
+        engine = ParseEngine("", fragment=True)
+        engine.parse()
+
+        assert not engine._has_node_in_scope(Element("b", {}, "html"), frozenset({"table"}))
+
+    def test_absent_formatting_end_tags_scale_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "".join(f"<b id={index}>" for index in range(size)) + "</i>" * size,
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+    def test_adoption_reparenting_scales_linearly(self) -> None:
+        shapes = (
+            lambda size: "<a><div>" * size + "x",
+            lambda size: "<b><div></b>" * size,
+            lambda size: "<b><table>" + "<span>" * size + "</b>" * size,
+        )
+        for shape in shapes:
+            assert_scales_linearly(shape, lambda source: JustHTML(source, sanitize=False))
+
+
+class TestDiagnosticScaling(unittest.TestCase):
+    def test_basic_error_collection_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<x>" * size + "</missing>" * size + "</x>" * size,
+            lambda source: JustHTML(
+                source,
+                fragment=True,
+                sanitize=False,
+                collect_errors=True,
+            ),
+        )
+
+
+class TestFramesetDepth(unittest.TestCase):
+    def test_deep_frameset_eligibility_does_not_recurse(self) -> None:
+        limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(1_000)
+        try:
+            sources = (
+                "<div>" * 5_000 + "<frameset>",
+                "<svg>" * 5_000 + "</svg>" * 5_000 + "<frameset>",
+            )
+            for source in sources:
+                JustHTML(source, sanitize=False)
+        finally:
+            sys.setrecursionlimit(limit)
+
+
+class TestOpenElementStackScaling(unittest.TestCase):
+    def test_deep_ordinary_elements_scale_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<span>" * size + "x",
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+    def test_out_of_scope_end_tags_scale_linearly(self) -> None:
+        shapes = (
+            lambda size: "<x><div>" + "<span>" * size + "</x>" * size,
+            lambda size: "<p><button>" + "<b>" * size + "</p>" * size,
+        )
+        for shape in shapes:
+            assert_scales_linearly(shape, lambda source: JustHTML(source, sanitize=False))
+
+
+class TestTemplateLookupScaling(unittest.TestCase):
+    def test_parser_only_template_cleanup_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<template>" * size + "x" + "</template>" * size,
+            JustHTML,
+        )
+
+    def test_foster_parenting_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<!doctype html><table>" + "<br>" * size + "</table>",
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+    def test_deep_foster_template_lookups_scale_linearly(self) -> None:
+        shapes = (
+            lambda size: "<div>" * size + "<table>" + "<br>" * size + "</table>" + "</div>" * size,
+            lambda size: (
+                "<template>"
+                + "<div>" * size
+                + "<table>"
+                + "<br>" * size
+                + "</table>"
+                + "</div>" * size
+                + "</template>"
+            ),
+        )
+        for shape in shapes:
+            assert_scales_linearly(
+                shape,
+                lambda source: JustHTML(
+                    source,
+                    fragment=True,
+                    sanitize=False,
+                ),
+            )
+
+
 class TestCountingStack(unittest.TestCase):
+    def test_indexed_parser_only_template_lookup_skips_foreign_namesakes(self) -> None:
+        engine = ParseEngine("", fragment=True)
+        root = DocumentFragment()
+        foreign_template = Element("template", {}, "svg")
+        parser_template = Element("template", {}, "justhtml-parser-only")
+        engine._stack = _CountingStack(
+            [root]
+            + [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+            + [foreign_template, parser_template]
+        )
+
+        assert engine._open_parser_only_template_index() == len(engine._stack) - 1
+
+    def test_foster_parent_uses_the_trailing_table_anchor(self) -> None:
+        class NoSearchList(list):
+            def index(self, value, start=0, stop=None):
+                raise AssertionError("the trailing table anchor must not require a sibling search")
+
+        engine = ParseEngine("", fragment=True)
+        container = Element("div", {}, "html")
+        table = Element("table", {}, "html")
+        children = NoSearchList([table])
+        container.children = children
+        table.parent = container
+        engine._stack = _CountingStack([DocumentFragment(), container, table])
+
+        assert engine._foster_parent_for(table) == (container, 0)
+
+        following = Element("span", {}, "html")
+        container.children = [table, following]
+        following.parent = container
+        assert engine._foster_parent_for(table) == (container, 0)
+
     def assert_counts_match(self, stack: _CountingStack) -> None:
         expected = Counter(node.name for node in stack)
         assert stack.count_of("p") == expected["p"]
@@ -86,6 +280,56 @@ class TestCountingStack(unittest.TestCase):
         assert stack._name_counts is not None
         stack.append(Element("span", {}, "html"))
         self.assert_counts_match(stack)
+
+    def test_deep_stack_position_index_handles_boundaries_and_middle_mutations(self) -> None:
+        nodes = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        initially_foreign = _CountingStack([*nodes[:-1], Element("foreignObject", {}, "svg")])
+        assert initially_foreign.last_foreign_boundary_index() == len(initially_foreign) - 1
+        stack = _CountingStack(nodes)
+        plain_annotation = Element("annotation-xml", {}, "math")
+        html_annotation = Element("annotation-xml", {"other": "x", "ENCODING": "text/html"}, "math")
+        parser_template = Element("template", {}, "justhtml-parser-only")
+        html_template = Template("template", {}, namespace="html")
+
+        stack.append(plain_annotation)
+        assert stack.last_foreign_boundary_index() == -1
+        stack.append(html_annotation)
+        assert stack.last_foreign_boundary_index() == len(stack) - 1
+        stack.append(parser_template)
+        stack.append(html_template)
+        assert stack.last_html_index_of("template", parser_only=True) == len(stack) - 1
+        assert stack.last_template_boundary_index() == len(stack) - 1
+
+        stack.pop()
+        assert stack.last_template_boundary_index() == len(stack) - 1
+        stack.pop()
+        stack.pop()
+        assert stack.last_foreign_boundary_index() == -1
+        stack.pop(1)
+        del stack[1:3]
+        self.assert_counts_match(stack)
+
+        engine = ParseEngine("", fragment=True)
+        engine._stack = [DocumentFragment(), Element("div", {}, "html")]
+        assert engine._find_open_index("div") == 1
+        assert engine._find_open_index("missing") is None
+        assert engine._find_open_html_index("div") == 1
+        assert engine._find_open_index_in_current_scope("div") == 1
+        assert engine._find_open_index_in_current_scope("missing") is None
+        engine._stack = [DocumentFragment(), Template("template", {}, namespace="html")]
+        assert engine._find_open_index_in_current_scope("missing") is None
+
+        foreign = Element("foreignObject", {}, "svg")
+        mutations = _CountingStack([*nodes, foreign, Element("span", {}, "html")])
+        mutations.remove(nodes[-1])
+        assert mutations.last_foreign_boundary_index() == len(mutations) - 2
+        del mutations[-2]
+        assert mutations.last_foreign_boundary_index() == -1
+        del mutations[-1]
+        del mutations[1]
+        with self.assertRaises(ValueError):
+            mutations.remove(Element("missing", {}, "html"))
+        self.assert_counts_match(mutations)
 
     def test_append_and_insert_activate_name_tracking_at_the_threshold(self) -> None:
         shallow = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD - 1)]
@@ -1405,6 +1649,29 @@ class TestParserEngineInternals(_ParserEngineTestCase):
 
 
 class TestParserDiagnosticModes(_ParserEngineTestCase):
+    def test_basic_error_collection_handles_repeated_duplicate_tag_names(self) -> None:
+        engine = ParseEngine("<x>" * 64 + "</x>" * 64, fragment=True, collect_errors=True)
+
+        engine._collect_basic_errors()
+
+        assert engine.errors == []
+
+    def test_basic_error_collection_handles_large_suffix_truncations(self) -> None:
+        engine = ParseEngine("<a>" + "<b>" * 64 + "</a>" + "</b>" * 64, fragment=True, collect_errors=True)
+
+        engine._collect_basic_errors()
+
+        assert [error.code for error in engine.errors] == ["unexpected-end-tag"] * 64
+
+    def test_basic_error_collection_respects_paragraph_scope_boundaries(self) -> None:
+        engine = ParseEngine("<p><object><div></p></object>", fragment=True, collect_errors=True)
+
+        engine._collect_basic_errors()
+
+        assert [(error.code, error.message) for error in engine.errors] == [
+            ("unexpected-end-tag", "Unexpected </object> end tag"),
+        ]
+
     def test_upstream_inputs_across_diagnostic_modes(self) -> None:
         config = {
             "fail_fast": False,

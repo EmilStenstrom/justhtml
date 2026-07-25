@@ -552,17 +552,22 @@ def _is_whitespace_text_node(node: Any) -> bool:
     return node.name == "#text" and (node.data or "").strip() == ""
 
 
-def _is_blocky_element(node: Any) -> bool:
+_NON_ELEMENT_NODE_NAMES = {"#text", "#comment", "!doctype"}
+
+
+def _is_blocky_element(node: Any, descendants: dict[Any, bool] | None = None) -> bool:
     # Treat elements as block-ish if they are block-level *or* contain any block-level
     # descendants. This keeps pretty-printing readable for constructs like <a><div>...</div></a>.
     try:
         name = node.name
     except AttributeError:
         return False
-    if name in {"#text", "#comment", "!doctype"}:
+    if name in _NON_ELEMENT_NODE_NAMES:
         return False
     if name in SPECIAL_ELEMENTS:
         return True
+    if descendants is not None:
+        return descendants.get(node, False)
 
     try:
         children = node.children
@@ -648,7 +653,7 @@ _LAYOUT_BLOCK_ELEMENTS = {
 _FORMAT_SEP = object()
 
 
-def _is_layout_blocky_element(node: Any) -> bool:
+def _is_layout_blocky_element(node: Any, descendants: dict[Any, bool] | None = None) -> bool:
     # Similar to _is_blocky_element(), but limited to actual layout blocks.
     # This avoids turning inline-ish "special" elements like <script> into
     # multiline pretty-print breaks in contexts like <p>.
@@ -656,10 +661,12 @@ def _is_layout_blocky_element(node: Any) -> bool:
         name = node.name
     except AttributeError:
         return False
-    if name in {"#text", "#comment", "!doctype"}:
+    if name in _NON_ELEMENT_NODE_NAMES:
         return False
     if name in _LAYOUT_BLOCK_ELEMENTS:
         return True
+    if descendants is not None:
+        return descendants.get(node, False)
 
     try:
         children = node.children
@@ -720,7 +727,7 @@ def _is_formatting_whitespace_text(data: str) -> bool:
     return len(data) > 2
 
 
-def _should_pretty_indent_children(children: list[Any]) -> bool:
+def _should_pretty_indent_children(children: list[Any], block_descendants: dict[Any, bool] | None = None) -> bool:
     for child in children:
         if child is None:
             continue
@@ -737,15 +744,15 @@ def _should_pretty_indent_children(children: list[Any]) -> bool:
         return True
     if len(element_children) == 1:
         only_child = element_children[0]
-        if _is_blocky_element(only_child):
+        if _is_blocky_element(only_child, block_descendants):
             return True
         return False
 
     # Safe indentation rule: only insert inter-element whitespace when we won't
     # be placing it between two adjacent inline/phrasing elements.
-    prev_is_blocky = _is_blocky_element(element_children[0])
+    prev_is_blocky = _is_blocky_element(element_children[0], block_descendants)
     for child in element_children[1:]:
-        current_is_blocky = _is_blocky_element(child)
+        current_is_blocky = _is_blocky_element(child, block_descendants)
         if not prev_is_blocky and not current_is_blocky:
             return False
         prev_is_blocky = current_is_blocky
@@ -754,6 +761,32 @@ def _should_pretty_indent_children(children: list[Any]) -> bool:
 
 _HTML_FRAGMENT = str | tuple["_HTML_FRAGMENT", ...]
 _MAX_PRETTY_INDENT_DEPTH = 64
+
+
+def _classify_block_descendants(root: Any) -> tuple[dict[Any, bool], dict[Any, bool]]:
+    """Classify every subtree once for the two pretty-print block sets."""
+    special: dict[Any, bool] = {}
+    layout: dict[Any, bool] = {}
+    stack: list[tuple[Any, bool]] = [(root, False)]
+    while stack:
+        node, expanded = stack.pop()
+        children = getattr(node, "children", None)
+        if not children:
+            continue
+        if not expanded:
+            stack.append((node, True))
+            for child in children:
+                if child is not None and child.name not in _NON_ELEMENT_NODE_NAMES:
+                    stack.append((child, False))
+            continue
+        special[node] = any(
+            child is not None and (child.name in SPECIAL_ELEMENTS or special.get(child, False)) for child in children
+        )
+        layout[node] = any(
+            child is not None and (child.name in _LAYOUT_BLOCK_ELEMENTS or layout.get(child, False))
+            for child in children
+        )
+    return special, layout
 
 
 def _pretty_indent(depth: int, indent_size: int) -> str:
@@ -797,6 +830,7 @@ def _html_fragment_to_string(fragment: _HTML_FRAGMENT) -> str:
 
 def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: bool) -> str:
     """Helper to convert a node to HTML using an explicit stack."""
+    block_descendants, layout_descendants = _classify_block_descendants(node)
     tasks: list[Any] = [("visit", node, indent, in_pre)]
     results: list[_HTML_FRAGMENT] = []
 
@@ -960,7 +994,8 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                             blocky_elements = [
                                 child
                                 for child in run
-                                if child.name not in {"#text", "#comment"} and _is_blocky_element(child)
+                                if child.name not in {"#text", "#comment"}
+                                and _is_blocky_element(child, block_descendants)
                             ]
                             if blocky_elements and len(run) != 1:
                                 can_apply = False
@@ -1008,14 +1043,14 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                             )
                             continue
 
-            if not _should_pretty_indent_children(children):
+            if not _should_pretty_indent_children(children, block_descendants):
                 if name in SPECIAL_ELEMENTS:
                     has_comment = any(child is not None and child.name == "#comment" for child in children)
                     if not has_comment:
                         has_blocky_child = any(
                             child is not None
                             and child.name not in {"#text", "#comment"}
-                            and _is_layout_blocky_element(child)
+                            and _is_layout_blocky_element(child, layout_descendants)
                             for child in children
                         )
                         has_non_whitespace_text = any(
@@ -1066,7 +1101,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                                     inline_parts.append(("lit", _escape_text(_normalize_formatting_whitespace(data))))
                                     continue
 
-                                if _is_layout_blocky_element(child):
+                                if _is_layout_blocky_element(child, layout_descendants):
                                     flush_inline_parts()
                                     idx = len(child_specs)
                                     child_specs.append((child, current_indent + 1, False))
