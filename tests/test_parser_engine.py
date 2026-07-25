@@ -194,6 +194,55 @@ class TestTemplateLookupScaling(unittest.TestCase):
 
 
 class TestCountingStack(unittest.TestCase):
+    def test_indexed_template_queries_skip_namesakes_in_each_namespace(self) -> None:
+        root = DocumentFragment()
+        filler = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        html_template = Template("template", {}, namespace="html")
+        html_namesake = Element("template", {}, "html")
+        parser_template = Element("template", {}, "justhtml-parser-only")
+        foreign_namesake = Element("template", {}, "svg")
+        stack = _CountingStack([root, *filler, html_template, html_namesake, parser_template, foreign_namesake])
+        engine = ParseEngine("", fragment=True)
+        engine._stack = stack
+
+        assert stack.last_html_index_of("div") == _STACK_COUNT_THRESHOLD
+        assert stack.last_html_index_of("template", parser_only=True) == len(stack) - 2
+        assert stack.last_template_boundary_index() == len(stack) - 2
+        assert engine._open_parser_only_template_index() == len(stack) - 2
+
+        namesakes = _CountingStack([root, *filler, html_namesake, foreign_namesake])
+        engine._stack = namesakes
+        assert namesakes.last_html_index_of("template", parser_only=True) == len(namesakes) - 2
+        assert namesakes.last_template_boundary_index() == -1
+        assert engine._open_parser_only_template_index() is None
+
+    def test_indexed_parser_only_positions_follow_middle_mutations(self) -> None:
+        root = DocumentFragment()
+        filler = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        parser_template = Element("template", {}, "justhtml-parser-only")
+
+        discarded = _CountingStack([root, *filler, parser_template, Element("span", {}, "html")])
+        discarded.pop(-2)
+        assert discarded.last_rendered_index() == len(discarded) - 1
+
+        renumbered = _CountingStack([root, filler[0], parser_template, *filler[1:]])
+        renumbered.pop(1)
+        assert renumbered.index_of_node(parser_template) == 1
+
+    def test_adjusted_foreign_end_names_use_the_innermost_match(self) -> None:
+        root = DocumentFragment()
+        html = Element("div", {}, "html")
+        filler = [Element("g", {}, "svg") for _ in range(_STACK_COUNT_THRESHOLD)]
+
+        def stays_foreign(*tail: Element) -> bool:
+            engine = ParseEngine("", fragment=True)
+            engine._stack = _CountingStack([root, html, *filler, *tail])
+            return engine._end_tag_stays_in_foreign_context("altglyph", 0, 0)
+
+        assert stays_foreign(Element("altglyph", {}, "svg"))
+        assert stays_foreign(Element("altGlyph", {}, "svg"), Element("altglyph", {}, "svg"))
+        assert stays_foreign(Element("altglyph", {}, "svg"), Element("altGlyph", {}, "svg"))
+
     def test_indexed_parser_only_template_lookup_skips_foreign_namesakes(self) -> None:
         engine = ParseEngine("", fragment=True)
         root = DocumentFragment()

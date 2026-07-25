@@ -26,6 +26,18 @@ from justhtml.transforms import (
 
 
 class TestTransformCallbacksAndAttributeFilters(unittest.TestCase):
+    def test_transforms_descend_into_special_containers(self):
+        root = Element("root", {}, "html")
+        special = Node("#container")
+        child = Element("div", {}, "html")
+        special.append_child(child)
+        root.children = [special]
+        special.parent = root
+
+        apply_compiled_transforms(root, compile_transforms([SetAttrs("div", id="seen")]))
+
+        self.assertEqual(child.attrs, {"id": "seen"})
+
     def test_chained_edit_attrs_applies_both_callbacks(self):
         """Chained attribute editors apply changes in callback order."""
 
