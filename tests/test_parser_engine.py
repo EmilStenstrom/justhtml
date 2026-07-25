@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from justhtml import JustHTML
-from justhtml.dom import DocumentFragment, Element, Text
+from justhtml.dom import DocumentFragment, Element, Template, Text
 from justhtml.parser.context import FragmentContext
 from justhtml.parser.engine import (
     _AFTER_BODY,
@@ -82,6 +82,22 @@ class TestFramesetDepth(unittest.TestCase):
             sys.setrecursionlimit(limit)
 
 
+class TestOpenElementStackScaling(unittest.TestCase):
+    def test_deep_ordinary_elements_scale_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<span>" * size + "x",
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+    def test_out_of_scope_end_tags_scale_linearly(self) -> None:
+        shapes = (
+            lambda size: "<x><div>" + "<span>" * size + "</x>" * size,
+            lambda size: "<p><button>" + "<b>" * size + "</p>" * size,
+        )
+        for shape in shapes:
+            assert_scales_linearly(shape, lambda source: JustHTML(source, sanitize=False))
+
+
 class TestCountingStack(unittest.TestCase):
     def assert_counts_match(self, stack: _CountingStack) -> None:
         expected = Counter(node.name for node in stack)
@@ -136,6 +152,44 @@ class TestCountingStack(unittest.TestCase):
         assert stack._name_counts is not None
         stack.append(Element("span", {}, "html"))
         self.assert_counts_match(stack)
+
+    def test_deep_stack_position_index_handles_boundaries_and_middle_mutations(self) -> None:
+        nodes = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        initially_foreign = _CountingStack([*nodes[:-1], Element("foreignObject", {}, "svg")])
+        assert initially_foreign.last_foreign_boundary_index() == len(initially_foreign) - 1
+        stack = _CountingStack(nodes)
+        plain_annotation = Element("annotation-xml", {}, "math")
+        html_annotation = Element("annotation-xml", {"other": "x", "ENCODING": "text/html"}, "math")
+        parser_template = Element("template", {}, "justhtml-parser-only")
+        html_template = Template("template", {}, namespace="html")
+
+        stack.append(plain_annotation)
+        assert stack.last_foreign_boundary_index() == -1
+        stack.append(html_annotation)
+        assert stack.last_foreign_boundary_index() == len(stack) - 1
+        stack.append(parser_template)
+        stack.append(html_template)
+        assert stack.last_html_index_of("template", parser_only=True) == len(stack) - 1
+        assert stack.last_template_boundary_index() == len(stack) - 1
+
+        stack.pop()
+        assert stack.last_template_boundary_index() == len(stack) - 1
+        stack.pop()
+        stack.pop()
+        assert stack.last_foreign_boundary_index() == -1
+        stack.pop(1)
+        del stack[1:3]
+        self.assert_counts_match(stack)
+
+        engine = ParseEngine("", fragment=True)
+        engine._stack = [DocumentFragment(), Element("div", {}, "html")]
+        assert engine._find_open_index("div") == 1
+        assert engine._find_open_index("missing") is None
+        assert engine._find_open_html_index("div") == 1
+        assert engine._find_open_index_in_current_scope("div") == 1
+        assert engine._find_open_index_in_current_scope("missing") is None
+        engine._stack = [DocumentFragment(), Template("template", {}, namespace="html")]
+        assert engine._find_open_index_in_current_scope("missing") is None
 
     def test_append_and_insert_activate_name_tracking_at_the_threshold(self) -> None:
         shallow = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD - 1)]

@@ -735,11 +735,19 @@ class _CountingStack(list[Node]):
     counts so hostile deep nesting retains constant-time negative lookups.
     """
 
-    __slots__ = ("_name_counts", "_p_count")
+    __slots__ = (
+        "_foreign_boundaries",
+        "_html_positions",
+        "_indexed",
+        "_name_counts",
+        "_other_positions",
+        "_p_count",
+    )
 
     def __init__(self, iterable: Iterable[Node] = ()) -> None:
         super().__init__(iterable)
         self._name_counts: dict[str, int] | None = None
+        self._indexed = False
         if len(self) < _STACK_COUNT_THRESHOLD:
             p_count = 0
             for item in self:
@@ -749,6 +757,127 @@ class _CountingStack(list[Node]):
         counts = self._collect_name_counts()
         self._name_counts = counts
         self._p_count = counts.get("p", 0)
+        self._build_position_index()
+
+    def _build_position_index(self) -> None:
+        html: dict[str, list[int]] = {}
+        other: dict[str, list[int]] = {}
+        foreign_boundaries: list[int] = []
+        for index, item in enumerate(self):
+            positions = html if item.namespace in {None, "html"} else other
+            positions.setdefault(item.name, []).append(index)
+            if item.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and (self._is_foreign_boundary(item)):
+                foreign_boundaries.append(index)
+        self._html_positions = html
+        self._other_positions = other
+        self._foreign_boundaries = foreign_boundaries
+        self._indexed = True
+
+    @staticmethod
+    def _is_foreign_boundary(node: Node) -> bool:
+        if node.namespace == "math" and node.name == "annotation-xml":
+            attrs = node.attrs or {}
+            for name, value in attrs.items():
+                if name.lower() == "encoding":
+                    return (value or "").lower() in {"application/xhtml+xml", "text/html"}
+            return False
+        key = (node.namespace, node.name)
+        return key in HTML_INTEGRATION_POINT_SET or (
+            node.namespace == "math" and key in MATHML_TEXT_INTEGRATION_POINT_SET
+        )
+
+    def last_index_of(self, name: str) -> int | None:
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                if self[index].name == name:
+                    return index
+            return None
+        html = self._html_positions.get(name)
+        other = self._other_positions.get(name)
+        index = max(html[-1] if html else 0, other[-1] if other else 0)
+        return index or None
+
+    def last_html_index_of(self, name: str, *, parser_only: bool = False) -> int | None:
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                node = self[index]
+                namespaces = {None, "html", _PARSER_ONLY_NAMESPACE} if parser_only else {None, "html"}
+                if node.name == name and node.namespace in namespaces:
+                    return index
+            return None
+        positions = self._html_positions.get(name)
+        best = positions[-1] if positions else 0
+        if parser_only:
+            other = self._other_positions.get(name)
+            if other:
+                for index in reversed(other):
+                    if self[index].namespace == _PARSER_ONLY_NAMESPACE:
+                        best = max(best, index)
+                        break
+        return best or None
+
+    def last_html_index_of_any(self, names: Collection[str]) -> int:
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                node = self[index]
+                if node.namespace in {None, "html"} and node.name in names:
+                    return index
+            return -1
+        best = -1
+        for name in names:
+            positions = self._html_positions.get(name)
+            if positions:
+                best = max(best, positions[-1])
+        return best
+
+    def last_foreign_boundary_index(self) -> int:
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                node = self[index]
+                if node.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and self._is_foreign_boundary(node):
+                    return index
+            return -1
+        return self._foreign_boundaries[-1] if self._foreign_boundaries else -1
+
+    def last_template_boundary_index(self) -> int:
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                node = self[index]
+                if node.name == "template" and (
+                    node.namespace == _PARSER_ONLY_NAMESPACE
+                    or (type(node) is Template and node.namespace in {None, "html"})
+                ):
+                    return index
+            return -1
+        best = -1
+        html = self._html_positions.get("template")
+        if html:
+            for index in reversed(html):
+                if type(self[index]) is Template:
+                    best = index
+                    break
+        other = self._other_positions.get("template")
+        if other:
+            for index in reversed(other):
+                if self[index].namespace == _PARSER_ONLY_NAMESPACE:
+                    best = max(best, index)
+                    break
+        return best
+
+    def _note_top_position(self, item: Node, index: int) -> None:
+        positions = self._html_positions if item.namespace in {None, "html"} else self._other_positions
+        positions.setdefault(item.name, []).append(index)
+        if item.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and self._is_foreign_boundary(item):
+            self._foreign_boundaries.append(index)
+
+    def _forget_top_position(self, item: Node, index: int) -> None:
+        positions = self._html_positions if item.namespace in {None, "html"} else self._other_positions
+        bucket = positions[item.name]
+        bucket.pop()
+        if not bucket:
+            del positions[item.name]
+        if self._foreign_boundaries and self._foreign_boundaries[-1] == index:
+            self._foreign_boundaries.pop()
 
     def _collect_name_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -768,6 +897,7 @@ class _CountingStack(list[Node]):
         return count
 
     def append(self, item: Node) -> None:  # type: ignore[override]
+        index = len(self)
         list.append(self, item)
         name = item.name
         if name == "p":
@@ -775,8 +905,10 @@ class _CountingStack(list[Node]):
         counts = self._name_counts
         if counts is not None:
             counts[name] = counts.get(name, 0) + 1
+            self._note_top_position(item, index)
         elif len(self) >= _STACK_COUNT_THRESHOLD:
             self._name_counts = self._collect_name_counts()
+            self._build_position_index()
 
     def insert(self, index: SupportsIndex, item: Node) -> None:  # type: ignore[override]
         list.insert(self, index, item)
@@ -788,12 +920,16 @@ class _CountingStack(list[Node]):
             counts[name] = counts.get(name, 0) + 1
         elif len(self) >= _STACK_COUNT_THRESHOLD:
             self._name_counts = self._collect_name_counts()
+        if self._indexed:
+            self._build_position_index()
 
     def __setitem__(self, key: SupportsIndex, item: Node) -> None:  # type: ignore[override]
         previous_name = self[key].name
         name = item.name
         list.__setitem__(self, key, item)
         if previous_name == name:
+            if self._indexed:
+                self._build_position_index()
             return
         if previous_name == "p":
             self._p_count -= 1
@@ -803,8 +939,11 @@ class _CountingStack(list[Node]):
         if counts is not None:
             counts[previous_name] -= 1
             counts[name] = counts.get(name, 0) + 1
+        if self._indexed:
+            self._build_position_index()
 
     def pop(self, index: int = -1) -> Node:  # type: ignore[override]
+        normalized_index = index if index >= 0 else len(self) + index
         item = list.pop(self, index)
         name = item.name
         if name == "p":
@@ -812,6 +951,11 @@ class _CountingStack(list[Node]):
         counts = self._name_counts
         if counts is not None:
             counts[name] -= 1
+        if self._indexed:
+            if normalized_index == len(self):
+                self._forget_top_position(item, normalized_index)
+            else:
+                self._build_position_index()
         return item
 
     def remove(self, item: Node) -> None:  # type: ignore[override]
@@ -822,8 +966,16 @@ class _CountingStack(list[Node]):
         counts = self._name_counts
         if counts is not None:
             counts[name] -= 1
+        if self._indexed:
+            self._build_position_index()
 
     def __delitem__(self, key: SupportsIndex | slice) -> None:
+        if isinstance(key, slice):
+            start, stop, step = key.indices(len(self))
+            if self._indexed and step == 1 and stop >= len(self):
+                while len(self) > start:
+                    self.pop()
+                return
         removed = self[key] if isinstance(key, slice) else [self[key]]
         list.__delitem__(self, key)
         p_count = self._p_count
@@ -835,6 +987,8 @@ class _CountingStack(list[Node]):
             if counts is not None:
                 counts[name] -= 1
         self._p_count = p_count
+        if self._indexed:
+            self._build_position_index()
 
 
 class ParseEngine:
@@ -4089,36 +4243,30 @@ class ParseEngine:
 
     def _find_open_index(self, name: str) -> int | None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            if stack[idx].name == name:
-                return idx
-        return None
+        if type(stack) is list:
+            for index in range(len(stack) - 1, 0, -1):
+                if stack[index].name == name:
+                    return index
+            return None
+        return stack.last_index_of(name)
 
     def _find_open_html_index(self, name: str) -> int | None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            if node.name == name and node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
-                return idx
-        return None
+        if type(stack) is list:
+            for index in range(len(stack) - 1, 0, -1):
+                node = stack[index]
+                if node.name == name and node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
+                    return index
+            return None
+        return stack.last_html_index_of(name, parser_only=True)
 
     def _find_open_index_before_boundary(self, name: str, boundaries: frozenset[str]) -> int | None:
         stack = self._stack
-        if stack.count_of(name) == 0:
+        target = stack.last_index_of(name)
+        if target is None:
             return None
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            node_name = node.name
-            if node_name == name:
-                return idx
-            if node.namespace in {None, "html"}:
-                if node_name in boundaries:
-                    return None
-            elif self._is_html_integration_point(node) or self._is_mathml_text_integration_point(  # pragma: no branch
-                node
-            ):
-                return None
-        return None  # pragma: no cover - the count_of fast path above already rules out index 0 as the only match
+        boundary = max(stack.last_html_index_of_any(boundaries), stack.last_foreign_boundary_index())
+        return target if target >= boundary else None
 
     def _find_open_table_scoped_end_index(self, name: str) -> int | None:
         for idx in range(len(self._stack) - 1, 0, -1):
@@ -4133,6 +4281,11 @@ class ParseEngine:
 
     def _find_open_index_in_current_scope(self, name: str) -> int | None:
         stack = self._stack
+        if type(stack) is not list:
+            target = stack.last_index_of(name)
+            if target is None:
+                return None
+            return target if target >= stack.last_template_boundary_index() else None
         for idx in range(len(stack) - 1, 0, -1):
             node = stack[idx]
             if node.name == name:
@@ -4155,18 +4308,12 @@ class ParseEngine:
 
     def _find_open_heading_index(self) -> int | None:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):  # pragma: no branch
-            node = stack[idx]
-            if node.name in HEADING_ELEMENTS:
-                return idx
-            if node.namespace in {None, "html"}:
-                if node.name in _DEFAULT_SCOPE_BOUNDARIES:
-                    return None
-            elif (  # pragma: no branch
-                self._is_html_integration_point(node) or self._is_mathml_text_integration_point(node)
-            ):
-                return None
-        return None
+        target = max((stack.last_index_of(name) or -1 for name in HEADING_ELEMENTS), default=-1)
+        boundary = max(
+            stack.last_html_index_of_any(_DEFAULT_SCOPE_BOUNDARIES),
+            stack.last_foreign_boundary_index(),
+        )
+        return target if target > boundary else None
 
     def _set_current_template_mode(self, mode: str) -> None:
         if self._template_modes:  # pragma: no branch - opposite edge requires invalid parser state
