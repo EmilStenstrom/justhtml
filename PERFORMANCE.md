@@ -82,6 +82,28 @@ Available modes are `parse`, `fragment`, `compact-html`, `pretty-html`, and
 on functions that dominate cumulative work across many documents, not an
 isolated slow malformed sample.
 
+## Check adversarial scaling
+
+Absolute throughput benchmarks can hide complexity regressions. For parser,
+sanitizer, DOM, and serializer changes, also measure structurally hostile input
+at several sizes and compare the growth per doubling. Linear work should take
+about twice as long when the input doubles; growth approaching four times
+usually indicates a repeated depth or sibling scan.
+
+Focused tests can use `tests.harness.scaling.assert_scales_linearly`:
+
+```python
+assert_scales_linearly(
+    lambda size: "<span>" * size + "x",
+    lambda source: JustHTML(source, sanitize=False),
+)
+```
+
+Pair a hostile shape with a shallow or well-formed control where practical.
+Keep error collection and sanitization settings identical between the shape
+being investigated and its control, because either pipeline can expose a
+different repeated walk.
+
 ## Make a speed improvement
 
 - Preserve parser and sanitizer semantics. Run the parser differential suite
@@ -90,6 +112,9 @@ isolated slow malformed sample.
   attribute projection, and common serialization cases.
 - Prefer direct local data access, reused compiled plans, and fewer temporary
   allocations in per-character and per-node loops.
+- For deep parser state, prefer adaptive indexes that activate only after a
+  fixed depth. This keeps ordinary shallow documents on the simple list path
+  while bounding lookups for hostile nesting.
 - Measure realistic HTML before and after the change. Include a focused
   microbenchmark only when it explains the real-world result.
 - Keep benchmarks honest: warm up once, run multiple iterations, and report
