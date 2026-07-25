@@ -7,7 +7,7 @@ engine without tokenizer or treebuilder handoffs.
 from __future__ import annotations
 
 import re
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right, insort
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, SupportsIndex, cast
 
@@ -783,6 +783,11 @@ def _is_open_parser_only_template_node(node: Node) -> bool:
     return node.namespace == _PARSER_ONLY_NAMESPACE
 
 
+def _drop_position(positions: list[int], index: int) -> None:
+    """Remove `index` from an ascending list of positions that holds it."""
+    del positions[bisect_left(positions, index)]
+
+
 class _CountingStack(list[Node]):
     """The open-elements stack, indexed by tag name, namespace, and node identity.
 
@@ -814,9 +819,10 @@ class _CountingStack(list[Node]):
 
     Pushes and pops maintain all of these in constant time, which covers nearly
     every parser mutation, including the suffix truncation used to close a run
-    of elements. Insertions and removals in the middle renumber everything after
-    them and rebuild instead; the parser reaches those only for form association
-    and select repair.
+    of elements. A mutation in the middle renumbers the positions above it,
+    which costs a binary search per node that moved: the adoption agency
+    reparents one slot below the top on every misnested formatting tag, so
+    rebuilding the whole index there is what makes that shape quadratic.
     """
 
     __slots__ = (
@@ -936,6 +942,85 @@ class _CountingStack(list[Node]):
         if self._index_of.get(item) == index:  # pragma: no branch - the top node is recorded at its own index
             del self._index_of[item]
         self._tracked_length = index
+
+    def _note_at(self, item: Node, index: int) -> None:
+        """Record `item` at `index`, which need not be the top of the stack.
+
+        Every list this maintains is ascending, so a position below the top is
+        spliced into it rather than appended, at the cost of one binary search
+        per list. `_note_top` stays separate because that cost is worth avoiding
+        on the push path, which is where nearly every mutation goes.
+        """
+        name = item.name
+        namespace = item.namespace
+        if namespace is None or namespace == "html":
+            positions = self._html_positions
+            insort(self._html_all, index)
+        else:
+            positions = self._other_positions
+            if namespace == _PARSER_ONLY_NAMESPACE:
+                insort(self._parser_only_all, index)
+            else:
+                insort(self._foreign_all, index)
+                if _is_open_foreign_boundary(item):
+                    insort(self._boundaries, index)
+        bucket = positions.get(name)
+        if bucket is None:
+            positions[name] = [index]
+        else:
+            insort(bucket, index)
+        self._index_of[item] = index
+
+    def _discard_at(self, item: Node, index: int) -> None:
+        """Forget the record of `item` sitting at `index`, wherever that is."""
+        name = item.name
+        namespace = item.namespace
+        if namespace is None or namespace == "html":
+            positions = self._html_positions
+            _drop_position(self._html_all, index)
+        else:
+            positions = self._other_positions
+            if namespace == _PARSER_ONLY_NAMESPACE:
+                _drop_position(self._parser_only_all, index)
+            else:
+                _drop_position(self._foreign_all, index)
+                if _is_open_foreign_boundary(item):
+                    _drop_position(self._boundaries, index)
+        bucket = positions[name]
+        _drop_position(bucket, index)
+        if not bucket:
+            del positions[name]
+        # Discarded by identity rather than by name: a node held twice leaves one
+        # entry for two positions, and dropping it is right either way because
+        # `_duplicated` has already sent those queries back to the list.
+        self._index_of.pop(item, None)
+
+    def _renumber_from(self, first_moved: int, delta: int) -> None:
+        """Renumber the nodes from `first_moved` upwards, each having moved by `delta`.
+
+        A mid-stack insertion or removal leaves everything below it alone, so the
+        work is proportional to the distance from the mutation to the top rather
+        than to the depth of the stack. Discarding every old position before
+        noting any new one keeps the ascending lists free of a transient
+        duplicate, which is what would otherwise make the direction of these
+        loops matter.
+
+        This is the only path a length change reaches other than the push and pop
+        fast paths, so the tracked length is brought back in step here.
+        """
+        length = len(self)
+        self._tracked_length = length
+        for position in range(first_moved, length):
+            self._discard_at(self[position], position - delta)
+        for position in range(first_moved, length):
+            self._note_at(self[position], position)
+
+    def _note_possible_duplicate(self) -> None:
+        if len(self._index_of) != len(self):
+            # A node held twice would make a single recorded index ambiguous.
+            # The parser is not expected to do this; if it ever does, fall back
+            # to list semantics rather than answer from a partial record.
+            self._duplicated = True
 
     def _ensure_current(self) -> None:
         if len(self) != self._tracked_length:  # pragma: no cover - guards direct list mutation
@@ -1167,26 +1252,36 @@ class _CountingStack(list[Node]):
         elif normalized_index == length:
             self._note_top(item, normalized_index)
         else:
-            self._build_index()
+            self._renumber_from(normalized_index + 1, 1)
+            self._note_at(item, normalized_index)
+            self._note_possible_duplicate()
 
     def __setitem__(self, key: SupportsIndex, item: Node) -> None:  # type: ignore[override]
-        previous_name = self[key].name
+        raw_key = key.__index__()
+        normalized_key = raw_key if raw_key >= 0 else len(self) + raw_key
+        previous = self[normalized_key]
         list.__setitem__(self, key, item)
-        if previous_name != item.name:
-            if previous_name == "p":
+        if previous.name != item.name:
+            if previous.name == "p":
                 self._p_count -= 1
             if item.name == "p":
                 self._p_count += 1
         if self._indexed:
-            self._build_index()
+            # One slot changing hands moves nothing, so only the two nodes
+            # involved are re-recorded.
+            self._discard_at(previous, normalized_key)
+            self._note_at(item, normalized_key)
+            self._note_possible_duplicate()
 
     def pop(self, index: int = -1) -> Node:  # type: ignore[override]
-        if index != -1 and index != len(self) - 1:
+        normalized_index = index if index >= 0 else len(self) + index
+        if normalized_index != len(self) - 1:
             item = list.pop(self, index)
             if item.name == "p":
                 self._p_count -= 1
             if self._indexed:
-                self._build_index()
+                self._discard_at(item, normalized_index)
+                self._renumber_from(normalized_index, -1)
             return item
         item = list.pop(self)
         if item.name == "p":
@@ -1196,7 +1291,12 @@ class _CountingStack(list[Node]):
         return item
 
     def remove(self, item: Node) -> None:  # type: ignore[override]
-        index = list.index(self, item)
+        # Located through the identity map, not `list.index`: the adoption agency
+        # unparents a formatting element for every misnested tag, and a scan from
+        # the bottom of the stack costs the whole distance down to it.
+        index = self.index_of_node(item)
+        if index is None:
+            raise ValueError("_CountingStack.remove(x): x not on the stack")
         list.__delitem__(self, index)
         if item.name == "p":
             self._p_count -= 1
@@ -1205,7 +1305,8 @@ class _CountingStack(list[Node]):
         if index == len(self):
             self._forget_top(item, index)
         else:
-            self._build_index()
+            self._discard_at(item, index)
+            self._renumber_from(index, -1)
 
     def __delitem__(self, key: SupportsIndex | slice) -> None:
         if isinstance(key, slice):
@@ -1237,7 +1338,8 @@ class _CountingStack(list[Node]):
         if normalized_index == len(self):
             self._forget_top(item, normalized_index)
         else:
-            self._build_index()
+            self._discard_at(item, normalized_index)
+            self._renumber_from(normalized_index, -1)
 
 
 class ParseEngine:
@@ -6087,36 +6189,80 @@ class ParseEngine:
                     self._unwrap_node(node)
             nodes.clear()
             return
-        index = len(nodes) - 1
-        while index >= 0:
-            node = nodes[index]
+        # Unwrapping one node at a time is quadratic when the disallowed nodes
+        # nest, because each splice carries everything that accumulated below it
+        # up one more level: a `<section>` chain that also holds siblings grows
+        # the run being moved by two per level. Expand a whole marked chain in
+        # one walk instead, and touch each surviving parent exactly once, so
+        # every child moves once however the recorded nodes are ordered.
+        marked = set(nodes)
+        # Whether a parent holds one marked child or several decides how it is
+        # rebuilt, and either way it is rebuilt once. `None` means several.
+        holders: dict[Node, Element | None] = {}
+        # A marked node that holds another one is the only case needing a walk,
+        # and this pass already asks each node whether its parent is marked.
+        nesting: set[Node] = set()
+        for node in nodes:
             parent = node.parent
             if parent is None:
-                index -= 1
+                continue  # a detached node has nowhere left to project into
+            if parent in marked:
+                # Expanded by whichever unmarked ancestor holds the chain.
+                nesting.add(parent)
                 continue
-            first = index - 1
-            while first >= 0 and nodes[first].parent is parent:
-                first -= 1
-            if first == index - 1:
-                self._unwrap_node(node)
-                index = first
-                continue
-            marked = set(nodes[first + 1 : index + 1])
+            holders[parent] = None if parent in holders else node
+        for parent, only_child in holders.items():
             children: list[Any] = parent.children  # type: ignore[assignment]
+            if only_child is not None:
+                position = children.index(only_child)
+                children[position : position + 1] = self._expanded_children(parent, only_child, marked, nesting)
+                continue
             projected: list[Node | Text] = []
             for child in children:
-                if child not in marked:
+                if child in marked:
+                    projected.extend(self._expanded_children(parent, child, marked, nesting))
+                else:
                     projected.append(child)
-                    continue
-                moved = child.children
-                child.children = []
-                for grandchild in moved:
-                    grandchild.parent = parent
-                projected.extend(moved)
-                child.parent = None
             children[:] = projected
-            index = first
         nodes.clear()
+
+    def _expanded_children(
+        self,
+        parent: Node,
+        node: Element,
+        marked: set[Element],
+        nesting: set[Node],
+    ) -> list[Any]:
+        """Return what `node` leaves behind under `parent`, expanding marked descendants.
+
+        Unwrapping a node that holds no other one is the common case and hands
+        its child list straight back. A chain is walked from a work list rather
+        than by recursion, which would run as deep as the input nests. Nothing
+        ever becomes a child of a marked node here -- everything moves to
+        `parent`, which is not marked -- so the membership recorded before the
+        first move stays true throughout.
+        """
+        moved: list[Any] = node.children
+        node.children = []
+        node.parent = None
+        for grandchild in moved:
+            grandchild.parent = parent
+        if node not in nesting:
+            return moved
+        expanded: list[Any] = []
+        pending = moved[::-1]
+        while pending:
+            child = pending.pop()
+            if child not in marked:
+                expanded.append(child)
+                continue
+            grandchildren = child.children
+            child.children = []
+            child.parent = None
+            for grandchild in grandchildren:
+                grandchild.parent = parent
+            pending.extend(reversed(grandchildren))
+        return expanded
 
     def _drop_recorded_nodes(self) -> None:
         nodes = self._nodes_to_drop

@@ -19,6 +19,7 @@ from justhtml.parser.engine import (
     _CountingStack,
     _FormattingEntry,
     _FormattingSegment,
+    _is_open_foreign_boundary,
     _is_open_html_namespace_node,
     can_compile_engine_plan,
     compile_default_engine_plan,
@@ -91,7 +92,7 @@ class TestCountingStack(unittest.TestCase):
 
         html_expected: dict[str, list[int]] = {}
         other_expected: dict[str, list[int]] = {}
-        html_all, foreign_all, parser_only_all = [], [], []
+        html_all, foreign_all, parser_only_all, boundaries = [], [], [], []
         for index, node in enumerate(stack):
             if node.namespace in {None, "html"}:
                 html_expected.setdefault(node.name, []).append(index)
@@ -102,13 +103,19 @@ class TestCountingStack(unittest.TestCase):
                     parser_only_all.append(index)
                 else:
                     foreign_all.append(index)
+                    if _is_open_foreign_boundary(node):
+                        boundaries.append(index)
 
         assert stack._html_positions == html_expected
         assert stack._other_positions == other_expected
         assert stack._html_all == html_all
         assert stack._foreign_all == foreign_all
         assert stack._parser_only_all == parser_only_all
+        assert stack._boundaries == boundaries
         assert stack._index_of == {node: index for index, node in enumerate(stack)}
+        # A stale tracked length sends the next query through a full rebuild,
+        # which is exactly the cost the incremental paths exist to avoid.
+        assert stack._tracked_length == len(stack)
         assert stack.has_foreign_open() == bool(foreign_all)
 
     def assert_indexed_and_scanned_agree(self, nodes: list) -> None:
@@ -295,7 +302,7 @@ class TestCountingStack(unittest.TestCase):
         assert stack.last_foreign_boundary_index() == -1
         assert stack.count_of("p") == 0
 
-    def test_indexed_stack_rebuilds_on_middle_mutations(self) -> None:
+    def test_indexed_stack_renumbers_on_middle_mutations(self) -> None:
         marker = Element("section", {}, "html")
         stack = self._indexed_stack([marker, Element("span", {}, "html")])
 
@@ -320,6 +327,73 @@ class TestCountingStack(unittest.TestCase):
         stack[1] = Element("p", {}, "html")
         self.assert_index_matches(stack)
         assert stack.count_of("p") == 1
+
+    def test_middle_mutations_renumber_every_namespace_group(self) -> None:
+        """Every list the index keeps must survive a mutation below the top.
+
+        A push only ever appends to these, so the namespace groups and the
+        foreign-boundary list are the parts a mid-stack renumbering can get
+        wrong; the resulting index is compared against a fresh scan each time.
+        """
+        boundary = Element("foreignObject", {}, "svg")
+        stack = self._indexed_stack(
+            [
+                Element("g", {}, "svg"),
+                boundary,
+                Element("template", {}, "justhtml-parser-only"),
+                Element("mrow", {}, "math"),
+                Element("span", {}, "html"),
+            ]
+        )
+        foreign_top = len(stack) - 5
+
+        # Inserting below the foreign run moves all of it up by one, and removing
+        # the same node puts it back.
+        stack.insert(foreign_top, Element("p", {}, "html"))
+        self.assert_index_matches(stack)
+        assert stack.last_foreign_boundary_index() == stack.index_of_node(boundary)
+
+        stack.pop(foreign_top)
+        self.assert_index_matches(stack)
+        assert stack.last_foreign_boundary_index() == stack.index_of_node(boundary)
+
+        # Replacing the boundary in place drops it from the boundary list without
+        # moving anything, and replacing it back restores it.
+        stack[foreign_top + 1] = Element("circle", {}, "svg")
+        self.assert_index_matches(stack)
+        assert stack.last_foreign_boundary_index() == -1
+
+        stack[foreign_top + 1] = boundary
+        self.assert_index_matches(stack)
+        assert stack.last_foreign_boundary_index() == foreign_top + 1
+
+        # Removing the boundary itself from the middle of the foreign run.
+        stack.remove(boundary)
+        self.assert_index_matches(stack)
+        assert stack.last_foreign_boundary_index() == -1
+
+    def test_middle_mutations_notice_a_node_that_becomes_duplicated(self) -> None:
+        """A node arriving below the top can collide just as one pushed onto it can.
+
+        The identity map cannot describe a node held twice, so the stack has to
+        notice and hand those queries back to the list, whichever way the second
+        occurrence got there.
+        """
+        repeated = Element("span", {}, "html")
+        inserted = self._indexed_stack([repeated])
+        inserted.insert(2, repeated)
+        assert inserted._duplicated
+        assert inserted.index_of_node(repeated) == 2
+
+        replaced = self._indexed_stack([repeated])
+        replaced[2] = repeated
+        assert replaced._duplicated
+        assert replaced.index_of_node(repeated) == 2
+
+    def test_removing_a_node_that_is_not_open_reports_it(self) -> None:
+        stack = self._indexed_stack()
+        with self.assertRaises(ValueError):
+            stack.remove(Element("div", {}, "html"))
 
     def test_unindexed_stack_builds_the_index_when_growth_crosses_the_threshold(self) -> None:
         shallow = _CountingStack(Element("div", {}, "html") for _ in range(_STACK_INDEX_THRESHOLD - 1))
@@ -1652,6 +1726,14 @@ class TestParserAttributeProjection(_ParserEngineTestCase):
         nested = "<x>" * _UNWRAP_BATCH_THRESHOLD + "z" + "</x>" * _UNWRAP_BATCH_THRESHOLD
         assert JustHTML(nested, fragment=True).to_html(pretty=False) == "z"
 
+        empty = "<x></x>" * _UNWRAP_BATCH_THRESHOLD
+        assert JustHTML(empty, fragment=True).to_html(pretty=False) == ""
+
+        # A chain whose every level also holds siblings, which is where unwrapping
+        # one node at a time re-moves the run accumulated below it.
+        chain = "<x>a<span>b</span>" * _UNWRAP_BATCH_THRESHOLD
+        assert JustHTML(chain, fragment=True).to_html(pretty=False) == ("a<span>b</span>" * _UNWRAP_BATCH_THRESHOLD)
+
         engine = ParseEngine("", fragment=True)
         engine._nodes_to_unwrap = [Element("x", {}, "html") for _ in range(_UNWRAP_BATCH_THRESHOLD)]
         engine._unwrap_recorded_nodes()
@@ -1887,6 +1969,35 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         ]
         for make_source in shapes:
             _assert_scales_linearly(make_source, lambda source: JustHTML(source, sanitize=False))
+
+    def test_misnested_formatting_reparenting_scales_linearly(self) -> None:
+        """Each misnested formatting tag moves one element below the top of the stack.
+
+        The adoption agency unparents the formatting element and re-pushes its
+        clone above the furthest block, so a stack that has to be re-indexed for
+        a mutation that is not at its top costs the whole depth per tag.
+        """
+        shapes = [
+            lambda size: "<a><div>" * size + "x",
+            lambda size: "<b><div></b>" * size,
+        ]
+        for make_source in shapes:
+            _assert_scales_linearly(make_source, JustHTML)
+            _assert_scales_linearly(make_source, lambda source: JustHTML(source, sanitize=False))
+
+    def test_unwrapping_nested_disallowed_elements_scales_linearly(self) -> None:
+        """A chain of disallowed elements is unwrapped in one pass per surviving parent.
+
+        Splicing one node's children into its parent at a time moves everything
+        that accumulated below it up one more level, so a chain that also holds
+        siblings costs the depth per element.
+        """
+        shapes = [
+            lambda size: "<section>x" * size,
+            lambda size: "<a><section>" * size + "x",
+        ]
+        for make_source in shapes:
+            _assert_scales_linearly(make_source, JustHTML)
 
     def test_foreign_element_insertion_scales_linearly(self) -> None:
         _assert_scales_linearly(

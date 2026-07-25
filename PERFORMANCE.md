@@ -198,6 +198,33 @@ correspondence directly; extend them when adding a lookup.
 `_html_positions` bound its end-tag walk, which otherwise rescans the whole
 foreign suffix per token.
 
+### Mutations below the top of the stack
+
+Pushes and pops maintain every list above in constant time, including the suffix
+truncation that closes a run of open elements. A mutation in the middle is
+different: the positions above it all shift by one, and rebuilding the index to
+account for that costs the whole depth of the stack.
+
+That case is not rare. The adoption agency reparents a misnested formatting
+element by removing it from the stack and re-pushing its clone above the furthest
+block, and the element it removes sits one slot below the top — over
+`"<a><div>" * n`, every one of the n removals has exactly one node above it. One
+rebuild per token against a stack that grows by two per token is a quadratic term
+with no constant left to tune: at n=4,000 those rebuilds re-indexed 8,009,570
+nodes, or exactly n²/2.
+
+Only the nodes that moved need new numbers, so `_renumber_from()` discards their
+recorded positions and re-notes them one slot along, at the cost of a binary
+search per list. The work is then proportional to the distance from the mutation
+to the top of the stack rather than to the depth below it, which is what makes the
+shape linear rather than merely cheaper: `"<a><div>" * 8000` took 1.58 s on `main`
+and takes 47 ms here.
+
+`remove()` is the other half of the same call, and it was still quadratic once the
+rebuilds were gone: `list.remove` finds its argument by scanning up from index 0,
+which is the entire depth. It reads the position from `_index_of` instead and
+raises `ValueError` itself when the node is not open.
+
 ### The name that carries the shallow path
 
 `count_of()` is constant time for `p` and for any name on an indexed stack, and a
@@ -215,6 +242,34 @@ about a point of corpus parse throughput. Neither reads like a hot path; both ar
 Per-name counts for *every* name are not the answer — maintaining them on each
 push and pop costs more than the walks they save, measured at roughly twice the
 throughput the guard recovers.
+
+## Unwrapping disallowed elements
+
+Sanitization keeps the children of an element it removes, so every disallowed
+element is recorded and unwrapped after the parse. Splicing one node's children
+into its parent at a time is quadratic when those nodes nest: each splice carries
+everything that accumulated below it up one more level, so `"<section>x" * n`
+moves n²/2 children. `_unwrap_recorded_nodes()` therefore expands a whole chain in
+one walk and rebuilds each surviving parent once, which makes every child move
+exactly once whatever order the nodes were recorded in.
+
+Two properties are worth keeping if this is rewritten. It must not recurse — the
+chain is as deep as the input nests — and it must not depend on a parent being
+recorded before its children, because the adoption agency can clone a formatting
+element into an ancestor position after its descendants were recorded.
+
+This one costs rather than saves on ordinary documents, so it is measured by
+ablation like the stack index. Real pages nest disallowed elements constantly:
+over batch 001's first 1,000 documents, 254 unwrap batches cross
+`_UNWRAP_BATCH_THRESHOLD` and 15,417 of the 40,125 nodes in them sit inside
+another recorded node. Chains that shallow are cheap to re-move, so the
+bookkeeping the general case needs — one set of the recorded nodes and one pass
+over them — is a net loss there: the phase takes 19.6 ms against 15.4 ms, or
+about 0.15% of corpus parse time, for removing a quadratic that a 20-byte
+repetition can reach. Variants that avoid the pass were measured and lost: deciding the
+grouping from the recorded order instead of per parent costs 20.3 ms, building
+the same bookkeeping with C-level set and dict operations costs 23.3 ms, and
+merely reversing the order the nodes are visited in costs 20.0 ms.
 
 ## Make a speed improvement
 

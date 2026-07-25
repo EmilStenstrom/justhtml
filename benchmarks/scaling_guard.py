@@ -470,6 +470,57 @@ SCENARIOS: list[Scenario] = [
         note="the same count of foreign insertions at constant depth, where the membership scan is short",
         sanitize=False,
     ),
+    # --- Issue 11: mid-stack open-element renumbering ---------------------
+    _scenario(
+        "adoption-reparent-anchor",
+        "11",
+        "linear",
+        lambda n: "<a><div>" * n + "x",
+        note="adoption agency unparents the formatting element one slot below the top, per tag",
+    ),
+    _scenario(
+        "adoption-reparent-close",
+        "11",
+        "linear",
+        lambda n: "<b><div></b>" * n,
+        note="the same reparenting reached through an explicit end tag",
+    ),
+    _scenario(
+        "formatting-no-reparent-control",
+        "control",
+        "linear",
+        lambda n: "<b><div>" * n + "x",
+        note="the same depth and element mix, with a formatting element that is never reparented",
+    ),
+    # --- Issue 12: unwrapping disallowed elements that nest ---------------
+    _scenario(
+        "unwrap-nested-chain",
+        "12",
+        "linear",
+        lambda n: "<section>x" * n,
+        note="each unwrap splices the run accumulated below it into the next parent up",
+    ),
+    _scenario(
+        "unwrap-nested-formatting",
+        "12",
+        "linear",
+        lambda n: "<a><section>" * n + "x",
+        note="reaches the same chain through the adoption agency, so it needs issue 11 fixed too",
+    ),
+    _scenario(
+        "unwrap-flat-siblings-control",
+        "control",
+        "linear",
+        lambda n: "<section>x</section>" * n,
+        note="the same count of disallowed elements past the batch threshold, none of them nested",
+    ),
+    _scenario(
+        "unwrap-deep-allowed-control",
+        "control",
+        "linear",
+        lambda n: "<div>x" * n,
+        note="the same nesting with nothing to unwrap",
+    ),
     # --- Shapes fixed earlier in this branch, kept so a regression is caught --
     _scenario(
         "foster-parenting",
