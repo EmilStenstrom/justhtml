@@ -1451,6 +1451,7 @@ class TestSerialize(unittest.TestCase):
         for each of its descendants would cost more than the walk it saves. The
         fold exists for the deep shapes the scaling tests above cover.
         """
+
         def fragment(html):
             return _JustHTML(html, fragment=True, sanitize=False).root
 
@@ -1467,6 +1468,19 @@ class TestSerialize(unittest.TestCase):
         # A block anywhere below still reports, folded or not.
         assert _has_block_descendant(fragment("<span>" * 4 + "<div>x"), SPECIAL_ELEMENTS, {})
         assert _has_block_descendant(fragment("<span>" * (_BLOCK_SCAN_BUDGET * 2) + "<div>x"), SPECIAL_ELEMENTS, {})
+
+        # The fold walks whatever the tree holds: an empty element contributes
+        # nothing and is never pushed, and a hole left by a detached child is
+        # skipped on the way down and again when the answer is composed.
+        holed = fragment("<span>" * (_BLOCK_SCAN_BUDGET * 2) + "<em></em>x")
+        innermost = holed
+        while innermost.children and innermost.children[0].name == "span":
+            innermost = innermost.children[0]
+        assert [child.name for child in innermost.children] == ["em", "#text"]
+        innermost.children = [None, *innermost.children]
+        memo = {}
+        assert not _has_block_descendant(holed, SPECIAL_ELEMENTS, memo)
+        assert len(memo) > 1
 
 
 if __name__ == "__main__":

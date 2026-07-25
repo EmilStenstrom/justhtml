@@ -1012,8 +1012,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                             blocky_elements = [
                                 child
                                 for child in run
-                                if child.name not in {"#text", "#comment"}
-                                and _is_blocky_element(child, memo)
+                                if child.name not in {"#text", "#comment"} and _is_blocky_element(child, memo)
                             ]
                             if blocky_elements and len(run) != 1:
                                 can_apply = False
