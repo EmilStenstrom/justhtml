@@ -3,15 +3,18 @@ import unittest
 
 from justhtml import HTMLContext, UrlRule
 from justhtml import JustHTML as _JustHTML
+from justhtml.core.constants import SPECIAL_ELEMENTS
 from justhtml.core.types import Doctype
 from justhtml.dom import Comment, DocumentFragment, Node, ProcessingInstruction, Template, Text
 from justhtml.parser.context import FragmentContext
 from justhtml.serializer import (
+    _BLOCK_SCAN_BUDGET,
     _can_unquote_attr_value,
     _choose_attr_quote,
     _collapse_html_whitespace,
     _escape_attr_value,
     _escape_text,
+    _has_block_descendant,
     _is_blocky_element,
     _is_formatting_whitespace_text,
     _is_layout_blocky_element,
@@ -1440,6 +1443,30 @@ class TestSerialize(unittest.TestCase):
             lambda size: _JustHTML("<span>" * size + "<div>x", sanitize=False).root,
             lambda root: root.to_html(pretty=True),
         )
+
+    def test_block_descendant_lookup_folds_only_large_subtrees(self):
+        """Small subtrees answer directly; only large ones pay for a fold.
+
+        Nearly every subtree in a real document is small, so recording an answer
+        for each of its descendants would cost more than the walk it saves. The
+        fold exists for the deep shapes the scaling tests above cover.
+        """
+        def fragment(html):
+            return _JustHTML(html, fragment=True, sanitize=False).root
+
+        small = fragment("<span>" * 4 + "x")
+        memo = {}
+        assert not _has_block_descendant(small, SPECIAL_ELEMENTS, memo)
+        assert list(memo) == [small]
+
+        deep = fragment("<span>" * (_BLOCK_SCAN_BUDGET * 2) + "x")
+        memo = {}
+        assert not _has_block_descendant(deep, SPECIAL_ELEMENTS, memo)
+        assert len(memo) > 1
+
+        # A block anywhere below still reports, folded or not.
+        assert _has_block_descendant(fragment("<span>" * 4 + "<div>x"), SPECIAL_ELEMENTS, {})
+        assert _has_block_descendant(fragment("<span>" * (_BLOCK_SCAN_BUDGET * 2) + "<div>x"), SPECIAL_ELEMENTS, {})
 
 
 if __name__ == "__main__":

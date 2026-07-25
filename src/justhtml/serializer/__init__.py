@@ -1,6 +1,9 @@
 """Serialization facade for JustHTML DOM nodes."""
 
 from .html import (
+    _BLOCK_SCAN_BUDGET as _BLOCK_SCAN_BUDGET,
+)
+from .html import (
     _FORMAT_SEP as _FORMAT_SEP,
 )
 from .html import (
@@ -50,6 +53,9 @@ from .html import (
 )
 from .html import (
     _escape_url_value as _escape_url_value,
+)
+from .html import (
+    _has_block_descendant as _has_block_descendant,
 )
 from .html import (
     _is_blocky_element as _is_blocky_element,

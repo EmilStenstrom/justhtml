@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Answer the pretty-printer's "does this subtree contain a block element" question with a lazy per-run memo behind a bounded direct walk, rather than classifying every subtree in the document before serializing. Small subtrees -- nearly all of them -- no longer pay for an answer recorded for each of their descendants, which recovers about 8% of `to_html()` time on the web100k benchmark.
+
 ## [3.10.0] - 2026-07-25
 
 ### Performance
