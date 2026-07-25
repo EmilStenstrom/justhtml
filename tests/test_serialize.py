@@ -24,6 +24,7 @@ from justhtml.serializer import (
     to_html,
     to_test_format,
 )
+from tests.harness.scaling import assert_scales_linearly
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802
@@ -522,6 +523,9 @@ class TestSerialize(unittest.TestCase):
         assert _is_blocky_element(Text("x")) is False
         assert _is_blocky_element(Comment(data="c")) is False
         assert _is_blocky_element(Node("!doctype")) is False
+        wrapper = Node("span")
+        wrapper.append_child(Text("x"))
+        assert _is_blocky_element(wrapper) is False
 
     def test_is_blocky_element_returns_false_for_objects_without_children(self):
         class _NameOnly:
@@ -534,6 +538,10 @@ class TestSerialize(unittest.TestCase):
 
     def test_is_layout_blocky_element_returns_false_for_comment_node(self):
         assert _is_layout_blocky_element(Comment(data="c")) is False
+        assert _is_layout_blocky_element(Node("span")) is False
+        wrapper = Node("span")
+        wrapper.append_child(Text("x"))
+        assert _is_layout_blocky_element(wrapper) is False
 
     def test_is_layout_blocky_element_true_for_layout_blocks_and_descendants(self):
         assert _is_layout_blocky_element(Node("div")) is True
@@ -1420,6 +1428,18 @@ class TestSerialize(unittest.TestCase):
 
     def test_escape_url_value_empty(self):
         assert _JustHTML.escape_url_value("") == ""
+
+    def test_pretty_nested_inline_markup_scales_linearly(self):
+        assert_scales_linearly(
+            lambda size: _JustHTML("<span>" * size + "x", sanitize=False).root,
+            lambda root: root.to_html(pretty=True),
+        )
+
+    def test_pretty_nested_inline_around_block_scales_linearly(self):
+        assert_scales_linearly(
+            lambda size: _JustHTML("<span>" * size + "<div>x", sanitize=False).root,
+            lambda root: root.to_html(pretty=True),
+        )
 
 
 if __name__ == "__main__":
