@@ -152,7 +152,7 @@ def apply_compiled_transforms(
                 if node.name.startswith("#") or node.name == "!doctype":
                     return None
                 name = str(node.name)
-                tag = serialize_start_tag(name, node.attrs)
+                tag = serialize_start_tag(name, node.attrs, namespace=node.namespace)
                 if isinstance(node, Element) and node._self_closing:
                     tag = f"{tag[:-1]}/>"
                 return tag
