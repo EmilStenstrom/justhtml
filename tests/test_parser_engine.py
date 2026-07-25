@@ -58,6 +58,14 @@ class TestForeignContentScaling(unittest.TestCase):
         assert_scales_linearly(source, lambda html: JustHTML(html, sanitize=False))
 
 
+class TestSanitizerScaling(unittest.TestCase):
+    def test_nested_disallowed_wrappers_scale_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<section>x" * size,
+            lambda source: JustHTML(source),
+        )
+
+
 class TestCountingStack(unittest.TestCase):
     def assert_counts_match(self, stack: _CountingStack) -> None:
         expected = Counter(node.name for node in stack)

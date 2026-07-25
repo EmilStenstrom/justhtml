@@ -5609,36 +5609,60 @@ class ParseEngine:
                     self._unwrap_node(node)
             nodes.clear()
             return
-        index = len(nodes) - 1
-        while index >= 0:
-            node = nodes[index]
+        marked = set(nodes)
+        holders: dict[Node, Element | None] = {}
+        nesting: set[Node] = set()
+        for node in nodes:
             parent = node.parent
             if parent is None:
-                index -= 1
                 continue
-            first = index - 1
-            while first >= 0 and nodes[first].parent is parent:
-                first -= 1
-            if first == index - 1:
-                self._unwrap_node(node)
-                index = first
+            if parent in marked:
+                nesting.add(parent)
                 continue
-            marked = set(nodes[first + 1 : index + 1])
+            holders[parent] = None if parent in holders else node
+        for parent, only_child in holders.items():
             children: list[Any] = parent.children  # type: ignore[assignment]
+            if only_child is not None:
+                position = children.index(only_child)
+                children[position : position + 1] = self._expanded_children(parent, only_child, marked, nesting)
+                continue
             projected: list[Node | Text] = []
             for child in children:
-                if child not in marked:
+                if child in marked:
+                    projected.extend(self._expanded_children(parent, child, marked, nesting))
+                else:
                     projected.append(child)
-                    continue
-                moved = child.children
-                child.children = []
-                for grandchild in moved:
-                    grandchild.parent = parent
-                projected.extend(moved)
-                child.parent = None
             children[:] = projected
-            index = first
         nodes.clear()
+
+    def _expanded_children(
+        self,
+        parent: Node,
+        node: Element,
+        marked: set[Element],
+        nesting: set[Node],
+    ) -> list[Any]:
+        moved: list[Any] = node.children
+        node.children = []
+        node.parent = None
+        for grandchild in moved:
+            grandchild.parent = parent
+        if node not in nesting:
+            return moved
+        expanded: list[Any] = []
+        pending = moved[::-1]
+        while pending:
+            child = pending.pop()
+            if child not in marked:
+                expanded.append(child)
+                continue
+            grandchildren = child.children
+            child.children = []
+            child.parent = None
+            for grandchild in grandchildren:
+                grandchild.parent = parent
+            pending.extend(reversed(grandchildren))
+        return expanded
 
     def _drop_recorded_nodes(self) -> None:
         nodes = self._nodes_to_drop
