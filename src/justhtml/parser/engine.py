@@ -6222,46 +6222,48 @@ class ParseEngine:
         return True
 
     def _body_allows_frameset(self, node: Node) -> bool:
-        children = node.children
-        if not children:
-            return True
-        for child in children:
-            if type(child) is Text:
-                if (child.data or "").strip(_SPACE):
-                    return False
+        pending: list[Node] = [node]
+        while pending:
+            children = pending.pop().children
+            if not children:
                 continue
-            namespace = getattr(child, "namespace", None)
-            if namespace == _PARSER_ONLY_NAMESPACE:
-                return False
-            if namespace not in {None, "html"}:
-                if self._foreign_subtree_allows_frameset(child):
+            for child in children:
+                if type(child) is Text:
+                    if (child.data or "").strip(_SPACE):
+                        return False
                     continue
-                return False
-            if child.name == "input":
-                attrs = getattr(child, "attrs", None)
-                input_type = attrs.get("type") if attrs is not None else None
-                if (
-                    isinstance(input_type, str) and input_type.lower() == "hidden"
-                ):  # pragma: no branch - opposite edge requires invalid parser state
-                    continue
-                return False
-            if child.name not in _FRAMESET_BODY_OK_TAGS:
-                return False
-            if not self._body_allows_frameset(child):
-                return False
+                namespace = getattr(child, "namespace", None)
+                if namespace == _PARSER_ONLY_NAMESPACE:
+                    return False
+                if namespace not in {None, "html"}:
+                    if self._foreign_subtree_allows_frameset(child):
+                        continue
+                    return False
+                if child.name == "input":
+                    attrs = getattr(child, "attrs", None)
+                    input_type = attrs.get("type") if attrs is not None else None
+                    if (
+                        isinstance(input_type, str) and input_type.lower() == "hidden"
+                    ):  # pragma: no branch - opposite edge requires invalid parser state
+                        continue
+                    return False
+                if child.name not in _FRAMESET_BODY_OK_TAGS:
+                    return False
+                pending.append(child)
         return True
 
     def _foreign_subtree_allows_frameset(self, node: Node) -> bool:
-        children = node.children
-        if not children:
-            return True
-        for child in children:
-            if type(child) is Text:
-                if (child.data or "").strip(_SPACE + "\ufffd"):
-                    return False
+        pending: list[Node] = [node]
+        while pending:
+            children = pending.pop().children
+            if not children:
                 continue
-            if not self._foreign_subtree_allows_frameset(child):
-                return False
+            for child in children:
+                if type(child) is Text:
+                    if (child.data or "").strip(_SPACE + "\ufffd"):
+                        return False
+                    continue
+                pending.append(child)
         return True
 
     def _append_frameset_text(self, raw: str) -> None:

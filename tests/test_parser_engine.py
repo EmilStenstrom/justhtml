@@ -1,3 +1,4 @@
+import sys
 import unittest
 from collections import Counter
 from dataclasses import replace
@@ -64,6 +65,21 @@ class TestSanitizerScaling(unittest.TestCase):
             lambda size: "<section>x" * size,
             lambda source: JustHTML(source),
         )
+
+
+class TestFramesetDepth(unittest.TestCase):
+    def test_deep_frameset_eligibility_does_not_recurse(self) -> None:
+        limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(1_000)
+        try:
+            sources = (
+                "<div>" * 5_000 + "<frameset>",
+                "<svg>" * 5_000 + "</svg>" * 5_000 + "<frameset>",
+            )
+            for source in sources:
+                JustHTML(source, sanitize=False)
+        finally:
+            sys.setrecursionlimit(limit)
 
 
 class TestCountingStack(unittest.TestCase):
