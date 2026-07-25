@@ -111,6 +111,16 @@ class TestActiveFormattingScaling(unittest.TestCase):
         for shape in shapes:
             assert_scales_linearly(shape, lambda source: JustHTML(source, sanitize=False))
 
+    def test_adoption_cloning_a_nested_formatting_element_scales_linearly(self) -> None:
+        """A formatting element between the subject and the furthest block.
+
+        The inner loop clones it and writes the clone back into the middle of
+        the open-elements stack, once per repetition, on a stack that grows with
+        the input. The control has the same element count with nothing to clone.
+        """
+        assert_scales_linearly(lambda size: "<b><i><div></b>" * size, JustHTML)
+        assert_scales_linearly(lambda size: "<b><div></b>" * size, JustHTML)
+
 
 class TestDiagnosticScaling(unittest.TestCase):
     def test_basic_error_collection_scales_linearly(self) -> None:
@@ -329,6 +339,26 @@ class TestCountingStack(unittest.TestCase):
         for node in reversed(stack[len(filler) + 1 : len(filler) + 4]):
             stack.remove(node)
             self.assert_index_matches_contents(stack)
+
+    def test_replacing_a_node_re_records_only_that_slot(self) -> None:
+        """Swapping one entry moves nothing, so the rest of the index stands."""
+        root = DocumentFragment()
+        filler = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        boundary = Element("foreignObject", {}, "svg")
+        stack = _CountingStack([root, *filler, boundary, Element("span", {}, "html")])
+        assert stack._indexed
+
+        replacement = Element("g", {}, "svg")
+        stack[len(filler) + 1] = replacement
+        self.assert_index_matches_contents(stack)
+        assert stack.index_of_node(replacement) == len(filler) + 1
+        assert stack.index_of_node(boundary) is None
+        assert stack.last_foreign_boundary_index() == -1
+
+        same_name = Element("g", {}, "svg")
+        stack[len(filler) + 1] = same_name
+        self.assert_index_matches_contents(stack)
+        assert stack.index_of_node(same_name) == len(filler) + 1
 
     def test_insert_that_crosses_the_depth_threshold_builds_the_index(self) -> None:
         """Growing past the threshold through `insert` must index, like `append`.

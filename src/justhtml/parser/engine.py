@@ -1048,23 +1048,28 @@ class _CountingStack(list[Node]):
                 self._note_position_at(item, normalized_index)
 
     def __setitem__(self, key: SupportsIndex, item: Node) -> None:  # type: ignore[override]
-        previous_name = self[key].name
+        raw_key = key.__index__()
+        normalized_key = raw_key if raw_key >= 0 else len(self) + raw_key
+        previous = self[normalized_key]
+        previous_name = previous.name
         name = item.name
         list.__setitem__(self, key, item)
-        if previous_name == name:
-            if self._indexed:
-                self._build_position_index()
-            return
-        if previous_name == "p":
-            self._p_count -= 1
-        if name == "p":
-            self._p_count += 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[previous_name] -= 1
-            counts[name] = counts.get(name, 0) + 1
+        if previous_name != name:
+            if previous_name == "p":
+                self._p_count -= 1
+            if name == "p":
+                self._p_count += 1
+            counts = self._name_counts
+            if counts is not None:
+                counts[previous_name] -= 1
+                counts[name] = counts.get(name, 0) + 1
         if self._indexed:
-            self._build_position_index()
+            # One slot changing hands moves nothing, so only the two nodes
+            # involved are re-recorded. Rebuilding the whole index costs the
+            # stack's depth, and the adoption agency reaches this path once per
+            # misnested formatting tag, which makes that shape quadratic.
+            self._discard_position(previous, normalized_key)
+            self._note_position_at(item, normalized_key)
 
     def pop(self, index: int = -1) -> Node:  # type: ignore[override]
         normalized_index = index if index >= 0 else len(self) + index
