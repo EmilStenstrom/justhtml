@@ -487,6 +487,10 @@ class TestCountingStack(unittest.TestCase):
         assert namesakes.last_template_boundary_index() == -1
         assert engine._open_parser_only_template_index() is None
 
+        no_namesakes = _CountingStack([root, *filler])
+        engine._stack = no_namesakes
+        assert engine._open_parser_only_template_index() is None
+
     def test_indexed_parser_only_positions_follow_middle_mutations(self) -> None:
         root = DocumentFragment()
         filler = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]

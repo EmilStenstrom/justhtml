@@ -82,6 +82,11 @@ _PLAINTEXT_TAGS = {"plaintext"}
 _ACTIVE_FORMATTING_TAGS = FORMATTING_ELEMENTS
 _ACTIVE_FORMATTING_MARKER_TAGS = {"applet", "caption", "marquee", "object"}
 _PARSER_ONLY_NAMESPACE = "justhtml-parser-only"
+#: Namespaces an open element carries when it is an HTML element, and the same
+#: set widened to include the parser's own template markers. Module constants so
+#: that the reverse scans below do not rebuild them per node visited.
+_HTML_NAMESPACES = frozenset({None, "html"})
+_OPEN_HTML_NAMESPACES = frozenset({None, "html", _PARSER_ONLY_NAMESPACE})
 _DEFAULT_SCOPE_BOUNDARIES = frozenset(DEFAULT_SCOPE_TERMINATORS)
 _BUTTON_SCOPE_BOUNDARIES = frozenset({"button"})
 _P_SCOPE_BOUNDARIES = frozenset(BUTTON_SCOPE_TERMINATORS)
@@ -810,9 +815,11 @@ class _CountingStack(list[Node]):
 
     def last_html_index_of(self, name: str, *, parser_only: bool = False) -> int | None:
         if not self._indexed:
+            # Hoisted: this ran once per node visited, and the scan below is on
+            # the path every insertion into a table takes.
+            namespaces = _OPEN_HTML_NAMESPACES if parser_only else _HTML_NAMESPACES
             for index in range(len(self) - 1, 0, -1):
                 node = self[index]
-                namespaces = {None, "html", _PARSER_ONLY_NAMESPACE} if parser_only else {None, "html"}
                 if node.name == name and node.namespace in namespaces:
                     return index
             return None
@@ -5258,17 +5265,21 @@ class ParseEngine:
         ):  # pragma: no branch - opposite edge requires invalid parser state
             return None  # pragma: no cover - unreachable after parser-state guards
         table_idx = self._find_open_index("table")
-        parser_only_template_idx = self._open_parser_only_template_index()
+        # Fostering runs once per node placed inside a table, and no template is
+        # open for the overwhelming majority of them. Both counters below are
+        # maintained anyway, so consulting them skips two stack lookups.
+        parser_only_template_idx = (
+            self._open_parser_only_template_index() if self._parser_only_template_depth else None
+        )
         if table_idx is not None and parser_only_template_idx is not None and table_idx < parser_only_template_idx:
             return None
-        template_idx = self._open_template_index()
+        template_idx = self._open_template_index() if self._template_modes else None
         if table_idx is not None and template_idx is not None and table_idx < template_idx:
             table_idx = None
         if table_idx is None:
             if self._template_modes:
-                open_template_idx = self._open_template_index()
-                if open_template_idx is not None:  # pragma: no branch - template modes require an open template
-                    template = self._stack[open_template_idx]
+                if template_idx is not None:  # pragma: no branch - template modes require an open template
+                    template = self._stack[template_idx]
                     if type(template) is Template and template.template_content is not None:
                         children = template.template_content.children
                         return template.template_content, len(children or ())
