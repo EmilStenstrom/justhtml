@@ -3,8 +3,6 @@ import unittest
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
-from statistics import median
-from time import perf_counter
 
 from justhtml import JustHTML
 from justhtml.dom import DocumentFragment, Element, Template, Text
@@ -31,6 +29,7 @@ from justhtml.parser.options import ParserOptions
 from justhtml.parser.stream import stream
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlRule
 from justhtml.serializer import to_test_format
+from tests.harness.scaling import assert_scales_linearly
 from tests.harness.tree import TestRunner
 
 # A stack depth well past anything a well-formed document reaches, used to keep
@@ -45,60 +44,23 @@ def _assert_parse_scales_linearly(
     fragment: bool = True,
     sanitize: bool = False,
 ) -> None:
-    def duration(size: int) -> float:
-        source = make_source(size)
-        samples = []
-        for _ in range(3):
-            start = perf_counter()
-            JustHTML(source, fragment=fragment, sanitize=sanitize, collect_errors=collect_errors)
-            samples.append(perf_counter() - start)
-        return median(samples)
-
-    duration(64)
-    small = duration(2_000)
-    large = duration(4_000)
-    assert large < small * 3, f"doubling input took {large / small:.2f}x as long"
+    assert_scales_linearly(
+        make_source,
+        lambda source: JustHTML(source, fragment=fragment, sanitize=sanitize, collect_errors=collect_errors),
+    )
 
 
-def _assert_scales_linearly(prepare, run) -> None:
-    """Assert an operation stays linear as its input doubles.
-
-    `prepare(size)` builds the payload and is not timed; `run(payload)` is. The
-    shapes below are all quadratic without their fix, so a reintroduced scan
-    shows up as roughly four times the runtime rather than two.
-    """
-
-    def duration(size: int) -> float:
-        payload = prepare(size)
-        run(payload)
-        samples = []
-        for _ in range(3):
-            start = perf_counter()
-            run(payload)
-            samples.append(perf_counter() - start)
-        return median(samples)
-
-    duration(64)
-    small = duration(2_000)
-    large = duration(4_000)
-    assert large < small * 3, f"doubling input took {large / small:.2f}x as long"
+_assert_scales_linearly = assert_scales_linearly
 
 
 def _assert_basic_error_collection_scales_linearly(make_source) -> None:
-    def duration(size: int) -> float:
-        source = make_source(size)
-        samples = []
-        for _ in range(3):
-            engine = ParseEngine(source, fragment=True, collect_errors=True, max_errors=max(size, 1_000))
-            start = perf_counter()
-            engine._collect_basic_errors()
-            samples.append(perf_counter() - start)
-        return median(samples)
-
-    duration(64)
-    small = duration(2_000)
-    large = duration(4_000)
-    assert large < small * 3, f"doubling diagnostic input took {large / small:.2f}x as long"
+    assert_scales_linearly(
+        lambda size: ParseEngine(make_source(size), fragment=True, collect_errors=True, max_errors=max(size, 1_000)),
+        lambda engine: engine._collect_basic_errors(),
+        label="diagnostic input",
+        # Collection mutates the engine it is called on.
+        reusable=False,
+    )
 
 
 class _ParserEngineTestCase(unittest.TestCase):
@@ -434,22 +396,22 @@ class TestCountingStack(unittest.TestCase):
         self.assert_index_matches(stack)
         assert stack.count_of("span") == 0
 
-    def test_table_scoped_end_index_falls_back_for_a_plain_list_stack(self) -> None:
+    def test_table_scoped_end_index_stops_at_table_and_template_boundaries(self) -> None:
         root = DocumentFragment()
         table = Element("table", {}, "html")
         template = Template("template", {}, namespace="html")
         engine = ParseEngine("", fragment=True)
 
-        engine._stack = [root, Element("tbody", {}, "html")]  # type: ignore[assignment]
+        engine._stack = _CountingStack([root, Element("tbody", {}, "html")])
         assert engine._find_open_table_scoped_end_index("tbody") == 1
 
-        engine._stack = [root, Element("tbody", {}, "html"), table]  # type: ignore[assignment]
+        engine._stack = _CountingStack([root, Element("tbody", {}, "html"), table])
         assert engine._find_open_table_scoped_end_index("tbody") is None
 
-        engine._stack = [root, Element("tbody", {}, "html"), template]  # type: ignore[assignment]
+        engine._stack = _CountingStack([root, Element("tbody", {}, "html"), template])
         assert engine._find_open_table_scoped_end_index("tbody") is None
 
-        engine._stack = [root, Element("div", {}, "html")]  # type: ignore[assignment]
+        engine._stack = _CountingStack([root, Element("div", {}, "html")])
         assert engine._find_open_table_scoped_end_index("tbody") is None
 
     def test_misc_nodes_land_before_a_root_that_is_not_the_first_child(self) -> None:
@@ -813,7 +775,7 @@ class TestParserSyntaxAndRecovery(_ParserEngineTestCase):
         engine = ParseEngine("<?x>", fragment=True, plan=compile_raw_engine_plan(fragment=True))
         engine._doc = DocumentFragment()
         engine._body = engine._doc
-        engine._stack = [engine._doc, script]
+        engine._stack = _CountingStack([engine._doc, script])
 
         assert engine._parse_range(0, 4) == 4
         assert script.children[0].data == "<?x>"
@@ -822,7 +784,7 @@ class TestParserSyntaxAndRecovery(_ParserEngineTestCase):
         engine = ParseEngine("<?x", fragment=True, plan=compile_raw_engine_plan(fragment=True))
         engine._doc = DocumentFragment()
         engine._body = engine._doc
-        engine._stack = [engine._doc, script]
+        engine._stack = _CountingStack([engine._doc, script])
 
         assert engine._parse_range(0, 3) == 3
         assert script.children[0].data == "<?x"
@@ -2097,7 +2059,14 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         following.parent = container
         assert engine._foster_parent_for(table) == (container, len(children) - 1)
 
-    def test_open_element_helpers_keep_the_plain_list_private_contract(self) -> None:
+    def test_open_element_helpers_answer_from_a_shallow_stack(self) -> None:
+        """The stack helpers on a real stack that has not reached the threshold.
+
+        These ran against a plain `list` before, to pin a private contract that
+        no production path relies on -- the parser only ever supplies a
+        `_CountingStack`. Asserting the same answers on a below-threshold stack
+        covers the walk the parser actually takes.
+        """
         engine = ParseEngine("", fragment=True)
         root = DocumentFragment()
         div = Element("div", {}, "html")
@@ -2106,7 +2075,8 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         template = Template("template", {}, namespace="html")
         parser_template = Element("template", {}, "justhtml-parser-only")
 
-        engine._stack = [root, div, foreign_body, html_body, template]
+        engine._stack = _CountingStack([root, div, foreign_body, html_body, template])
+        assert engine._stack._indexed is False
         assert engine._find_open_index("div") == 1
         assert engine._find_open_index("missing") is None
         assert engine._find_open_html_index("body") == 3
@@ -2116,12 +2086,12 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         assert engine._find_open_index_in_current_scope("div") is None
         assert engine._find_open_index_in_current_scope("missing") is None
 
-        engine._stack = [root, div]
+        engine._stack = _CountingStack([root, div])
         assert engine._open_template_index() is None
         assert engine._find_open_index_in_current_scope("div") == 1
         assert engine._find_open_index_in_current_scope("missing") is None
 
-        engine._stack = [root, div, foreign_body, html_body, template]
+        engine._stack = _CountingStack([root, div, foreign_body, html_body, template])
         engine._stack.append(parser_template)
         assert engine._open_parser_only_template_index() == 5
         assert engine._open_template_index() == 5
@@ -2225,7 +2195,7 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         text_engine.parse()
         text_engine._after_document_mode = _AFTER_BODY
         text_engine._body_mode_seen = False
-        text_engine._stack = [text_engine._doc, text_engine._html]  # type: ignore[list-item]
+        text_engine._stack = _CountingStack([text_engine._doc, text_engine._html])
         text_engine._append_text("x", source_pos=7)
         self.assertEqual(text_engine._after_document_mode, 0)
         self.assertTrue(text_engine._body_mode_seen)
@@ -2234,7 +2204,7 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         end_tag_engine.parse()
         end_tag_engine._frameset_seen = True
         end_tag_engine._body_explicit = False
-        end_tag_engine._stack = [end_tag_engine._doc, end_tag_engine._html, end_tag_engine._head]  # type: ignore[list-item]
+        end_tag_engine._stack = _CountingStack([end_tag_engine._doc, end_tag_engine._html, end_tag_engine._head])
         end_tag_engine._parse_end_tag(2, len(end_tag_engine._html_input))
         self.assertEqual(end_tag_engine._after_document_mode, _AFTER_BODY)
 
@@ -2244,7 +2214,7 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         frame_engine._append(frame_engine._html, frameset)
         frame_engine._frameset_seen = True
         frame_engine._body_explicit = False
-        frame_engine._stack = [frame_engine._doc, frame_engine._html, frameset]  # type: ignore[list-item]
+        frame_engine._stack = _CountingStack([frame_engine._doc, frame_engine._html, frameset])
         frame_engine._parse_start_tag(1, len(frame_engine._html_input))
         self.assertEqual([child.name for child in frameset.children], ["frame"])
 
@@ -2254,7 +2224,9 @@ class TestParserEngineInternals(_ParserEngineTestCase):
         blocked_frame_engine._append(blocked_frame_engine._html, blocked_frameset)
         blocked_frame_engine._frameset_seen = True
         blocked_frame_engine._body_explicit = False
-        blocked_frame_engine._stack = [blocked_frame_engine._doc, blocked_frame_engine._html, blocked_frameset]  # type: ignore[list-item]
+        blocked_frame_engine._stack = _CountingStack(
+            [blocked_frame_engine._doc, blocked_frame_engine._html, blocked_frameset]
+        )
         blocked_frame_engine._parse_start_tag(1, len(blocked_frame_engine._html_input))
         self.assertEqual(blocked_frameset.children, [])
 

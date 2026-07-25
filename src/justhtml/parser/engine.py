@@ -1992,22 +1992,10 @@ class ParseEngine:
         return current  # type: ignore[return-value]
 
     def _open_parser_only_template_index(self) -> int | None:
-        stack = self._stack
-        if isinstance(stack, _CountingStack):
-            return stack.last_index_of("template", _is_open_parser_only_template_node)
-        for index in range(len(stack) - 1, 0, -1):
-            if stack[index].name == "template" and _is_open_parser_only_template_node(stack[index]):
-                return index
-        return None
+        return self._stack.last_index_of("template", _is_open_parser_only_template_node)
 
     def _open_template_index(self) -> int | None:
-        stack = self._stack
-        if isinstance(stack, _CountingStack):
-            return stack.last_index_of("template", _is_open_template_node)
-        for index in range(len(stack) - 1, 0, -1):
-            if stack[index].name == "template" and _is_open_template_node(stack[index]):
-                return index
-        return None
+        return self._stack.last_index_of("template", _is_open_template_node)
 
     def _current_template_mode(self) -> str | None:
         modes = self._template_modes
@@ -4505,28 +4493,18 @@ class ParseEngine:
         return node.namespace not in {None, "html"} and node_name.lower() == name
 
     def _find_open_index(self, name: str) -> int | None:
-        stack = self._stack
-        if isinstance(stack, _CountingStack):
-            return stack.last_index_of(name)
-        for index in range(len(stack) - 1, 0, -1):
-            if stack[index].name == name:
-                return index
-        return None
+        return self._stack.last_index_of(name)
 
     def _find_open_html_index(self, name: str) -> int | None:
-        stack = self._stack
-        if isinstance(stack, _CountingStack):
-            return stack.last_index_of(name, _is_open_html_node)
-        for index in range(len(stack) - 1, 0, -1):
-            node = stack[index]
-            if node.name == name and _is_open_html_node(node):
-                return index
-        return None
+        return self._stack.last_index_of(name, _is_open_html_node)
 
     def _last_open_index_of_any(self, names: Collection[str]) -> int | None:
         stack = self._stack
-        if isinstance(stack, _CountingStack) and stack._indexed:
+        if stack._indexed:
             return stack.last_index_of_any(names)
+        # Below the threshold the walk is bounded by that constant, and running
+        # it here rather than through the stack's query API keeps a shallow
+        # lookup to a single call.
         for index in range(len(stack) - 1, 0, -1):
             if stack[index].name in names:
                 return index
@@ -4604,17 +4582,6 @@ class ParseEngine:
 
     def _find_open_table_scoped_end_index(self, name: str) -> int | None:
         stack = self._stack
-        if not isinstance(stack, _CountingStack):
-            for index in range(len(stack) - 1, 0, -1):
-                node = stack[index]
-                if _is_open_html_namespace_node(node) and node.name == name:
-                    return index
-                if _is_open_html_namespace_node(node) and node.name == "table":
-                    return None
-                if type(node) is Template and _is_open_html_namespace_node(node):
-                    return None
-            return None
-
         target_index = stack.last_index_of(name, _is_open_html_namespace_node)
         if target_index is None:
             return None
@@ -4631,14 +4598,6 @@ class ParseEngine:
 
     def _find_open_index_in_current_scope(self, name: str) -> int | None:
         stack = self._stack
-        if not isinstance(stack, _CountingStack):
-            for index in range(len(stack) - 1, 0, -1):
-                node = stack[index]
-                if node.name == name:
-                    return index
-                if node.name == "template" and _is_open_template_node(node):
-                    return None
-            return None
         index = stack.last_index_of(name)
         if index is None:
             return None
