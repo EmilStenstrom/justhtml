@@ -832,6 +832,30 @@ class TestSerialize(unittest.TestCase):
         # Attribute values that match the attribute name case-insensitively should be minimized.
         assert serialize_start_tag("input", {"disabled": "DISABLED"}) == "<input disabled>"
 
+    def test_non_boolean_attribute_matching_its_name_is_not_minimized(self):
+        assert serialize_start_tag("p", {"id": "id"}) == '<p id="id">'
+        assert serialize_start_tag("div", {"disabled": "disabled"}) == '<div disabled="disabled">'
+
+    def test_current_boolean_attributes_are_minimized_for_their_html_elements(self):
+        cases = (
+            ("div", "autofocus"),
+            ("section", "headingreset"),
+            ("input", "alpha"),
+            ("img", "controls"),
+            ("template", "shadowrootcustomelementregistry"),
+        )
+        for name, attribute in cases:
+            with self.subTest(name=name, attribute=attribute):
+                assert serialize_start_tag(name, {attribute: attribute.upper()}) == f"<{name} {attribute}>"
+
+    def test_non_boolean_and_foreign_attributes_are_not_minimized(self):
+        assert serialize_start_tag("iframe", {"credentialless": "credentialless"}) == (
+            '<iframe credentialless="credentialless">'
+        )
+        assert serialize_start_tag("input", {"disabled": "disabled"}, namespace="svg") == (
+            '<input disabled="disabled">'
+        )
+
     def test_serialize_start_tag_quotes(self):
         # Prefer single quotes if the value contains a double quote but no single quote
         tag = serialize_start_tag("span", {"title": 'foo"bar'})

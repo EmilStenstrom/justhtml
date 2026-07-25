@@ -32,6 +32,35 @@ _LITERAL_TEXT_SERIALIZATION_ELEMENTS = frozenset(
 )
 _SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][^\t\n\f\r />]*$")
 _SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[^\t\n\f\r />=]+$")
+_BOOLEAN_ATTRIBUTES = {
+    "*": frozenset({"autofocus", "headingreset", "inert", "itemscope"}),
+    "audio": frozenset({"autoplay", "controls", "loop", "muted"}),
+    "button": frozenset({"disabled", "formnovalidate"}),
+    "details": frozenset({"open"}),
+    "dialog": frozenset({"open"}),
+    "fieldset": frozenset({"disabled"}),
+    "form": frozenset({"novalidate"}),
+    "iframe": frozenset({"allowfullscreen"}),
+    "img": frozenset({"controls", "ismap"}),
+    "input": frozenset({"alpha", "checked", "disabled", "formnovalidate", "multiple", "readonly", "required"}),
+    "link": frozenset({"disabled"}),
+    "ol": frozenset({"reversed"}),
+    "optgroup": frozenset({"disabled"}),
+    "option": frozenset({"disabled", "selected"}),
+    "script": frozenset({"async", "defer", "nomodule"}),
+    "select": frozenset({"disabled", "multiple", "required"}),
+    "template": frozenset(
+        {
+            "shadowrootclonable",
+            "shadowrootcustomelementregistry",
+            "shadowrootdelegatesfocus",
+            "shadowrootserializable",
+        }
+    ),
+    "textarea": frozenset({"disabled", "readonly", "required"}),
+    "track": frozenset({"default"}),
+    "video": frozenset({"autoplay", "controls", "loop", "muted", "playsinline"}),
+}
 
 
 class HTMLContext(str, Enum):
@@ -262,6 +291,7 @@ def serialize_start_tag(
     quote_char: str | None = None,
     use_trailing_solidus: bool = False,
     is_void: bool = False,
+    namespace: str | None = "html",
 ) -> str:
     name = _validate_serializable_tag_name(name)
     if not attrs:
@@ -272,12 +302,19 @@ def serialize_start_tag(
     for raw_key, value in attrs.items():
         key = _validate_serializable_attr_name(raw_key)
         if minimize_boolean_attributes:
-            if value is None or value == "" or value == key:
+            if value is None or value == "":
                 parts_extend((" ", key))
                 continue
-            if len(value) == len(key) and value.lower() == key:
-                parts_extend((" ", key))
-                continue
+            if namespace in {None, "html"}:
+                key_lower = key.lower()
+                boolean_attrs = _BOOLEAN_ATTRIBUTES.get(name.lower(), ())
+                if (
+                    (key_lower in _BOOLEAN_ATTRIBUTES["*"] or key_lower in boolean_attrs)
+                    and value.isascii()
+                    and value.lower() == key_lower
+                ):
+                    parts_extend((" ", key))
+                    continue
 
         if value is None or value == "":
             parts_extend((" ", key, '=""'))
@@ -358,7 +395,7 @@ def _node_to_html_compact(node: Any) -> str:
             continue
 
         # Element node.
-        append(serialize_start_tag_(name, item.attrs))
+        append(serialize_start_tag_(name, item.attrs, namespace=item.namespace))
 
         if name in void_elements:
             continue
@@ -809,7 +846,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                 tasks.append(("collect_join", newline, True, child_specs, 0, []))
                 continue
 
-            open_tag = serialize_start_tag(name, current.attrs)
+            open_tag = serialize_start_tag(name, current.attrs, namespace=current.namespace)
 
             if name in VOID_ELEMENTS:
                 results.append(f"{prefix}{open_tag}")
