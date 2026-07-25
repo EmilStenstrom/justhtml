@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep the open-elements position index consistent when a node is inserted below the top of the stack, or when the stack grows past the indexing depth through such an insertion. Since 3.10.0, misnested formatting markup below about thirty levels of nesting could raise `IndexError` instead of parsing, for example `"<div>" * 30 + "<i><blockquote><ul></i>"`.
+
 ## [3.10.0] - 2026-07-25
 
 ### Performance
