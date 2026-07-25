@@ -533,3 +533,9 @@ class TestStreamScaling(unittest.TestCase):
             return f"<math><annotation-xml {attrs} encoding=text/html>" + "<svg/>" * size
 
         assert_scales_linearly(source, lambda html: list(stream(html)))
+
+    def test_foreign_boundary_end_tags_scale_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<div><span><svg>" + "<g>" * size + "</div>" * size,
+            lambda html: list(stream(html)),
+        )
