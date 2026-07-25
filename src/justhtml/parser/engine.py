@@ -846,6 +846,7 @@ class ParseEngine:
         "_after_document_mode",
         "_after_head",
         "_allowed_tags",
+        "_annotation_xml_integration",
         "_body",
         "_body_explicit",
         "_body_mode_seen",
@@ -986,6 +987,7 @@ class ParseEngine:
         self._quirks_mode = "no-quirks" if fragment else None
         self._body_explicit = False
         self._body_mode_seen = False
+        self._annotation_xml_integration: dict[Node, bool] = {}
         self._doc_html_index = -1
         self._html_anchor_index: tuple[Node | None, int] = (None, -1)
         self._close_tag_scan: dict[str, tuple[int, int]] = {}
@@ -4046,8 +4048,12 @@ class ParseEngine:
 
     def _is_html_integration_point(self, node: Node) -> bool:
         if node.namespace == "math" and node.name == "annotation-xml":
-            encoding = self._node_attr_value(node, "encoding")
-            return encoding is not None and encoding.lower() in {"application/xhtml+xml", "text/html"}
+            cached = self._annotation_xml_integration.get(node)
+            if cached is None:
+                encoding = self._node_attr_value(node, "encoding")
+                cached = encoding is not None and encoding.lower() in {"application/xhtml+xml", "text/html"}
+                self._annotation_xml_integration[node] = cached
+            return cached
         return (node.namespace, node.name) in HTML_INTEGRATION_POINT_SET
 
     def _is_mathml_text_integration_point(self, node: Node) -> bool:

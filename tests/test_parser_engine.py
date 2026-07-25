@@ -49,6 +49,15 @@ class TestDocumentShellScaling(unittest.TestCase):
         )
 
 
+class TestForeignContentScaling(unittest.TestCase):
+    def test_annotation_xml_integration_checks_scale_linearly(self) -> None:
+        def source(size: int) -> str:
+            attrs = " ".join(f"a{index}" for index in range(size))
+            return f"<math><annotation-xml {attrs} encoding=text/html>" + "<svg/>" * size
+
+        assert_scales_linearly(source, lambda html: JustHTML(html, sanitize=False))
+
+
 class TestCountingStack(unittest.TestCase):
     def assert_counts_match(self, stack: _CountingStack) -> None:
         expected = Counter(node.name for node in stack)
