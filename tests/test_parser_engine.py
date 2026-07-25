@@ -90,6 +90,12 @@ class TestSelectedContentScaling(unittest.TestCase):
 
 
 class TestActiveFormattingScaling(unittest.TestCase):
+    def test_detached_formatting_node_is_not_in_scope(self) -> None:
+        engine = ParseEngine("", fragment=True)
+        engine.parse()
+
+        assert not engine._has_node_in_scope(Element("b", {}, "html"), frozenset({"table"}))
+
     def test_absent_formatting_end_tags_scale_linearly(self) -> None:
         assert_scales_linearly(
             lambda size: "".join(f"<b id={index}>" for index in range(size)) + "</i>" * size,
@@ -100,6 +106,7 @@ class TestActiveFormattingScaling(unittest.TestCase):
         shapes = (
             lambda size: "<a><div>" * size + "x",
             lambda size: "<b><div></b>" * size,
+            lambda size: "<b><table>" + "<span>" * size + "</b>" * size,
         )
         for shape in shapes:
             assert_scales_linearly(shape, lambda source: JustHTML(source, sanitize=False))

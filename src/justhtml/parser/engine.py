@@ -844,6 +844,20 @@ class _CountingStack(list[Node]):
             return -1
         return max((positions[-1] for positions in self._html_positions.values()), default=-1)
 
+    def last_index_of_any(self, names: Collection[str]) -> int | None:
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                if self[index].name in names:
+                    return index
+            return None
+        best = -1
+        for positions_by_name in (self._html_positions, self._other_positions):
+            for name in names:
+                positions = positions_by_name.get(name)
+                if positions:
+                    best = max(best, positions[-1])
+        return best if best > 0 else None
+
     def last_foreign_boundary_index(self) -> int:
         if not self._indexed:
             for index in range(len(self) - 1, 0, -1):
@@ -5800,13 +5814,11 @@ class ParseEngine:
 
     def _has_node_in_scope(self, target: Node, boundaries: frozenset[str]) -> bool:
         stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):  # pragma: no branch - opposite edge requires invalid parser state
-            node = stack[idx]
-            if node is target:
-                return True
-            if node.name in boundaries:
-                return False
-        return False  # pragma: no cover - unreachable after parser-state guards
+        target_index = stack.index_of_node(target)
+        if not target_index:
+            return False
+        boundary_index = stack.last_index_of_any(boundaries)
+        return boundary_index is None or target_index >= boundary_index
 
     def _refresh_active_formatting_dirty(self) -> None:
         active = self._active_formatting
