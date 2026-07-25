@@ -93,6 +93,19 @@ class TestActiveFormattingScaling(unittest.TestCase):
             assert_scales_linearly(shape, lambda source: JustHTML(source, sanitize=False))
 
 
+class TestDiagnosticScaling(unittest.TestCase):
+    def test_basic_error_collection_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<x>" * size + "</missing>" * size + "</x>" * size,
+            lambda source: JustHTML(
+                source,
+                fragment=True,
+                sanitize=False,
+                collect_errors=True,
+            ),
+        )
+
+
 class TestFramesetDepth(unittest.TestCase):
     def test_deep_frameset_eligibility_does_not_recurse(self) -> None:
         limit = sys.getrecursionlimit()
@@ -1547,6 +1560,29 @@ class TestParserEngineInternals(_ParserEngineTestCase):
 
 
 class TestParserDiagnosticModes(_ParserEngineTestCase):
+    def test_basic_error_collection_handles_repeated_duplicate_tag_names(self) -> None:
+        engine = ParseEngine("<x>" * 64 + "</x>" * 64, fragment=True, collect_errors=True)
+
+        engine._collect_basic_errors()
+
+        assert engine.errors == []
+
+    def test_basic_error_collection_handles_large_suffix_truncations(self) -> None:
+        engine = ParseEngine("<a>" + "<b>" * 64 + "</a>" + "</b>" * 64, fragment=True, collect_errors=True)
+
+        engine._collect_basic_errors()
+
+        assert [error.code for error in engine.errors] == ["unexpected-end-tag"] * 64
+
+    def test_basic_error_collection_respects_paragraph_scope_boundaries(self) -> None:
+        engine = ParseEngine("<p><object><div></p></object>", fragment=True, collect_errors=True)
+
+        engine._collect_basic_errors()
+
+        assert [(error.code, error.message) for error in engine.errors] == [
+            ("unexpected-end-tag", "Unexpected </object> end tag"),
+        ]
+
     def test_upstream_inputs_across_diagnostic_modes(self) -> None:
         config = {
             "fail_fast": False,

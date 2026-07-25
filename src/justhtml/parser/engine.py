@@ -1404,6 +1404,16 @@ class ParseEngine:
                     self._emit_error("expected-doctype-but-got-chars", first, category="treebuilder")
 
         open_tags: list[str] = []
+        open_tag_positions: dict[str, list[int]] = {}
+
+        def truncate_open_tags(index: int) -> None:
+            for removed_name in reversed(open_tags[index:]):
+                positions = open_tag_positions[removed_name]
+                positions.pop()
+                if not positions:
+                    del open_tag_positions[removed_name]
+            del open_tags[index:]
+
         pos = 0
         while pos < end:
             lt = html.find("<", pos, end)
@@ -1443,15 +1453,11 @@ class ParseEngine:
                 if tag_end == -1:
                     self._emit_error("eof-in-tag", end - 1)
                     return
-                if name == "br" or name not in open_tags:
+                positions = open_tag_positions.get(name)
+                if name == "br" or not positions:
                     self._emit_error("unexpected-end-tag", lt, tag_name=name, category="treebuilder", end_pos=tag_end)
                 else:
-                    for idx in range(
-                        len(open_tags) - 1, -1, -1
-                    ):  # pragma: no branch - opposite edge requires invalid parser state
-                        if open_tags[idx] == name:
-                            del open_tags[idx:]
-                            break
+                    truncate_open_tags(positions[-1])
                 pos = tag_end + 1
                 continue
             if not ch.isalpha():
@@ -1463,13 +1469,20 @@ class ParseEngine:
                 self._emit_error("eof-in-tag", end - 1)
                 return
             if name in _P_CLOSING_START_TAGS:
-                for idx in range(len(open_tags) - 1, -1, -1):
-                    if open_tags[idx] == "p":
-                        del open_tags[idx:]
-                        break
-                    if open_tags[idx] in _P_SCOPE_BOUNDARIES:
-                        break
+                p_positions = open_tag_positions.get("p")
+                if p_positions:
+                    boundary_index = max(
+                        (
+                            positions[-1]
+                            for boundary in _P_SCOPE_BOUNDARIES
+                            if (positions := open_tag_positions.get(boundary))
+                        ),
+                        default=-1,
+                    )
+                    if p_positions[-1] > boundary_index:
+                        truncate_open_tags(p_positions[-1])
             if name not in VOID_ELEMENTS and not self._is_self_closing_source_tag(pos + len(name), tag_end):
+                open_tag_positions.setdefault(name, []).append(len(open_tags))
                 open_tags.append(name)
             pos = tag_end + 1
 
