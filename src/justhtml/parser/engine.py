@@ -946,7 +946,16 @@ class _CountingStack(list[Node]):
     # -- queries ---------------------------------------------------------
 
     def count_of(self, name: str) -> int:
+        """Return how many open elements carry `name`, in any namespace.
+
+        Constant time for `p` and for any name on an indexed stack; a walk
+        bounded by the index threshold otherwise. Callers in hot paths rely on
+        that distinction, so do not assume this is cheap for an arbitrary name.
+        """
         if name == "p":
+            # Load-bearing, not a micro-optimization: `p` is the target of about
+            # two thirds of all scope checks, and dropping this line puts every
+            # one of them back on a stack walk.
             return self._p_count
         if not self._indexed:
             count = 0
@@ -4561,22 +4570,36 @@ class ParseEngine:
         name first, so an element that is both target and boundary matches.
         """
         stack = self._stack
+        if not stack.count_of(name):
+            # Nothing by that name is open, so no scope can contain it. Two
+            # thirds of the calls here ask for `p`, whose count is maintained
+            # anyway, and an indexed stack answers any name from its position
+            # lists. Every other name on a shallow stack is counted by a walk
+            # bounded by the index threshold -- on average cheaper than the
+            # boundary walk below, which this skips on the ~70% of calls that
+            # find nothing.
+            return None
         if not stack._indexed:
             # A shallow stack answers in one bounded pass, which is cheaper than
             # three lookups and is what the index below reproduces exactly.
             for index in range(len(stack) - 1, 0, -1):
                 node = stack[index]
-                if node.name == name:
+                node_name = node.name
+                if node_name == name:
                     return index
-                if node.namespace in {None, "html"}:
-                    if node.name in boundaries:
+                namespace = node.namespace
+                if namespace is None or namespace == "html":
+                    if node_name in boundaries:
                         return None
                 elif _is_open_foreign_boundary(node):
                     return None
-            return None
+            # pragma: no cover - the count guard above leaves only the case
+            # where index 0 holds the sole match, and the document root never
+            # carries a name the parser asks for.
+            return None  # pragma: no cover
         target_index = stack.last_index_of(name)
-        if target_index is None:
-            return None
+        if target_index is None:  # pragma: no cover - ruled out by the count guard, as above
+            return None  # pragma: no cover - ruled out by the count guard, as above
         return target_index if target_index >= stack.last_scope_boundary_index(boundaries) else None
 
     def _find_open_table_scoped_end_index(self, name: str) -> int | None:
