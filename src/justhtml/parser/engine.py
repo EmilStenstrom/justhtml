@@ -746,7 +746,6 @@ class _CountingStack(list[Node]):
         "_foreign_boundaries",
         "_html_positions",
         "_indexed",
-        "_name_counts",
         "_node_positions",
         "_other_positions",
         "_p_count",
@@ -755,7 +754,6 @@ class _CountingStack(list[Node]):
 
     def __init__(self, iterable: Iterable[Node] = ()) -> None:
         super().__init__(iterable)
-        self._name_counts: dict[str, int] | None = None
         self._indexed = False
         if len(self) < _STACK_COUNT_THRESHOLD:
             p_count = 0
@@ -763,9 +761,10 @@ class _CountingStack(list[Node]):
                 p_count += item.name == "p"
             self._p_count = p_count
             return
-        counts = self._collect_name_counts()
-        self._name_counts = counts
-        self._p_count = counts.get("p", 0)
+        p_count = 0
+        for item in self:
+            p_count += item.name == "p"
+        self._p_count = p_count
         self._build_position_index()
 
     def _build_position_index(self) -> None:
@@ -1027,22 +1026,27 @@ class _CountingStack(list[Node]):
                 boundaries = self._foreign_boundaries
                 boundaries[bisect_left(boundaries, old_position)] = position
 
-    def _collect_name_counts(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for item in self:
-            counts[item.name] = counts.get(item.name, 0) + 1
-        return counts
-
     def count_of(self, name: str) -> int:
+        """Return how many open elements carry `name`, in any namespace.
+
+        Constant time for `p` and for any name on an indexed stack; a walk
+        bounded by the index threshold otherwise. An indexed stack answers from
+        the position lists it already maintains -- keeping a separate per-name
+        counter in step on every push and pop costs more than these two lookups
+        save.
+        """
         if name == "p":
+            # Load-bearing: `p` is the target of about two thirds of all scope
+            # checks, and its count is maintained at every depth.
             return self._p_count
-        counts = self._name_counts
-        if counts is not None:
-            return counts.get(name, 0)
-        count = 0
-        for item in self:
-            count += item.name == name
-        return count
+        if not self._indexed:
+            count = 0
+            for item in self:
+                count += item.name == name
+            return count
+        html = self._html_positions.get(name)
+        other = self._other_positions.get(name)
+        return (len(html) if html is not None else 0) + (len(other) if other is not None else 0)
 
     def append(self, item: Node) -> None:  # type: ignore[override]
         index = len(self)
@@ -1050,12 +1054,9 @@ class _CountingStack(list[Node]):
         name = item.name
         if name == "p":
             self._p_count += 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] = counts.get(name, 0) + 1
+        if self._indexed:
             self._note_top_position(item, index)
         elif len(self) >= _STACK_COUNT_THRESHOLD:
-            self._name_counts = self._collect_name_counts()
             self._build_position_index()
 
     def insert(self, index: SupportsIndex, item: Node) -> None:  # type: ignore[override]
@@ -1067,14 +1068,11 @@ class _CountingStack(list[Node]):
         name = item.name
         if name == "p":
             self._p_count += 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] = counts.get(name, 0) + 1
-        elif len(self) >= _STACK_COUNT_THRESHOLD:
-            self._name_counts = self._collect_name_counts()
-            # Crossing the threshold has to build the position index too. Every
-            # other path treats a live `_name_counts` as proof the index exists.
+        if not was_indexed and len(self) >= _STACK_COUNT_THRESHOLD:
+            # Crossing the threshold has to index here too, or the next push
+            # reads position lists that were never built.
             self._build_position_index()
+            return
         if was_indexed:
             if normalized_index == length:
                 self._note_top_position(item, normalized_index)
@@ -1094,10 +1092,6 @@ class _CountingStack(list[Node]):
                 self._p_count -= 1
             if name == "p":
                 self._p_count += 1
-            counts = self._name_counts
-            if counts is not None:
-                counts[previous_name] -= 1
-                counts[name] = counts.get(name, 0) + 1
         if self._indexed:
             # One slot changing hands moves nothing, so only the two nodes
             # involved are re-recorded. Rebuilding the whole index costs the
@@ -1112,9 +1106,6 @@ class _CountingStack(list[Node]):
         name = item.name
         if name == "p":
             self._p_count -= 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] -= 1
         if self._indexed:
             if normalized_index == len(self):
                 self._forget_top_position(item, normalized_index)
@@ -1131,9 +1122,6 @@ class _CountingStack(list[Node]):
         name = item.name
         if name == "p":
             self._p_count -= 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] -= 1
         if self._indexed:
             if index == len(self):
                 self._forget_top_position(item, index)
@@ -1155,13 +1143,9 @@ class _CountingStack(list[Node]):
         removed = self[key] if isinstance(key, slice) else [self[key]]
         list.__delitem__(self, key)
         p_count = self._p_count
-        counts = self._name_counts
         for item in removed:
-            name = item.name
-            if name == "p":
+            if item.name == "p":
                 p_count -= 1
-            if counts is not None:
-                counts[name] -= 1
         self._p_count = p_count
         if self._indexed:
             if normalized_index is None:
@@ -2598,7 +2582,7 @@ class ParseEngine:
             and stack[-1].name == name
             and stack[-1] is not self._fragment_context_node
         ):
-            if stack._name_counts is None:
+            if not stack._indexed:
                 list.pop(stack)
                 if name == "p":
                     stack._p_count -= 1
@@ -2622,7 +2606,7 @@ class ParseEngine:
                     and entry.name == name
                     and stack[-1] is entry.node
                 ):
-                    if stack._name_counts is None:
+                    if not stack._indexed:
                         list.pop(stack)
                     else:
                         stack.pop()
@@ -2714,7 +2698,7 @@ class ParseEngine:
             if idx is None:
                 return pos
             self._mark_active_formatting_dirty()
-            if stack._name_counts is None and not stack._p_count:
+            if not stack._indexed and not stack._p_count:
                 list.__delitem__(stack, slice(idx, None))
             else:
                 del stack[idx:]
@@ -2730,7 +2714,7 @@ class ParseEngine:
         ):
             if name in _TABLE_CELL_TAGS or name in _ACTIVE_FORMATTING_MARKER_TAGS:
                 self._clear_active_formatting_to_marker()
-            if stack._name_counts is None:
+            if not stack._indexed:
                 list.pop(stack)
                 if name == "p":
                     stack._p_count -= 1
@@ -2789,7 +2773,7 @@ class ParseEngine:
             self._clear_active_formatting_to_marker()
         elif name in _ACTIVE_FORMATTING_MARKER_TAGS:  # pragma: no branch - opposite edge requires invalid parser state
             self._clear_active_formatting_to_marker()  # pragma: no cover - unreachable after parser-state guards
-        if stack._name_counts is None and not stack._p_count:
+        if not stack._indexed and not stack._p_count:
             list.__delitem__(stack, slice(idx, None))
         else:
             del stack[idx:]
@@ -3288,7 +3272,7 @@ class ParseEngine:
             current_parent.children.append(node)  # type: ignore[union-attr]
             node.parent = current_parent
             if not is_void:
-                if name == "p" or stack._name_counts is not None or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
+                if name == "p" or stack._indexed or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
                     stack.append(node)
                 else:
                     list.append(stack, node)
@@ -4159,7 +4143,7 @@ class ParseEngine:
             self._insert_at(foster_parent, position, node)
         if not is_void:
             stack = self._stack
-            if name == "p" or stack._name_counts is not None or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
+            if name == "p" or stack._indexed or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
                 stack.append(node)
             else:
                 list.append(stack, node)

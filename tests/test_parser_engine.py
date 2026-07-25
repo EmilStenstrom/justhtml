@@ -219,9 +219,6 @@ class TestCountingStack(unittest.TestCase):
     def _indexed_copy(nodes: list) -> _CountingStack:
         """Build a stack that answers from the index regardless of its depth."""
         stack = _CountingStack(nodes)
-        counts = stack._collect_name_counts()
-        stack._name_counts = counts
-        stack._p_count = counts.get("p", 0)
         stack._build_position_index()
         return stack
 
@@ -437,7 +434,7 @@ class TestCountingStack(unittest.TestCase):
     def test_insert_that_crosses_the_depth_threshold_builds_the_index(self) -> None:
         """Growing past the threshold through `insert` must index, like `append`.
 
-        Every other path treats a live `_name_counts` as proof that the position
+        Every other path treats `_indexed` as proof that the position
         index exists, so setting one without the other leaves the next push
         reading attributes that were never assigned.
         """
@@ -557,8 +554,9 @@ class TestCountingStack(unittest.TestCase):
         assert stack.count_of("div") == expected["div"]
         assert stack.count_of("span") == expected["span"]
         assert stack.count_of("missing") == 0
-        if stack._name_counts is not None:
-            assert {name: count for name, count in stack._name_counts.items() if count} == expected
+        # Counts are derived from the position lists rather than stored, so
+        # every name on the stack has to come back exact.
+        assert {name: stack.count_of(name) for name in expected} == dict(expected)
 
     def test_shallow_stack_tracks_parser_mutations_without_a_name_map(self) -> None:
         div = Element("div", {}, "html")
@@ -566,7 +564,7 @@ class TestCountingStack(unittest.TestCase):
         second_p = Element("p", {}, "html")
         span = Element("span", {}, "html")
         stack = _CountingStack([div, first_p])
-        assert stack._name_counts is None
+        assert not stack._indexed
 
         stack.append(second_p)
         stack.insert(1, span)
@@ -587,7 +585,7 @@ class TestCountingStack(unittest.TestCase):
 
     def test_deep_stack_keeps_the_name_map_after_shrinking(self) -> None:
         stack = _CountingStack(Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD))
-        assert stack._name_counts is not None
+        assert stack._indexed
 
         p = Element("p", {}, "html")
         span = Element("span", {}, "html")
@@ -601,7 +599,7 @@ class TestCountingStack(unittest.TestCase):
         self.assert_counts_match(stack)
 
         del stack[1:]
-        assert stack._name_counts is not None
+        assert stack._indexed
         stack.append(Element("span", {}, "html"))
         self.assert_counts_match(stack)
 
@@ -670,7 +668,7 @@ class TestCountingStack(unittest.TestCase):
         engine = ParseEngine("<div>" * _STACK_COUNT_THRESHOLD + "<b><i><p>1</b>2</i>", fragment=True)
         engine.parse()
 
-        assert engine._stack._name_counts is not None
+        assert engine._stack._indexed
         self.assert_counts_match(engine._stack)
 
     def test_compiled_end_tag_fast_paths_keep_shallow_and_deep_counts_exact(self) -> None:
