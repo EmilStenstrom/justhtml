@@ -681,6 +681,36 @@ class TestSerialize(unittest.TestCase):
         round_tripped = JustHTML(doc.to_html(pretty=False), strict=True, sanitize=False)
         assert round_tripped.query("style")[0].children[0].data == 'body::before { content: "a > b & c"; }'
 
+    def test_legacy_raw_text_elements_round_trip_without_entity_escaping(self):
+        text = "<b>not markup</b> &amp;"
+        for name in ("iframe", "noembed", "noframes", "xmp"):
+            with self.subTest(name=name):
+                html = f"<{name}>{text}</{name}>"
+                doc = JustHTML(html, fragment=True, sanitize=False)
+                assert doc.to_html(pretty=False) == html
+                round_tripped = JustHTML(doc.to_html(pretty=False), fragment=True, sanitize=False)
+                assert round_tripped.query(name)[0].children[0].data == text
+
+    def test_legacy_raw_text_elements_neutralize_programmatic_end_tags(self):
+        for name in ("iframe", "noembed", "noframes", "xmp"):
+            with self.subTest(name=name):
+                element = Node(name)
+                element.append_child(Text(f"</{name}><script>alert(1)</script>"))
+
+                serialized = element.to_html(pretty=False)
+
+                assert f"</{name}><script>" not in serialized.lower()
+                reparsed = JustHTML(serialized, fragment=True, sanitize=False)
+                assert reparsed.query("script") == []
+
+    def test_foreign_elements_with_raw_text_names_escape_text(self):
+        for name in ("iframe", "noembed", "noframes", "script", "style", "xmp"):
+            with self.subTest(name=name):
+                element = Node(name, namespace="svg")
+                element.append_child(Text("<b>markup</b> &amp;"))
+
+                assert element.to_html(pretty=False) == f"<{name}>&lt;b&gt;markup&lt;/b&gt; &amp;amp;</{name}>"
+
     def test_programmatic_style_text_breakout_is_neutralized(self) -> None:
         root = Node("div")
         style = Node("style")

@@ -27,7 +27,9 @@ if TYPE_CHECKING:
 # Note: This matches the logic of the previous loop-based implementation.
 # It checks for space characters, quotes, equals sign, and greater-than.
 _UNQUOTED_ATTR_VALUE_INVALID = re.compile(r'[ \t\n\f\r"\'=>]')
-_LITERAL_TEXT_SERIALIZATION_ELEMENTS = frozenset({"plaintext", "script", "style"})
+_LITERAL_TEXT_SERIALIZATION_ELEMENTS = frozenset(
+    {"iframe", "noembed", "noframes", "plaintext", "script", "style", "xmp"}
+)
 _SERIALIZABLE_TAG_NAME_RE = re.compile(r"^[A-Za-z][^\t\n\f\r />]*$")
 _SERIALIZABLE_ATTR_NAME_RE = re.compile(r"^[^\t\n\f\r />=]+$")
 
@@ -118,10 +120,11 @@ def _serialize_pi_data(data: str | None) -> str:
     return data
 
 
-def _serialize_text_for_parent(text: str | None, parent_name: str | None) -> str:
+def _serialize_text_for_parent(text: str | None, parent: Any) -> str:
     if not text:
         return ""
-    if parent_name is not None:
+    if parent is not None and parent.namespace == "html":
+        parent_name = parent.name
         normalized_parent_name = parent_name if parent_name.islower() else parent_name.lower()
         if normalized_parent_name in _LITERAL_TEXT_SERIALIZATION_ELEMENTS:
             if normalized_parent_name == "plaintext":
@@ -331,8 +334,7 @@ def _node_to_html_compact(node: Any) -> str:
             data = item.data
             if data:
                 parent = item.parent
-                parent_name = parent.name if parent is not None else None
-                append(serialize_text(data, parent_name))
+                append(serialize_text(data, parent))
             continue
 
         if name == "#comment":
@@ -781,12 +783,11 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
             if name == "#text":
                 text: str | None = current.data
                 parent = current.parent
-                parent_name = parent.name if parent is not None else None
                 if not current_in_pre:
                     text = text.strip() if text else ""
-                    results.append(f"{prefix}{_serialize_text_for_parent(text, parent_name)}" if text else "")
+                    results.append(f"{prefix}{_serialize_text_for_parent(text, parent)}" if text else "")
                 else:
-                    results.append(_serialize_text_for_parent(text, parent_name))
+                    results.append(_serialize_text_for_parent(text, parent))
                 continue
 
             if name == "#comment":
@@ -841,7 +842,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                         else "".join(child.data or "" for child in children if child is not None)
                     )
                     text_content = _collapse_html_whitespace(text_content)
-                    results.append(f"{prefix}{open_tag}{_serialize_text_for_parent(text_content, name)}{close_tag}")
+                    results.append(f"{prefix}{open_tag}{_serialize_text_for_parent(text_content, current)}{close_tag}")
                     continue
 
             if content_pre:
