@@ -314,6 +314,22 @@ class TestCountingStack(unittest.TestCase):
         stack.remove(inserted)
         self.assert_index_matches_contents(stack)
 
+        # The three kinds of node the ascending lists treat differently: an
+        # ordinary rendered element, a foreign scope boundary, and a
+        # parser-only node that is in neither the rendered list nor the
+        # boundary list.
+        for node in (
+            Element("b", {}, "html"),
+            Element("foreignObject", {}, "svg"),
+            Element("template", {}, "justhtml-parser-only"),
+        ):
+            stack.insert(len(filler) + 1, node)
+            self.assert_index_matches_contents(stack)
+            assert stack.index_of_node(node) == len(filler) + 1
+        for node in reversed(stack[len(filler) + 1 : len(filler) + 4]):
+            stack.remove(node)
+            self.assert_index_matches_contents(stack)
+
     def test_insert_that_crosses_the_depth_threshold_builds_the_index(self) -> None:
         """Growing past the threshold through `insert` must index, like `append`.
 
