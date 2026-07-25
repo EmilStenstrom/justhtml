@@ -745,6 +745,7 @@ class _CountingStack(list[Node]):
         "_node_positions",
         "_other_positions",
         "_p_count",
+        "_rendered_positions",
     )
 
     def __init__(self, iterable: Iterable[Node] = ()) -> None:
@@ -767,15 +768,19 @@ class _CountingStack(list[Node]):
         other: dict[str, list[int]] = {}
         node_positions: dict[Node, int] = {}
         foreign_boundaries: list[int] = []
+        rendered_positions: list[int] = []
         for index, item in enumerate(self):
             positions = html if item.namespace in {None, "html"} else other
             positions.setdefault(item.name, []).append(index)
             node_positions[item] = index
+            if item.namespace != _PARSER_ONLY_NAMESPACE:
+                rendered_positions.append(index)
             if item.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and (self._is_foreign_boundary(item)):
                 foreign_boundaries.append(index)
         self._html_positions = html
         self._other_positions = other
         self._foreign_boundaries = foreign_boundaries
+        self._rendered_positions = rendered_positions
         self._node_positions = node_positions
         self._indexed = True
 
@@ -867,6 +872,14 @@ class _CountingStack(list[Node]):
             return -1
         return self._foreign_boundaries[-1] if self._foreign_boundaries else -1
 
+    def last_rendered_index(self) -> int | None:
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                if self[index].namespace != _PARSER_ONLY_NAMESPACE:
+                    return index
+            return None
+        return self._rendered_positions[-1] if self._rendered_positions else None
+
     def last_template_boundary_index(self) -> int:
         if not self._indexed:
             for index in range(len(self) - 1, 0, -1):
@@ -896,6 +909,8 @@ class _CountingStack(list[Node]):
         positions = self._html_positions if item.namespace in {None, "html"} else self._other_positions
         positions.setdefault(item.name, []).append(index)
         self._node_positions[item] = index
+        if item.namespace != _PARSER_ONLY_NAMESPACE:
+            self._rendered_positions.append(index)
         if item.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and self._is_foreign_boundary(item):
             self._foreign_boundaries.append(index)
 
@@ -906,6 +921,8 @@ class _CountingStack(list[Node]):
         if not bucket:
             del positions[item.name]
         self._node_positions.pop(item, None)
+        if item.namespace != _PARSER_ONLY_NAMESPACE:
+            self._rendered_positions.pop()
         if self._foreign_boundaries and self._foreign_boundaries[-1] == index:
             self._foreign_boundaries.pop()
 
@@ -916,6 +933,8 @@ class _CountingStack(list[Node]):
         if not bucket:
             del positions[item.name]
         self._node_positions.pop(item, None)
+        if item.namespace != _PARSER_ONLY_NAMESPACE:
+            del self._rendered_positions[bisect_left(self._rendered_positions, index)]
         if item.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and self._is_foreign_boundary(item):
             del self._foreign_boundaries[bisect_left(self._foreign_boundaries, index)]
 
@@ -940,6 +959,9 @@ class _CountingStack(list[Node]):
             bucket = positions[item.name]
             bucket[bisect_left(bucket, old_position)] = position
             self._node_positions[item] = position
+            if item.namespace != _PARSER_ONLY_NAMESPACE:
+                rendered_index = bisect_left(self._rendered_positions, old_position)
+                self._rendered_positions[rendered_index] = position
             if item.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and self._is_foreign_boundary(item):
                 boundaries = self._foreign_boundaries
                 boundaries[bisect_left(boundaries, old_position)] = position
@@ -1808,12 +1830,9 @@ class ParseEngine:
         stack = self._stack
         current = stack[-1]
         if current.namespace == _PARSER_ONLY_NAMESPACE:
-            idx = len(stack) - 2
-            while idx > 0:
-                current = stack[idx]
-                if current.namespace != _PARSER_ONLY_NAMESPACE:
-                    break
-                idx -= 1
+            index = stack.last_rendered_index()
+            if index is not None:  # pragma: no branch - parser stack retains a rendered root
+                current = stack[index]
         if type(current) is Template and current.template_content is not None:
             return current.template_content
         return current  # type: ignore[return-value]
