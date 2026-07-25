@@ -104,12 +104,20 @@ python benchmarks/scaling_guard.py --compare before.json
 
 It measures each shape at several input sizes, fits an exponent `k` such that
 `time ~ n**k`, and reports it next to the complexity the shape is expected to
-have. Every adversarial shape is paired with a control that exercises the same
-code path without the pathological property, so a fix has to remove the
-quadratic term rather than slow the control down to match. `--compare` prints
-the per-shape speedup at the largest shared size and exits non-zero when a shape
-gets materially slower or grows a worse exponent, which makes it usable as a
-gate.
+have. Each adversarial family carries a control that exercises the same code path
+without the pathological property, so a fix has to remove the quadratic term
+rather than slow the control down to match. The five shapes tagged `prior` are the
+exception: they were fixed before the harness existed and are kept only so a
+regression is caught, so they share the controls of the families they belong to
+rather than carrying their own. `--compare` prints the per-shape speedup at the
+largest shared size and exits non-zero when a shape gets materially slower or
+grows a worse exponent, which makes it usable as a gate.
+
+A control has to be checked against the unfixed tree, not just written. A shape
+that looks like a control can turn out to exercise a second defect and be
+quadratic itself — `"<div>" * n` under `sanitize=False` is quadratic on `main`
+for reasons unrelated to whatever it was meant to isolate, which makes it useless
+as a baseline.
 
 Measurements are auto-ranged (fast shapes repeat until a sample lasts at least
 `--min-sample` seconds) and taken with the garbage collector disabled, then
@@ -157,8 +165,27 @@ changes parse results, so `_find_open_index_before_boundary()`,
 The index is only built once the stack reaches `_STACK_INDEX_THRESHOLD`. Below
 it a reverse walk is bounded by that constant, so it cannot be quadratic, and
 the stack keeps nothing at all — the parser pushes with `list.append` directly.
-Roughly one document in three hundred of the web100k corpus ever crosses the
-threshold, so ordinary parsing pays nothing for what only hostile nesting needs.
+About one document in thirty of the web100k corpus crosses the threshold: 310 of
+batch 001's 10,000 documents build an index, with a median peak stack depth of 32
+and a maximum of 52.
+
+Maintaining the index is nonetheless not where this work costs throughput.
+Raising `_STACK_INDEX_THRESHOLD` so that no document ever indexes leaves corpus
+parse time unchanged, within run-to-run noise. What the corpus pays for is the
+*shallow* path — the code every document runs — so tune that and measure the
+index separately:
+
+- On well-formed markup deep enough to cross the threshold, indexing costs a flat
+  step of roughly 20-25%, not a slope: at a constant element count and depths of
+  16, 32, 256 and 4,000, `main` takes 3.00, 3.30, 2.98 and 3.21 ms against 3.00,
+  3.94, 3.79 and 4.05 ms here. Below the threshold there is no difference.
+- On the corpus the same shapes are a rounding error, because almost nothing
+  reaches that depth.
+
+The lesson generalizes: when a fix adds a fast path *and* a data structure,
+attribute the cost by ablation before writing it down. A profiler will hand you
+the wrong answer here — `cProfile`'s per-call overhead makes any newly introduced
+helper look expensive in proportion to how often it is called.
 
 That split means several helpers carry both a bounded single-pass walk and an
 indexed comparison. The two must agree exactly, or a document would parse
@@ -171,10 +198,23 @@ correspondence directly; extend them when adding a lookup.
 `_html_positions` bound its end-tag walk, which otherwise rescans the whole
 foreign suffix per token.
 
-Reverse loops in `_find_open_index()`, `_find_open_html_index()`,
-`_last_open_index_of_any()`, template lookup, table-scope lookup, and
-current-template-scope lookup are also compatibility fallbacks for tests that
-replace the private `_CountingStack` with a plain list.
+### The name that carries the shallow path
+
+`count_of()` is constant time for `p` and for any name on an indexed stack, and a
+threshold-bounded walk otherwise. That asymmetry is load-bearing rather than
+incidental: `p` is the target of about two thirds of all scope checks — 30,756 of
+47,640 calls to `_find_open_index_before_boundary()` over 400 corpus documents,
+against 13,151 for `tr` and a long tail below 2% each. Answering those from
+`_p_count` keeps them off the stack entirely, and `_find_open_index_before_boundary()`
+guards itself with `count_of()` for exactly that reason.
+
+Dropping the `if name == "p"` branch from `count_of()`, or the `count_of()` guard
+from the scope check, puts every one of those calls back on a walk and costs
+about a point of corpus parse throughput. Neither reads like a hot path; both are.
+
+Per-name counts for *every* name are not the answer — maintaining them on each
+push and pop costs more than the walks they save, measured at roughly twice the
+throughput the guard recovers.
 
 ## Make a speed improvement
 

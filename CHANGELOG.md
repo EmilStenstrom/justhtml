@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Performance
 
 - Keep repeated open-element and template lookups constant-time while their targets remain stable, and avoid searching a growing sibling prefix when foster-parenting malformed table content.
-- Answer open-element scope checks by comparing recorded positions instead of walking the stack. Deep stacks now index tag names per namespace, node identity, and foreign integration points, so a scope check, a membership test, and an end tag that matches nothing all cost the same. Shallow stacks keep no index and are pushed onto directly, leaving ordinary documents unaffected.
+- Answer open-element scope checks by comparing recorded positions instead of walking the stack. Deep stacks now index tag names per namespace, node identity, and foreign integration points, so a scope check, a membership test, and an end tag that matches nothing all cost the same. Shallow stacks keep no index and are pushed onto directly, so maintaining it is free for the roughly twenty-nine documents in thirty that never nest deeply enough to build one.
 - Place comments, processing instructions, and doctypes from remembered document-shell positions rather than re-deriving them, and find the closing `</body>` or `</html>` by scanning each byte of the input once.
 - Look up active-formatting elements through a per-marker name count, so an end tag naming an element that was never opened no longer walks the list.
 - Classify MathML `annotation-xml` integration points once per element in both the tree and streaming parsers, instead of re-reading its attributes for every child token.
@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Keep tree construction and diagnostic collection linear for deeply nested or heavily foster-parented untrusted HTML. Previously, repeated open-stack, sibling, and diagnostic-tag searches could make small malformed inputs take quadratic time.
-- Remove the remaining quadratic paths reachable from untrusted input: scope checks whose target sits below a boundary, active-formatting lookups for an absent name, `annotation-xml` integration checks, node-membership tests on the open-element stack, pretty serialization of nested inline markup, deep cloning of template trees, `selectedcontent` projection, and comment placement around the document shell. Each previously let a small input consume time quadratic in its size; the worst measured shape took 2.2 seconds at 4,000 elements and now takes 10 milliseconds.
+- Remove the remaining quadratic paths reachable from untrusted input: scope checks whose target sits below a boundary, active-formatting lookups for an absent name, `annotation-xml` integration checks, node-membership tests on the open-element stack, pretty serialization of nested inline markup, deep cloning of template trees, `selectedcontent` projection, and comment placement around the document shell. Each previously let a small input consume time quadratic in its size; the worst measured shape, a 35 KB document of nested foreign content, took 2.29 seconds at 4,000 elements and now takes 9.7 milliseconds.
 - Determine `<frameset>` eligibility iteratively. Deeply nested untrusted markup previously raised `RecursionError` at a depth near 1,000 rather than parsing.
 
 ## [3.9.0] - 2026-07-20

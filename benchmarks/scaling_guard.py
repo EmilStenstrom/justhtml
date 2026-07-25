@@ -204,6 +204,16 @@ def _annotation_xml_source(size: int) -> str:
     return f"<math><annotation-xml {attrs} encoding=text/html>" + "<svg/>" * size + "</annotation-xml></math>"
 
 
+def _annotation_xml_control_source(size: int) -> str:
+    """The same attribute and child counts on an element that is never an integration point.
+
+    `mrow` is not classified, so this exercises attribute projection and foreign
+    child insertion at the same scale without the `encoding` lookup.
+    """
+    attrs = " ".join(f"a{index}" for index in range(size))
+    return f"<math><mrow {attrs} encoding=text/html>" + "<svg/>" * size + "</mrow></math>"
+
+
 def _distinct_formatting(size: int) -> str:
     return "".join(f"<b id={index}>" for index in range(size))
 
@@ -372,6 +382,21 @@ SCENARIOS: list[Scenario] = [
         _annotation_xml_source,
         note="same rescan in the streaming scanner",
     ),
+    _scenario(
+        "annotation-xml-control",
+        "control",
+        "linear",
+        _annotation_xml_control_source,
+        note="same attribute and child counts on an element that is never classified",
+        sanitize=False,
+    ),
+    _stream_scenario(
+        "annotation-xml-stream-control",
+        "control",
+        "linear",
+        _annotation_xml_control_source,
+        note="the same control through the streaming scanner",
+    ),
     # --- Issue 6: pretty serialization ------------------------------------
     _pretty_scenario(
         "pretty-nested-inline",
@@ -435,6 +460,14 @@ SCENARIOS: list[Scenario] = [
         "linear",
         lambda n: "<svg>" + "<g>" * n + "<div>x",
         note="`parent not in self._stack` list scan per foreign insertion",
+        sanitize=False,
+    ),
+    _scenario(
+        "foreign-shallow-control",
+        "control",
+        "linear",
+        lambda n: "<svg><g></g></svg>" * n,
+        note="the same count of foreign insertions at constant depth, where the membership scan is short",
         sanitize=False,
     ),
     # --- Shapes fixed earlier in this branch, kept so a regression is caught --
