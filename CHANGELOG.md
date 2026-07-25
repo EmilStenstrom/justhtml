@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.10.0] - 2026-07-25
+
 ### Performance
 
 - Keep parsing, sanitization, deep cloning, pretty serialization, streaming, and diagnostic collection linear for deeply nested or repeatedly misnested adversarial input by indexing parser state and avoiding repeated subtree and sibling walks (thanks @kevin-hua-kraken in #72).
