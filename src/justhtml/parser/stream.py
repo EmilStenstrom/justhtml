@@ -39,7 +39,7 @@ _TAG_END_NAME_STOP = _scanner.TAG_END_NAME_STOP
 
 
 class _StreamNode:
-    __slots__ = ("attrs", "name", "namespace")
+    __slots__ = ("attrs", "html_integration", "name", "namespace")
 
     attrs: dict[str, str | None]
     name: str
@@ -49,6 +49,20 @@ class _StreamNode:
         self.attrs = attrs or {}
         self.name = name
         self.namespace = namespace
+        if namespace == "math" and name == "annotation-xml":
+            encoding = self._attribute_value("encoding")
+            self.html_integration = encoding is not None and encoding.lower() in {
+                "application/xhtml+xml",
+                "text/html",
+            }
+        else:
+            self.html_integration = (namespace, name) in HTML_INTEGRATION_POINT_SET
+
+    def _attribute_value(self, name: str) -> str | None:
+        for attr_name, attr_value in self.attrs.items():
+            if attr_name.lower() == name:
+                return attr_value or ""
+        return None
 
 
 class _StreamScanner:
@@ -405,18 +419,8 @@ class _StreamScanner:
                 return True
         return False
 
-    def _node_attribute_value(self, node: _StreamNode, name: str) -> str | None:
-        target = name.lower()
-        for attr_name, attr_value in node.attrs.items():
-            if attr_name.lower() == target:
-                return attr_value or ""
-        return None
-
     def _is_html_integration_point(self, node: _StreamNode) -> bool:
-        if node.namespace == "math" and node.name == "annotation-xml":
-            encoding = self._node_attribute_value(node, "encoding")
-            return encoding is not None and encoding.lower() in {"application/xhtml+xml", "text/html"}
-        return (node.namespace, node.name) in HTML_INTEGRATION_POINT_SET
+        return node.html_integration
 
     def _is_mathml_text_integration_point(self, node: _StreamNode) -> bool:
         return (node.namespace, node.name) in MATHML_TEXT_INTEGRATION_POINT_SET

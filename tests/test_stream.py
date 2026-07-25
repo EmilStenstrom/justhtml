@@ -10,6 +10,7 @@ from justhtml.parser.scanner import (
     find_script_end_tag,
 )
 from justhtml.parser.stream import _StreamScanner
+from tests.harness.scaling import assert_scales_linearly
 
 
 class TestStream(unittest.TestCase):
@@ -523,3 +524,12 @@ class TestStream(unittest.TestCase):
             ("text", "x"),
             ("end", "svg"),
         ]
+
+
+class TestStreamScaling(unittest.TestCase):
+    def test_annotation_xml_integration_checks_scale_linearly(self) -> None:
+        def source(size: int) -> str:
+            attrs = " ".join(f"a{index}" for index in range(size))
+            return f"<math><annotation-xml {attrs} encoding=text/html>" + "<svg/>" * size
+
+        assert_scales_linearly(source, lambda html: list(stream(html)))
