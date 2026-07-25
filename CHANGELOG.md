@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Make `append_child()`, `insert_before()`, and `replace_child()` splice `DocumentFragment` children into the target and empty the fragment, matching DOM behavior.
+
 ## [3.9.0] - 2026-07-20
 
 ### Performance

@@ -412,6 +412,8 @@ If `node` already has a parent, it is moved from that parent to this node. Use
 `node.clone_node(deep=True)` before appending when you want to keep the source
 DOM unchanged.
 
+Passing a `DocumentFragment` to `append_child`, `insert_before`, or `replace_child` inserts its children in order and leaves the fragment empty. Replacing a node with an empty fragment removes the node.
+
 #### `insert_before(node, reference_node)`
 
 Insert `node` before `reference_node` (or append if `reference_node` is `None`).

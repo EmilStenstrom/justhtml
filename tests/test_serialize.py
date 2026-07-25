@@ -1137,9 +1137,7 @@ class TestSerialize(unittest.TestCase):
         frag1.append_child(Text("  "))
         frag2 = DocumentFragment()
         frag2.append_child(Text("\n"))
-        div.append_child(frag1)
-        div.append_child(Text(" "))
-        div.append_child(frag2)
+        div.children = [frag1, Text(" "), frag2]
 
         output = div.to_html(pretty=True)
         assert output == "<div> </div>"
