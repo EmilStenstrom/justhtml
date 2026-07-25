@@ -7,7 +7,7 @@ engine without tokenizer or treebuilder handoffs.
 from __future__ import annotations
 
 import re
-from bisect import bisect_left, bisect_right
+from bisect import bisect_left, bisect_right, insort
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, SupportsIndex, cast
 
@@ -847,7 +847,10 @@ class _CountingStack(list[Node]):
                 if self[index].namespace in {None, "html"}:
                     return index
             return -1
-        return max((positions[-1] for positions in self._html_positions.values()), default=-1)
+        # The document root sits at index 0 and is never a match, matching the
+        # reverse scan above, which stops before it.
+        index = max((positions[-1] for positions in self._html_positions.values()), default=-1)
+        return index if index > 0 else -1
 
     def last_index_of_any(self, names: Collection[str]) -> int | None:
         if not self._indexed:
@@ -878,7 +881,9 @@ class _CountingStack(list[Node]):
                 if self[index].namespace != _PARSER_ONLY_NAMESPACE:
                     return index
             return None
-        return self._rendered_positions[-1] if self._rendered_positions else None
+        # As above, index 0 is the document root and is never a match.
+        index = self._rendered_positions[-1] if self._rendered_positions else 0
+        return index or None
 
     def last_template_boundary_index(self) -> int:
         if not self._indexed:
@@ -926,6 +931,21 @@ class _CountingStack(list[Node]):
         if self._foreign_boundaries and self._foreign_boundaries[-1] == index:
             self._foreign_boundaries.pop()
 
+    def _note_position_at(self, item: Node, index: int) -> None:
+        """Record `item` at `index`, which need not be the top of the stack.
+
+        Every list here is ascending, so a position below the top is spliced in
+        rather than appended. `_note_top_position` stays separate because the
+        binary search is worth avoiding on the push path.
+        """
+        positions = self._html_positions if item.namespace in {None, "html"} else self._other_positions
+        insort(positions.setdefault(item.name, []), index)
+        self._node_positions[item] = index
+        if item.namespace != _PARSER_ONLY_NAMESPACE:
+            insort(self._rendered_positions, index)
+        if item.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and self._is_foreign_boundary(item):
+            insort(self._foreign_boundaries, index)
+
     def _discard_position(self, item: Node, index: int) -> None:
         positions = self._html_positions if item.namespace in {None, "html"} else self._other_positions
         bucket = positions[item.name]
@@ -952,7 +972,13 @@ class _CountingStack(list[Node]):
         return item in self._node_positions
 
     def _renumber_from(self, first_moved: int, delta: int) -> None:
-        for position in range(first_moved, len(self)):
+        # Each list here is ascending and is rewritten in place, so the nodes
+        # must be renumbered in the order that keeps every slot being written
+        # already vacated: bottom-up when they moved down, top-down when they
+        # moved up. Renumbering upward in ascending order overwrites an entry a
+        # later node in the same bucket still has to find.
+        span = range(first_moved, len(self))
+        for position in span if delta < 0 else reversed(span):
             item = self[position]
             old_position = position - delta
             positions = self._html_positions if item.namespace in {None, "html"} else self._other_positions
@@ -1011,15 +1037,15 @@ class _CountingStack(list[Node]):
             counts[name] = counts.get(name, 0) + 1
         elif len(self) >= _STACK_COUNT_THRESHOLD:
             self._name_counts = self._collect_name_counts()
+            # Crossing the threshold has to build the position index too. Every
+            # other path treats a live `_name_counts` as proof the index exists.
+            self._build_position_index()
         if was_indexed:
             if normalized_index == length:
                 self._note_top_position(item, normalized_index)
             else:
                 self._renumber_from(normalized_index + 1, 1)
-                positions = self._html_positions if item.namespace in {None, "html"} else self._other_positions
-                bucket = positions.setdefault(item.name, [])
-                bucket.insert(bisect_left(bucket, normalized_index), normalized_index)
-                self._node_positions[item] = normalized_index
+                self._note_position_at(item, normalized_index)
 
     def __setitem__(self, key: SupportsIndex, item: Node) -> None:  # type: ignore[override]
         previous_name = self[key].name
