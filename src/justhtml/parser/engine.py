@@ -7,7 +7,7 @@ engine without tokenizer or treebuilder handoffs.
 from __future__ import annotations
 
 import re
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, SupportsIndex, cast
 
@@ -742,6 +742,7 @@ class _CountingStack(list[Node]):
         "_html_positions",
         "_indexed",
         "_name_counts",
+        "_node_positions",
         "_other_positions",
         "_p_count",
     )
@@ -764,15 +765,18 @@ class _CountingStack(list[Node]):
     def _build_position_index(self) -> None:
         html: dict[str, list[int]] = {}
         other: dict[str, list[int]] = {}
+        node_positions: dict[Node, int] = {}
         foreign_boundaries: list[int] = []
         for index, item in enumerate(self):
             positions = html if item.namespace in {None, "html"} else other
             positions.setdefault(item.name, []).append(index)
+            node_positions[item] = index
             if item.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and (self._is_foreign_boundary(item)):
                 foreign_boundaries.append(index)
         self._html_positions = html
         self._other_positions = other
         self._foreign_boundaries = foreign_boundaries
+        self._node_positions = node_positions
         self._indexed = True
 
     @staticmethod
@@ -869,6 +873,7 @@ class _CountingStack(list[Node]):
     def _note_top_position(self, item: Node, index: int) -> None:
         positions = self._html_positions if item.namespace in {None, "html"} else self._other_positions
         positions.setdefault(item.name, []).append(index)
+        self._node_positions[item] = index
         if item.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and self._is_foreign_boundary(item):
             self._foreign_boundaries.append(index)
 
@@ -878,8 +883,44 @@ class _CountingStack(list[Node]):
         bucket.pop()
         if not bucket:
             del positions[item.name]
+        self._node_positions.pop(item, None)
         if self._foreign_boundaries and self._foreign_boundaries[-1] == index:
             self._foreign_boundaries.pop()
+
+    def _discard_position(self, item: Node, index: int) -> None:
+        positions = self._html_positions if item.namespace in {None, "html"} else self._other_positions
+        bucket = positions[item.name]
+        del bucket[bisect_left(bucket, index)]
+        if not bucket:
+            del positions[item.name]
+        self._node_positions.pop(item, None)
+        if item.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and self._is_foreign_boundary(item):
+            del self._foreign_boundaries[bisect_left(self._foreign_boundaries, index)]
+
+    def index_of_node(self, item: Node) -> int | None:
+        if not self._indexed:
+            try:
+                return list.index(self, item)
+            except ValueError:
+                return None
+        return self._node_positions.get(item)
+
+    def __contains__(self, item: object) -> bool:
+        if not self._indexed:
+            return list.__contains__(self, item)
+        return item in self._node_positions
+
+    def _renumber_from(self, first_moved: int, delta: int) -> None:
+        for position in range(first_moved, len(self)):
+            item = self[position]
+            old_position = position - delta
+            positions = self._html_positions if item.namespace in {None, "html"} else self._other_positions
+            bucket = positions[item.name]
+            bucket[bisect_left(bucket, old_position)] = position
+            self._node_positions[item] = position
+            if item.namespace not in {None, "html", _PARSER_ONLY_NAMESPACE} and self._is_foreign_boundary(item):
+                boundaries = self._foreign_boundaries
+                boundaries[bisect_left(boundaries, old_position)] = position
 
     def _collect_name_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -913,6 +954,10 @@ class _CountingStack(list[Node]):
             self._build_position_index()
 
     def insert(self, index: SupportsIndex, item: Node) -> None:  # type: ignore[override]
+        length = len(self)
+        was_indexed = self._indexed
+        raw_index = index.__index__()
+        normalized_index = max(0, min(raw_index if raw_index >= 0 else length + raw_index, length))
         list.insert(self, index, item)
         name = item.name
         if name == "p":
@@ -922,8 +967,15 @@ class _CountingStack(list[Node]):
             counts[name] = counts.get(name, 0) + 1
         elif len(self) >= _STACK_COUNT_THRESHOLD:
             self._name_counts = self._collect_name_counts()
-        if self._indexed:
-            self._build_position_index()
+        if was_indexed:
+            if normalized_index == length:
+                self._note_top_position(item, normalized_index)
+            else:
+                self._renumber_from(normalized_index + 1, 1)
+                positions = self._html_positions if item.namespace in {None, "html"} else self._other_positions
+                bucket = positions.setdefault(item.name, [])
+                bucket.insert(bisect_left(bucket, normalized_index), normalized_index)
+                self._node_positions[item] = normalized_index
 
     def __setitem__(self, key: SupportsIndex, item: Node) -> None:  # type: ignore[override]
         previous_name = self[key].name
@@ -957,11 +1009,15 @@ class _CountingStack(list[Node]):
             if normalized_index == len(self):
                 self._forget_top_position(item, normalized_index)
             else:
-                self._build_position_index()
+                self._discard_position(item, normalized_index)
+                self._renumber_from(normalized_index, -1)
         return item
 
     def remove(self, item: Node) -> None:  # type: ignore[override]
-        list.remove(self, item)
+        index = self.index_of_node(item)
+        if index is None:
+            raise ValueError("_CountingStack.remove(x): x not on the stack")
+        list.__delitem__(self, index)
         name = item.name
         if name == "p":
             self._p_count -= 1
@@ -969,15 +1025,23 @@ class _CountingStack(list[Node]):
         if counts is not None:
             counts[name] -= 1
         if self._indexed:
-            self._build_position_index()
+            if index == len(self):
+                self._forget_top_position(item, index)
+            else:
+                self._discard_position(item, index)
+                self._renumber_from(index, -1)
 
     def __delitem__(self, key: SupportsIndex | slice) -> None:
+        normalized_index: int | None = None
         if isinstance(key, slice):
             start, stop, step = key.indices(len(self))
             if self._indexed and step == 1 and stop >= len(self):
                 while len(self) > start:
                     self.pop()
                 return
+        else:
+            raw_index = key.__index__()
+            normalized_index = raw_index if raw_index >= 0 else len(self) + raw_index
         removed = self[key] if isinstance(key, slice) else [self[key]]
         list.__delitem__(self, key)
         p_count = self._p_count
@@ -990,7 +1054,15 @@ class _CountingStack(list[Node]):
                 counts[name] -= 1
         self._p_count = p_count
         if self._indexed:
-            self._build_position_index()
+            if normalized_index is None:
+                self._build_position_index()
+            else:
+                item = removed[0]
+                if normalized_index == len(self):
+                    self._forget_top_position(item, normalized_index)
+                else:
+                    self._discard_position(item, normalized_index)
+                    self._renumber_from(normalized_index, -1)
 
 
 class ParseEngine:
@@ -5487,12 +5559,10 @@ class ParseEngine:
                 return
 
     def _remove_last_open_element_by_name(self, name: str) -> None:
-        stack = self._stack
-        for idx in range(len(stack) - 1, 0, -1):
-            if getattr(stack[idx], "name", None) == name:
-                self._mark_active_formatting_dirty()
-                del stack[idx]
-                return
+        index = self._find_open_index(name)
+        if index is not None:
+            self._mark_active_formatting_dirty()
+            del self._stack[index]
 
     def _reconstruct_active_formatting(self) -> None:
         active = self._active_formatting
@@ -5571,9 +5641,8 @@ class ParseEngine:
                 stack.pop()
                 self._retire_active_formatting_entry(entry)
                 return
-            try:
-                formatting_stack_index = stack.index(formatting_element)
-            except ValueError:
+            formatting_stack_index = stack.index_of_node(formatting_element)
+            if formatting_stack_index is None:
                 self._retire_active_formatting_entry(entry)
                 self._refresh_active_formatting_dirty()
                 return
@@ -5694,7 +5763,9 @@ class ParseEngine:
                 stack.remove(formatting_element)
             except ValueError:  # pragma: no cover - unreachable after parser-state guards
                 pass  # pragma: no cover - unreachable after parser-state guards
-            furthest_stack_index = stack.index(furthest_block)
+            furthest_stack_index = stack.index_of_node(furthest_block)
+            if furthest_stack_index is None:  # pragma: no cover - furthest block remains open
+                return
             stack.insert(furthest_stack_index + 1, new_formatting_element)
             self._refresh_active_formatting_dirty()
 

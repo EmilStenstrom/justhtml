@@ -84,6 +84,14 @@ class TestActiveFormattingScaling(unittest.TestCase):
             lambda source: JustHTML(source, sanitize=False),
         )
 
+    def test_adoption_reparenting_scales_linearly(self) -> None:
+        shapes = (
+            lambda size: "<a><div>" * size + "x",
+            lambda size: "<b><div></b>" * size,
+        )
+        for shape in shapes:
+            assert_scales_linearly(shape, lambda source: JustHTML(source, sanitize=False))
+
 
 class TestFramesetDepth(unittest.TestCase):
     def test_deep_frameset_eligibility_does_not_recurse(self) -> None:
@@ -208,6 +216,18 @@ class TestCountingStack(unittest.TestCase):
         assert engine._find_open_index_in_current_scope("missing") is None
         engine._stack = [DocumentFragment(), Template("template", {}, namespace="html")]
         assert engine._find_open_index_in_current_scope("missing") is None
+
+        foreign = Element("foreignObject", {}, "svg")
+        mutations = _CountingStack([*nodes, foreign, Element("span", {}, "html")])
+        mutations.remove(nodes[-1])
+        assert mutations.last_foreign_boundary_index() == len(mutations) - 2
+        del mutations[-2]
+        assert mutations.last_foreign_boundary_index() == -1
+        del mutations[-1]
+        del mutations[1]
+        with self.assertRaises(ValueError):
+            mutations.remove(Element("missing", {}, "html"))
+        self.assert_counts_match(mutations)
 
     def test_append_and_insert_activate_name_tracking_at_the_threshold(self) -> None:
         shallow = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD - 1)]
