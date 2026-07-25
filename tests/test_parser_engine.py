@@ -51,6 +51,12 @@ class TestDocumentShellScaling(unittest.TestCase):
 
 
 class TestForeignContentScaling(unittest.TestCase):
+    def test_deep_foreign_end_tag_searches_scale_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: "<div><svg><foreignObject><svg>" + "<g>" * size + "</div>" * size,
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
     def test_deep_foreign_parent_membership_scales_linearly(self) -> None:
         assert_scales_linearly(
             lambda size: "<svg>" + "<g>" * size + "<div>x",

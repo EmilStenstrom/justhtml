@@ -836,6 +836,14 @@ class _CountingStack(list[Node]):
                 best = max(best, positions[-1])
         return best
 
+    def last_html_index(self) -> int:
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                if self[index].namespace in {None, "html"}:
+                    return index
+            return -1
+        return max((positions[-1] for positions in self._html_positions.values()), default=-1)
+
     def last_foreign_boundary_index(self) -> int:
         if not self._indexed:
             for index in range(len(self) - 1, 0, -1):
@@ -1317,28 +1325,32 @@ class ParseEngine:
         if name in {"br", "p"}:
             return False
 
-        crossed_integration_point = False
-        for idx in range(len(stack) - 1, 0, -1):
-            node = stack[idx]
-            if self._node_matches_end_name(node, name):
-                if node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE} and crossed_integration_point:
-                    return True
-                if self._fragment_context_node is not None and node is self._fragment_context_node:
-                    return True
-                if node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
-                    # The foreign-content walk reached a matching HTML element
-                    # (§13.2.6.5 steps 6-7): hand the token to the HTML end-tag
-                    # rules, which may splice a form or run adoption, rather than
-                    # popping the foreign elements sitting above it.
-                    return False
-                if self._track_tag_spans:
-                    self._set_end_span(node, name, tag_start, tag_end)
-                del stack[idx:]
-                return True
-            if self._is_html_integration_point(node) or self._is_mathml_text_integration_point(node):
-                crossed_integration_point = True
-            if node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
-                return False
+        target_index = stack.last_index_of(name)
+        adjusted_name = SVG_TAG_NAME_ADJUSTMENTS.get(name, name)
+        if adjusted_name != name:
+            adjusted_index = stack.last_index_of(adjusted_name)
+            if adjusted_index is not None and (target_index is None or adjusted_index > target_index):
+                target_index = adjusted_index
+
+        html_index = stack.last_html_index()
+        if target_index is None or target_index < html_index:
+            return html_index < 0
+
+        node = stack[target_index]
+        node_is_html = node.namespace in {None, "html", _PARSER_ONLY_NAMESPACE}
+        if node_is_html and stack.last_foreign_boundary_index() > target_index:
+            return True
+        if self._fragment_context_node is not None and node is self._fragment_context_node:
+            return True
+        if node_is_html:
+            # The foreign-content walk reached a matching HTML element
+            # (§13.2.6.5 steps 6-7): hand the token to the HTML end-tag
+            # rules, which may splice a form or run adoption, rather than
+            # popping the foreign elements sitting above it.
+            return False
+        if self._track_tag_spans:
+            self._set_end_span(node, name, tag_start, tag_end)
+        del stack[target_index:]
         return True
 
     def _emit_error(
