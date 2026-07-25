@@ -5833,19 +5833,27 @@ class ParseEngine:
                 pending.extend(reversed(children))
 
     def _project_select_selectedcontent(self, select: Element) -> None:
-        markers: list[Element] = []
+        markers: list[tuple[Element, int]] = []
+        option_spans: dict[Element, list[int]] = {}
         selected_option: Element | None = None
         first_option: Element | None = None
         is_multiple = "multiple" in select.attrs
-        pending: list[tuple[Node, bool, bool]] = [(select, False, False)]
+        pending: list[tuple[Node, bool, bool, bool]] = [(select, False, False, False)]
+        position = 0
         while pending:
-            node, in_disabled_optgroup, in_datalist = pending.pop()
+            node, in_disabled_optgroup, in_datalist, leaving = pending.pop()
+            if leaving:
+                option_spans[node][1] = position  # type: ignore[index]
+                continue
+            position += 1
             attrs = getattr(node, "attrs", None)
             name = node.name
             if node is not select and type(node) is Element:
                 if name == "selectedcontent":
-                    markers.append(node)
+                    markers.append((node, position))
                 if name == "option" and not in_datalist:
+                    option_spans[node] = [position, position]
+                    pending.append((node, in_disabled_optgroup, in_datalist, True))
                     if (
                         first_option is None
                         and not in_disabled_optgroup
@@ -5864,12 +5872,15 @@ class ParseEngine:
                     name == "optgroup" and attrs is not None and "disabled" in attrs
                 )
                 child_in_datalist = in_datalist or name == "datalist"
-                pending.extend((child, child_disabled_optgroup, child_in_datalist) for child in reversed(children))
+                pending.extend(
+                    (child, child_disabled_optgroup, child_in_datalist, False) for child in reversed(children)
+                )
         option = selected_option or first_option
         if not markers:  # pragma: no branch - opposite edge requires invalid parser state
             return  # pragma: no cover - unreachable after parser-state guards
-        for marker in markers:
-            if option is not None and self._is_descendant_of(marker, option):
+        span = option_spans[option] if option is not None else None
+        for marker, marker_position in markers:
+            if span is not None and span[0] < marker_position <= span[1]:
                 continue
             children = marker.children
             if children:
@@ -5880,14 +5891,6 @@ class ParseEngine:
                 for child in option.children or ():
                     clone = child.clone_node(deep=True)
                     self._append(marker, clone)
-
-    def _is_descendant_of(self, node: Node, ancestor: Node) -> bool:
-        parent = node.parent
-        while parent is not None:
-            if parent is ancestor:
-                return True
-            parent = parent.parent
-        return False
 
     def _unwrap_node(self, node: Element) -> None:
         parent = node.parent

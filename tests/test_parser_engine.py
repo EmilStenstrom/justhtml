@@ -67,6 +67,18 @@ class TestSanitizerScaling(unittest.TestCase):
         )
 
 
+class TestSelectedContentScaling(unittest.TestCase):
+    def test_deep_selectedcontent_projection_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: (
+                "<select><option selected>x</option>"
+                + "<div><selectedcontent></selectedcontent>" * size
+                + "</select>"
+            ),
+            lambda source: JustHTML(source, sanitize=False),
+        )
+
+
 class TestFramesetDepth(unittest.TestCase):
     def test_deep_frameset_eligibility_does_not_recurse(self) -> None:
         limit = sys.getrecursionlimit()
