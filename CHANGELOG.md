@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Answer the open-elements scope check from a maintained name count before looking for a boundary, and settle target and boundary in one bounded pass on the shallow stacks that ordinary documents keep. The check runs several times per token, and the count returns outright on about two thirds of the calls (thanks @kevin-hua-kraken in #76).
+
+### Security
+
+- (Severity: Low) Re-record only the slot that changed when the adoption agency clones a formatting element back onto the open-elements stack, instead of rebuilding the whole position index. Since 3.10.0, markup nesting a formatting element between the end tag's subject and the furthest block, such as `"<b><i><div></b>" * n`, took time quadratic in its length -- about 3.7x longer than 3.9.0 on the same input.
+
 ## [3.10.1] - 2026-07-25
 
 ### Performance

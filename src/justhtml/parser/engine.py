@@ -82,6 +82,11 @@ _PLAINTEXT_TAGS = {"plaintext"}
 _ACTIVE_FORMATTING_TAGS = FORMATTING_ELEMENTS
 _ACTIVE_FORMATTING_MARKER_TAGS = {"applet", "caption", "marquee", "object"}
 _PARSER_ONLY_NAMESPACE = "justhtml-parser-only"
+#: Namespaces an open element carries when it is an HTML element, and the same
+#: set widened to include the parser's own template markers. Module constants so
+#: that the reverse scans below do not rebuild them per node visited.
+_HTML_NAMESPACES = frozenset({None, "html"})
+_OPEN_HTML_NAMESPACES = frozenset({None, "html", _PARSER_ONLY_NAMESPACE})
 _DEFAULT_SCOPE_BOUNDARIES = frozenset(DEFAULT_SCOPE_TERMINATORS)
 _BUTTON_SCOPE_BOUNDARIES = frozenset({"button"})
 _P_SCOPE_BOUNDARIES = frozenset(BUTTON_SCOPE_TERMINATORS)
@@ -734,14 +739,14 @@ class _CountingStack(list[Node]):
     making nested markup quadratic overall. Shallow stacks track the especially
     common `p` lookup directly and scan at most 31 nodes for other names. At
     the configured depth threshold, the stack permanently switches to per-name
-    counts so hostile deep nesting retains constant-time negative lookups.
+    position indexes so hostile deep nesting retains constant-time negative
+    lookups.
     """
 
     __slots__ = (
         "_foreign_boundaries",
         "_html_positions",
         "_indexed",
-        "_name_counts",
         "_node_positions",
         "_other_positions",
         "_p_count",
@@ -750,7 +755,6 @@ class _CountingStack(list[Node]):
 
     def __init__(self, iterable: Iterable[Node] = ()) -> None:
         super().__init__(iterable)
-        self._name_counts: dict[str, int] | None = None
         self._indexed = False
         if len(self) < _STACK_COUNT_THRESHOLD:
             p_count = 0
@@ -758,9 +762,10 @@ class _CountingStack(list[Node]):
                 p_count += item.name == "p"
             self._p_count = p_count
             return
-        counts = self._collect_name_counts()
-        self._name_counts = counts
-        self._p_count = counts.get("p", 0)
+        p_count = 0
+        for item in self:
+            p_count += item.name == "p"
+        self._p_count = p_count
         self._build_position_index()
 
     def _build_position_index(self) -> None:
@@ -810,9 +815,11 @@ class _CountingStack(list[Node]):
 
     def last_html_index_of(self, name: str, *, parser_only: bool = False) -> int | None:
         if not self._indexed:
+            # Hoisted: this ran once per node visited, and the scan below is on
+            # the path every insertion into a table takes.
+            namespaces = _OPEN_HTML_NAMESPACES if parser_only else _HTML_NAMESPACES
             for index in range(len(self) - 1, 0, -1):
                 node = self[index]
-                namespaces = {None, "html", _PARSER_ONLY_NAMESPACE} if parser_only else {None, "html"}
                 if node.name == name and node.namespace in namespaces:
                     return index
             return None
@@ -834,11 +841,20 @@ class _CountingStack(list[Node]):
                 if node.namespace in {None, "html"} and node.name in names:
                     return index
             return -1
+        # Scope boundaries arrive as a set of tag names, sometimes a large one.
+        # Iterating whichever side is smaller keeps the cost tied to the variety
+        # of names actually open, which stays small even on a deep stack.
+        positions_by_name = self._html_positions
         best = -1
+        if len(positions_by_name) < len(names):
+            for name, positions in positions_by_name.items():
+                if positions[-1] > best and name in names:
+                    best = positions[-1]
+            return best
         for name in names:
-            positions = self._html_positions.get(name)
-            if positions:
-                best = max(best, positions[-1])
+            found = positions_by_name.get(name)
+            if found and found[-1] > best:
+                best = found[-1]
         return best
 
     def last_html_index(self) -> int:
@@ -874,6 +890,25 @@ class _CountingStack(list[Node]):
                     return index
             return -1
         return self._foreign_boundaries[-1] if self._foreign_boundaries else -1
+
+    def last_scope_boundary_index(self, names: Collection[str]) -> int:
+        """Return the nearest scope boundary, or -1 when none is open.
+
+        A boundary is an HTML element named in `names` or a foreign integration
+        point, which is the pair of lookups every scope check needs. Answering
+        both in one call lets a shallow stack settle them in a single pass.
+        """
+        if not self._indexed:
+            for index in range(len(self) - 1, 0, -1):
+                node = self[index]
+                namespace = node.namespace
+                if namespace is None or namespace == "html":
+                    if node.name in names:
+                        return index
+                elif namespace != _PARSER_ONLY_NAMESPACE and self._is_foreign_boundary(node):
+                    return index
+            return -1
+        return max(self.last_html_index_of_any(names), self.last_foreign_boundary_index())
 
     def last_rendered_index(self) -> int | None:
         if not self._indexed:
@@ -992,22 +1027,27 @@ class _CountingStack(list[Node]):
                 boundaries = self._foreign_boundaries
                 boundaries[bisect_left(boundaries, old_position)] = position
 
-    def _collect_name_counts(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for item in self:
-            counts[item.name] = counts.get(item.name, 0) + 1
-        return counts
-
     def count_of(self, name: str) -> int:
+        """Return how many open elements carry `name`, in any namespace.
+
+        Constant time for `p` and for any name on an indexed stack; a walk
+        bounded by the index threshold otherwise. An indexed stack answers from
+        the position lists it already maintains -- keeping a separate per-name
+        counter in step on every push and pop costs more than these two lookups
+        save.
+        """
         if name == "p":
+            # Load-bearing: `p` is the target of about two thirds of all scope
+            # checks, and its count is maintained at every depth.
             return self._p_count
-        counts = self._name_counts
-        if counts is not None:
-            return counts.get(name, 0)
-        count = 0
-        for item in self:
-            count += item.name == name
-        return count
+        if not self._indexed:
+            count = 0
+            for item in self:
+                count += item.name == name
+            return count
+        html = self._html_positions.get(name)
+        other = self._other_positions.get(name)
+        return (len(html) if html is not None else 0) + (len(other) if other is not None else 0)
 
     def append(self, item: Node) -> None:  # type: ignore[override]
         index = len(self)
@@ -1015,12 +1055,9 @@ class _CountingStack(list[Node]):
         name = item.name
         if name == "p":
             self._p_count += 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] = counts.get(name, 0) + 1
+        if self._indexed:
             self._note_top_position(item, index)
         elif len(self) >= _STACK_COUNT_THRESHOLD:
-            self._name_counts = self._collect_name_counts()
             self._build_position_index()
 
     def insert(self, index: SupportsIndex, item: Node) -> None:  # type: ignore[override]
@@ -1032,14 +1069,11 @@ class _CountingStack(list[Node]):
         name = item.name
         if name == "p":
             self._p_count += 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] = counts.get(name, 0) + 1
-        elif len(self) >= _STACK_COUNT_THRESHOLD:
-            self._name_counts = self._collect_name_counts()
-            # Crossing the threshold has to build the position index too. Every
-            # other path treats a live `_name_counts` as proof the index exists.
+        if not was_indexed and len(self) >= _STACK_COUNT_THRESHOLD:
+            # Crossing the threshold has to index here too, or the next push
+            # reads position lists that were never built.
             self._build_position_index()
+            return
         if was_indexed:
             if normalized_index == length:
                 self._note_top_position(item, normalized_index)
@@ -1048,23 +1082,24 @@ class _CountingStack(list[Node]):
                 self._note_position_at(item, normalized_index)
 
     def __setitem__(self, key: SupportsIndex, item: Node) -> None:  # type: ignore[override]
-        previous_name = self[key].name
+        raw_key = key.__index__()
+        normalized_key = raw_key if raw_key >= 0 else len(self) + raw_key
+        previous = self[normalized_key]
+        previous_name = previous.name
         name = item.name
         list.__setitem__(self, key, item)
-        if previous_name == name:
-            if self._indexed:
-                self._build_position_index()
-            return
-        if previous_name == "p":
-            self._p_count -= 1
-        if name == "p":
-            self._p_count += 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[previous_name] -= 1
-            counts[name] = counts.get(name, 0) + 1
+        if previous_name != name:
+            if previous_name == "p":
+                self._p_count -= 1
+            if name == "p":
+                self._p_count += 1
         if self._indexed:
-            self._build_position_index()
+            # One slot changing hands moves nothing, so only the two nodes
+            # involved are re-recorded. Rebuilding the whole index costs the
+            # stack's depth, and the adoption agency reaches this path once per
+            # misnested formatting tag, which makes that shape quadratic.
+            self._discard_position(previous, normalized_key)
+            self._note_position_at(item, normalized_key)
 
     def pop(self, index: int = -1) -> Node:  # type: ignore[override]
         normalized_index = index if index >= 0 else len(self) + index
@@ -1072,9 +1107,6 @@ class _CountingStack(list[Node]):
         name = item.name
         if name == "p":
             self._p_count -= 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] -= 1
         if self._indexed:
             if normalized_index == len(self):
                 self._forget_top_position(item, normalized_index)
@@ -1091,9 +1123,6 @@ class _CountingStack(list[Node]):
         name = item.name
         if name == "p":
             self._p_count -= 1
-        counts = self._name_counts
-        if counts is not None:
-            counts[name] -= 1
         if self._indexed:
             if index == len(self):
                 self._forget_top_position(item, index)
@@ -1115,13 +1144,9 @@ class _CountingStack(list[Node]):
         removed = self[key] if isinstance(key, slice) else [self[key]]
         list.__delitem__(self, key)
         p_count = self._p_count
-        counts = self._name_counts
         for item in removed:
-            name = item.name
-            if name == "p":
+            if item.name == "p":
                 p_count -= 1
-            if counts is not None:
-                counts[name] -= 1
         self._p_count = p_count
         if self._indexed:
             if normalized_index is None:
@@ -2558,7 +2583,7 @@ class ParseEngine:
             and stack[-1].name == name
             and stack[-1] is not self._fragment_context_node
         ):
-            if stack._name_counts is None:
+            if not stack._indexed:
                 list.pop(stack)
                 if name == "p":
                     stack._p_count -= 1
@@ -2582,7 +2607,7 @@ class ParseEngine:
                     and entry.name == name
                     and stack[-1] is entry.node
                 ):
-                    if stack._name_counts is None:
+                    if not stack._indexed:
                         list.pop(stack)
                     else:
                         stack.pop()
@@ -2674,7 +2699,7 @@ class ParseEngine:
             if idx is None:
                 return pos
             self._mark_active_formatting_dirty()
-            if stack._name_counts is None and not stack._p_count:
+            if not stack._indexed and not stack._p_count:
                 list.__delitem__(stack, slice(idx, None))
             else:
                 del stack[idx:]
@@ -2690,7 +2715,7 @@ class ParseEngine:
         ):
             if name in _TABLE_CELL_TAGS or name in _ACTIVE_FORMATTING_MARKER_TAGS:
                 self._clear_active_formatting_to_marker()
-            if stack._name_counts is None:
+            if not stack._indexed:
                 list.pop(stack)
                 if name == "p":
                     stack._p_count -= 1
@@ -2749,7 +2774,7 @@ class ParseEngine:
             self._clear_active_formatting_to_marker()
         elif name in _ACTIVE_FORMATTING_MARKER_TAGS:  # pragma: no branch - opposite edge requires invalid parser state
             self._clear_active_formatting_to_marker()  # pragma: no cover - unreachable after parser-state guards
-        if stack._name_counts is None and not stack._p_count:
+        if not stack._indexed and not stack._p_count:
             list.__delitem__(stack, slice(idx, None))
         else:
             del stack[idx:]
@@ -3248,7 +3273,7 @@ class ParseEngine:
             current_parent.children.append(node)  # type: ignore[union-attr]
             node.parent = current_parent
             if not is_void:
-                if name == "p" or stack._name_counts is not None or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
+                if name == "p" or stack._indexed or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
                     stack.append(node)
                 else:
                     list.append(stack, node)
@@ -4119,7 +4144,7 @@ class ParseEngine:
             self._insert_at(foster_parent, position, node)
         if not is_void:
             stack = self._stack
-            if name == "p" or stack._name_counts is not None or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
+            if name == "p" or stack._indexed or len(stack) >= _STACK_COUNT_THRESHOLD - 1:
                 stack.append(node)
             else:
                 list.append(stack, node)
@@ -4419,12 +4444,41 @@ class ParseEngine:
         return stack.last_html_index_of(name, parser_only=True)
 
     def _find_open_index_before_boundary(self, name: str, boundaries: frozenset[str]) -> int | None:
+        """Return the innermost open `name`, or None when a scope boundary is nearer.
+
+        This is the scope check of §13.2.4.2, and it runs several times per
+        token, so the order of the tests below is load-bearing rather than
+        cosmetic.
+        """
         stack = self._stack
-        target = stack.last_index_of(name)
-        if target is None:
+        if not stack.count_of(name):
+            # Nothing by that name is open, so no scope can contain it. About
+            # two thirds of the calls here ask for `p`, whose count is
+            # maintained anyway, and an indexed stack answers any name from its
+            # position lists. This returns outright on the majority of calls,
+            # skipping the boundary lookup below.
             return None
-        boundary = max(stack.last_html_index_of_any(boundaries), stack.last_foreign_boundary_index())
-        return target if target >= boundary else None
+        if not stack._indexed:
+            # A shallow stack settles target and boundary in one bounded pass,
+            # which is cheaper than the two index lookups the deep path needs.
+            for index in range(len(stack) - 1, 0, -1):
+                node = stack[index]
+                node_name = node.name
+                if node_name == name:
+                    return index
+                namespace = node.namespace
+                if namespace is None or namespace == "html":
+                    if node_name in boundaries:
+                        return None
+                elif namespace != _PARSER_ONLY_NAMESPACE and _CountingStack._is_foreign_boundary(node):
+                    return None
+            # Only reachable if index 0 held the sole match, and the document
+            # root never carries a name the parser asks for.
+            return None  # pragma: no cover
+        target = stack.last_index_of(name)
+        if target is None:  # pragma: no cover - ruled out by the count guard above
+            return None  # pragma: no cover - ruled out by the count guard above
+        return target if target >= stack.last_scope_boundary_index(boundaries) else None
 
     def _find_open_table_scoped_end_index(self, name: str) -> int | None:
         for idx in range(len(self._stack) - 1, 0, -1):
@@ -4466,12 +4520,11 @@ class ParseEngine:
 
     def _find_open_heading_index(self) -> int | None:
         stack = self._stack
-        target = max((stack.last_index_of(name) or -1 for name in HEADING_ELEMENTS), default=-1)
-        boundary = max(
-            stack.last_html_index_of_any(_DEFAULT_SCOPE_BOUNDARIES),
-            stack.last_foreign_boundary_index(),
-        )
-        return target if target > boundary else None
+        # One pass over the six heading names rather than six separate lookups.
+        target = stack.last_index_of_any(HEADING_ELEMENTS)
+        if target is None:
+            return None
+        return target if target > stack.last_scope_boundary_index(_DEFAULT_SCOPE_BOUNDARIES) else None
 
     def _set_current_template_mode(self, mode: str) -> None:
         if self._template_modes:  # pragma: no branch - opposite edge requires invalid parser state
@@ -5197,17 +5250,21 @@ class ParseEngine:
         ):  # pragma: no branch - opposite edge requires invalid parser state
             return None  # pragma: no cover - unreachable after parser-state guards
         table_idx = self._find_open_index("table")
-        parser_only_template_idx = self._open_parser_only_template_index()
+        # Fostering runs once per node placed inside a table, and no template is
+        # open for the overwhelming majority of them. Both counters below are
+        # maintained anyway, so consulting them skips two stack lookups.
+        parser_only_template_idx = (
+            self._open_parser_only_template_index() if self._parser_only_template_depth else None
+        )
         if table_idx is not None and parser_only_template_idx is not None and table_idx < parser_only_template_idx:
             return None
-        template_idx = self._open_template_index()
+        template_idx = self._open_template_index() if self._template_modes else None
         if table_idx is not None and template_idx is not None and table_idx < template_idx:
             table_idx = None
         if table_idx is None:
             if self._template_modes:
-                open_template_idx = self._open_template_index()
-                if open_template_idx is not None:  # pragma: no branch - template modes require an open template
-                    template = self._stack[open_template_idx]
+                if template_idx is not None:  # pragma: no branch - template modes require an open template
+                    template = self._stack[template_idx]
                     if type(template) is Template and template.template_content is not None:
                         children = template.template_content.children
                         return template.template_content, len(children or ())

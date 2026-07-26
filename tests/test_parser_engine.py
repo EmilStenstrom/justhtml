@@ -9,7 +9,11 @@ from justhtml.dom import DocumentFragment, Element, Template, Text
 from justhtml.parser.context import FragmentContext
 from justhtml.parser.engine import (
     _AFTER_BODY,
+    _DEFAULT_SCOPE_BOUNDARIES,
+    _GENERAL_END_TAG_BOUNDARIES,
+    _P_SCOPE_BOUNDARIES,
     _STACK_COUNT_THRESHOLD,
+    _TABLE_CONTEXT_BOUNDARIES,
     _UNWRAP_BATCH_THRESHOLD,
     ParseEngine,
     _CountingStack,
@@ -111,6 +115,16 @@ class TestActiveFormattingScaling(unittest.TestCase):
         for shape in shapes:
             assert_scales_linearly(shape, lambda source: JustHTML(source, sanitize=False))
 
+    def test_adoption_cloning_a_nested_formatting_element_scales_linearly(self) -> None:
+        """A formatting element between the subject and the furthest block.
+
+        The inner loop clones it and writes the clone back into the middle of
+        the open-elements stack, once per repetition, on a stack that grows with
+        the input. The control has the same element count with nothing to clone.
+        """
+        assert_scales_linearly(lambda size: "<b><i><div></b>" * size, JustHTML)
+        assert_scales_linearly(lambda size: "<b><div></b>" * size, JustHTML)
+
 
 class TestDiagnosticScaling(unittest.TestCase):
     def test_basic_error_collection_scales_linearly(self) -> None:
@@ -205,9 +219,6 @@ class TestCountingStack(unittest.TestCase):
     def _indexed_copy(nodes: list) -> _CountingStack:
         """Build a stack that answers from the index regardless of its depth."""
         stack = _CountingStack(nodes)
-        counts = stack._collect_name_counts()
-        stack._name_counts = counts
-        stack._p_count = counts.get("p", 0)
         stack._build_position_index()
         return stack
 
@@ -270,6 +281,76 @@ class TestCountingStack(unittest.TestCase):
                 nodes = [DocumentFragment()] + [make() for make in ordered[:length]]
                 self.assert_indexed_and_scanned_agree(nodes)
 
+    def test_engine_scope_helpers_agree_across_indexed_and_scanned_stacks(self) -> None:
+        """The scope check keeps a shallow single-pass path beside the indexed one.
+
+        Both must give the same answer, or a document would parse differently
+        once its stack crossed the depth at which the index is built.
+        """
+        shapes = [
+            ["div", "p", "span"],
+            ["div", "button", "p", "b"],
+            ["table", "tbody", "tr", "td", "div", "p"],
+            ["div", "li", "div", "ul", "li"],
+            ["template", "div", "table", "p"],
+            ["h1", "div", "span"],
+            ["div", "svg:svg", "svg:foreignObject", "div", "svg:g"],
+            ["div", "math:math", "math:annotation-xml", "span"],
+            ["p", "svg:svg", "svg:g", "svg:g"],
+            ["div", "parser-only:template", "p", "span"],
+        ]
+
+        def build(names):
+            nodes = [DocumentFragment()]
+            for entry in names:
+                if entry.startswith("parser-only:"):
+                    nodes.append(Element(entry.split(":")[1], {}, "justhtml-parser-only"))
+                elif ":" in entry:
+                    namespace, local = entry.split(":")
+                    attrs = {"encoding": "text/html"} if local == "annotation-xml" else {}
+                    nodes.append(Element(local, attrs, namespace))
+                elif entry == "template":
+                    nodes.append(Template("template", {}, namespace="html"))
+                else:
+                    nodes.append(Element(entry, {}, "html"))
+            return nodes
+
+        boundary_sets = [
+            _P_SCOPE_BOUNDARIES,
+            _DEFAULT_SCOPE_BOUNDARIES,
+            _GENERAL_END_TAG_BOUNDARIES,
+            _TABLE_CONTEXT_BOUNDARIES,
+            frozenset({"template"}),
+        ]
+        probe_names = ["p", "div", "li", "span", "table", "td", "b", "g", "foreignObject", "missing"]
+
+        for shape in shapes:
+            nodes = build(shape)
+            scanned = _CountingStack(nodes)
+            assert not scanned._indexed
+            indexed = self._indexed_copy(nodes)
+
+            engine = ParseEngine("", fragment=True)
+            for name in probe_names:
+                for boundaries in boundary_sets:
+                    engine._stack = scanned
+                    scanned_result = engine._find_open_index_before_boundary(name, boundaries)
+                    engine._stack = indexed
+                    assert scanned_result == engine._find_open_index_before_boundary(name, boundaries), (
+                        shape,
+                        name,
+                        sorted(boundaries)[:3],
+                    )
+                for boundaries in boundary_sets:
+                    assert scanned.last_scope_boundary_index(boundaries) == indexed.last_scope_boundary_index(
+                        boundaries
+                    ), (shape, boundaries)
+
+            engine._stack = scanned
+            scanned_heading = engine._find_open_heading_index()
+            engine._stack = indexed
+            assert scanned_heading == engine._find_open_heading_index(), shape
+
     def assert_index_matches_contents(self, stack: _CountingStack) -> None:
         """Every ascending list the stack maintains must still describe it."""
         html_expected: dict[str, list[int]] = {}
@@ -330,10 +411,30 @@ class TestCountingStack(unittest.TestCase):
             stack.remove(node)
             self.assert_index_matches_contents(stack)
 
+    def test_replacing_a_node_re_records_only_that_slot(self) -> None:
+        """Swapping one entry moves nothing, so the rest of the index stands."""
+        root = DocumentFragment()
+        filler = [Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD)]
+        boundary = Element("foreignObject", {}, "svg")
+        stack = _CountingStack([root, *filler, boundary, Element("span", {}, "html")])
+        assert stack._indexed
+
+        replacement = Element("g", {}, "svg")
+        stack[len(filler) + 1] = replacement
+        self.assert_index_matches_contents(stack)
+        assert stack.index_of_node(replacement) == len(filler) + 1
+        assert stack.index_of_node(boundary) is None
+        assert stack.last_foreign_boundary_index() == -1
+
+        same_name = Element("g", {}, "svg")
+        stack[len(filler) + 1] = same_name
+        self.assert_index_matches_contents(stack)
+        assert stack.index_of_node(same_name) == len(filler) + 1
+
     def test_insert_that_crosses_the_depth_threshold_builds_the_index(self) -> None:
         """Growing past the threshold through `insert` must index, like `append`.
 
-        Every other path treats a live `_name_counts` as proof that the position
+        Every other path treats `_indexed` as proof that the position
         index exists, so setting one without the other leaves the next push
         reading attributes that were never assigned.
         """
@@ -381,6 +482,10 @@ class TestCountingStack(unittest.TestCase):
         engine._stack = namesakes
         assert namesakes.last_html_index_of("template", parser_only=True) == len(namesakes) - 2
         assert namesakes.last_template_boundary_index() == -1
+        assert engine._open_parser_only_template_index() is None
+
+        no_namesakes = _CountingStack([root, *filler])
+        engine._stack = no_namesakes
         assert engine._open_parser_only_template_index() is None
 
     def test_indexed_parser_only_positions_follow_middle_mutations(self) -> None:
@@ -449,8 +554,9 @@ class TestCountingStack(unittest.TestCase):
         assert stack.count_of("div") == expected["div"]
         assert stack.count_of("span") == expected["span"]
         assert stack.count_of("missing") == 0
-        if stack._name_counts is not None:
-            assert {name: count for name, count in stack._name_counts.items() if count} == expected
+        # Counts are derived from the position lists rather than stored, so
+        # every name on the stack has to come back exact.
+        assert {name: stack.count_of(name) for name in expected} == dict(expected)
 
     def test_shallow_stack_tracks_parser_mutations_without_a_name_map(self) -> None:
         div = Element("div", {}, "html")
@@ -458,7 +564,7 @@ class TestCountingStack(unittest.TestCase):
         second_p = Element("p", {}, "html")
         span = Element("span", {}, "html")
         stack = _CountingStack([div, first_p])
-        assert stack._name_counts is None
+        assert not stack._indexed
 
         stack.append(second_p)
         stack.insert(1, span)
@@ -477,9 +583,9 @@ class TestCountingStack(unittest.TestCase):
         del stack[:]
         self.assert_counts_match(stack)
 
-    def test_deep_stack_keeps_the_name_map_after_shrinking(self) -> None:
+    def test_deep_stack_keeps_the_position_index_after_shrinking(self) -> None:
         stack = _CountingStack(Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD))
-        assert stack._name_counts is not None
+        assert stack._indexed
 
         p = Element("p", {}, "html")
         span = Element("span", {}, "html")
@@ -493,7 +599,7 @@ class TestCountingStack(unittest.TestCase):
         self.assert_counts_match(stack)
 
         del stack[1:]
-        assert stack._name_counts is not None
+        assert stack._indexed
         stack.append(Element("span", {}, "html"))
         self.assert_counts_match(stack)
 
@@ -562,7 +668,7 @@ class TestCountingStack(unittest.TestCase):
         engine = ParseEngine("<div>" * _STACK_COUNT_THRESHOLD + "<b><i><p>1</b>2</i>", fragment=True)
         engine.parse()
 
-        assert engine._stack._name_counts is not None
+        assert engine._stack._indexed
         self.assert_counts_match(engine._stack)
 
     def test_compiled_end_tag_fast_paths_keep_shallow_and_deep_counts_exact(self) -> None:
