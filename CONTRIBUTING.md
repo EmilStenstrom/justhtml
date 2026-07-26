@@ -49,6 +49,21 @@ python -c 'from justhtml import JustHTML, to_test_format; print(to_test_format(J
 
 **Coverage is required to be 100%.** All new code must be fully tested.
 
+### Test placement
+
+- Put input/output parser recovery cases in the matching
+  `tests/justhtml-tests/*.dat` behavior file. Keep Python tests for public API
+  behavior, internal state invariants, and cases that need programmatic setup.
+- Add regressions to the behavior-specific test module or data file; do not
+  create generic "edge case", "regression", or "coverage" buckets.
+- When changing shared scanner behavior, test both `JustHTML` and `stream()`.
+- When changing plan-selected parsing or sanitization, test the fused default
+  path and the raw-plus-compiled-transform path.
+- When changing HTML serialization, exercise compact and pretty output when
+  both traverse the affected construct.
+- When changing an adaptive index or cache, cover behavior below and above its
+  activation threshold and every stack or tree mutation that can invalidate it.
+
 ### Documentation examples
 
 Runnable documentation examples use an explicit output marker. Place it between
@@ -87,7 +102,7 @@ Run manually:
 pre-commit run --all-files
 ```
 
-## Code Style
+## Coding Standards
 
 We use [Ruff](https://docs.astral.sh/ruff/) for linting and formatting:
 
@@ -95,11 +110,74 @@ We use [Ruff](https://docs.astral.sh/ruff/) for linting and formatting:
 - **Target**: Python 3.10+
 - **Rules**: Nearly all Ruff rules enabled (see `pyproject.toml` for exceptions)
 
-Key style points:
-- Use plain `assert` for tests, not `self.assertEqual` etc.
-- Comments explain **why**, not **what**
-- No typing annotations
-- Cite spec sections when relevant (e.g., "Per §13.2.5.72")
+Code must also pass mypy with the configuration in `pyproject.toml`. Keep
+function signatures and shared data structures accurately typed; do not silence
+type errors with broad `Any` annotations or unnecessary ignores.
+
+- Follow the WHATWG HTML specification for parsing behavior. Do not replace
+  specified recovery rules with heuristics.
+- Keep parser state and other known structures explicit. Do not use
+  `hasattr`, `getattr`, or `delattr` to probe deterministic internal objects.
+- Do not use exceptions for ordinary branching in parser, sanitizer,
+  transform, selector, or serializer hot paths.
+- Do not add production branches, constants, or comments that exist only to
+  satisfy a test.
+- Comments explain non-obvious reasons, constraints, or specification rules,
+  not what the code already says. Cite the relevant specification section when
+  useful (for example, `Per §13.2.5.72`).
+- Do not leave historical narration such as "previously", "fixed", or
+  "changed" in code comments. Describe the current constraint directly.
+- Use plain `assert` in tests rather than `self.assertEqual` and related
+  methods.
+- Treat additions to `src/justhtml/__init__.py` as public API changes. Keep
+  internal helpers private unless they are intentionally supported.
+
+## Keep Changes Small
+
+Make the smallest coherent change that solves the problem.
+
+- Keep each pull request and commit focused on one concern.
+- Prefer a narrow fix over a broad rewrite. Do not refactor adjacent code,
+  rename unrelated symbols, or reformat untouched areas unless the requested
+  change requires it.
+- Reuse existing abstractions before adding new layers, helpers, or state.
+- Add only the tests and documentation needed to establish the changed
+  behavior.
+- Split independent changes into separate commits or pull requests.
+- Remove superseded code instead of leaving parallel implementations.
+
+There is no fixed line limit, but diff size must follow from the problem rather
+than convenience. If a change reaches hundreds of lines, first look for a
+smaller design and separate mechanical work from behavioral work. Explain in
+the pull request when a large change is inherently indivisible.
+
+## Commit Messages
+
+Use:
+
+```text
+type: imperative summary
+```
+
+Use a lowercase type:
+
+- `feat`: user-visible functionality
+- `fix`: correctness bug
+- `security`: security or hostile-input hardening
+- `perf`: measured performance improvement
+- `refactor`: internal restructuring without behavior changes
+- `test`: test-only change
+- `docs`: documentation-only change
+- `ci`, `build`, or `deps`: tooling, packaging, or dependency changes
+
+Keep the summary concise, specific, and written as an imperative action, for
+example `fix: preserve text in legacy rawtext elements`. Do not end it with a
+period.
+
+Use a body when the reason, tradeoff, security boundary, or performance result
+is not obvious from the diff. Explain why the change is needed; do not narrate
+the implementation line by line. Reference issues or specifications there when
+useful.
 
 ## Benchmarking
 
@@ -126,27 +204,20 @@ the GitHub release. Before invoking it, ensure the worktree is clean and move
 the relevant Unreleased changelog entries into a dated `## [X.Y.Z]` section;
 the helper requires that section to exist.
 
-## Architecture Notes
-
-- **Parser engine** (`src/justhtml/parser/engine.py`): Plan-driven tokenization, tree construction, and sanitizer projection
-- **Parser scanner** (`src/justhtml/parser/scanner.py`): Shared low-level tag and rawtext scanning helpers
-- **DOM** (`src/justhtml/dom/`): DOM-like node tree; use `append_child()` / `insert_before()` for public tree operations
-- **Selectors** (`src/justhtml/selector/`): CSS selector parsing and matching
-- **Transforms** (`src/justhtml/transforms/`): Compiled post-parse tree transformations
-
-Golden rules:
-1. Follow WHATWG HTML5 spec exactly
-2. No exceptions in hot paths
-3. Minimal allocations in parser hot paths
-4. No `hasattr`/`getattr`/`delattr` - all structures are deterministic
-
 ## Submitting Changes
 
 1. Fork the repository
 2. Create a feature branch
-3. Add an entry under the relevant section of `CHANGELOG.md`
+3. Add an entry under the relevant section of `CHANGELOG.md` when the change
+   affects users
 4. Make your changes with tests
 5. Ensure pre-commit passes
 6. Submit a pull request
+
+Changelog entries are for user-visible features, API changes, correctness
+fixes, security hardening, and library performance changes. Do not add entries
+for internal tooling or infrastructure such as benchmark harness changes, test
+organization, CI configuration, dependency maintenance, or behavior-preserving
+refactors.
 
 Questions? Open an issue on GitHub. For security vulnerabilities, please see our [Security Policy](SECURITY.md).

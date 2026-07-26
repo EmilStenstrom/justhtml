@@ -115,6 +115,11 @@ different repeated walk.
 - For deep parser state, prefer adaptive indexes that activate only after a
   fixed depth. This keeps ordinary shallow documents on the simple list path
   while bounding lookups for hostile nesting.
+- Treat indexes and caches as derived state. Keep the list or tree authoritative,
+  update derived structures incrementally for every mutation shape, and test
+  threshold transitions plus mid-structure insertions, replacements, moves,
+  and truncations. Rebuilding an entire index inside a mutation can restore
+  correctness while reintroducing quadratic behavior.
 - Measure realistic HTML before and after the change. Include a focused
   microbenchmark only when it explains the real-world result.
 - Keep benchmarks honest: warm up once, run multiple iterations, and report
