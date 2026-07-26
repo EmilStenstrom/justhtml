@@ -583,7 +583,7 @@ class TestCountingStack(unittest.TestCase):
         del stack[:]
         self.assert_counts_match(stack)
 
-    def test_deep_stack_keeps_the_name_map_after_shrinking(self) -> None:
+    def test_deep_stack_keeps_the_position_index_after_shrinking(self) -> None:
         stack = _CountingStack(Element("div", {}, "html") for _ in range(_STACK_COUNT_THRESHOLD))
         assert stack._indexed
 

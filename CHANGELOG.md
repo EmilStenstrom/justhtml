@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
-- Answer the open-elements scope check from a maintained name count before looking for a boundary, and settle target and boundary in one bounded pass on the shallow stacks that ordinary documents keep. The check runs several times per token, and the count returns outright on about two thirds of the calls.
+- Answer the open-elements scope check from a maintained name count before looking for a boundary, and settle target and boundary in one bounded pass on the shallow stacks that ordinary documents keep. The check runs several times per token, and the count returns outright on about two thirds of the calls (thanks @kevin-hua-kraken in #76).
 
 ### Security
 

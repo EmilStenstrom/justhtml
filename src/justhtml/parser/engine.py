@@ -739,7 +739,8 @@ class _CountingStack(list[Node]):
     making nested markup quadratic overall. Shallow stacks track the especially
     common `p` lookup directly and scan at most 31 nodes for other names. At
     the configured depth threshold, the stack permanently switches to per-name
-    counts so hostile deep nesting retains constant-time negative lookups.
+    position indexes so hostile deep nesting retains constant-time negative
+    lookups.
     """
 
     __slots__ = (
