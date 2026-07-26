@@ -465,6 +465,19 @@ def _iter_flattened_transforms(specs: list[TransformSpec] | tuple[TransformSpec,
     return cast("list[Transform]", module._iter_flattened_transforms(specs))
 
 
+def _normalize_transform_policies(
+    specs: list[TransformSpec] | tuple[TransformSpec, ...],
+    *,
+    default_policy: SanitizationPolicy,
+) -> list[TransformSpec]:
+    module = import_module(".compile", __package__)
+
+    return cast(
+        "list[TransformSpec]",
+        module._normalize_transform_policies(specs, default_policy=default_policy),
+    )
+
+
 def _glob_match(pattern: str, text: str) -> bool:
     module = import_module(".compile", __package__)
 

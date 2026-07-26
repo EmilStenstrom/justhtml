@@ -254,48 +254,12 @@ class JustHTML:
             return transform_errors
 
         from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
-        from justhtml.transforms import HardenRawtext, Sanitize, Stage, _iter_flattened_transforms  # noqa: PLC0415
-
-        def _normalize_transform_policies(
-            items: list[TransformSpec] | tuple[TransformSpec, ...],
-            *,
-            default_policy: SanitizationPolicy,
-        ) -> list[TransformSpec]:
-            normalized: list[TransformSpec] = []
-            for item in items:
-                if isinstance(item, Sanitize) and item.policy is None:
-                    normalized.append(
-                        Sanitize(
-                            policy=default_policy,
-                            enabled=item.enabled,
-                            callback=item.callback,
-                            report=item.report,
-                        )
-                    )
-                    continue
-
-                if isinstance(item, HardenRawtext) and item.policy is None:
-                    normalized.append(
-                        HardenRawtext(
-                            policy=default_policy,
-                            enabled=item.enabled,
-                        )
-                    )
-                    continue
-
-                if isinstance(item, Stage):
-                    normalized.append(
-                        Stage(
-                            _normalize_transform_policies(item.transforms, default_policy=default_policy),
-                            enabled=item.enabled,
-                            callback=item.callback,
-                            report=item.report,
-                        )
-                    )
-                    continue
-
-                normalized.append(item)
-            return normalized
+        from justhtml.transforms import (  # noqa: PLC0415
+            HardenRawtext,
+            Sanitize,
+            _iter_flattened_transforms,
+            _normalize_transform_policies,
+        )
 
         final_transforms: list[TransformSpec] = list(transforms or [])
 

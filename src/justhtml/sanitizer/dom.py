@@ -56,38 +56,10 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
                         tc._source_html = current_source_html
                     stack.append(tc)
 
-    # We intentionally implement safe-output sanitization through the compiled
-    # `Sanitize(policy=...)` transform pipeline. This keeps a single canonical
-    # sanitization algorithm for both sanitizer entry points and transforms.
-    compiled_policy = policy.compile()
-
-    # Container-root rule: transforms walk children of the provided root.
-    # For non-container roots, wrap the cloned node in a document fragment so
-    # the sanitizer can act on the root node itself.
-    if node.name in {"#document", "#document-fragment"}:
-        cloned = node.clone_node(deep=True)
-        compiled_policy.apply_to(cloned, errors=None)
-        result: Any = cloned
-    else:
-        from justhtml.dom import DocumentFragment  # noqa: PLC0415
-
-        wrapper = DocumentFragment()
-        wrapper.append_child(node.clone_node(deep=True))
-        compiled_policy.apply_to(wrapper, errors=None)
-
-        children = cast("list[Any]", wrapper.children)
-        if len(children) == 1:
-            only = children[0]
-            only.parent = None
-            wrapper.children = []
-            result = only
-        else:
-            result = wrapper
-
-    return result
+    return _apply_policy_to_root(node.clone_node(deep=True), policy=policy, errors=None)
 
 
-def _sanitize_dom_once(
+def _apply_policy_to_root(
     node: Any,
     *,
     policy: SanitizationPolicy,
@@ -95,6 +67,8 @@ def _sanitize_dom_once(
 ) -> Any:
     compiled_policy = policy.compile()
 
+    # Transforms walk children of their root. Wrap an element so the policy can
+    # also decide the fate of the supplied root itself.
     if node.name in {"#document", "#document-fragment"}:
         compiled_policy.apply_to(node, errors=errors)
         return node
@@ -135,6 +109,6 @@ def sanitize_dom(
     if policy.unsafe_handling == "collect":
         policy.reset_collected_security_errors()
 
-    result = _sanitize_dom_once(node, policy=policy, errors=errors)
+    result = _apply_policy_to_root(node, policy=policy, errors=errors)
 
     return cast("NodeType", result)

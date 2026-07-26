@@ -122,6 +122,49 @@ def _iter_flattened_transforms(specs: list[TransformSpec] | tuple[TransformSpec,
     return out
 
 
+def _normalize_transform_policies(
+    specs: list[TransformSpec] | tuple[TransformSpec, ...],
+    *,
+    default_policy: SanitizationPolicy,
+) -> list[TransformSpec]:
+    """Bind policy-dependent transforms to the parser mode's effective policy."""
+    normalized: list[TransformSpec] = []
+    for spec in specs:
+        if isinstance(spec, Sanitize) and spec.policy is None:
+            normalized.append(
+                Sanitize(
+                    policy=default_policy,
+                    enabled=spec.enabled,
+                    callback=spec.callback,
+                    report=spec.report,
+                )
+            )
+            continue
+
+        if isinstance(spec, HardenRawtext) and spec.policy is None:
+            normalized.append(
+                HardenRawtext(
+                    policy=default_policy,
+                    enabled=spec.enabled,
+                )
+            )
+            continue
+
+        if isinstance(spec, Stage):
+            normalized.append(
+                Stage(
+                    _normalize_transform_policies(spec.transforms, default_policy=default_policy),
+                    enabled=spec.enabled,
+                    callback=spec.callback,
+                    report=spec.report,
+                )
+            )
+            continue
+
+        normalized.append(spec)
+    return normalized
+
+
 def _glob_match(pattern: str, text: str) -> bool:
     """Match a glob pattern against text.
 
