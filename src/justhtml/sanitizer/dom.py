@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from .policy import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy
+from .policy import SanitizationPolicy, _default_policy_for_root_name
 
 if TYPE_CHECKING:
     from justhtml.core.types import ParseError
@@ -23,7 +23,7 @@ def _sanitize(node: Any, *, policy: SanitizationPolicy | None = None) -> Any:
     """
 
     if policy is None:
-        policy = DEFAULT_DOCUMENT_POLICY if node.name == "#document" else DEFAULT_POLICY
+        policy = _default_policy_for_root_name(node.name)
 
     if policy.unsafe_handling == "collect":
         policy.reset_collected_security_errors()
@@ -104,7 +104,7 @@ def sanitize_dom(
     """
 
     if policy is None:
-        policy = DEFAULT_DOCUMENT_POLICY if node.name == "#document" else DEFAULT_POLICY
+        policy = _default_policy_for_root_name(node.name)
 
     if policy.unsafe_handling == "collect":
         policy.reset_collected_security_errors()

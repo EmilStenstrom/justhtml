@@ -410,3 +410,7 @@ CSS_PRESET_TEXT: frozenset[str] = _policy_defaults.CSS_PRESET_TEXT
 DEFAULT_DOCUMENT_POLICY: SanitizationPolicy = _policy_defaults.DEFAULT_DOCUMENT_POLICY
 DEFAULT_POLICY: SanitizationPolicy = _policy_defaults.DEFAULT_POLICY
 _seal_url_policy = cast("Any", _policy_defaults._seal_url_policy)
+
+
+def _default_policy_for_root_name(name: str) -> SanitizationPolicy:
+    return DEFAULT_DOCUMENT_POLICY if name == "#document" else DEFAULT_POLICY

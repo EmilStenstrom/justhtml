@@ -26,6 +26,7 @@ from .policy import (
     CompiledSanitizationPolicy,
     SanitizationPolicy,
     UnsafeHandler,
+    _default_policy_for_root_name,
     _seal_url_policy,
 )
 from .rawtext import (
@@ -77,6 +78,7 @@ __all__ = [
     "_css_value_contains_disallowed_functions",
     "_css_value_has_disallowed_resource_functions",
     "_css_value_may_load_external_resource",
+    "_default_policy_for_root_name",
     "_effective_allow_relative",
     "_effective_proxy",
     "_effective_url_handling",

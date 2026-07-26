@@ -141,17 +141,14 @@ class JustHTML:
             html_for_serialization = html
             if sanitize_enabled or has_sanitize_transform or has_harden_rawtext_transform:
                 from justhtml.sanitizer import (  # noqa: PLC0415
-                    DEFAULT_DOCUMENT_POLICY,
-                    DEFAULT_POLICY,
+                    _default_policy_for_root_name,
                     _sanitize_rawtext_element_contents,
                 )
 
                 html_for_serialization = html.clone_node(deep=True)
                 effective_policy = explicit_sanitize_policy or explicit_rawtext_policy or policy
                 if effective_policy is None:
-                    effective_policy = (
-                        DEFAULT_DOCUMENT_POLICY if html_for_serialization.name == "#document" else DEFAULT_POLICY
-                    )
+                    effective_policy = _default_policy_for_root_name(html_for_serialization.name)
                 _sanitize_rawtext_element_contents(html_for_serialization, policy=effective_policy, errors=None)
             html_str = serialize_html(html_for_serialization, pretty=False)
         elif isinstance(html, (bytes, bytearray, memoryview)):
@@ -239,7 +236,7 @@ class JustHTML:
         if not transforms and not sanitize_enabled:
             return transform_errors
 
-        from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY  # noqa: PLC0415
+        from justhtml.sanitizer import _default_policy_for_root_name  # noqa: PLC0415
         from justhtml.transforms import (  # noqa: PLC0415
             HardenRawtext,
             Sanitize,
@@ -253,9 +250,7 @@ class JustHTML:
         # the constructor policy when supplied, otherwise to the same default
         # policy choice as the old safe-output sanitizer (document vs fragment).
         if final_transforms:
-            default_mode_policy = policy or (
-                DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY
-            )
+            default_mode_policy = policy or _default_policy_for_root_name(self.root.name)
             final_transforms = _normalize_transform_policies(
                 final_transforms,
                 default_policy=default_mode_policy,
@@ -264,11 +259,7 @@ class JustHTML:
         # Auto-append a final Sanitize step only if the user didn't include
         # Sanitize anywhere in their transform list.
         if sanitize_enabled and not has_sanitize_transform:
-            effective_policy = (
-                policy
-                if policy is not None
-                else (DEFAULT_DOCUMENT_POLICY if self.root.name == "#document" else DEFAULT_POLICY)
-            )
+            effective_policy = policy or _default_policy_for_root_name(self.root.name)
             final_transforms.append(Sanitize(policy=effective_policy))
 
         if not final_transforms:  # pragma: no cover - defensive for inconsistent internal arguments
