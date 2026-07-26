@@ -9,15 +9,34 @@ from justhtml.transforms import (
     DecideAction,
     DropAttrs,
     DropUrlAttrs,
+    HardenRawtext,
+    Sanitize,
     _CompiledDecideChain,
     _CompiledDecideElementsChain,
     _CompiledEditAttrsChain,
+    _transform_parse_requirements,
     apply_compiled_transforms,
     compile_transforms,
 )
 
 
 class TestTransformsCompiler(unittest.TestCase):
+    def test_transform_parse_requirements_keep_first_explicit_policies(self) -> None:
+        requirements = _transform_parse_requirements(
+            [
+                Sanitize(policy=DEFAULT_POLICY),
+                Sanitize(policy=DEFAULT_POLICY),
+                HardenRawtext(policy=DEFAULT_POLICY),
+                HardenRawtext(policy=DEFAULT_POLICY),
+            ],
+            fallback_policy=None,
+        )
+
+        assert requirements.has_sanitize
+        assert requirements.has_harden_rawtext
+        assert requirements.explicit_sanitize_policy is DEFAULT_POLICY
+        assert requirements.explicit_rawtext_policy is DEFAULT_POLICY
+
     def test_compile_transforms_fuses_edit_attrs_chain(self) -> None:
         compiled = compile_transforms(
             [

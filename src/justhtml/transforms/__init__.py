@@ -447,6 +447,15 @@ CompiledTransform = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _TransformParseRequirements:
+    track_tag_spans: bool = False
+    has_sanitize: bool = False
+    has_harden_rawtext: bool = False
+    explicit_sanitize_policy: SanitizationPolicy | None = None
+    explicit_rawtext_policy: SanitizationPolicy | None = None
+
+
 def _selector_limits_from_compiled(
     compiled: list[CompiledTransform] | tuple[CompiledTransform, ...],
 ) -> SelectorLimits:
@@ -475,6 +484,19 @@ def _normalize_transform_policies(
     return cast(
         "list[TransformSpec]",
         module._normalize_transform_policies(specs, default_policy=default_policy),
+    )
+
+
+def _transform_parse_requirements(
+    specs: list[TransformSpec] | tuple[TransformSpec, ...],
+    *,
+    fallback_policy: SanitizationPolicy | None,
+) -> _TransformParseRequirements:
+    module = import_module(".compile", __package__)
+
+    return cast(
+        "_TransformParseRequirements",
+        module._transform_parse_requirements(specs, fallback_policy=fallback_policy),
     )
 
 

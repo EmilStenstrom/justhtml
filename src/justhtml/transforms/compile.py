@@ -36,6 +36,7 @@ from . import (
     _CompiledStageBoundary,
     _CompiledStageHookTransform,
     _CompiledStripInvisibleUnicodeTransform,
+    _TransformParseRequirements,
 )
 from .linkify import compile_linkify_transform
 from .spec import (
@@ -163,6 +164,42 @@ def _normalize_transform_policies(
 
         normalized.append(spec)
     return normalized
+
+
+def _transform_parse_requirements(
+    specs: list[TransformSpec] | tuple[TransformSpec, ...],
+    *,
+    fallback_policy: SanitizationPolicy | None,
+) -> _TransformParseRequirements:
+    """Describe source metadata and safety work needed after parsing."""
+    track_tag_spans = False
+    has_sanitize = False
+    has_harden_rawtext = False
+    explicit_sanitize_policy: SanitizationPolicy | None = None
+    explicit_rawtext_policy: SanitizationPolicy | None = None
+
+    for spec in _iter_flattened_transforms(specs):
+        if isinstance(spec, Escape):
+            track_tag_spans = True
+        if isinstance(spec, Sanitize):
+            has_sanitize = True
+            if explicit_sanitize_policy is None:
+                explicit_sanitize_policy = spec.policy
+            effective_policy = spec.policy or fallback_policy or DEFAULT_POLICY
+            if effective_policy.disallowed_tag_handling == "escape":
+                track_tag_spans = True
+        if isinstance(spec, HardenRawtext):
+            has_harden_rawtext = True
+            if explicit_rawtext_policy is None:
+                explicit_rawtext_policy = spec.policy
+
+    return _TransformParseRequirements(
+        track_tag_spans=track_tag_spans,
+        has_sanitize=has_sanitize,
+        has_harden_rawtext=has_harden_rawtext,
+        explicit_sanitize_policy=explicit_sanitize_policy,
+        explicit_rawtext_policy=explicit_rawtext_policy,
+    )
 
 
 def _glob_match(pattern: str, text: str) -> bool:

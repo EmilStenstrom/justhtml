@@ -115,28 +115,14 @@ class JustHTML:
         explicit_sanitize_policy: SanitizationPolicy | None = None
         explicit_rawtext_policy: SanitizationPolicy | None = None
         if transforms:
-            from justhtml.sanitizer import DEFAULT_POLICY  # noqa: PLC0415
-            from justhtml.transforms import (  # noqa: PLC0415
-                Escape,
-                HardenRawtext,
-                Sanitize,
-                _iter_flattened_transforms,
-            )
+            from justhtml.transforms import _transform_parse_requirements  # noqa: PLC0415
 
-            for t in _iter_flattened_transforms(transforms):
-                if isinstance(t, Escape):
-                    track_tag_spans = True
-                if isinstance(t, Sanitize):
-                    has_sanitize_transform = True
-                    if explicit_sanitize_policy is None:
-                        explicit_sanitize_policy = t.policy
-                    effective = t.policy or policy or DEFAULT_POLICY
-                    if effective.disallowed_tag_handling == "escape":
-                        track_tag_spans = True
-                if isinstance(t, HardenRawtext):
-                    has_harden_rawtext_transform = True
-                    if explicit_rawtext_policy is None:
-                        explicit_rawtext_policy = t.policy
+            requirements = _transform_parse_requirements(transforms, fallback_policy=policy)
+            track_tag_spans = requirements.track_tag_spans
+            has_sanitize_transform = requirements.has_sanitize
+            has_harden_rawtext_transform = requirements.has_harden_rawtext
+            explicit_sanitize_policy = requirements.explicit_sanitize_policy
+            explicit_rawtext_policy = requirements.explicit_rawtext_policy
 
         # If we will auto-sanitize (sanitize=True and no Sanitize in transforms),
         # escape-mode tag reconstruction may require tracking tag spans.
