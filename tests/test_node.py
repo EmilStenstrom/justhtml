@@ -461,6 +461,68 @@ class TestNode(unittest.TestCase):
         assert md.startswith("# Title\n\n")
         assert "Hello **world** *ok* [link](https://e.com) a\\*b" in md
 
+    def test_to_markdown_keeps_space_after_inline_element_content(self):
+        doc = JustHTML("<p>This is <b>very </b>important. See <em>the docs </em>for details.</p>")
+        spaced = JustHTML("<p>This is <b>very </b> important.</p>")
+
+        assert doc.to_markdown() == "This is **very** important. See *the docs* for details."
+        assert spaced.to_markdown() == "This is **very** important."
+
+    def test_to_markdown_keeps_space_before_inline_element_content(self):
+        doc = JustHTML("<p>Read<b> the docs</b> and<span> the guide</span> today.</p>")
+
+        assert doc.to_markdown() == "Read **the docs** and the guide today."
+
+    def test_to_markdown_keeps_space_at_link_text_boundaries(self):
+        trailing = JustHTML("<p>Visit <a href='https://e.com'>our site </a>today.</p>")
+        leading = JustHTML("<p>Visit<a href='https://e.com'> our site</a> today.</p>")
+
+        assert trailing.to_markdown() == "Visit [our site](https://e.com) today."
+        assert leading.to_markdown() == "Visit [our site](https://e.com) today."
+
+    def test_to_markdown_keeps_one_space_between_marker_and_inline_element(self):
+        heading = JustHTML("<h2><b> x</b>y</h2>")
+        unordered = JustHTML("<ul><li><b> x</b>y</li></ul>")
+        ordered = JustHTML("<ol><li><b> x</b>y</li></ol>")
+        in_link = JustHTML("<a href='https://e.com'>z<ul><li><b> x</b>y</li></ul></a>")
+
+        assert heading.to_markdown() == "## **x**y"
+        assert unordered.to_markdown() == "- **x**y"
+        assert ordered.to_markdown() == "1. **x**y"
+        assert in_link.to_markdown() == "[z **x**y](https://e.com)"
+
+    def test_to_markdown_keeps_space_after_inline_element_under_a_marker(self):
+        heading = JustHTML("<h2><b>x </b>y</h2>")
+        item = JustHTML("<ul><li><b>x </b>y</li></ul>")
+
+        assert heading.to_markdown() == "## **x** y"
+        assert item.to_markdown() == "- **x** y"
+
+    def test_to_markdown_keeps_nested_list_indented_under_its_item(self):
+        doc = JustHTML("<ul><li><b> outer</b><ul><li>inner</li></ul></li><li>second</li></ul>")
+        empty_inline = JustHTML("<ul><li><b> </b>outer<ul><li>inner</li></ul></li><li>second</li></ul>")
+
+        assert doc.to_markdown() == "- **outer**\n\n  - inner\n\n\n- second"
+        assert empty_inline.to_markdown() == "- outer\n\n  - inner\n\n\n- second"
+
+    def test_to_markdown_renders_whitespace_only_inline_element_as_one_space(self):
+        item = JustHTML("<ul><li><b> </b>Item text</li></ul>")
+        heading = JustHTML("<h2><b> </b>Title</h2>")
+        paragraph = JustHTML("<p>Item<b> </b>text</p>")
+        link = JustHTML("<p>Item<a href='https://e.com'> </a>text</p>")
+
+        assert item.to_markdown() == "- Item text"
+        assert heading.to_markdown() == "## Title"
+        assert paragraph.to_markdown() == "Item text"
+        assert link.to_markdown() == "Item [](https://e.com) text"
+
+    def test_to_markdown_keeps_one_space_between_marker_and_leading_text_space(self):
+        item = JustHTML("<ul><li> Item</li></ul>")
+        heading = JustHTML("<h2> Title</h2>")
+
+        assert item.to_markdown() == "- Item"
+        assert heading.to_markdown() == "## Title"
+
     def test_to_markdown_code_inline_and_block(self):
         doc = JustHTML("<pre>code`here\n</pre><p>inline <code>a`b</code></p>")
         md = doc.to_markdown()
