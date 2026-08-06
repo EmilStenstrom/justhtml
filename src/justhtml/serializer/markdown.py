@@ -156,16 +156,18 @@ _MAX_BLOCKQUOTE_DEPTH = 64
 
 
 class _MarkdownBuilder:
-    __slots__ = ("_blockquote_depth", "_buf", "_newline_count", "_pending_space")
+    __slots__ = ("_blockquote_depth", "_buf", "_leading_space", "_newline_count", "_pending_space")
 
     _buf: list[str]
     _blockquote_depth: int
     _newline_count: int
     _pending_space: bool
+    _leading_space: bool
 
     def __init__(self, blockquote_depth: int = 0) -> None:
         self._buf = []
         self._blockquote_depth = blockquote_depth
+        self._leading_space = False
         self._newline_count = 0
         self._pending_space = False
 
@@ -198,7 +200,12 @@ class _MarkdownBuilder:
         # we still need to emit a single separating space.
         if self._pending_space:
             first = s[0]
-            if first not in HTML_SPACE_CHARACTERS and self._buf and self._newline_count == 0:
+            if (
+                first not in HTML_SPACE_CHARACTERS
+                and self._buf
+                and self._newline_count == 0
+                and not self._buf[-1].endswith((" ", "\t"))
+            ):
                 self._buf.append(" ")
             self._pending_space = False
 
@@ -234,12 +241,14 @@ class _MarkdownBuilder:
         while index < length:
             ch = s[index]
             if ch in HTML_SPACE_CHARACTERS:
+                if not self._buf:
+                    self._leading_space = True
                 self._pending_space = True
                 index += 1
                 continue
 
             if self._pending_space:
-                if self._buf and self._newline_count == 0:
+                if self._buf and self._newline_count == 0 and not self._buf[-1].endswith((" ", "\t")):
                     self._buf.append(" ")
                 self._pending_space = False
 
@@ -442,7 +451,7 @@ def _to_markdown_walk(
                 continue
 
             if tag in {"em", "i"}:
-                inner_builder = _MarkdownBuilder()
+                inner_builder = _MarkdownBuilder(current_builder._blockquote_depth)
                 tasks.append(("after_marker", current_builder, inner_builder, "*"))
                 tasks.extend(
                     ("visit", child, inner_builder, False, current_list_depth, current_in_link)
@@ -451,7 +460,7 @@ def _to_markdown_walk(
                 continue
 
             if tag in {"strong", "b"}:
-                inner_builder = _MarkdownBuilder()
+                inner_builder = _MarkdownBuilder(current_builder._blockquote_depth)
                 tasks.append(("after_marker", current_builder, inner_builder, "**"))
                 tasks.extend(
                     ("visit", child, inner_builder, False, current_list_depth, current_in_link)
@@ -463,7 +472,7 @@ def _to_markdown_walk(
                 href = ""
                 if current.attrs and "href" in current.attrs and current.attrs["href"] is not None:
                     href = str(current.attrs["href"])
-                inner_builder = _MarkdownBuilder()
+                inner_builder = _MarkdownBuilder(current_builder._blockquote_depth)
                 tasks.append(("after_link", current_builder, inner_builder, href))
                 tasks.extend(
                     ("visit", child, inner_builder, False, current_list_depth, True)
@@ -548,6 +557,8 @@ def _to_markdown_walk(
         if kind == "after_marker":
             parent_builder, inner_builder, marker = task[1], task[2], task[3]
             content = inner_builder.finish()
+            if inner_builder._leading_space:
+                parent_builder.text(" ")
             if content:
                 if "\n" in content:
                     parent_builder.ensure_newlines(2 if parent_builder._buf else 0)
@@ -556,11 +567,15 @@ def _to_markdown_walk(
                 parent_builder.raw(marker)
                 parent_builder.raw(content)
                 parent_builder.raw(marker)
+            if inner_builder._pending_space:
+                parent_builder.text(" ")
             continue
 
         if kind == "after_link":
             parent_builder, inner_builder, href = task[1], task[2], task[3]
             link_text = inner_builder.finish()
+            if inner_builder._leading_space:
+                parent_builder.text(" ")
             parent_builder.raw("[")
             parent_builder.raw(link_text)
             parent_builder.raw("]")
@@ -568,6 +583,8 @@ def _to_markdown_walk(
                 parent_builder.raw("(")
                 parent_builder.raw(_markdown_link_destination(href))
                 parent_builder.raw(")")
+            if inner_builder._pending_space:
+                parent_builder.text(" ")
             continue
 
         if kind != "after_block_container":  # pragma: no cover
