@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   disallowed foreign content back into the output, where SVG or MathML event handlers could execute.
 - (Severity: Low) Re-record only the slot that changed when the adoption agency clones a formatting element back onto the open-elements stack, instead of rebuilding the whole position index. Since 3.10.0, markup nesting a formatting element between the end tag's subject and the furthest block, such as `"<b><i><div></b>" * n`, took time quadratic in its length -- about 3.7x longer than 3.9.0 on the same input.
 
+### Fixed
+
+- Preserve collapsed whitespace at `a`, `b`, `strong`, `em`, and `i` boundaries in Markdown output without adding
+  duplicate spaces after heading or list markers.
+
 ## [3.10.1] - 2026-07-25
 
 ### Performance

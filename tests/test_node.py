@@ -507,6 +507,60 @@ class TestNode(unittest.TestCase):
         doc = JustHTML("<blockquote><p>Q<br>R</p></blockquote>")
         assert doc.to_markdown() == "> Q\n> R"
 
+    def test_to_markdown_keeps_inline_boundary_spaces(self):
+        trailing = JustHTML("<p>This is <b>very </b>important. See <em>the docs </em>for details.</p>")
+        leading = JustHTML("<p>Visit<a href='https://e.com'> our site</a> today.</p>")
+        already_spaced = JustHTML("<p>This is <b>very </b> important.</p>")
+
+        assert trailing.to_markdown() == "This is **very** important. See *the docs* for details."
+        assert leading.to_markdown() == "Visit [our site](https://e.com) today."
+        assert already_spaced.to_markdown() == "This is **very** important."
+
+    def test_to_markdown_collapses_boundary_spaces_after_structural_markers(self):
+        heading = JustHTML("<h2><b> x</b>y</h2>")
+        unordered = JustHTML("<ul><li><b> x</b>y</li></ul>")
+        ordered = JustHTML("<ol><li><b> x</b>y</li></ol>")
+        in_link = JustHTML("<a href='https://e.com'>z<ul><li><b> x</b>y</li></ul></a>")
+
+        assert heading.to_markdown() == "## **x**y"
+        assert unordered.to_markdown() == "- **x**y"
+        assert ordered.to_markdown() == "1. **x**y"
+        assert in_link.to_markdown() == "[z **x**y](https://e.com)"
+
+    def test_to_markdown_keeps_trailing_inline_space_after_structural_markers(self):
+        heading = JustHTML("<h2><b>x </b>y</h2>")
+        item = JustHTML("<ul><li><b>x </b>y</li></ul>")
+
+        assert heading.to_markdown() == "## **x** y"
+        assert item.to_markdown() == "- **x** y"
+
+    def test_to_markdown_keeps_nested_list_under_boundary_spaced_item(self):
+        doc = JustHTML("<ul><li><b> outer</b><ul><li>inner</li></ul></li><li>second</li></ul>")
+        empty_inline = JustHTML("<ul><li><b> </b>outer<ul><li>inner</li></ul></li><li>second</li></ul>")
+
+        assert doc.to_markdown() == "- **outer**\n\n  - inner\n\n\n- second"
+        assert empty_inline.to_markdown() == "- outer\n\n  - inner\n\n\n- second"
+
+    def test_to_markdown_renders_whitespace_only_inline_element_as_one_space(self):
+        item = JustHTML("<ul><li><b> </b>Item text</li></ul>")
+        heading = JustHTML("<h2><b> </b>Title</h2>")
+        paragraph = JustHTML("<p>Item<b> </b>text</p>")
+        link = JustHTML("<p>Item<a href='https://e.com'> </a>text</p>")
+
+        assert item.to_markdown() == "- Item text"
+        assert heading.to_markdown() == "## Title"
+        assert paragraph.to_markdown() == "Item text"
+        assert link.to_markdown() == "Item [](https://e.com) text"
+
+    def test_to_markdown_collapses_leading_text_space_after_structural_marker(self):
+        assert JustHTML("<ul><li> Item</li></ul>").to_markdown() == "- Item"
+        assert JustHTML("<h2> Title</h2>").to_markdown() == "## Title"
+
+    def test_to_markdown_inline_builders_preserve_blockquote_depth(self):
+        html = "<blockquote><b>" * 100 + "<p>x</p>"
+
+        assert JustHTML(html).to_markdown().count("> ") == 64
+
     def test_to_markdown_bounds_nested_blockquote_prefixes(self):
         doc = JustHTML("<blockquote>" * 100 + "<p>x</p>")
 
