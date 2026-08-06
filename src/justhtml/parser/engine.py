@@ -6049,18 +6049,20 @@ class ParseEngine:
 
     def _project_selectedcontent(self) -> None:
         root = self._doc
+        dropped = set(self._nodes_to_drop)
+        unwrapped = set(self._nodes_to_unwrap)
         pending = list(root.children or ())
         while pending:
             node = pending.pop()
             if type(node) is not Element:
                 continue
             if node.name == "select":
-                self._project_select_selectedcontent(node)
+                self._project_select_selectedcontent(node, dropped, unwrapped)
             children = node.children
             if children:
                 pending.extend(reversed(children))
 
-    def _project_select_selectedcontent(self, select: Element) -> None:
+    def _project_select_selectedcontent(self, select: Element, dropped: set[Element], unwrapped: set[Element]) -> None:
         markers: list[tuple[Element, int]] = []
         option_spans: dict[Element, list[int]] = {}
         selected_option: Element | None = None
@@ -6118,7 +6120,26 @@ class ParseEngine:
             if option is not None:
                 for child in option.children or ():
                     clone = child.clone_node(deep=True)
+                    self._record_projected_sanitization(child, clone, dropped, unwrapped)
                     self._append(marker, clone)
+
+    def _record_projected_sanitization(
+        self, source: Node, clone: Node, dropped: set[Element], unwrapped: set[Element]
+    ) -> None:
+        pending = [(source, clone)]
+        while pending:
+            original, copied = pending.pop()
+            if isinstance(original, Element):
+                copied_element = cast("Element", copied)
+                if original in dropped:
+                    self._nodes_to_drop.append(copied_element)
+                elif original in unwrapped:
+                    self._nodes_to_unwrap.append(copied_element)
+                original_template = original.template_content
+                copied_template = copied_element.template_content
+                if original_template is not None and copied_template is not None:
+                    pending.append((original_template, copied_template))
+            pending.extend(zip(original.children or (), copied.children or (), strict=True))
 
     def _unwrap_node(self, node: Element) -> None:
         parent = node.parent

@@ -83,6 +83,40 @@ class TestSanitizerScaling(unittest.TestCase):
         )
 
 
+class TestSelectedContentSanitization(unittest.TestCase):
+    def test_projection_cannot_restore_dropped_foreign_content(self) -> None:
+        html = "<select><selectedcontent><option><svg onload=X><math href=javascript:X>"
+
+        assert JustHTML(html).to_html(pretty=False) == "<html><head></head><body></body></html>"
+        assert JustHTML(html, fragment=True).to_html(pretty=False) == ""
+
+        nested = "<select><selectedcontent><option><foo><b>safe</b><template><svg onload=X></template>"
+        assert JustHTML(nested).to_html(pretty=False) == "<html><head></head><body><b>safe</b></body></html>"
+
+    def test_projection_records_nested_template_sanitization(self) -> None:
+        source = Element("foo", {}, "html")
+        template = Template("template", namespace="html")
+        foreign = Element("svg", {"onload": "X"}, "svg")
+        assert template.template_content is not None
+        template.template_content.append_child(foreign)
+        source.append_child(template)
+        clone = source.clone_node(deep=True)
+        engine = ParseEngine("", fragment=True)
+
+        engine._record_projected_sanitization(source, clone, {foreign}, {source})
+
+        assert engine._nodes_to_unwrap == [clone]
+        assert len(engine._nodes_to_drop) == 1
+        assert engine._nodes_to_drop[0].name == "svg"
+
+    def test_projection_preserves_sanitized_allowed_content(self) -> None:
+        html = "<select><option selected><b>safe</b></option><selectedcontent></selectedcontent></select>"
+
+        assert JustHTML(html, sanitize=False, fragment=True).to_html(pretty=False) == (
+            "<select><option selected><b>safe</b></option><selectedcontent><b>safe</b></selectedcontent></select>"
+        )
+
+
 class TestSelectedContentScaling(unittest.TestCase):
     def test_deep_selectedcontent_projection_scales_linearly(self) -> None:
         assert_scales_linearly(
