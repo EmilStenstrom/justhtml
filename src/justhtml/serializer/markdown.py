@@ -152,15 +152,20 @@ def _markdown_link_destination(url: str) -> str:
     return u
 
 
+_MAX_BLOCKQUOTE_DEPTH = 64
+
+
 class _MarkdownBuilder:
-    __slots__ = ("_buf", "_newline_count", "_pending_space")
+    __slots__ = ("_blockquote_depth", "_buf", "_newline_count", "_pending_space")
 
     _buf: list[str]
+    _blockquote_depth: int
     _newline_count: int
     _pending_space: bool
 
-    def __init__(self) -> None:
+    def __init__(self, blockquote_depth: int = 0) -> None:
         self._buf = []
+        self._blockquote_depth = blockquote_depth
         self._newline_count = 0
         self._pending_space = False
 
@@ -405,11 +410,16 @@ def _to_markdown_walk(
                         ("visit", child, current_builder, False, current_list_depth, current_in_link)
                         for child in reversed(current.children or [])
                     )
-                else:
-                    inner_builder = _MarkdownBuilder()
+                elif current_builder._blockquote_depth < _MAX_BLOCKQUOTE_DEPTH:
+                    inner_builder = _MarkdownBuilder(current_builder._blockquote_depth + 1)
                     tasks.append(("after_blockquote", current_builder, inner_builder))
                     tasks.extend(
                         ("visit", child, inner_builder, False, current_list_depth, current_in_link)
+                        for child in reversed(current.children or [])
+                    )
+                else:
+                    tasks.extend(
+                        ("visit", child, current_builder, False, current_list_depth, current_in_link)
                         for child in reversed(current.children or [])
                     )
                 continue

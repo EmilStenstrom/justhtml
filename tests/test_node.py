@@ -507,6 +507,17 @@ class TestNode(unittest.TestCase):
         doc = JustHTML("<blockquote><p>Q<br>R</p></blockquote>")
         assert doc.to_markdown() == "> Q\n> R"
 
+    def test_to_markdown_bounds_nested_blockquote_prefixes(self):
+        doc = JustHTML("<blockquote>" * 100 + "<p>x</p>")
+
+        assert doc.to_markdown() == "> " * 64 + "x"
+
+    def test_to_markdown_nested_blockquotes_scale_linearly(self):
+        assert_scales_linearly(
+            lambda size: JustHTML("<blockquote>" * size + "<p>x</p>" * size).root,
+            lambda root: root.to_markdown(),
+        )
+
     def test_to_markdown_lists(self):
         doc = JustHTML("<ul><li>One</li><li>Two</li></ul><ol><li>A</li><li>B</li></ol>")
         md = doc.to_markdown()

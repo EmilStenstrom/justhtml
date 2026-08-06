@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- (Severity: Low) Bound Markdown blockquote prefix depth and avoid repeatedly splitting and copying accumulated
+  inner output. Deeply nested blockquotes containing many block nodes now serialize in linear rather than
+  super-quadratic time.
 - (Severity: Low) Bound the total DOM expansion performed when many `selectedcontent` markers project the same
   large option subtree. Crafted input can no longer multiply marker count by option size into quadratic time and
   memory use.
