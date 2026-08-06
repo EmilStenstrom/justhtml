@@ -103,6 +103,7 @@ class TestSelectedContentSanitization(unittest.TestCase):
         clone = source.clone_node(deep=True)
         engine = ParseEngine("", fragment=True)
 
+        assert engine._subtree_size([template]) == 3
         engine._record_projected_sanitization(source, clone, {foreign}, {source})
 
         assert engine._nodes_to_unwrap == [clone]
@@ -125,6 +126,29 @@ class TestSelectedContentScaling(unittest.TestCase):
             ),
             lambda source: JustHTML(source, sanitize=False),
         )
+
+    def test_wide_option_across_many_markers_scales_linearly(self) -> None:
+        assert_scales_linearly(
+            lambda size: (
+                "<select><option selected>"
+                + "<b>x</b>" * size
+                + "</option>"
+                + "<selectedcontent></selectedcontent>" * size
+                + "</select>"
+            ),
+            lambda source: JustHTML(source, sanitize=False),
+            reusable=False,
+        )
+
+    def test_projection_budget_leaves_excess_markers_empty(self) -> None:
+        option = "<b>x</b>" * 20
+        html = "<select><option selected>" + option + "</option>" + "<selectedcontent></selectedcontent>" * 100
+
+        document = JustHTML(html, fragment=True, sanitize=False)
+        markers = document.query("selectedcontent")
+
+        assert markers[0].children
+        assert not markers[-1].children
 
 
 class TestActiveFormattingScaling(unittest.TestCase):

@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- (Severity: Low) Bound the total DOM expansion performed when many `selectedcontent` markers project the same
+  large option subtree. Crafted input can no longer multiply marker count by option size into quadratic time and
+  memory use.
 - (Severity: High) Prevent `selectedcontent` projection in the default fused sanitizer from cloning deferred
   disallowed foreign content back into the output, where SVG or MathML event handlers could execute.
 - (Severity: Low) Re-record only the slot that changed when the adoption agency clones a formatting element back onto the open-elements stack, instead of rebuilding the whole position index. Since 3.10.0, markup nesting a formatting element between the end tag's subject and the furthest block, such as `"<b><i><div></b>" * n`, took time quadratic in its length -- about 3.7x longer than 3.9.0 on the same input.

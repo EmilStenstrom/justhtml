@@ -6051,18 +6051,21 @@ class ParseEngine:
         root = self._doc
         dropped = set(self._nodes_to_drop)
         unwrapped = set(self._nodes_to_unwrap)
+        remaining = self._length
         pending = list(root.children or ())
         while pending:
             node = pending.pop()
             if type(node) is not Element:
                 continue
             if node.name == "select":
-                self._project_select_selectedcontent(node, dropped, unwrapped)
+                remaining = self._project_select_selectedcontent(node, dropped, unwrapped, remaining)
             children = node.children
             if children:
                 pending.extend(reversed(children))
 
-    def _project_select_selectedcontent(self, select: Element, dropped: set[Element], unwrapped: set[Element]) -> None:
+    def _project_select_selectedcontent(
+        self, select: Element, dropped: set[Element], unwrapped: set[Element], remaining: int
+    ) -> int:
         markers: list[tuple[Element, int]] = []
         option_spans: dict[Element, list[int]] = {}
         selected_option: Element | None = None
@@ -6107,8 +6110,9 @@ class ParseEngine:
                 )
         option = selected_option or first_option
         if not markers:  # pragma: no branch - opposite edge requires invalid parser state
-            return  # pragma: no cover - unreachable after parser-state guards
+            return remaining  # pragma: no cover - unreachable after parser-state guards
         span = option_spans[option] if option is not None else None
+        projected_size = self._subtree_size(option.children) if option is not None else 0
         for marker, marker_position in markers:
             if span is not None and span[0] < marker_position <= span[1]:
                 continue
@@ -6117,11 +6121,25 @@ class ParseEngine:
                 for child in children:
                     child.parent = None
                 children.clear()
-            if option is not None:
+            if option is not None and projected_size <= remaining:
+                remaining -= projected_size
                 for child in option.children or ():
                     clone = child.clone_node(deep=True)
                     self._record_projected_sanitization(child, clone, dropped, unwrapped)
                     self._append(marker, clone)
+        return remaining
+
+    @staticmethod
+    def _subtree_size(children: list[Any] | None) -> int:
+        size = 0
+        pending = list(children or ())
+        while pending:
+            node = pending.pop()
+            size += 1
+            pending.extend(node.children or ())
+            if isinstance(node, Element) and node.template_content is not None:
+                pending.append(node.template_content)
+        return size
 
     def _record_projected_sanitization(
         self, source: Node, clone: Node, dropped: set[Element], unwrapped: set[Element]
