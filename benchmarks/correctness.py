@@ -16,6 +16,7 @@ import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Final
 
 from justhtml import JustHTML
 from justhtml.parser.context import FragmentContext
@@ -577,6 +578,19 @@ NS_MATHML = "http://www.w3.org/1998/Math/MathML"
 NS_XLINK = "http://www.w3.org/1999/xlink"
 NS_XML = "http://www.w3.org/XML/1998/namespace"
 NS_XMLNS = "http://www.w3.org/2000/xmlns/"
+_TURBOHTML_FOREIGN_ATTRIBUTE_NAMES: Final[dict[str, str]] = {
+    "xlink:actuate": "xlink actuate",
+    "xlink:arcrole": "xlink arcrole",
+    "xlink:href": "xlink href",
+    "xlink:role": "xlink role",
+    "xlink:show": "xlink show",
+    "xlink:title": "xlink title",
+    "xlink:type": "xlink type",
+    "xml:lang": "xml lang",
+    "xml:space": "xml space",
+    "xmlns": "xmlns xmlns",
+    "xmlns:xlink": "xmlns xlink",
+}
 
 
 def _serialize_lxml_document_siblings(root, etree):
@@ -914,14 +928,15 @@ def _turbohtml_to_test_format(nodes, indent):
             return f"math {name}"
         return name
 
-    def attribute_name(name):
-        if name.startswith("xlink:"):
-            return f"xlink {name.removeprefix('xlink:')}"
-        if name.startswith("xml:"):
-            return f"xml {name.removeprefix('xml:')}"
-        if name.startswith("xmlns:"):
-            return f"xmlns {name.removeprefix('xmlns:')}"
-        return name
+    def attribute_name(namespace, name):
+        if namespace not in {Namespace.SVG, Namespace.MATHML}:
+            return name
+        return _TURBOHTML_FOREIGN_ATTRIBUTE_NAMES.get(name, name)
+
+    def attribute_value(value):
+        if isinstance(value, list):
+            return " ".join(value)
+        return value or ""
 
     def process(node, node_indent):
         prefix = " " * node_indent
@@ -939,8 +954,10 @@ def _turbohtml_to_test_format(nodes, indent):
             return [line for child in node.children for line in process(child, node_indent)]
 
         lines = [f"| {prefix}<{qualified_name(node.namespace, node.tag)}>"]
-        for name, value in sorted(node.attrs.items()):
-            lines.append(f'| {prefix}  {attribute_name(name)}="{value}"')
+        for name, value in sorted(
+            (attribute_name(node.namespace, name), attribute_value(value)) for name, value in node.attrs.items()
+        ):
+            lines.append(f'| {prefix}  {name}="{value}"')
 
         if node.tag == "template" and node.namespace is Namespace.HTML:
             lines.append(f"| {prefix}  content")
