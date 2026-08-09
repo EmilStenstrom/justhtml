@@ -13,7 +13,7 @@ Use a different tool when one narrow requirement matters more than the whole pip
 | **JustHTML**<br>Pure Python | ✅ 100% | ⚡ Fast | ✅ CSS selectors | ✅ `element()` | ✅ Built-in | Correct, secure, easy to install, and fast enough. |
 | **`selectolax`**<br>Python wrapper of C-based Lexbor | ✅ 100% | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast. |
 | **Chromium**<br>browser engine | 🟡 95.0% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
-| **`turbohtml`**<br>Python wrapper of a C core | 🟡 94.8% | 🚀 Very Fast | ✅ CSS selectors, XPath | ✅ `E.*` builder | ✅ Built-in | Broad, compiled alternative with parsing, querying, and sanitization. |
+| **`turbohtml`**<br>Python wrapper of a C core | ✅ 100% [3] | 🚀 Very Fast | ✅ CSS selectors, XPath | ✅ `E.*` builder | ✅ Built-in | Broad, compiled alternative with parsing, querying, and sanitization. |
 | **WebKit**<br>browser engine | 🟡 93.9% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
 | **Firefox**<br>browser engine | 🟡 93.1% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
 | **`html5lib`**<br>Pure Python | 🟡 82.3% | 🐢 Slow | 🟡 XPath (lxml) | 🟡 Tree API | 🔴 [Deprecated](https://github.com/html5lib/html5lib-python/issues/443) | Unmaintained reference implementation; incomplete coverage of the tree-construction fixtures. |
@@ -27,6 +27,8 @@ Use a different tool when one narrow requirement matters more than the whole pip
 
 
 [2]: Current local rerun with [`justhtml-html5lib-tests-bench`](https://github.com/EmilStenstrom/justhtml-html5lib-tests-bench) against WPT commit [`4830edb`](https://github.com/web-platform-tests/wpt/commit/4830edb033cb486fd0cd6f85b5e937cfc718704d). Chromium 143.0.7499.4, WebKit 26.0, and Firefox 144.0.2 were compared against 1,908 cases; the harness skips 12 `#script-on` cases but includes `#script-off` cases, so these scores are not directly comparable to the 1,880-case Python-parser scores above.
+
+[3]: TurboHTML passes 1,872 of 1,880 fixtures raw (99.6%) and all 1,872 applicable fixtures. The remaining eight fixtures expect a foreign element to be popped for `</p>` or `</br>`, while the [living standard's foreign-content end-tag algorithm](https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-inforeign) leaves it current. The pinned cases are [`foreign-fragment.dat` 59–62](https://github.com/web-platform-tests/wpt/blob/4830edb033cb486fd0cd6f85b5e937cfc718704d/html/syntax/parsing/resources/foreign-fragment.dat#L565-L612) and [`tests26.dat` 16–19](https://github.com/web-platform-tests/wpt/blob/4830edb033cb486fd0cd6f85b5e937cfc718704d/html/syntax/parsing/resources/tests26.dat#L395-L453). The benchmark excludes a case only when the parser returns the exact spec-conforming tree.
 
 ## Why JustHTML
 

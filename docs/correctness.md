@@ -55,7 +55,7 @@ This tests the adoption agency algorithm - when `</b>` is encountered inside `<p
 
 We run the same test suite against other Python parsers to compare compliance. The current cross-parser scores, browser results, and their benchmark-specific notes live in the [comparison guide](comparison.md).
 
-The Python-parser scores come from a strict tree comparison against the expected output in the treebuilder fixtures, excluding `#script-on` / `#script-off` cases. Unsupported parser capabilities count as failures. The numbers will not match the `html5lib` project’s own reported totals, because `html5lib` runs the suite in multiple configurations and also has its own skip/xfail lists. Run `python benchmarks/correctness.py` to reproduce the Python-parser benchmark.
+The Python-parser scores come from a strict tree comparison against the expected output in the treebuilder fixtures, excluding `#script-on` / `#script-off` cases. The runner reports both the raw fixture score and an applicable score. An applicable-score exclusion names the exact fixture, cites the conflicting living-standard rule, and requires the parser's output to match the spec-conforming tree. Unsupported parser capabilities count as failures. The numbers will not match the `html5lib` project’s own reported totals, because `html5lib` runs the suite in multiple configurations and also has its own skip/xfail lists. Run `python benchmarks/correctness.py` to reproduce the Python-parser benchmark.
 
 ## Our Testing Strategy
 
