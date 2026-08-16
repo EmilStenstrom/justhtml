@@ -820,6 +820,16 @@ class TestSerialize(unittest.TestCase):
         rendered_text = JustHTML(pretty_html).to_text(separator="", strip=False)
         assert rendered_text == "BApplication(const char* signature);"
 
+    def test_pretty_print_preserves_formatting_whitespace_before_inline_element(self):
+        doc = JustHTML("<p>hello\n<code>world</code></p>", fragment=True)
+
+        assert doc.to_html() == "<p>hello <code>world</code></p>"
+
+    def test_pretty_print_preserves_formatting_whitespace_after_inline_element(self):
+        doc = JustHTML("<p><code>hello</code>\nworld</p>", fragment=True)
+
+        assert doc.to_html() == "<p><code>hello</code> world</p>"
+
     def test_empty_attributes(self):
         html = "<input disabled>"
         doc = JustHTML(html)

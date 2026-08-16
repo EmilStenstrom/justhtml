@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve rendered word separation when pretty HTML serialization normalizes a newline next to an inline element.
+
 ## [3.11.0] - 2026-08-07
 
 ### Performance

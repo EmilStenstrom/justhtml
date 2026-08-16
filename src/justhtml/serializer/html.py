@@ -495,7 +495,12 @@ def _collapse_html_whitespace(text: str) -> str:
     return " ".join(text.split())
 
 
-def _normalize_formatting_whitespace(text: str) -> str:
+def _normalize_formatting_whitespace(
+    text: str,
+    *,
+    preserve_leading: bool = False,
+    preserve_trailing: bool = False,
+) -> str:
     """Normalize formatting whitespace within a text node.
 
     Converts newlines/tabs/CR/FF to regular spaces and collapses runs that
@@ -543,9 +548,9 @@ def _normalize_formatting_whitespace(text: str) -> str:
         out.append(ch)
 
     normalized = "".join(out)
-    if starts_with_formatting and normalized.startswith(" "):
+    if starts_with_formatting and normalized.startswith(" ") and not preserve_leading:
         normalized = normalized[1:]
-    if ends_with_formatting and normalized.endswith(" "):
+    if ends_with_formatting and normalized.endswith(" ") and not preserve_trailing:
         normalized = normalized[:-1]
     return normalized
 
@@ -1025,14 +1030,23 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                                 continue
 
                             parts_template: list[tuple[str, Any]] = []
-                            for child in run:
+                            for run_index, child in enumerate(run):
                                 if child.name == "#text":
                                     data = child.data or ""
                                     if not data.strip():
                                         parts_template.append(("lit", data))
                                     else:
                                         parts_template.append(
-                                            ("lit", _escape_text(_normalize_formatting_whitespace(data)))
+                                            (
+                                                "lit",
+                                                _escape_text(
+                                                    _normalize_formatting_whitespace(
+                                                        data,
+                                                        preserve_leading=run_index > 0,
+                                                        preserve_trailing=run_index < len(run) - 1,
+                                                    )
+                                                ),
+                                            )
                                         )
                                     continue
 
@@ -1115,7 +1129,18 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                                             inline_parts.append(("lit", data))
                                         continue
 
-                                    inline_parts.append(("lit", _escape_text(_normalize_formatting_whitespace(data))))
+                                    inline_parts.append(
+                                        (
+                                            "lit",
+                                            _escape_text(
+                                                _normalize_formatting_whitespace(
+                                                    data,
+                                                    preserve_leading=i != first_non_none_index,
+                                                    preserve_trailing=i != last_non_none_index,
+                                                )
+                                            ),
+                                        )
+                                    )
                                     continue
 
                                 if _is_layout_blocky_element(child, memo):
@@ -1249,7 +1274,11 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                             if "\n" in data or "\r" in data or "\t" in data or len(data) > 2:
                                 compact_parts_template.append(("lit", " "))
                                 continue
-                        data = _normalize_formatting_whitespace(data)
+                        data = _normalize_formatting_whitespace(
+                            data,
+                            preserve_leading=i != first_non_none_index,
+                            preserve_trailing=i != last_non_none_index,
+                        )
                         compact_parts_template.append(("lit", _escape_text(data)))
                         continue
 
