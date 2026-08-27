@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 import justhtml
 from justhtml import JustHTML, Sanitize, SetAttrs
@@ -355,6 +356,40 @@ class TestSanitizePlumbing(unittest.TestCase):
 
 
 class TestSanitizeDom(unittest.TestCase):
+    def test_custom_policy_preserves_content_after_closed_foreign_rawtext(self) -> None:
+        policies = (
+            replace(DEFAULT_POLICY),
+            SanitizationPolicy(
+                allowed_tags={"p"},
+                allowed_attributes={"p": set()},
+                url_policy=UrlPolicy(allow_rules={}),
+            ),
+        )
+
+        for policy in policies:
+            for foreign_tag in ("math", "svg"):
+                for rawtext_tag in ("script", "style"):
+                    html = f"<{foreign_tag}><{rawtext_tag}></{rawtext_tag}></{foreign_tag}>tail<p>end</p>"
+                    with self.subTest(policy=policy, foreign_tag=foreign_tag, rawtext_tag=rawtext_tag):
+                        assert JustHTML(html, fragment=True, policy=policy).to_html(pretty=False) == "tail<p>end</p>"
+                        assert (
+                            JustHTML(
+                                html,
+                                fragment=True,
+                                transforms=[Sanitize(policy=policy)],
+                            ).to_html(pretty=False)
+                            == "tail<p>end</p>"
+                        )
+
+    def test_custom_policy_drops_content_after_unclosed_foreign_rawtext(self) -> None:
+        policy = replace(DEFAULT_POLICY)
+
+        for foreign_tag in ("math", "svg"):
+            for rawtext_tag in ("script", "style"):
+                html = f"<{foreign_tag}><{rawtext_tag}>unsafe</{foreign_tag}>tail<p>end</p>"
+                with self.subTest(foreign_tag=foreign_tag, rawtext_tag=rawtext_tag):
+                    assert JustHTML(html, fragment=True, policy=policy).to_html(pretty=False) == ""
+
     def test_sanitize_dom_document_fragment(self) -> None:
         root = DocumentFragment()
         root.append_child(Node("script"))

@@ -1435,8 +1435,7 @@ class ParseEngine:
             # rules, which may splice a form or run adoption, rather than
             # popping the foreign elements sitting above it.
             return False
-        if self._track_tag_spans:
-            self._set_end_span(node, name, tag_start, tag_end)
+        self._set_end_span(node, name, tag_start, tag_end)
         del stack[target_index:]
         return True
 
