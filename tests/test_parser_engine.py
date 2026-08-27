@@ -1451,6 +1451,10 @@ class TestParserRecoveryRegressions(_ParserEngineTestCase):
         default_cases = [
             ("<script>x", "<html><head></head><body></body></html>"),
             ("<table><template>x</table></template>", "<html><head></head><body><table>x</table></body></html>"),
+            (
+                "<table><template><tr><div></div></tr></template>",
+                "<html><head></head><body><table><tr></tr><div></div></table></body></html>",
+            ),
             ("<svg><noframes>x</svg></noframes>", "<html><head></head><body></body></html>"),
             ("<template><colgroup>x</colgroup></template>", "<html><head></head><body></body></html>"),
             ("<table><colgroup>x</table></colgroup>", "<html><head></head><body>x<table></table></body></html>"),

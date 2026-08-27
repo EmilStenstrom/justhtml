@@ -5249,14 +5249,22 @@ class ParseEngine:
         ):  # pragma: no branch - opposite edge requires invalid parser state
             return None  # pragma: no cover - unreachable after parser-state guards
         table_idx = self._find_open_index("table")
-        # Fostering runs once per node placed inside a table, and no template is
-        # open for the overwhelming majority of them. Both counters below are
-        # maintained anyway, so consulting them skips two stack lookups.
         parser_only_template_idx = (
             self._open_parser_only_template_index() if self._parser_only_template_depth else None
         )
-        if table_idx is not None and parser_only_template_idx is not None and table_idx < parser_only_template_idx:
+        # A parser-only template projects direct children into its rendered
+        # table parent. Descendants of those children still foster within the
+        # projected template contents, for example a <div> inside a <tr>.
+        if (
+            table_idx is not None
+            and parser_only_template_idx is not None
+            and table_idx < parser_only_template_idx
+            and self._stack[table_idx] is parent
+        ):
             return None
+        # Fostering runs once per node placed inside a table, and no template is
+        # open for the overwhelming majority of them. Both counters below are
+        # maintained anyway, so consulting them skips two stack lookups.
         template_idx = self._open_template_index() if self._template_modes else None
         if table_idx is not None and template_idx is not None and table_idx < template_idx:
             table_idx = None

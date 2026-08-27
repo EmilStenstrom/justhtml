@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Preserve content following closed `script` or `style` elements in dropped SVG and MathML subtrees when parsing
   fragments with a custom sanitization policy.
+- WPT update: Foster invalid row content correctly when a disallowed template appears inside a table.
 
 ## [3.11.1] - 2026-08-16
 
