@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.11.2] - 2026-08-27
-
 ### Fixed
 
 - Preserve content following closed `script` or `style` elements in dropped SVG and MathML subtrees when parsing
