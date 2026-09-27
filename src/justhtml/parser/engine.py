@@ -1923,6 +1923,11 @@ class ParseEngine:
             self._after_head = False
             self._explicit_head = True
         else:
+            if self._find_open_html_index("body") is not None:
+                # The compiled safe path omits parser-only template wrappers
+                # from the projected tree. Keep their frameset eligibility
+                # effect when they occur in body content.
+                self._frameset_blocked = True
             self._repair_stack_for_start("template")
         self._append_text_boundary(self._current_parent())
         self._stack.append(Element("template", {}, _PARSER_ONLY_NAMESPACE))
@@ -2932,7 +2937,11 @@ class ParseEngine:
             self._close_open_template(tag_start, tag_end)
             self._finish_head_reentry()
             return pos
-        if name == "form" and not self._template_modes:
+        template_fragment = self._fragment_context_name == "template" and self._fragment_context_namespace in {
+            None,
+            "html",
+        }
+        if name == "form" and not self._template_modes and not template_fragment:
             form_node = self._form_element
             self._form_element = None
             if form_node is None:
@@ -3522,6 +3531,15 @@ class ParseEngine:
             elif parent_name != "tr":
                 return pos
 
+        template_fragment = self._fragment_context_name == "template" and self._fragment_context_namespace in {
+            None,
+            "html",
+        }
+        if template_fragment and name == "form":
+            node = self._insert_compiled_safe_element(name, attrs, self_closing, parent)
+            self._nodes_to_unwrap.append(node)
+            return pos
+
         if not action.allowed:
             if action.pre_linefeed:  # pragma: no branch - opposite edge requires invalid parser state
                 self._ignore_lf = True  # pragma: no cover - unreachable after parser-state guards
@@ -3862,8 +3880,12 @@ class ParseEngine:
             )
             return pos
 
+        template_fragment = self._fragment_context_name == "template" and self._fragment_context_namespace in {
+            None,
+            "html",
+        }
         if html_text_parsing and name == "form" and not self._template_modes:
-            if self._form_element is not None:
+            if self._form_element is not None and not template_fragment:
                 return pos
             self._repair_stack_for_start(name)
             node = self._insert_sanitized_element(
@@ -3874,7 +3896,8 @@ class ParseEngine:
                 tag_start=tag_start,
                 tag_end=tag_end,
             )
-            self._form_element = node
+            if not template_fragment:
+                self._form_element = node
             table_idx = self._find_open_index("table")
             in_table_mode = (
                 table_idx is not None

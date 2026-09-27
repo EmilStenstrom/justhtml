@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.12.0] - 2026-09-27
+
+### Fixed
+
+- Match HTML5 form recovery in template fragments, including nested and misnested forms.
+- Preserve frameset eligibility when sanitized parsing omits template wrappers from body content.
+
 ## [3.11.3] - 2026-09-27
 
 ### Fixed

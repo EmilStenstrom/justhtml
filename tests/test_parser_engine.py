@@ -1050,6 +1050,35 @@ class TestParserFragmentsAndTextModes(_ParserEngineTestCase):
             with self.subTest(html=html, context=context):
                 self.assert_parses_to(html, expected, fragment_context=context)
 
+    def test_template_fragment_form_recovery(self) -> None:
+        cases = [
+            ("<form><form>", "<form><form></form></form>", ""),
+            (
+                "<br>BC<form>D<div>E</form>F</div>G",
+                "<br>BC<form>D<div>E</div></form>FG",
+                "<br>BCD<div>E</div>FG",
+            ),
+        ]
+        for html, expected, safe_expected in cases:
+            with self.subTest(html=html):
+                self.assert_parses_to(
+                    html,
+                    expected,
+                    fragment_context=FragmentContext("template"),
+                    sanitize=False,
+                )
+                self.assert_parses_to(
+                    html,
+                    safe_expected,
+                    fragment_context=FragmentContext("template"),
+                )
+
+    def test_disallowed_template_in_body_blocks_frameset_replacement(self) -> None:
+        self.assert_parses_to(
+            "<p><template></template><frameset>",
+            "<html><head></head><body><p></p></body></html>",
+        )
+
     def test_fragment_unwraps_disallowed_template_contents(self) -> None:
         self.assert_parses_to("<template>x</template>", "x", fragment=True)
 
