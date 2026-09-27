@@ -8,6 +8,7 @@ from typing import Any
 from justhtml import DEFAULT_POLICY, JustHTML
 from justhtml.parser.context import FragmentContext
 from justhtml.sanitizer import SanitizationPolicy, UrlPolicy, UrlProxy, UrlRule
+from justhtml.transforms import Sanitize
 
 _CASES_DIR = Path(__file__).with_name("justhtml-sanitize-tests")
 
@@ -89,6 +90,16 @@ def _build_policy(spec: Any) -> SanitizationPolicy:
 
 
 class TestSanitizeIntegration(unittest.TestCase):
+    def test_foreign_subtree_under_disallowed_parent_is_dropped(self) -> None:
+        for html in (
+            "<table><tr><td><select><math><mi>unsafe</mi><p>safe</table>",
+            "<template><svg><foo><template><foreignObject><div></template><div>",
+        ):
+            fused = JustHTML(html).to_html(pretty=False)
+            explicit = JustHTML(html, transforms=[Sanitize()]).to_html(pretty=False)
+            assert fused == explicit
+            assert "unsafe" not in fused
+
     def test_sanitize_cases(self) -> None:
         cases_path = _CASES_DIR / "cases.json"
         cases = json.loads(cases_path.read_text(encoding="utf-8"))

@@ -4212,11 +4212,8 @@ class ParseEngine:
             self._foreign_context_seen = True
             self._nodes_to_unwrap.append(node)
             parent_namespace = getattr(parent, "namespace", None)
-            if parent is self._fragment_context_node or parent_namespace in {None, "html"}:
-                if not self._parser_only_template_depth and (
-                    parent is self._fragment_context_node or parent.name in self._allowed_tags
-                ):
-                    self._nodes_to_drop.append(node)
+            if parent is self._fragment_context_node or parent_namespace in {None, "html", _PARSER_ONLY_NAMESPACE}:
+                self._nodes_to_drop.append(node)
         elif name not in self._allowed_tags:
             self._nodes_to_unwrap.append(node)
         if not is_void:

@@ -208,6 +208,29 @@ class TestTransforms(unittest.TestCase):
         doc = JustHTML("<p>Hello <span>world</span></p>", transforms=[Unwrap("span")])
         assert doc.to_html(pretty=False) == "<html><head></head><body><p>Hello world</p></body></html>"
 
+    def test_hoisted_children_receive_earlier_transforms(self) -> None:
+        for structural_transform in (Unwrap("p, span"), Escape("p, span")):
+            doc = JustHTML(
+                "<p><span><a href='https://eff.org'>EFF</a></span></p>",
+                fragment=True,
+                transforms=[SetAttrs("a", rel="noopener"), structural_transform],
+            )
+            assert '<a href="https://eff.org" rel="noopener">EFF</a>' in doc.to_html(pretty=False)
+
+    def test_sanitize_hoisted_children_receive_earlier_transforms(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"a"},
+            allowed_attributes={"a": {"href", "rel"}},
+            url_policy=UrlPolicy(allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})}),
+        )
+        doc = _JustHTML(
+            '<p><span><a href="https://eff.org">EFF</a></span></p>',
+            fragment=True,
+            transforms=[SetAttrs("a", rel="noopener")],
+            policy=policy,
+        )
+        assert doc.to_html(pretty=False) == '<a href="https://eff.org" rel="noopener">EFF</a>'
+
     def test_unwrap_handles_empty_elements(self) -> None:
         doc = JustHTML("<div><span></span>ok</div>", transforms=[Unwrap("span")])
         assert doc.to_html(pretty=False) == "<html><head></head><body><div>ok</div></body></html>"

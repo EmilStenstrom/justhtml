@@ -231,7 +231,6 @@ def apply_compiled_transforms(
 
                 if moved:
                     for child in moved:
-                        _mark_start(child, mark_new_start_index)
                         child.parent = parent
                     replacement.extend(moved)
 
@@ -294,7 +293,6 @@ def apply_compiled_transforms(
                     moved_nodes = _detach_children_for_hoist(node, name)
                     if moved_nodes:
                         for child in moved_nodes:
-                            _mark_start(child, transform_index)
                             child.parent = parent
                         children[child_index : child_index + 1] = moved_nodes
                     else:
@@ -865,7 +863,6 @@ def apply_compiled_transforms(
 
                         if moved_nodes_unwrap:
                             for child in moved_nodes_unwrap:
-                                _mark_start(child, idx + 1)
                                 child.parent = parent
                             children[i : i + 1] = moved_nodes_unwrap
                         else:

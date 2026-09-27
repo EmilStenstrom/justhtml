@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.11.3] - 2026-09-27
+
+### Fixed
+
+- Apply earlier transforms to allowed children hoisted when sanitization removes a parent (#85).
+- Drop foreign subtrees inside disallowed HTML parents in the default parsing path.
+
 ## [3.11.2] - 2026-08-27
 
 ### Fixed

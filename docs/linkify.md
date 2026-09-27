@@ -136,6 +136,7 @@ policy = SanitizationPolicy(
     allowed_attributes={"a": ["href"]},
     url_policy=UrlPolicy(allow_rules={("a", "href"): UrlRule(allowed_schemes={"https"})}),
 )
+# An example that uses HTTP, so it should NOT be allowed
 text = "See http://example.com"
 
 # Wrong: Linkify's generated <a href> is created after the sanitize point,
@@ -144,10 +145,10 @@ doc = JustHTML(text, transforms=[Sanitize(policy), Linkify()])
 print(doc.to_html(pretty=False))
 # => See <a href="http://example.com">http://example.com</a>
 
-# Right: Linkify runs first, so its output is covered by the same sanitize pass.
+# Correct: Linkify runs first, so its output is covered by the same sanitize pass.
 doc = JustHTML(text, transforms=[Linkify(), Sanitize(policy)])
 print(doc.to_html(pretty=False))
-# => See http://example.com
+# => See <a>http://example.com</a>
 ```
 
 If you don't need other transforms between them, the simplest safe option is to omit `Sanitize()` entirely and let `sanitize=True` (the default) append it automatically after `Linkify()`.

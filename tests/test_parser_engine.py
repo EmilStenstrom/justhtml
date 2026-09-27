@@ -1745,7 +1745,7 @@ class TestParserAttributeProjection(_ParserEngineTestCase):
         )
         self.assert_parses_to(
             "<tr selected> <svg href=x><table href=x></table><math a=1> </svg>\n</tr></math>\n<blockquote a=1>",
-            "<tbody><tr> </tr></tbody><table></table> \n\n<blockquote></blockquote>",
+            "<tbody><tr> </tr></tbody><table></table>\n<blockquote></blockquote>",
             fragment_context=FragmentContext("table"),
         )
         self.assert_parses_to(
