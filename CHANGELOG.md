@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.13.0] - 2026-09-30
+
 ### Fixed
 
 - Prevent `Linkify(skip_tags=())` from repeatedly linkifying the text inside its own generated anchors (#86).
