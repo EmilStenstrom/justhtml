@@ -28,6 +28,16 @@ class TestLinkifyTransform(unittest.TestCase):
         out = doc.to_html(pretty=False)
         assert out == '<html><head></head><body><p><a href="/x">example.com</a></p></body></html>'
 
+    def test_linkify_with_empty_skip_tags_does_not_reprocess_generated_links(self) -> None:
+        doc = self._parse(
+            "See example.com and example.org",
+            fragment=True,
+            transforms=[Linkify(skip_tags=())],
+        )
+        assert doc.to_html(pretty=False) == (
+            'See <a href="http://example.com">example.com</a> and <a href="http://example.org">example.org</a>'
+        )
+
     def test_linkify_skips_pre_by_default(self) -> None:
         doc = self._parse("<pre>example.com</pre><p>example.com</p>", transforms=[Linkify()])
         out = doc.to_html(pretty=False)

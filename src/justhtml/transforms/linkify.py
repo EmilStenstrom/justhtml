@@ -45,6 +45,7 @@ def apply_linkify_transform(
     transform_index: int,
     transform: CompiledLinkifyTransform,
     mark_start: Callable[[object, int], None],
+    mark_linkify_anchor: Callable[[Element], None],
 ) -> bool:
     linkify_text = str(node.data or "")
     if not linkify_text:
@@ -70,6 +71,7 @@ def apply_linkify_transform(
             replacement.append(text)
 
         link = Element("a", {"href": match.href}, namespace)
+        mark_linkify_anchor(link)
         link.append_child(Text(match.text))
         mark_start(link, transform_index + 1)
         link.parent = parent

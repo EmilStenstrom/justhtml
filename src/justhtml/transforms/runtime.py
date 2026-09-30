@@ -184,6 +184,7 @@ def apply_compiled_transforms(
             )
 
             created_start_index: dict[int, int] = {}
+            linkify_created_anchors: set[int] = set()
             document_comment_insert_count: dict[int, int] = {}
 
             def _mark_start(n: object, start_index: int) -> None:
@@ -672,7 +673,7 @@ def apply_compiled_transforms(
                             continue
 
                         if k == "linkify":
-                            if is_text and not skip_linkify:
+                            if is_text and not skip_linkify and id(parent) not in linkify_created_anchors:
                                 changed = apply_linkify_transform(
                                     parent=parent,
                                     node=node,
@@ -681,6 +682,7 @@ def apply_compiled_transforms(
                                     transform_index=idx,
                                     transform=t,
                                     mark_start=_mark_start,
+                                    mark_linkify_anchor=lambda anchor: linkify_created_anchors.add(id(anchor)),
                                 )
                                 if changed:
                                     break
