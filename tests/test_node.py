@@ -1240,6 +1240,48 @@ class TestNode(unittest.TestCase):
                 assert clone_b.attrs == {"x": "1"}
                 assert shared == {"x": "1"}
 
+    def test_clone_node_deep_override_attrs(self):
+        for factory in (
+            lambda attrs: Node("div", attrs),
+            lambda attrs: Element("div", attrs, "html"),
+            lambda attrs: Template("template", attrs, None, "html"),
+            lambda attrs: Template("template", attrs, None, "svg"),
+        ):
+            for override_attrs in ({"id": "copy", "disabled": None}, {}, None):
+                with self.subTest(factory=factory, override_attrs=override_attrs):
+                    original = factory({"id": "original"})
+                    child = Element("span", {"class": "child"}, "html")
+                    original.append_child(child)
+                    if isinstance(original, Template) and original.template_content is not None:
+                        original.template_content.append_child(Element("p", {"class": "content"}, "html"))
+
+                    clone = original.clone_node(deep=True, override_attrs=override_attrs)
+
+                    expected_attrs = original.attrs if override_attrs is None else override_attrs
+                    assert clone.attrs == expected_attrs
+                    assert clone.attrs is not original.attrs
+                    assert clone.attrs is not override_attrs
+                    assert type(clone) is type(original)
+                    assert clone.children[0] is not child
+                    assert clone.children[0].attrs == {"class": "child"}
+                    assert clone.children[0].attrs is not child.attrs
+                    assert clone.children[0].parent is clone
+                    if isinstance(original, Template) and original.template_content is not None:
+                        assert clone.template_content is not original.template_content
+                        assert clone.template_content.parent is clone
+                        content_clone = clone.template_content.children[0]
+                        content_original = original.template_content.children[0]
+                        assert content_clone is not content_original
+                        assert content_clone.attrs == {"class": "content"}
+                        assert content_clone.attrs is not content_original.attrs
+                        assert content_clone.parent is clone.template_content
+
+                    clone.attrs["id"] = "mutated"
+                    assert original.attrs == {"id": "original"}
+                    if override_attrs is not None:
+                        assert override_attrs == expected_attrs
+                        assert override_attrs.get("id") != "mutated"
+
     def test_clone_comment_node(self):
         node = Comment(data="foo")
         clone = node.clone_node()
