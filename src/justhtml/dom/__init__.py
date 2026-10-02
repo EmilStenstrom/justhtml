@@ -506,7 +506,7 @@ class Node:
         )
         clone._metadata = self._metadata.copy() if self._metadata is not None else None
         if deep:
-            return _clone_subtree_iterative(self)
+            return _clone_subtree_iterative(self, override_attrs=override_attrs)
         return clone
 
 
@@ -662,7 +662,7 @@ class Element(Node):
         clone._end_tag_present = self._end_tag_present
         clone._self_closing = self._self_closing
         if deep:
-            return cast("Element", _clone_subtree_iterative(self))
+            return cast("Element", _clone_subtree_iterative(self, override_attrs=override_attrs))
         return clone
 
 
@@ -695,12 +695,12 @@ class Template(Element):
         clone._end_tag_present = self._end_tag_present
         clone._self_closing = self._self_closing
         if deep:
-            return cast("Template", _clone_subtree_iterative(self))
+            return cast("Template", _clone_subtree_iterative(self, override_attrs=override_attrs))
         return clone
 
 
-def _clone_subtree_iterative(root: Node) -> Node:
-    clone_root = root.clone_node(deep=False)
+def _clone_subtree_iterative(root: Node, override_attrs: dict[str, str | None] | None = None) -> Node:
+    clone_root = root.clone_node(deep=False, override_attrs=override_attrs)
     stack: list[tuple[Node, Node]] = [(root, clone_root)]
 
     while stack:
