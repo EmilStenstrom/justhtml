@@ -20,7 +20,7 @@ benchmark = [
     "beautifulsoup4>=4.14.3",
     "selectolax>=0.4.11",
     "html5-parser>=0.4.12",
-    "markupever>=0.3.4",
+    "markupever>=0.3.6",
     "turbohtml>=1.4.0",
 ]
 dev = [

@@ -13,11 +13,11 @@ Use a different tool when one narrow requirement matters more than the whole pip
 | **JustHTML**<br>Pure Python | ✅ 100% | ⚡ Fast | ✅ CSS selectors | ✅ `element()` | ✅ Built-in | Correct, secure, easy to install, and fast enough. |
 | **`selectolax`**<br>Python wrapper of C-based Lexbor | ✅ 100% | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast. |
 | **Chromium**<br>browser engine | 🟡 95.0% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
+| **`markupever`**<br>Python wrapper of Rust-based html5ever | 🟡 94.9% | 🚀 Very Fast | ✅ CSS selectors | ✅ `TreeDom .create_*()` | ❌ Needs sanitization | Very fast. |
 | **`turbohtml`**<br>Python wrapper of a C core | 🟡 94.8% | 🚀 Very Fast | ✅ CSS selectors, XPath | ✅ `E.*` builder | ✅ Built-in | Broad, compiled alternative with parsing, querying, and sanitization. |
 | **WebKit**<br>browser engine | 🟡 93.9% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
 | **Firefox**<br>browser engine | 🟡 93.1% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
 | **`html5lib`**<br>Pure Python | 🟡 82.3% | 🐢 Slow | 🟡 XPath (lxml) | 🟡 Tree API | 🔴 [Deprecated](https://github.com/html5lib/html5lib-python/issues/443) | Unmaintained reference implementation; incomplete coverage of the tree-construction fixtures. |
-| **`markupever`**<br>Python wrapper of Rust-based html5ever | 🟡 79.4% | 🚀 Very Fast | ✅ CSS selectors | ✅ `TreeDom .create_*()` | ❌ Needs sanitization | Fast, but many fixtures cases abort its current parser process. |
 | **`html5_parser`**<br>Python wrapper of C-based Gumbo | 🔴 47.8% | 🚀 Very Fast | 🟡 XPath (lxml) | 🟡 `etree` (lxml) | ❌ Needs sanitization | Fast, but its public tree API loses information needed by many fixtures. |
 | **`BeautifulSoup`**<br>Pure Python | 🔴 0.3% (default) | 🐢 Slow | 🟡 Custom API | ✅ `new_tag()` API | ❌ Needs sanitization | Wraps `html.parser` (default). Can use lxml or html5lib. |
 | **`html.parser`**<br>Python stdlib | 🔴 0.3% | ⚡ Fast | ❌ None | ❌ None | ❌ Needs sanitization | Standard library. Chokes on malformed HTML. |

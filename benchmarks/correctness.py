@@ -71,7 +71,7 @@ PARSER_CAPABILITIES = {
     "bs4": ParserCapabilities(),
     "html.parser": ParserCapabilities(),
     "selectolax": ParserCapabilities(fragment_context=True, foreign_fragment_context=True),
-    "markupever": ParserCapabilities(),
+    "markupever": ParserCapabilities(fragment_context=True, foreign_fragment_context=True),
     "turbohtml": ParserCapabilities(fragment_context=True, foreign_fragment_context=True),
 }
 
@@ -543,7 +543,13 @@ def run_test_markupever(html, fragment_context, expected, xml_coercion=False, if
     import markupever
 
     try:
-        nodes = [markupever.parse(html).root()]
+        if fragment_context:
+            namespace, tag_name = fragment_context
+            namespace = {None: "html", "math": "mathml"}.get(namespace, namespace)
+            options = markupever.HtmlOptions(fragment_context=markupever.dom.QualName(tag_name, namespace))
+            nodes = list(markupever.parse(html, options).root().children())
+        else:
+            nodes = [markupever.parse(html).root()]
         actual = _markupever_to_test_format(nodes)
         return _compare_result(expected, actual)
     except Exception as e:
