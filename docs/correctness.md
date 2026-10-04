@@ -6,14 +6,16 @@ JustHTML is tested against the web platform html5 treebuilder tests. This page e
 
 ## The Web Platform Tests
 
-The web platform html5 treebuilder tests live in [web-platform-tests/wpt](https://github.com/web-platform-tests/wpt/tree/master/html/syntax/parsing/resources). Serializer and encoding fixtures remain in [html5lib-tests](https://github.com/html5lib/html5lib-tests).
+The web platform html5 treebuilder tests live in [web-platform-tests/wpt](https://github.com/web-platform-tests/wpt/tree/57bdb7f88a04f09d441ecb4eeebf23664884aa06/html/syntax/parsing/resources). Serializer and encoding fixtures remain in [html5lib-tests](https://github.com/html5lib/html5lib-tests).
+
+Verified on 2026-10-04 against WPT commit [`57bdb7f88a`](https://github.com/web-platform-tests/wpt/commit/57bdb7f88a04f09d441ecb4eeebf23664884aa06): JustHTML passed all 1,917 non-script treebuilder cases.
 
 The external fixture inputs contain:
 
-- **61 treebuilder test files** - Testing how the parser builds the DOM tree
+- **62 treebuilder test files** - Testing how the parser builds the DOM tree
 - **5 serializer fixture files** - Testing how token streams are serialized back to HTML
 - **Encoding sniffing tests** - Testing BOM/meta charset/transport overrides and legacy fallbacks
-- **1,918 treebuilder cases** - Covering edge cases, error recovery, and spec compliance
+- **1,959 treebuilder cases** - Covering edge cases, error recovery, and spec compliance
 
 ### What the Tests Cover
 
