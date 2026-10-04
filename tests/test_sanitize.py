@@ -70,7 +70,9 @@ class TestSanitizePlumbing(unittest.TestCase):
         assert JustHTML('<a href="javascript:alert(1)">x</a>', fragment=True).to_html(pretty=False) == "<a>x</a>"
 
     def test_default_policy_compiled_sanitize_cache_is_immutable(self) -> None:
-        assert JustHTML('<a href="javascript:alert(1)">x</a>', fragment=True).to_html(pretty=False) == "<a>x</a>"
+        document = JustHTML('<a href="javascript:alert(1)">x</a>', fragment=True, sanitize=False)
+        sanitize_dom(document.root)
+        assert document.to_html(pretty=False) == "<a>x</a>"
 
         compiled = DEFAULT_POLICY._compiled_sanitize_transforms
         assert isinstance(compiled, tuple)

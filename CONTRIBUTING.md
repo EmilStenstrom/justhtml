@@ -94,7 +94,7 @@ Pre-commit runs automatically on every commit and checks:
 - **YAML** and **TOML** validity
 - **Ruff check** - linting with auto-fix
 - **Ruff format** - code formatting
-- **Tests & Coverage** - full test suite with 100% coverage requirement
+- **Tests & Coverage** - full test suite in parallel with 100% coverage requirement
 - **Parser Differential** - exact agreement with the reference parser path across scored web platform html5 treebuilder cases
 
 Run manually:

@@ -6,8 +6,9 @@ doubling the input takes roughly four times as long instead of two. This helper
 keeps enough margin between those outcomes by collecting before measurement,
 disabling the collector during it, and retaining the fastest sample.
 
-Reusable operations are batched when a single call is very short. That avoids
-letting timer, scheduler, or JIT noise dominate the measurement.
+Reusable operations are batched when a single call is very short. CPU time
+keeps scheduling delays from distorting growth ratios during parallel tests.
+Windows uses wall time with longer batches because its CPU clock is coarse.
 
 MAX_GROWTH sits at the quadratic marker rather than halfway between 2x and
 4x: on PyPy, whose generational GC amortizes differently than CPython's
@@ -20,7 +21,8 @@ this keeps the check meaningful without being a coin flip on PyPy.
 
 import gc
 import math
-from time import perf_counter
+import sys
+from time import perf_counter, process_time
 
 # Both sizes exceed the adaptive-index thresholds. Batch short operations
 # rather than enlarging every tree just to get a measurable sample.
@@ -28,8 +30,9 @@ SMALL_SIZE = 500
 LARGE_SIZE = 1_000
 MAX_GROWTH = 4.0
 SAMPLES = 5
-MIN_SAMPLE_SECONDS = 0.01
+MIN_SAMPLE_SECONDS = 0.01 if sys.platform == "win32" else 0.005
 MAX_BATCH_RUNS = 128
+_clock = perf_counter if sys.platform == "win32" else process_time
 
 
 def _fastest(prepare, run, size: int, *, reusable: bool) -> float:
@@ -41,9 +44,9 @@ def _fastest(prepare, run, size: int, *, reusable: bool) -> float:
     try:
         batch_runs = 1
         if reusable:
-            start = perf_counter()
+            start = _clock()
             run(payload)
-            elapsed = perf_counter() - start
+            elapsed = _clock() - start
             if elapsed < MIN_SAMPLE_SECONDS:
                 batch_runs = min(
                     MAX_BATCH_RUNS,
@@ -54,10 +57,10 @@ def _fastest(prepare, run, size: int, *, reusable: bool) -> float:
         for _ in range(SAMPLES):
             if not reusable:
                 payload = prepare(size)
-            start = perf_counter()
+            start = _clock()
             for _ in range(batch_runs):
                 run(payload)
-            best = min(best, (perf_counter() - start) / batch_runs)
+            best = min(best, (_clock() - start) / batch_runs)
         return best
     finally:
         if was_enabled:

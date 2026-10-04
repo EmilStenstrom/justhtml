@@ -49,3 +49,15 @@ failures are reported in documentation order.
 
 Complexity tests compare inputs of 500 and 1,000 elements using five timing
 samples per size. Short operations are batched to keep samples measurable.
+
+The pre-commit coverage hook runs all fixture suites and shards unit tests
+across up to 10 Python processes. It combines fresh coverage data only
+after every worker passes, then enforces 100% coverage. Run it directly with:
+
+```bash
+python tests/check_coverage.py
+python tests/check_coverage.py --jobs 4
+```
+
+Successful runs save test durations in `.cache/coverage-timings.json` to balance
+worker loads. Test results and coverage are recomputed on every run.

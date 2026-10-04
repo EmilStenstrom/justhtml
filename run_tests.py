@@ -98,11 +98,11 @@ def parse_args():
     )
     parser.add_argument(
         "--suite",
-        choices=["all", "tree", "justhtml", "serializer", "encoding", "unit"],
+        choices=["all", "fixtures", "tree", "justhtml", "serializer", "encoding", "unit"],
         default="all",
         help=(
             "Run a single suite instead of the full test run. "
-            "Choices: all, tree, justhtml, serializer, encoding, unit (default: all)."
+            "Choices: all, fixtures, tree, justhtml, serializer, encoding, unit (default: all)."
         ),
     )
     parser.add_argument(
@@ -289,10 +289,10 @@ def main():
     test_dir = Path("tests")
 
     suite = config.get("suite", "all")
-    run_tree = suite in {"all", "tree"}
-    run_justhtml_tree = suite in {"all", "justhtml"}
-    run_serializer = suite in {"all", "serializer"}
-    run_encoding = suite in {"all", "encoding"}
+    run_tree = suite in {"all", "fixtures", "tree"}
+    run_justhtml_tree = suite in {"all", "fixtures", "justhtml"}
+    run_serializer = suite in {"all", "fixtures", "serializer"}
+    run_encoding = suite in {"all", "fixtures", "encoding"}
     run_unit = suite in {"all", "unit"}
 
     # Check that external fixture symlinks exist (only for the selected suites)
