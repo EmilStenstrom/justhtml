@@ -10,8 +10,14 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from itertools import repeat
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,6 +354,12 @@ def _run_python_snippet(project_root: Path, code: str) -> tuple[int, str, str]:
     return proc.returncode, stdout, stderr
 
 
+def _run_python_snippets(project_root: Path, codes: Iterable[str]) -> Iterator[tuple[int, str, str]]:
+    # Each snippet keeps its own process and timeout; map preserves report order.
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        yield from executor.map(_run_python_snippet, repeat(project_root), codes)
+
+
 def _line_matches(expected_line: str, actual_line: str) -> bool:
     if expected_line == actual_line:
         return True
@@ -424,8 +436,8 @@ class TestDocsExamples(unittest.TestCase):
 
         failures: list[str] = []
 
-        for ex in examples:
-            returncode, stdout, stderr = _run_python_snippet(project_root, ex.code)
+        results = _run_python_snippets(project_root, (ex.code for ex in examples))
+        for ex, (returncode, stdout, stderr) in zip(examples, results, strict=True):
             expected = ex.expected_output.replace("\r\n", "\n").rstrip("\n")
 
             if ex.expects_raise:
@@ -492,8 +504,8 @@ class TestDocsExamples(unittest.TestCase):
             self.fail("No README doctest-style examples (# => ...) found")
 
         failures: list[str] = []
-        for ex in examples:
-            returncode, stdout, stderr = _run_python_snippet(project_root, ex.runnable_code)
+        results = _run_python_snippets(project_root, (ex.runnable_code for ex in examples))
+        for ex, (returncode, stdout, stderr) in zip(examples, results, strict=True):
             if returncode != 0:
                 if returncode == 124:
                     failures.append(
@@ -546,8 +558,8 @@ class TestDocsExamples(unittest.TestCase):
             self.fail("No docs doctest-style examples (# => ...) found")
 
         failures: list[str] = []
-        for ex in examples:
-            returncode, stdout, stderr = _run_python_snippet(project_root, ex.runnable_code)
+        results = _run_python_snippets(project_root, (ex.runnable_code for ex in examples))
+        for ex, (returncode, stdout, stderr) in zip(examples, results, strict=True):
             if returncode != 0:
                 if returncode == 124:
                     failures.append(

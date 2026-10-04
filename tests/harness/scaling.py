@@ -22,8 +22,10 @@ import gc
 import math
 from time import perf_counter
 
-SMALL_SIZE = 2_000
-LARGE_SIZE = 4_000
+# Both sizes exceed the adaptive-index thresholds. Batch short operations
+# rather than enlarging every tree just to get a measurable sample.
+SMALL_SIZE = 500
+LARGE_SIZE = 1_000
 MAX_GROWTH = 4.0
 SAMPLES = 5
 MIN_SAMPLE_SECONDS = 0.01

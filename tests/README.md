@@ -42,3 +42,10 @@ python run_tests.py --suite serializer
 python run_tests.py --suite encoding
 python run_tests.py --suite unit
 ```
+
+Documentation examples run in separate Python processes, with up to four
+examples running concurrently. Each example has a five-second timeout, and
+failures are reported in documentation order.
+
+Complexity tests compare inputs of 500 and 1,000 elements using five timing
+samples per size. Short operations are batched to keep samples measurable.
