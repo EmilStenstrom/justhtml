@@ -2,7 +2,6 @@ import sys
 import unittest
 from collections import Counter
 from dataclasses import replace
-from pathlib import Path
 
 from justhtml import JustHTML
 from justhtml.dom import DocumentFragment, Element, Template, Text
@@ -28,7 +27,6 @@ from justhtml.parser.options import ParserOptions
 from justhtml.sanitizer import DEFAULT_DOCUMENT_POLICY, DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, UrlRule
 from justhtml.serializer import to_test_format
 from tests.harness.scaling import assert_scales_linearly
-from tests.harness.tree import TestRunner
 
 
 class _ParserEngineTestCase(unittest.TestCase):
@@ -2084,52 +2082,3 @@ class TestParserDiagnosticModes(_ParserEngineTestCase):
         assert [(error.code, error.message) for error in engine.errors] == [
             ("unexpected-end-tag", "Unexpected </object> end tag"),
         ]
-
-    def test_upstream_inputs_across_diagnostic_modes(self) -> None:
-        config = {
-            "fail_fast": False,
-            "test_specs": [],
-            "exclude_html": None,
-            "filter_html": None,
-            "exclude_errors": None,
-            "filter_errors": None,
-            "exclude_files": None,
-        }
-        runner = TestRunner(Path("tests/html5lib-tests-tree"), config)
-
-        parsed = 0
-        for file_path, tests in runner.load_tests():
-            for index, test in enumerate(tests):
-                if not runner._should_run_test(file_path.name, index, test):
-                    continue
-                scripting_enabled = test.script_directive != "script-off"
-
-                located = JustHTML(
-                    test.data,
-                    fragment_context=test.fragment_context,
-                    scripting_enabled=scripting_enabled,
-                    sanitize=False,
-                    collect_errors=True,
-                    track_node_locations=True,
-                )
-                assert located.root is not None
-
-                xml = JustHTML(
-                    test.data,
-                    fragment_context=test.fragment_context,
-                    scripting_enabled=scripting_enabled,
-                    sanitize=False,
-                    _parser_opts=ParserOptions(xml_coercion=True),
-                )
-                assert xml.root is not None
-
-                projected = JustHTML(
-                    test.data,
-                    fragment_context=test.fragment_context,
-                    scripting_enabled=scripting_enabled,
-                    track_node_locations=True,
-                )
-                assert projected.root is not None
-                parsed += 1
-
-        assert parsed >= 1700

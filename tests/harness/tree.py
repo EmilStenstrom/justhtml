@@ -322,7 +322,35 @@ class TestRunner:
 
         return passed, failed, skipped
 
+    def _check_diagnostic_modes(self, test):
+        common = {
+            "fragment_context": test.fragment_context,
+            "scripting_enabled": test.script_directive != "script-off",
+        }
+        located = JustHTML(
+            test.data,
+            **common,
+            sanitize=False,
+            collect_errors=True,
+            track_node_locations=True,
+        )
+        assert located.root is not None
+
+        xml = JustHTML(
+            test.data,
+            **common,
+            sanitize=False,
+            _parser_opts=ParserOptions(xml_coercion=True),
+        )
+        assert xml.root is not None
+
+        projected = JustHTML(test.data, **common, track_node_locations=True)
+        assert projected.root is not None
+
     def _run_single_test(self, test, xml_coercion=False):
+        if self.test_dir.name == "html5lib-tests-tree":
+            self._check_diagnostic_modes(test)
+
         verbosity = self.config["verbosity"]
         capture_debug = verbosity >= 2
         debug_output = ""
