@@ -158,6 +158,17 @@ class TestUniversalSelector(SelectorTestCase):
         assert len(result) == 2
         assert all("container" in (n.attrs.get("class") or "") for n in result)
 
+    def test_universal_selector_skips_doctype(self):
+        doc = JustHTML("<!doctype html><p>x")
+        assert [n.name for n in doc.query("*")] == ["html", "head", "body", "p"]
+        assert [n.name for n in doc.query(":not(p)")] == ["html", "head", "body"]
+
+    def test_doctype_is_not_an_element_for_structural_pseudos(self):
+        doc = JustHTML("<!doctype html><p>x")
+        assert [n.name for n in doc.query(":root")] == ["html"]
+        assert [n.name for n in doc.query(":empty")] == ["head"]
+        assert [n.name for n in doc.query(":first-child")] == ["html", "head", "p"]
+
 
 class TestIdSelector(SelectorTestCase):
     """Test ID selectors."""

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Honor root attribute overrides when deeply cloning nodes, elements, and templates.
+- Exclude the doctype node from element selectors such as `*`, `:root`, `:empty`, `:not()`, and `:first-child`.
 
 ## [3.13.0] - 2026-09-30
 

@@ -763,7 +763,7 @@ class SelectorMatcher:
         # Non-element nodes only match explicit pseudo-classes (e.g. :comment)
         if not hasattr(node, "name"):
             return False
-        if node.name.startswith("#"):
+        if node.name.startswith("#") or node.name == "!doctype":
             if selector.type == SimpleSelector.TYPE_PSEUDO:
                 return self._matches_pseudo(node, selector, depth=depth)
             return False
@@ -992,7 +992,7 @@ class SelectorMatcher:
             if not hasattr(child, "name"):
                 continue
             previous_sibling[id(child)] = previous
-            if child.name.startswith("#"):
+            if child.name.startswith("#") or child.name == "!doctype":
                 if child.name == "#text" and child.data and child.data.strip():
                     is_empty = False
                 continue
@@ -1034,7 +1034,7 @@ class SelectorMatcher:
             self._context.tick()
             if child is node:
                 return prev
-            if not child.name.startswith("#"):
+            if not child.name.startswith("#") and child.name != "!doctype":
                 prev = child
         return None  # node not in parent.children (detached)
 
@@ -1062,7 +1062,11 @@ class SelectorMatcher:
             for child in parent.children:
                 self._context.tick()
                 cached[id(child)] = last_match
-                if not child.name.startswith("#") and self._matches_compound(child, compound, depth=depth):
+                if (
+                    not child.name.startswith("#")
+                    and child.name != "!doctype"
+                    and self._matches_compound(child, compound, depth=depth)
+                ):
                     last_match = child
             self._context.previous_match_cache[cache_key] = cached
 
@@ -1505,7 +1509,7 @@ def _query_descendants(
             if matcher_matches(current, selector):
                 results_append(current)
         else:
-            if not name.startswith("#") and matcher_matches(current, selector):
+            if not name.startswith("#") and name != "!doctype" and matcher_matches(current, selector):
                 results_append(current)
 
         children = current.children
