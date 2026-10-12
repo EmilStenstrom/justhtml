@@ -169,6 +169,12 @@ class TestUniversalSelector(SelectorTestCase):
         assert [n.name for n in doc.query(":empty")] == ["head"]
         assert [n.name for n in doc.query(":first-child")] == ["html", "head", "p"]
 
+    def test_matches_rejects_doctype_node(self):
+        doctype = JustHTML("<!doctype html><p>x").root.children[0]
+        assert doctype.name == "!doctype"
+        for selector in ("*", ":not(*)", ":root", ":empty", ":not(p)"):
+            assert not matches(doctype, selector)
+
 
 class TestIdSelector(SelectorTestCase):
     """Test ID selectors."""

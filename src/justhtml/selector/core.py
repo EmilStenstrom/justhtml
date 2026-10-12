@@ -763,7 +763,10 @@ class SelectorMatcher:
         # Non-element nodes only match explicit pseudo-classes (e.g. :comment)
         if not hasattr(node, "name"):
             return False
-        if node.name.startswith("#") or node.name == "!doctype":
+        # No selector, including pseudo-classes such as :not(*), matches the doctype.
+        if node.name == "!doctype":
+            return False
+        if node.name.startswith("#"):
             if selector.type == SimpleSelector.TYPE_PSEUDO:
                 return self._matches_pseudo(node, selector, depth=depth)
             return False
