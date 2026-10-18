@@ -896,7 +896,9 @@ class SelectorMatcher:
 
     def _split_attribute_tokens(self, attr_value: str) -> frozenset[str]:
         self._context.tick_bytes(len(attr_value))
-        return frozenset(attr_value.split())
+        for space in HTML_SPACE_CHARACTERS:
+            attr_value = attr_value.replace(space, " ")
+        return frozenset(token for token in attr_value.split(" ") if token)
 
     def _matches_pseudo(self, node: Any, selector: SimpleSelector, *, depth: int = 0) -> bool:
         """Match a pseudo-class selector."""

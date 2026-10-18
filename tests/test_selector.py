@@ -237,6 +237,13 @@ class TestClassSelector(SelectorTestCase):
         result = query(self.get_simple_doc(), "p.intro")
         assert len(result) == 1
 
+    def test_class_selector_preserves_non_ascii_whitespace(self):
+        for space in ("\u00a0", "\u0085", "\u2003"):
+            with self.subTest(space=space):
+                doc = JustHTML(f'<p class="alpha{space}beta">x</p>')
+                assert doc.query(".alpha") == []
+                assert [node.name for node in doc.query(f'[class~="alpha{space}beta"]')] == ["p"]
+
     def test_class_with_wrong_tag(self):
         result = query(self.get_simple_doc(), "div.intro")
         assert len(result) == 0
@@ -290,6 +297,14 @@ class TestAttributeContainsWord(SelectorTestCase):
     def test_attribute_contains_word_single(self):
         result = query(self.get_simple_doc(), '[class~="secondary"]')
         assert len(result) == 1
+
+    def test_attribute_word_selector_preserves_non_ascii_whitespace(self):
+        for space in ("\u00a0", "\u0085", "\u2003", "\v"):
+            with self.subTest(space=space):
+                value = f"alpha{space}beta"
+                doc = JustHTML(f'<p data-tags="{value}">x</p>')
+                assert doc.query('[data-tags~="alpha"]') == []
+                assert [node.name for node in doc.query(f'[data-tags~="{value}"]')] == ["p"]
 
     def test_attribute_contains_word_no_partial(self):
         result = query(self.get_simple_doc(), '[class~="contain"]')

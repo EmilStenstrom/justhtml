@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve non-ASCII whitespace within class names and attribute word-selector tokens.
+
 ## [3.13.1] - 2026-10-12
 
 ### Fixed
