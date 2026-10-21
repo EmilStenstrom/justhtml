@@ -1,6 +1,6 @@
 import unittest
 
-from justhtml import stream
+from justhtml import JustHTML, stream
 from justhtml.core.text import ascii_lower
 from justhtml.parser.scanner import (
     ascii_find,
@@ -11,6 +11,7 @@ from justhtml.parser.scanner import (
 )
 from justhtml.parser.stream import _StreamScanner
 from tests.harness.scaling import assert_scales_linearly
+from tests.harness.whitespace import ASCII_WHITESPACE, NON_HTML_WHITESPACE
 
 
 class TestStream(unittest.TestCase):
@@ -33,6 +34,25 @@ class TestStream(unittest.TestCase):
         events = list(stream(html))
         expected = [("comment", " comment ")]
         assert events == expected
+
+    def test_doctype_names_preserve_non_html_whitespace(self):
+        for space in NON_HTML_WHITESPACE:
+            with self.subTest(space=repr(space)):
+                name = f"{space}html{space}"
+                source = f"<!DOCTYPE {name}>"
+                assert list(stream(source)) == [("doctype", (name, None, None))]
+                doc = JustHTML(source, sanitize=False)
+                assert doc.root.children[0].data.name == name
+        for space in ASCII_WHITESPACE:
+            assert list(stream(f"<!DOCTYPE{space}html{space}>")) == [("doctype", ("html", None, None))]
+
+    def test_tag_names_do_not_split_on_non_html_whitespace(self):
+        for space in NON_HTML_WHITESPACE:
+            name = f"p{space}x"
+            source = f"<{name}>text</{name}>"
+            assert list(stream(source)) == [("start", (name, {})), ("text", "text"), ("end", name)]
+            doc = JustHTML(source, fragment=True, sanitize=False)
+            assert doc.root.children[0].name == name
 
     def test_doctype(self):
         html = "<!DOCTYPE html>"

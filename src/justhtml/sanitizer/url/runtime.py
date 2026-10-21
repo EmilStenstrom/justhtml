@@ -7,6 +7,9 @@ from collections.abc import Callable, Collection, Mapping
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl, quote, urlsplit
 
+from justhtml.core.constants import HTML_SPACE_CHARACTERS
+from justhtml.core.whitespace import split_html_whitespace
+
 from . import policy as _url_policy
 
 if TYPE_CHECKING:
@@ -322,7 +325,7 @@ def _sanitize_srcset_value(
             return None
         v = _strip_invisible_unicode(rewritten)
 
-    stripped = str(v).strip()
+    stripped = str(v).strip(HTML_SPACE_CHARACTERS)
     if not stripped:
         return None
 
@@ -332,13 +335,13 @@ def _sanitize_srcset_value(
 
     out_candidates: list[str] = []
     for raw_candidate in stripped.split(","):
-        c = raw_candidate.strip()
+        c = raw_candidate.strip(HTML_SPACE_CHARACTERS)
         if not c:
             continue
 
-        parts = c.split(None, 1)
+        parts = split_html_whitespace(c)
         url_token = parts[0]
-        desc = parts[1].strip() if len(parts) == 2 else ""
+        desc = " ".join(parts[1:])
         sanitized_url = _sanitize_url_value_with_rule(
             rule=rule,
             value=url_token,
@@ -364,14 +367,14 @@ def _sanitize_srcset_descriptor(value: str) -> str | None:
     if not value:
         return ""
 
-    tokens = value.split()
+    tokens = split_html_whitespace(value)
     if len(tokens) != 1:
         return None
 
     token = tokens[0].lower()
     if token.endswith(("w", "h")):
         number = token[:-1]
-        if not number.isdecimal() or not number.strip("0"):
+        if not number.isascii() or not number.isdecimal() or not number.strip("0"):
             return None
         return token
 
@@ -401,11 +404,11 @@ def _sanitize_space_separated_url_list(
             return None
         v = _strip_invisible_unicode(rewritten)
 
-    stripped = str(v).strip()
+    stripped = str(v).strip(HTML_SPACE_CHARACTERS)
     if not stripped:
         return None
 
-    tokens = stripped.split()
+    tokens = split_html_whitespace(stripped)
     out_tokens = _sanitize_url_tokens(tokens, url_policy=url_policy, rule=rule, tag=tag, attr=attr)
     return None if not out_tokens else " ".join(out_tokens)
 
@@ -425,11 +428,11 @@ def _sanitize_comma_or_space_separated_url_list(
             return None
         v = _strip_invisible_unicode(rewritten)
 
-    stripped = str(v).strip()
+    stripped = str(v).strip(HTML_SPACE_CHARACTERS)
     if not stripped:
         return None
 
-    tokens = [token for token in re.split(r"[\s,]+", stripped) if token]
+    tokens = [token for token in re.split(r"[\t\n\f\r ,]+", stripped) if token]
     out_tokens = _sanitize_url_tokens(tokens, url_policy=url_policy, rule=rule, tag=tag, attr=attr)
     return None if not out_tokens else " ".join(out_tokens)
 

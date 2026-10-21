@@ -99,7 +99,8 @@ imports as internal unless documentation says otherwise.
   elements.
 - HTML syntax uses ASCII-defined whitespace and case folding. Do not substitute
   Unicode-wide operations where source positions or HTML token boundaries must
-  remain stable.
+  remain stable. See [Whitespace rules](docs/whitespace.md) for the library-wide
+  audit and validation approach.
 
 ## Change routing
 

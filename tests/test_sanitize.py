@@ -40,7 +40,9 @@ from justhtml.sanitizer import (
 from justhtml.sanitizer import _sanitize as sanitize
 from justhtml.sanitizer import policy_defaults as sanitize_policy_defaults
 from justhtml.sanitizer.url import _url_sink_kind_for_attr
+from justhtml.sanitizer.url.runtime import _sanitize_srcset_descriptor, _sanitize_srcset_value
 from justhtml.serializer import to_html
+from tests.harness.whitespace import ASCII_WHITESPACE, NON_HTML_WHITESPACE
 
 
 class _CoverageSentinel:
@@ -358,6 +360,97 @@ class TestSanitizePlumbing(unittest.TestCase):
 
 
 class TestSanitizeDom(unittest.TestCase):
+    def test_inline_css_preserves_non_html_whitespace(self) -> None:
+        for space in NON_HTML_WHITESPACE:
+            with self.subTest(space=repr(space)):
+                assert (
+                    _sanitize_inline_style(
+                        allowed_css_properties={"color"},
+                        tag="p",
+                        value=f"{space}color:red",
+                    )
+                    is None
+                )
+                assert (
+                    _sanitize_inline_style(
+                        allowed_css_properties={"color"},
+                        tag="p",
+                        value=f"color{space}:red",
+                    )
+                    is None
+                )
+                assert (
+                    _sanitize_inline_style(
+                        allowed_css_properties={"color"},
+                        tag="p",
+                        value=f"color:{space}red{space}",
+                    )
+                    == f"color: {space}red{space}"
+                )
+        for space in ASCII_WHITESPACE:
+            assert (
+                _sanitize_inline_style(
+                    allowed_css_properties={"color"},
+                    tag="p",
+                    value=f"{space}color{space}:{space}red{space}",
+                )
+                == "color: red"
+            )
+
+    def test_css_whitespace_rules_agree_between_policy_and_transform(self) -> None:
+        policy = SanitizationPolicy(
+            allowed_tags={"p"},
+            allowed_attributes={"p": {"style"}},
+            allowed_css_properties={"color"},
+            strip_invisible_unicode=False,
+        )
+        for space in (*ASCII_WHITESPACE, *NON_HTML_WHITESPACE):
+            source = f'<p style="{space}color{space}:red">x</p>'
+            expected = "color: red" if space in ASCII_WHITESPACE else None
+            for transforms in (None, [Sanitize(policy)]):
+                doc = JustHTML(source, policy=policy, transforms=transforms, fragment=True)
+                assert doc.query("p")[0].attrs.get("style") == expected
+
+    def test_html_url_lists_do_not_split_non_html_whitespace(self) -> None:
+        rule = UrlRule(allowed_schemes={"https"})
+        url_policy = UrlPolicy()
+        for space in NON_HTML_WHITESPACE:
+            value = f"https://example.test/a{space}https://example.test/b"
+            for sanitize_list in (_sanitize_space_separated_url_list, _sanitize_comma_or_space_separated_url_list):
+                result = sanitize_list(url_policy=url_policy, rule=rule, tag="a", attr="ping", value=value)
+                assert result == (None if ord(space) < 0x20 else value)
+        for space in ASCII_WHITESPACE:
+            value = f"https://example.test/a{space}https://example.test/b"
+            assert (
+                _sanitize_space_separated_url_list(
+                    url_policy=url_policy,
+                    rule=rule,
+                    tag="a",
+                    attr="ping",
+                    value=value,
+                )
+                == "https://example.test/a https://example.test/b"
+            )
+
+    def test_srcset_descriptor_uses_ascii_whitespace_and_digits(self) -> None:
+        rule = UrlRule(allowed_schemes={"https"})
+        url_policy = UrlPolicy()
+        for space in NON_HTML_WHITESPACE:
+            assert _sanitize_srcset_descriptor(f"{space}2x") is None
+            assert _sanitize_srcset_descriptor(f"2x{space}") is None
+            value = f"https://example.test/a{space}2x"
+            assert _sanitize_srcset_value(
+                url_policy=url_policy,
+                rule=rule,
+                tag="img",
+                attr="srcset",
+                value=value,
+            ) == (None if ord(space) < 0x20 else value)
+        for space in ASCII_WHITESPACE:
+            assert _sanitize_srcset_descriptor(f"{space}2x{space}") == "2x"
+        assert _sanitize_srcset_descriptor("\uff11w") is None
+        assert _sanitize_srcset_descriptor("\u0661w") is None
+
     def test_custom_policy_preserves_content_after_closed_foreign_rawtext(self) -> None:
         policies = (
             replace(DEFAULT_POLICY),

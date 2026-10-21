@@ -61,6 +61,7 @@ async function installJusthtmlFromLocalRepo(pyodideInstance) {
 		"dom/builder.py",
 		"core/__init__.py",
 		"core/constants.py",
+		"core/whitespace.py",
 		"parser/context.py",
 		"parser/encoding.py",
 		"core/entities.py",

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve non-ASCII whitespace in class and attribute tokens, selector identifiers, HTML cleanup, and pretty output.
+- Apply ASCII whitespace rules to CSS declarations, URL lists, encoding labels, and streamed doctypes.
+- Reject malformed `:nth-child()` / `:nth-of-type()` formulas without accepting Unicode digits or Python integer syntax.
+
+### Performance
+
+- Share class and attribute token sets within selector queries and allocate attribute caches only when needed.
+
 ## [3.13.1] - 2026-10-12
 
 ### Fixed

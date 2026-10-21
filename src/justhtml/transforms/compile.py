@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from justhtml.core.constants import HTML_SPACE_CHARACTERS
 from justhtml.sanitizer import DEFAULT_POLICY, SanitizationPolicy, UrlPolicy, _sanitize_inline_style
 from justhtml.sanitizer.rawtext import _RAWTEXT_SERIALIZATION_ELEMENTS
 from justhtml.sanitizer.url import _URL_SINK_ATTRS, _sanitize_url_sink_value, _url_sink_kind_for_attr
@@ -450,7 +451,7 @@ def _compile_drop_transform(t: Drop, parse: Callable[[str], ParsedSelector]) -> 
     raw_parts = selector_str.split(",")
     tag_list: list[str] = []
     for part in raw_parts:
-        p = part.strip().lower()
+        p = part.strip(HTML_SPACE_CHARACTERS).lower()
         if not p:
             tag_list = []
             break
@@ -554,7 +555,7 @@ def _compile_edit_document_transform(t: EditDocument) -> _CompiledEditDocumentTr
 
 def _compile_decide_transform(t: Decide, parse: Callable[[str], ParsedSelector]) -> _CompiledDecideTransform:
     selector_str = t.selector
-    all_nodes = selector_str.strip() == "*"
+    all_nodes = selector_str.strip(HTML_SPACE_CHARACTERS) == "*"
     decide_func = t.func
     on_hook = t.callback
     on_report = t.report
@@ -594,7 +595,7 @@ def _compile_decide_transform(t: Decide, parse: Callable[[str], ParsedSelector])
 
 def _compile_edit_attrs_transform(t: EditAttrs, parse: Callable[[str], ParsedSelector]) -> _CompiledEditAttrsTransform:
     selector_str = t.selector
-    all_nodes = selector_str.strip() == "*"
+    all_nodes = selector_str.strip(HTML_SPACE_CHARACTERS) == "*"
     edit_attrs_func = t.func
     on_hook = t.callback
     on_report = t.report
@@ -719,7 +720,7 @@ def _compile_drop_attrs_transform(t: DropAttrs, parse: Callable[[str], ParsedSel
         return out2
 
     selector_str = t.selector
-    all_nodes = selector_str.strip() == "*"
+    all_nodes = selector_str.strip(HTML_SPACE_CHARACTERS) == "*"
     return _CompiledEditAttrsTransform(
         kind="edit_attrs",
         selector_str=selector_str,
@@ -802,7 +803,7 @@ def _compile_allowlist_attrs_transform(
         return out
 
     selector_str = t.selector
-    all_nodes = selector_str.strip() == "*"
+    all_nodes = selector_str.strip(HTML_SPACE_CHARACTERS) == "*"
     return _CompiledEditAttrsTransform(
         kind="edit_attrs",
         selector_str=selector_str,
@@ -911,7 +912,7 @@ def _compile_drop_url_attrs_transform(
         return out
 
     selector_str = t.selector
-    all_nodes = selector_str.strip() == "*"
+    all_nodes = selector_str.strip(HTML_SPACE_CHARACTERS) == "*"
     return _CompiledEditAttrsTransform(
         kind="edit_attrs",
         selector_str=selector_str,
@@ -987,7 +988,7 @@ def _compile_allow_style_attrs_transform(
         return out
 
     selector_str = t.selector
-    all_nodes = selector_str.strip() == "*"
+    all_nodes = selector_str.strip(HTML_SPACE_CHARACTERS) == "*"
     return _CompiledEditAttrsTransform(
         kind="edit_attrs",
         selector_str=selector_str,

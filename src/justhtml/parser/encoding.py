@@ -9,6 +9,8 @@ Outputs are a decoded Unicode string and the chosen encoding name.
 
 from __future__ import annotations
 
+from justhtml.core.constants import HTML_SPACE_CHARACTERS
+
 _ASCII_WHITESPACE: set[int] = {0x09, 0x0A, 0x0C, 0x0D, 0x20}
 
 
@@ -48,9 +50,9 @@ def normalize_encoding_label(label: str | bytes | None) -> str | None:
         return None
 
     if isinstance(label, bytes):
-        label = label.decode("ascii", "ignore")
+        label = label.decode("latin-1")
 
-    s = str(label).strip()
+    s = str(label).strip(HTML_SPACE_CHARACTERS)
     if not s:
         return None
 

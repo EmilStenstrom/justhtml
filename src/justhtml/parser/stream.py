@@ -25,9 +25,17 @@ DoctypeEvent: TypeAlias = tuple[Literal["doctype"], tuple[str | None, str | None
 StreamEvent: TypeAlias = StartEvent | EndEvent | TextEvent | CommentEvent | DoctypeEvent
 
 _DOCTYPE_RE = re.compile(
-    r"""\s*([^\s>]+)(?:\s*(PUBLIC|SYSTEM)\s*(?:(?:"([^"]*)"|'([^']*)')\s*(?:"([^"]*)"|'([^']*)')?)?)?""",
-    re.IGNORECASE,
+    r"""
+    [\t\n\f\r ]* ([^\t\n\f\r >]+)
+    (?: [\t\n\f\r ]* (PUBLIC|SYSTEM) [\t\n\f\r ]*
+        (?: (?:"([^"]*)"|'([^']*)') [\t\n\f\r ]*
+            (?:"([^"]*)"|'([^']*)')?
+        )?
+    )?
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
+
 _RAWTEXT_TAGS = frozenset({"script", "style", "iframe", "noembed", "noframes", "noscript", "xmp"})
 _RCDATA_TAGS = frozenset({"textarea", "title"})
 _PLAINTEXT_TAGS = frozenset({"plaintext"})

@@ -329,7 +329,7 @@ For policy details, see [Sanitization & Security](sanitization.md).
 
 Recursively drops elements that are empty after transforms have run.
 
-"Empty" means there are no element children and no non-whitespace text.
+"Empty" means there are no element children and no text other than HTML whitespace (TAB, LF, FF, CR, and SPACE). Nonbreaking spaces and other Unicode space characters count as content.
 
 Note: HTML void elements (like `img`, `br`, `hr`, …) are never considered empty by `PruneEmpty(...)` and will not be removed by pruning.
 If you want to remove “empty images”, use `Drop(...)` (for example `Drop('img:not([src]), img[src=""]')`) and then prune any now-empty wrapper elements.

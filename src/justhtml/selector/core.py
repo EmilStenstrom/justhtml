@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 from justhtml.core.constants import HTML_SPACE_CHARACTERS
+from justhtml.core.whitespace import split_html_whitespace
 
 if TYPE_CHECKING:
     from justhtml.dom import NodeType, QueryMatch
@@ -32,6 +34,14 @@ class SelectorLimits:
 
 
 DEFAULT_SELECTOR_LIMITS = SelectorLimits()
+
+# CSS Syntax §6: whitespace may surround the offset sign, but cannot split
+# a coefficient, its sign, or its digits. Python int() accepts a wider syntax.
+_NTH_EXPRESSION_RE = re.compile(
+    r"(?:([+-]?[0-9]*)n"
+    r"(?:[\t\n\f\r ]*([+-])[\t\n\f\r ]*([0-9]+))?"
+    r"|([+-]?[0-9]+))"
+)
 
 
 # Token types for the CSS selector lexer
@@ -289,7 +299,7 @@ class SelectorTokenizer:
                         if paren_depth > 0:
                             self.pos += 1
 
-                    arg = self.selector[arg_start : self.pos].strip()
+                    arg = self.selector[arg_start : self.pos].strip(HTML_SPACE_CHARACTERS)
                     if arg:
                         tokens.append(Token(TokenType.STRING, arg))
 
@@ -615,9 +625,9 @@ class SelectorParser:
 class NodeAttributeData:
     """Cached selector-relevant attribute data for one node."""
 
-    attrs_lower: dict[str, str]
+    attrs_lower: dict[str, str] | None = None
     class_tokens: frozenset[str] | None = None
-    attr_tokens: dict[str, frozenset[str]] = field(default_factory=dict)
+    attr_tokens: dict[str, frozenset[str]] | None = None
 
 
 @dataclass(slots=True)
@@ -640,6 +650,7 @@ class SelectorQueryContext:
 
     limits: SelectorLimits = DEFAULT_SELECTOR_LIMITS
     ancestor_match_cache: dict[tuple[int, int], dict[int, Any | None]] = field(default_factory=dict)
+    attribute_token_cache: dict[str, frozenset[str]] = field(default_factory=dict)
     node_attr_cache: dict[int, NodeAttributeData] = field(default_factory=dict)
     parent_data_cache: dict[int, ParentSelectorData] = field(default_factory=dict)
     nth_expression_cache: dict[str | None, tuple[int, int] | None] = field(default_factory=dict)
@@ -683,7 +694,7 @@ class SelectorMatcher:
         self._context = context or SelectorQueryContext(limits=limits)
 
     def _unquote_pseudo_arg(self, arg: str) -> str:
-        arg = arg.strip()
+        arg = arg.strip(HTML_SPACE_CHARACTERS)
         if len(arg) >= 2 and arg[0] == arg[-1] and arg[0] in ('"', "'"):
             quote = arg[0]
             # Minimal unescaping for common cases like :contains("click me")
@@ -802,16 +813,23 @@ class SelectorMatcher:
         if data is None:
             return frozenset()
         if data.class_tokens is None:
-            class_attr = data.attrs_lower.get("class")
+            # Canonical attributes need no normalized mapping for a class query.
+            # Other keys may hide a mixed-case duplicate with later precedence.
+            attrs = node.attrs
+            class_attr = attrs.get("class")
+            if class_attr is None or (len(attrs) > 1 and not all(name.islower() for name in attrs)):
+                class_attr = self._lowercase_attrs(node).get("class")
+            else:
+                self._context.tick_bytes(5 + len(class_attr))
             data.class_tokens = self._split_attribute_tokens(class_attr or "")
-            if class_attr:
-                data.attr_tokens["class"] = data.class_tokens
         return data.class_tokens
 
     def _matches_attribute(self, node: Any, selector: SimpleSelector) -> bool:
         """Match an attribute selector."""
         attr_name = selector.name or ""  # Attribute names are normalized during parsing.
-        attr_value = self._attribute_value(node, attr_name)
+        if attr_name == "class" and selector.operator == "~=":
+            return (selector.value or "") in self._class_tokens(node)
+        attr_value = self._lowercase_attrs(node).get(attr_name)
 
         if attr_value is None:
             return False
@@ -855,23 +873,25 @@ class SelectorMatcher:
 
     def _lowercase_attrs(self, node: Any) -> dict[str, str]:
         data = self._node_attribute_data(node)
-        return data.attrs_lower if data else {}
+        if data is None:
+            return {}
+        if data.attrs_lower is None:
+            attrs_lower: dict[str, str] = {}
+            for name, value in node.attrs.items():
+                name_str = name.lower()
+                value_str = "" if value is None else value
+                self._context.tick_bytes(len(name_str) + len(value_str))
+                attrs_lower[name_str] = value_str
+            data.attrs_lower = attrs_lower
+        return data.attrs_lower
 
     def _node_attribute_data(self, node: Any) -> NodeAttributeData | None:
-        attrs = getattr(node, "attrs", None)
-        if not attrs:
-            return None
-
         node_key = id(node)
         cached = self._context.node_attr_cache.get(node_key)
         if cached is None:
-            attrs_lower: dict[str, str] = {}
-            for name, value in attrs.items():
-                name_str = str(name).lower()
-                value_str = "" if value is None else str(value)
-                self._context.tick_bytes(len(name_str) + len(value_str))
-                attrs_lower[name_str] = value_str
-            cached = NodeAttributeData(attrs_lower=attrs_lower)
+            if node.name.startswith("#") or node.name == "!doctype" or not node.attrs:
+                return None
+            cached = NodeAttributeData()
             self._context.node_attr_cache[node_key] = cached
         return cached
 
@@ -886,17 +906,22 @@ class SelectorMatcher:
         if data is None:
             return frozenset()
 
+        if data.attr_tokens is None:
+            data.attr_tokens = {}
         cached = data.attr_tokens.get(attr_name)
         if cached is None:
             cached = self._split_attribute_tokens(attr_value)
             data.attr_tokens[attr_name] = cached
-            if attr_name == "class":
-                data.class_tokens = cached
         return cached
 
     def _split_attribute_tokens(self, attr_value: str) -> frozenset[str]:
         self._context.tick_bytes(len(attr_value))
-        return frozenset(attr_value.split())
+        cache = self._context.attribute_token_cache
+        tokens = cache.get(attr_value)
+        if tokens is None:
+            tokens = frozenset(split_html_whitespace(attr_value))
+            cache[attr_value] = tokens
+        return tokens
 
     def _matches_pseudo(self, node: Any, selector: SimpleSelector, *, depth: int = 0) -> bool:
         """Match a pseudo-class selector."""
@@ -996,7 +1021,7 @@ class SelectorMatcher:
                 continue
             previous_sibling[id(child)] = previous
             if child.name.startswith("#") or child.name == "!doctype":
-                if child.name == "#text" and child.data and child.data.strip():
+                if child.name == "#text" and child.data and child.data.strip(HTML_SPACE_CHARACTERS):
                     is_empty = False
                 continue
 
@@ -1238,49 +1263,31 @@ class SelectorMatcher:
         if not expr:
             return None
 
-        expr = expr.strip().lower()
+        expr = expr.strip(HTML_SPACE_CHARACTERS).lower()
 
         if expr == "odd":
             return (2, 1)  # 2n+1
         if expr == "even":
             return (2, 0)  # 2n
 
-        # Parse An+B syntax
-        # Handle formats: n, 2n, 2n+1, -n+2, 3, etc.
-        a = 0
-        b = 0
-
-        # Remove all spaces
-        expr = expr.replace(" ", "")
-
-        if "n" in expr:
-            parts = expr.split("n")
-            a_part = parts[0]
-            b_part = parts[1] if len(parts) > 1 else ""
-
-            if a_part == "" or a_part == "+":
+        match = _NTH_EXPRESSION_RE.fullmatch(expr)
+        if match is None:
+            return None
+        coefficient, sign, offset, integer = match.groups()
+        try:
+            if integer is not None:
+                return (0, int(integer))
+            if coefficient in {"", "+"}:
                 a = 1
-            elif a_part == "-":
+            elif coefficient == "-":
                 a = -1
             else:
-                try:
-                    a = int(a_part)
-                except ValueError:
-                    return None
-
-            if b_part:
-                try:
-                    b = int(b_part)
-                except ValueError:
-                    return None
-        else:
-            # Just a number
-            try:
-                b = int(expr)
-            except ValueError:
-                return None
-
-        return (a, b)
+                a = int(coefficient)
+            b = int(offset) if offset is not None else 0
+        except ValueError:
+            # Python may limit the number of digits accepted by int().
+            return None
+        return (a, -b if sign == "-" else b)
 
     def _matches_nth(self, index: int, a: int, b: int) -> bool:
         """Check if 1-based index matches An+B formula."""
@@ -1334,7 +1341,7 @@ def parse_selector(
     Note: parsing is cached internally via an LRU cache (see
     `_parse_selector_cached`) to keep repeated default-limit selector use cheap.
     """
-    selector = selector_string.strip() if selector_string else ""
+    selector = selector_string.strip(HTML_SPACE_CHARACTERS) if selector_string else ""
     if not selector:
         raise SelectorError("Empty selector")
     if len(selector) > limits.max_length:
@@ -1454,7 +1461,7 @@ def query(root: NodeType, selector_string: str) -> list[QueryMatch]:
     - Other selectors are parsed via an internal LRU cache (up to 512 distinct
       selector strings) to reduce repeated parse overhead.
     """
-    selector_string = selector_string.strip()
+    selector_string = selector_string.strip(HTML_SPACE_CHARACTERS)
     if not selector_string:
         raise SelectorError("Empty selector")
     if len(selector_string) > DEFAULT_SELECTOR_LIMITS.max_length:

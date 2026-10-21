@@ -19,6 +19,7 @@ from justhtml.core.constants import (
     WHITESPACE_PRESERVING_ELEMENTS,
 )
 from justhtml.core.rawtext import neutralize_rawtext_end_tag_sequences
+from justhtml.core.whitespace import split_html_whitespace
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 # Note: This matches the logic of the previous loop-based implementation.
 # It checks for space characters, quotes, equals sign, and greater-than.
 _UNQUOTED_ATTR_VALUE_INVALID = re.compile(r'[ \t\n\f\r"\'=>]')
+_FORMATTING_WHITESPACE_RE = re.compile(r"[\t\n\f\r]")
 _LITERAL_TEXT_SERIALIZATION_ELEMENTS = frozenset(
     {"iframe", "noembed", "noframes", "plaintext", "script", "style", "xmp"}
 )
@@ -459,7 +461,7 @@ def to_html(
 
         # First get text content (URLs shouldn't have markup)
         text = node.to_text()
-        return _escape_url_value_for_html_attr(text.strip())
+        return _escape_url_value_for_html_attr(text.strip(HTML_SPACE_CHARACTERS))
 
     raise TypeError(f"Unknown serialization context: {context}")  # pragma: no cover
 
@@ -473,26 +475,7 @@ def _collapse_html_whitespace(text: str) -> str:
     if not text:
         return ""
 
-    # Optimization: split() handles whitespace collapsing efficiently.
-    # Note: split() treats \v as whitespace, which is not HTML whitespace.
-    # But \v is extremely rare in HTML.
-    if "\v" in text:
-        parts: list[str] = []
-        in_whitespace = False
-        for ch in text:
-            if ch in HTML_SPACE_CHARACTERS:
-                if not in_whitespace:
-                    parts.append(" ")
-                    in_whitespace = True
-                continue
-
-            parts.append(ch)
-            in_whitespace = False
-
-        collapsed = "".join(parts)
-        return collapsed.strip(" ")
-
-    return " ".join(text.split())
+    return " ".join(split_html_whitespace(text))
 
 
 def _normalize_formatting_whitespace(
@@ -511,7 +494,7 @@ def _normalize_formatting_whitespace(
     if not text:
         return ""
 
-    if not any(ch in text for ch in HTML_FORMATTING_SPACE_CHARACTERS):
+    if not _FORMATTING_WHITESPACE_RE.search(text):
         return text
 
     starts_with_formatting = text[0] in HTML_FORMATTING_SPACE_CHARACTERS
@@ -556,7 +539,7 @@ def _normalize_formatting_whitespace(
 
 
 def _is_whitespace_text_node(node: Any) -> bool:
-    return node.name == "#text" and (node.data or "").strip() == ""
+    return node.name == "#text" and (node.data or "").strip(HTML_SPACE_CHARACTERS) == ""
 
 
 _NON_ELEMENT_NODE_NAMES = {"#text", "#comment", "!doctype"}
@@ -749,7 +732,7 @@ def _pretty_renders_nonempty(node: Any, *, in_pre: bool) -> bool:
         name = current.name
         if name == "#text":
             data = current.data or ""
-            if data if current_in_pre else data.strip():
+            if data if current_in_pre else data.strip(HTML_SPACE_CHARACTERS):
                 return True
             continue
 
@@ -783,7 +766,7 @@ def _should_pretty_indent_children(children: list[Any], memo: _BlockMemo | None 
         name = child.name
         if name == "#comment":
             return False
-        if name == "#text" and (child.data or "").strip():
+        if name == "#text" and (child.data or "").strip(HTML_SPACE_CHARACTERS):
             return False
 
     element_children: list[Any] = [
@@ -878,7 +861,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                 text: str | None = current.data
                 parent = current.parent
                 if not current_in_pre:
-                    text = text.strip() if text else ""
+                    text = text.strip(HTML_SPACE_CHARACTERS) if text else ""
                     results.append(f"{prefix}{_serialize_text_for_parent(text, parent)}" if text else "")
                 else:
                     results.append(_serialize_text_for_parent(text, parent))
@@ -949,7 +932,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                 for child in children:
                     if child is None:
                         continue
-                    if child.name == "#text" and (child.data or "").strip():
+                    if child.name == "#text" and (child.data or "").strip(HTML_SPACE_CHARACTERS):
                         can_indent = False
                         break
 
@@ -976,7 +959,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                         if child.name != "#text":
                             continue
                         data = child.data or ""
-                        if data.strip() == "" and _is_formatting_whitespace_text(data):
+                        if data.strip(HTML_SPACE_CHARACTERS) == "" and _is_formatting_whitespace_text(data):
                             has_separator = True
                             break
 
@@ -986,7 +969,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                         for child in non_none_children:
                             if child.name == "#text":
                                 data = child.data or ""
-                                if data.strip() == "" and _is_formatting_whitespace_text(data):
+                                if data.strip(HTML_SPACE_CHARACTERS) == "" and _is_formatting_whitespace_text(data):
                                     if not last_was_sep:
                                         items.append(_FORMAT_SEP)
                                         last_was_sep = True
@@ -1033,7 +1016,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                             for run_index, child in enumerate(run):
                                 if child.name == "#text":
                                     data = child.data or ""
-                                    if not data.strip():
+                                    if not data.strip(HTML_SPACE_CHARACTERS):
                                         parts_template.append(("lit", data))
                                     else:
                                         parts_template.append(
@@ -1085,7 +1068,9 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                             for child in children
                         )
                         has_non_whitespace_text = any(
-                            child is not None and child.name == "#text" and (child.data or "").strip()
+                            child is not None
+                            and child.name == "#text"
+                            and (child.data or "").strip(HTML_SPACE_CHARACTERS)
                             for child in children
                         )
 
@@ -1120,7 +1105,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
 
                                 if child.name == "#text":
                                     data = child.data or ""
-                                    if not data.strip():
+                                    if not data.strip(HTML_SPACE_CHARACTERS):
                                         if i == first_non_none_index or i == last_non_none_index:
                                             continue
                                         if "\n" in data or "\r" in data or "\t" in data or len(data) > 2:
@@ -1186,7 +1171,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                             has_comment = True
                             break
                         if child.name == "#text":
-                            if previous_was_element and not (child.data or "").strip():
+                            if previous_was_element and not (child.data or "").strip(HTML_SPACE_CHARACTERS):
                                 saw_whitespace_since_last_element = True
                             continue
 
@@ -1202,7 +1187,11 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                     can_indent_non_whitespace_text = True
                     if has_element and first_element_index is not None and last_element_index is not None:
                         for i, child in enumerate(children):
-                            if child is None or child.name != "#text" or not (child.data or "").strip():
+                            if (
+                                child is None
+                                or child.name != "#text"
+                                or not (child.data or "").strip(HTML_SPACE_CHARACTERS)
+                            ):
                                 continue
                             if i < first_element_index or first_element_index < i < last_element_index:
                                 can_indent_non_whitespace_text = False
@@ -1268,7 +1257,7 @@ def _node_to_html(node: Any, indent: int = 0, indent_size: int = 2, *, in_pre: b
                         continue
                     if child.name == "#text":
                         data = child.data or ""
-                        if not data.strip():
+                        if not data.strip(HTML_SPACE_CHARACTERS):
                             if i == first_non_none_index or i == last_non_none_index:
                                 continue
                             if "\n" in data or "\r" in data or "\t" in data or len(data) > 2:

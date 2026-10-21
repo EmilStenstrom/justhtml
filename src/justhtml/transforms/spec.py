@@ -14,7 +14,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, ClassVar
 
-from justhtml.core.constants import WHITESPACE_PRESERVING_ELEMENTS, WHITESPACE_TRIMMING_BLOCK_ELEMENTS
+from justhtml.core.constants import (
+    HTML_SPACE_CHARACTERS,
+    WHITESPACE_PRESERVING_ELEMENTS,
+    WHITESPACE_TRIMMING_BLOCK_ELEMENTS,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection
@@ -631,7 +635,19 @@ class MergeAttrs:
     ) -> None:
         object.__setattr__(self, "tag", str(tag).lower())
         object.__setattr__(self, "attr", str(attr).lower())
-        object.__setattr__(self, "tokens", tuple(sorted({str(t).strip().lower() for t in tokens if str(t).strip()})))
+        object.__setattr__(
+            self,
+            "tokens",
+            tuple(
+                sorted(
+                    {
+                        str(t).strip(HTML_SPACE_CHARACTERS).lower()
+                        for t in tokens
+                        if str(t).strip(HTML_SPACE_CHARACTERS)
+                    }
+                )
+            ),
+        )
         object.__setattr__(self, "enabled", bool(enabled))
         object.__setattr__(self, "callback", callback)
         object.__setattr__(self, "report", report)

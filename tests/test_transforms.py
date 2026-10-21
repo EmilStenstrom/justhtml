@@ -39,6 +39,7 @@ from justhtml.transforms import (
     compile_transforms,
     emit_error,
 )
+from tests.harness.whitespace import ASCII_WHITESPACE, NON_HTML_WHITESPACE
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802
@@ -1690,6 +1691,38 @@ class TestTransforms(unittest.TestCase):
         assert doc.to_html(pretty=False) == '<span style="position: fixed">x</span>'
         assert policy.collected_security_errors() == []
 
+    def test_mergeattrs_preserves_non_html_whitespace_in_existing_and_added_tokens(self) -> None:
+        for space in NON_HTML_WHITESPACE:
+            with self.subTest(space=repr(space)):
+                token = f"alpha{space}beta"
+                added = f"{space}extra{space}"
+                doc = JustHTML(
+                    f'<p class="{token}">x</p>',
+                    fragment=True,
+                    transforms=[MergeAttrs("p", attr="class", tokens={added})],
+                )
+                assert doc.query("p")[0].attrs == {"class": f"{token} {added}"}
+                assert doc.query('[class~="alpha"]') == []
+
+    def test_mergeattrs_normalizes_ascii_whitespace(self) -> None:
+        for space in ASCII_WHITESPACE:
+            doc = JustHTML(
+                f'<p class="{space}alpha{space}beta{space}">x</p>',
+                fragment=True,
+                transforms=[MergeAttrs("p", attr="class", tokens={f"{space}extra{space}"})],
+            )
+            assert doc.query("p")[0].attrs == {"class": "alpha beta extra"}
+
+    def test_selector_transforms_preserve_non_ascii_identifier_edges(self) -> None:
+        for space in NON_HTML_WHITESPACE:
+            if ord(space) > 127:
+                doc = JustHTML(
+                    f'<p class="alpha{space}">x</p><p class="alpha">y</p>',
+                    fragment=True,
+                    transforms=[SetAttrs(f".alpha{space}", title="selected")],
+                )
+                assert [p.attrs.get("title") for p in doc.query("p")] == ["selected", None]
+
     def test_mergeattrs_rewrites_on_add_missing_and_normalization(self) -> None:
         doc = JustHTML(
             '<a></a><a rel="NoOpEnEr noopener"></a><a rel="noreferrer"></a><a rel="noopener"></a>',
@@ -2184,6 +2217,17 @@ class TestTransforms(unittest.TestCase):
         doc.root.append_child(Node("script"))
         # Sanitization happens at construction time; later mutations are not re-sanitized.
         assert "<script" in doc.to_html(pretty=False)
+
+    def test_pruneempty_keeps_non_html_whitespace_as_content(self) -> None:
+        for space in NON_HTML_WHITESPACE:
+            for strip_whitespace in (False, True):
+                doc = JustHTML(
+                    f"<p>{space}</p>",
+                    fragment=True,
+                    transforms=[PruneEmpty("p", strip_whitespace=strip_whitespace)],
+                )
+                assert len(doc.query("p")) == 1
+                assert doc.to_html(pretty=False) == f"<p>{space}</p>"
 
     def test_pruneempty_drops_empty_elements(self) -> None:
         doc = JustHTML(

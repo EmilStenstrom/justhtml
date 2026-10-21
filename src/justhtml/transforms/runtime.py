@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from justhtml.core.constants import HTML_SPACE_CHARACTERS, VOID_ELEMENTS
+from justhtml.core.whitespace import split_html_whitespace
 from justhtml.dom import Element, Node, Template, Text
 from justhtml.sanitizer import _sanitize_rawtext_element_contents, _strip_invisible_unicode
 from justhtml.selector import SelectorMatcher, SelectorQueryContext
@@ -510,8 +511,8 @@ def apply_compiled_transforms(
                                             continue
                                         matched_keys.append(attr_key)
                                         if isinstance(attr_value, str) and attr_value:
-                                            for tok in attr_value.split():
-                                                tt = tok.strip().lower()
+                                            for tok in split_html_whitespace(attr_value):
+                                                tt = tok.lower()
                                                 if tt and tt not in existing:
                                                     existing.append(tt)
 
@@ -920,7 +921,7 @@ def apply_compiled_transforms(
                         if nm == "#text":
                             data = ch.data or ""
                             if strip_whitespace:
-                                if str(data).strip():
+                                if str(data).strip(HTML_SPACE_CHARACTERS):
                                     return True
                             else:
                                 if str(data) != "":

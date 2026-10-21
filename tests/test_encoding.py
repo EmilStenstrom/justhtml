@@ -5,6 +5,7 @@ from justhtml.parser import encoding as enc
 from justhtml.parser.encoding import decode_html, normalize_encoding_label, sniff_html_encoding
 from justhtml.parser.options import ParserOptions
 from justhtml.parser.stream import stream
+from tests.harness.whitespace import ASCII_WHITESPACE, NON_HTML_WHITESPACE
 
 
 class TestEncoding(unittest.TestCase):
@@ -24,6 +25,16 @@ class TestEncoding(unittest.TestCase):
         enc_name, bom_len = sniff_html_encoding(data, transport_encoding="utf-8")
         self.assertEqual(enc_name, "utf-8")
         self.assertEqual(bom_len, 0)
+
+    def test_encoding_labels_trim_only_ascii_whitespace(self):
+        for space in ASCII_WHITESPACE:
+            assert enc.normalize_encoding_label(f"{space}UTF-8{space}") == "utf-8"
+            assert enc.normalize_encoding_label(f"{space}UTF-8{space}".encode("ascii")) == "utf-8"
+        for space in NON_HTML_WHITESPACE:
+            assert enc.normalize_encoding_label(f"{space}utf-8") is None
+            assert enc.normalize_encoding_label(f"utf-8{space}") is None
+        assert enc.normalize_encoding_label(b"\xa0utf-8") is None
+        assert enc.normalize_encoding_label(b"utf-8\xff") is None
 
     def test_sniff_bom_utf16(self):
         self.assertEqual(sniff_html_encoding(b"\xff\xfeh\x00i\x00")[0], "utf-16le")

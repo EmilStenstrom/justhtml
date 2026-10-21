@@ -1,5 +1,6 @@
 """Comprehensive tests for CSS selector functionality."""
 
+import sys
 import unittest
 from typing import Any, cast
 
@@ -25,6 +26,8 @@ from justhtml.selector import (
     _selector_signature,
     parse_selector,
 )
+from tests.harness.scaling import assert_scales_linearly
+from tests.harness.whitespace import ASCII_WHITESPACE, NON_HTML_WHITESPACE
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802
@@ -236,6 +239,41 @@ class TestClassSelector(SelectorTestCase):
     def test_class_with_tag(self):
         result = query(self.get_simple_doc(), "p.intro")
         assert len(result) == 1
+
+    def test_class_and_word_selectors_preserve_non_html_whitespace(self):
+        for space in NON_HTML_WHITESPACE:
+            for value in (f"alpha{space}beta", f"{space}alpha", f"alpha{space}", space):
+                with self.subTest(space=repr(space), value=value):
+                    doc = JustHTML(f'<p class="{value}" data-tags="{value}">x</p>')
+                    paragraph = doc.query("p")[0]
+                    assert doc.query(".alpha") == []
+                    assert doc.query('[data-tags~="alpha"]') == []
+                    assert doc.query(f'[class~="{value}"]') == [paragraph]
+                    assert doc.query(f'[data-tags~="{value}"]') == [paragraph]
+                    if ord(space) > 127:
+                        assert doc.query(f".{value}") == [paragraph]
+                        assert matches(paragraph, f".{value}")
+                        assert doc.query(f"p:not(.{value})") == []
+
+    def test_class_and_word_selectors_split_only_ascii_whitespace(self):
+        for space in ASCII_WHITESPACE:
+            with self.subTest(space=repr(space)):
+                doc = JustHTML(f'<p class="{space}alpha{space}{space}beta{space}">x</p>')
+                paragraph = doc.query("p")[0]
+                assert doc.query(".alpha.beta") == [paragraph]
+                assert doc.query('[class~="alpha"]') == [paragraph]
+                assert doc.query(f'[class~="alpha{space}beta"]') == []
+                assert doc.query('[class~=""]') == []
+
+    def test_non_ascii_selector_edges_are_part_of_identifiers(self):
+        doc = JustHTML('<p class="alpha" id="alpha">x</p>')
+        paragraph = doc.query("p")[0]
+        for space in NON_HTML_WHITESPACE:
+            if ord(space) > 127:
+                assert doc.query(f".alpha{space}") == []
+                assert doc.query(f"{space}#alpha") == []
+                assert not matches(paragraph, f".alpha{space}")
+                assert doc.query(f"p:not(.alpha{space})") == [paragraph]
 
     def test_class_with_wrong_tag(self):
         result = query(self.get_simple_doc(), "div.intro")
@@ -545,6 +583,12 @@ class TestEmpty(SelectorTestCase):
         # Whitespace-only text nodes still count as content per spec
         result = query(self.get_empty_and_root_doc(), ".whitespace:empty")
         assert len(result) == 1  # Whitespace-only counts as empty per CSS spec
+
+    def test_empty_preserves_non_html_whitespace_content(self):
+        for space in NON_HTML_WHITESPACE:
+            with self.subTest(space=repr(space)):
+                doc = JustHTML(f"<p>{space}</p>")
+                assert doc.query("p:empty") == []
 
     def test_empty_with_text(self):
         result = query(self.get_empty_and_root_doc(), ".text:empty")
@@ -1047,6 +1091,25 @@ class TestNthExpressionCoverage(SelectorTestCase):
         doc = JustHTML("<html><body><ul><li>1</li><li>2</li><li>3</li></ul></body></html>").root
         result = query(doc, "li:nth-child(+n)")
         assert len(result) == 3
+
+    def test_nth_formulas_respect_ascii_whitespace_and_digit_boundaries(self):
+        doc = JustHTML("<ul><li>1</li><li>2</li><li>3</li></ul>")
+        items = doc.query("li")
+        for space in ASCII_WHITESPACE:
+            for pseudo in ("nth-child", "nth-of-type"):
+                assert doc.query(f"li:{pseudo}({space}2n{space}+{space}1{space})") == [items[0], items[2]]
+        for space in NON_HTML_WHITESPACE:
+            for expression in (f"{space}1", f"1{space}", f"2n{space}+1", f"2n+{space}1"):
+                assert doc.query(f"li:nth-child({expression})") == []
+        for expression in ("1 2", "2 n+1", "+ 2", "+ n", "2n+ +1", "2nn+1", "\u0661", "\uff11n+1", "1_0"):
+            assert doc.query(f"li:nth-child({expression})") == []
+
+    def test_nth_conversion_limits_do_not_raise(self):
+        if hasattr(sys, "get_int_max_str_digits") and sys.get_int_max_str_digits():
+            digits = "1" * (sys.get_int_max_str_digits() + 1)
+            matcher = SelectorMatcher()
+            assert matcher._parse_nth_expression(digits) is None
+            assert matcher._parse_nth_expression(digits + "n") is None
 
     def test_nth_invalid_expression(self):
         doc = JustHTML("<html><body><ul><li>1</li><li>2</li></ul></body></html>").root
@@ -2288,6 +2351,39 @@ class TestSelectorSecurity(SelectorTestCase):
         selector = ":not(em)" * 700
 
         assert len(self.assert_query_within_budget(doc, selector, max_match_steps=20_000)) == 3_003
+
+    def test_unique_class_values_scale_linearly(self):
+        assert_scales_linearly(
+            lambda size: JustHTML(
+                "<main>"
+                + "".join(f'<p class="unique{index} alpha\u00a0beta active">x</p>' for index in range(size))
+                + "</main>"
+            ).root,
+            lambda root: query(root, ".active"),
+        )
+
+    def test_shared_attribute_tokens_preserve_node_byte_accounting(self):
+        context = SelectorQueryContext(limits=SelectorLimits(max_match_bytes=8))
+        matcher = SelectorMatcher(context=context)
+        first = matcher._split_attribute_tokens("alpha")
+        assert first == frozenset({"alpha"})
+        with self.assertRaises(SelectorError):
+            matcher._split_attribute_tokens("alpha")
+
+    def test_class_cache_preserves_mixed_case_duplicate_attribute_precedence(self):
+        for attrs in ({"class": "alpha", "CLASS": "beta"}, {"CLASS": "beta", "class": "alpha"}):
+            node = Element("p", attrs, "html")
+            expected = list(attrs.values())[-1]
+            assert matches(node, f".{expected}")
+            assert matches(node, f'[class~="{expected}"]')
+            assert matches(node, f'.{expected}[class~="{expected}"]')
+
+    def test_identical_attribute_values_share_tokens_within_query(self):
+        matcher = SelectorMatcher()
+        first = Element("p", {"class": "alpha beta"}, "html")
+        second = Element("p", {"class": "alpha beta"}, "html")
+        assert matcher._class_tokens(first) is matcher._class_tokens(second)
+        assert matcher._attribute_tokens(second, "class", "alpha beta") == frozenset({"alpha", "beta"})
 
     def test_repeated_empty_selectors_do_not_rescan_children(self):
         html = "<div>" + ("<!--x--> \n" * 3_000) + "</div>"

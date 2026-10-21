@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from justhtml.core.constants import HTML_SPACE_CHARACTERS
+
 from .url import (
     UrlFilter,
     UrlHandling,
@@ -177,7 +179,7 @@ def _sanitize_url_function_value(
             end_paren = v.find(")", k)
             if end_paren == -1:
                 return None
-            url_raw = v[k:end_paren].strip()
+            url_raw = v[k:end_paren].strip(HTML_SPACE_CHARACTERS)
             if not url_raw:
                 return None
             # Unquoted url(...) must not contain whitespace.
@@ -257,20 +259,20 @@ def _sanitize_inline_style(
     out_parts: list[str] = []
     lower_tag = str(tag).lower()
     for decl in v.split(";"):
-        d = decl.strip()
+        d = decl.strip(HTML_SPACE_CHARACTERS)
         if not d:
             continue
         colon = d.find(":")
         if colon <= 0:
             continue
 
-        prop = d[:colon].strip().lower()
+        prop = d[:colon].strip(HTML_SPACE_CHARACTERS).lower()
         if not _is_valid_css_property_name(prop):
             continue
         if prop not in allowed:
             continue
 
-        prop_value = d[colon + 1 :].strip()
+        prop_value = d[colon + 1 :].strip(HTML_SPACE_CHARACTERS)
         if not prop_value:
             continue
 

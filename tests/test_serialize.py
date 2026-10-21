@@ -1,7 +1,7 @@
 import textwrap
 import unittest
 
-from justhtml import HTMLContext, UrlRule
+from justhtml import HTMLContext, Sanitize, UrlRule
 from justhtml import JustHTML as _JustHTML
 from justhtml.core.constants import SPECIAL_ELEMENTS
 from justhtml.core.types import Doctype
@@ -28,6 +28,7 @@ from justhtml.serializer import (
     to_test_format,
 )
 from tests.harness.scaling import assert_scales_linearly
+from tests.harness.whitespace import ASCII_WHITESPACE, NON_HTML_WHITESPACE
 
 
 def JustHTML(*args, **kwargs):  # noqa: N802
@@ -37,6 +38,38 @@ def JustHTML(*args, **kwargs):  # noqa: N802
 
 
 class TestSerialize(unittest.TestCase):
+    def test_pretty_and_compact_preserve_non_html_whitespace(self):
+        shapes = (
+            "<p>{s}</p>",
+            "<p>{s}alpha{s}beta{s}</p>",
+            "<div><p>{s}</p><p>x</p></div>",
+            "<div>{s}<span>x</span>{s}</div>",
+            "<div><p>x</p>{s}<p>y</p></div>",
+            "<table><tr><td>{s}</td></tr></table>",
+        )
+        for space in NON_HTML_WHITESPACE:
+            for shape in shapes:
+                source = shape.format(s=space)
+                doc = JustHTML(source, fragment=True)
+                for pretty in (False, True):
+                    with self.subTest(space=repr(space), shape=shape, pretty=pretty):
+                        output = doc.to_html(pretty=pretty)
+                        assert output.count(space) == source.count(space)
+        for space in ASCII_WHITESPACE:
+            assert _collapse_html_whitespace(f"{space}alpha{space}{space}beta{space}") == "alpha beta"
+
+    def test_safe_parsing_paths_preserve_non_html_whitespace_in_output(self):
+        for space in NON_HTML_WHITESPACE:
+            source = f"<p>{space}</p>"
+            for transforms in (None, [Sanitize()]):
+                doc = _JustHTML(source, fragment=True, transforms=transforms)
+                assert doc.to_html(pretty=False) == source
+                assert doc.to_html(pretty=True) == source
+
+    def test_html_whitespace_collapse_preserves_other_whitespace(self):
+        for space in NON_HTML_WHITESPACE:
+            assert _collapse_html_whitespace(f" {space}alpha{space}beta{space} ") == f"{space}alpha{space}beta{space}"
+
     def test_basic_document(self):
         html = "<!DOCTYPE html><html><head><title>Test</title></head><body><p>Hello</p></body></html>"
         doc = JustHTML(html)
