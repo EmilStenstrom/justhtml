@@ -161,7 +161,7 @@ y -->
 | <html>
 |   <head>
 |   <body>
-|     "<�div>"
+|     "<div>"
 
 #data
 </>
@@ -250,3 +250,271 @@ y -->
 |     <a>
 |       8="
 "
+
+#data
+<body>a<\x00b
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     "a<b"
+
+#data
+<body><\x00
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     "<"
+
+#data
+<svg><foreignObject>a\x00b&amp;
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg foreignObject>
+|         "ab&"
+
+#data
+<svg><foreignObject><![CDATA[a\x00b&amp;]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg foreignObject>
+|         "ab&amp;"
+
+#data
+<svg><desc>a\x00b&amp;
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg desc>
+|         "ab&"
+
+#data
+<svg><desc><![CDATA[a\x00b&amp;]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg desc>
+|         "ab&amp;"
+
+#data
+<svg><title>a\x00b&amp;
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg title>
+|         "ab&"
+
+#data
+<svg><title><![CDATA[a\x00b&amp;]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg title>
+|         "ab&amp;"
+
+#data
+<svg><g>a\x00b&amp;
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg g>
+|         "a�b&"
+
+#data
+<svg><g><![CDATA[a\x00b&amp;]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg g>
+|         "a�b&amp;"
+
+#data
+<math><mi><![CDATA[a\x00b&amp;]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         "ab&amp;"
+
+#data
+<math><mo><![CDATA[a\x00b&amp;]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mo>
+|         "ab&amp;"
+
+#data
+<math><mn><![CDATA[a\x00b&amp;]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mn>
+|         "ab&amp;"
+
+#data
+<math><ms><![CDATA[a\x00b&amp;]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math ms>
+|         "ab&amp;"
+
+#data
+<math><mtext><![CDATA[a\x00b&amp;]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mtext>
+|         "ab&amp;"
+
+#data
+<body><style>a<\x00b
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <style>
+|       "a<�b"
+
+#data
+<body><script>a<\x00b
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <script>
+|       "a<�b"
+
+#data
+<body><xmp>a<\x00b
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <xmp>
+|       "a<�b"
+
+#data
+<body><textarea>a<\x00b
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <textarea>
+|       "a<�b"
+
+#data
+<body><plaintext>a<\x00b
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <plaintext>
+|       "a<�b"
+
+#data
+<svg>a<\x00b
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       "a<�b"
+
+#data
+<svg><foreignObject>a<\x00b
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg foreignObject>
+|         "a<b"
+
+#data
+<math><annotation-xml encoding="text/html"><![CDATA[a\x00b]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math annotation-xml>
+|         encoding="text/html"
+|         "ab"
+
+#data
+<math><annotation-xml encoding="application/xhtml+xml"><![CDATA[a\x00b]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math annotation-xml>
+|         encoding="application/xhtml+xml"
+|         "ab"
+
+#data
+<math><annotation-xml encoding="application/xml"><![CDATA[a\x00b]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math annotation-xml>
+|         encoding="application/xml"
+|         "a�b"
