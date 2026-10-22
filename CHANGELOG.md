@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve non-ASCII whitespace in class and attribute tokens, selector identifiers, HTML cleanup, and pretty output.
 - Apply ASCII whitespace rules to CSS declarations, URL lists, encoding labels, and streamed doctypes.
 - Reject malformed `:nth-child()` / `:nth-of-type()` formulas without accepting Unicode digits or Python integer syntax.
+- Keep a `<button>` nested when an `object`, `applet`, `marquee`, table cell, caption or integration point separates it from an open `<button>`, instead of closing the outer one across that scope boundary.
 
 ### Performance
 

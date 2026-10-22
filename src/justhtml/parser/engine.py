@@ -3465,7 +3465,7 @@ class ParseEngine:
                 return template_pos
 
         if name == "button" and name not in self._allowed_tags:
-            if self._find_open_index_in_current_scope("button") is not None:
+            if self._has_button_in_scope():
                 self._close_until_before_boundary("button", frozenset({"template"}))
             button_parent = self._current_parent()
             if button_parent.namespace in {None, "html"}:
@@ -3970,7 +3970,7 @@ class ParseEngine:
                 return template_pos
 
         if html_text_parsing and name == "button":
-            if self._find_open_index_in_current_scope("button") is not None:
+            if self._has_button_in_scope():
                 self._generate_implied_end_tags()
                 self._close_until_before_boundary("button", frozenset({"template"}))
             if not allowed:
@@ -4537,6 +4537,16 @@ class ParseEngine:
             ):
                 return None
         return None
+
+    def _has_button_in_scope(self) -> bool:
+        # "has a button element in scope" (§13.2.6.4.7): an object, applet,
+        # marquee, table cell or integration point between the two buttons keeps
+        # the new one nested. The template check covers parser-only templates,
+        # which the boundary walk does not treat as scope boundaries.
+        return (
+            self._find_open_index_before_boundary("button", _DEFAULT_SCOPE_BOUNDARIES) is not None
+            and self._find_open_index_in_current_scope("button") is not None
+        )
 
     def _template_end_tag_boundaries(self, name: str, action: TagAction | None) -> frozenset[str]:
         # Generic in-body end tags inside a template still obey scope: block and

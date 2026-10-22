@@ -1249,6 +1249,10 @@ class TestParserFragmentsAndTextModes(_ParserEngineTestCase):
             ("<xmp>a<b>c</xmp>", "<html><head></head><body>a&lt;b&gt;c</body></html>"),
             ("<button>a<button>b", "<html><head></head><body>ab</body></html>"),
             (
+                "<button><table><tr><td><button></td><td>y</table>z",
+                "<html><head></head><body><table><tbody><tr><td></td><td>y</td></tr></tbody></table>z</body></html>",
+            ),
+            (
                 "<table><table><tr><td>x",
                 "<html><head></head><body><table></table><table><tbody><tr><td>x</td></tr></tbody></table></body></html>",
             ),
