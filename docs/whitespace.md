@@ -5,9 +5,10 @@ HTML and CSS syntax use five whitespace characters: TAB (U+0009), LF
 `strip()`, `isspace()`, and regular-expression `\s` recognize additional
 characters. These operations are not interchangeable when interpreting HTML.
 
-For example, `class="alpha beta"` with a nonbreaking space contains one
-class. It must not match `.alpha`. The nonbreaking space also remains part
-of an identifier at the end of `.alpha ` or inside `:not(.alpha )`.
+For example, `class="alpha\u00A0beta"` contains one class, where `\u00A0`
+denotes a literal nonbreaking space (U+00A0). It must not match `.alpha`.
+That character also remains part of an identifier at the end of
+`.alpha\u00A0` or inside `:not(.alpha\u00A0)`.
 
 ## Implementation
 
