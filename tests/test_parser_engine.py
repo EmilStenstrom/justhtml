@@ -1106,6 +1106,41 @@ class TestParserFormattingAndLists(_ParserEngineTestCase):
 
 
 class TestParserFragmentsAndTextModes(_ParserEngineTestCase):
+    def test_null_character_tokens_follow_tree_construction_context(self) -> None:
+        cases = (
+            ("<p>a<\0b</p>", "a<b"),
+            ("<p>a<\0\0b</p>", "a<b"),
+            ("<svg>a<\0b</svg>", "a<\ufffdb"),
+            ("<svg><foreignObject>a<\0b</foreignObject></svg>", "a<b"),
+            ("<math><mi>a<\0b</mi></math>", "a<b"),
+            ("<svg><![CDATA[a\0b&amp;&#0;]]></svg>", "a\ufffdb&amp;&#0;"),
+            ("<svg><foreignObject><![CDATA[a\0b&amp;&#0;]]></foreignObject></svg>", "ab&amp;&#0;"),
+            ("<svg><title><![CDATA[a\0b]]></title></svg>", "ab"),
+            ("<svg><desc><![CDATA[a\0b]]></desc></svg>", "ab"),
+            ("<math><mi><![CDATA[a\0b]]></mi></math>", "ab"),
+            ('<math><annotation-xml encoding="text/html"><![CDATA[a\0b]]></annotation-xml></math>', "ab"),
+            ('<math><annotation-xml encoding="text/plain"><![CDATA[a\0b]]></annotation-xml></math>', "a\ufffdb"),
+            ("<svg><foreignObject><![CDATA[\0]]></foreignObject></svg>", ""),
+            ("<svg><foreignObject><![CDATA[a\0b", "ab"),
+        )
+        for html, expected in cases:
+            for fragment in (False, True):
+                for diagnostics in (False, True):
+                    with self.subTest(html=html, fragment=fragment, diagnostics=diagnostics):
+                        document = JustHTML(
+                            html,
+                            sanitize=False,
+                            fragment=fragment,
+                            collect_errors=diagnostics,
+                            track_node_locations=diagnostics,
+                        )
+                        assert document.to_text() == expected
+                        if diagnostics:
+                            assert any(error.code == "unexpected-null-character" for error in document.errors)
+                        for transforms in (None, [Sanitize()]):
+                            safe = JustHTML(html, fragment=fragment, transforms=transforms)
+                            assert safe.to_text() == ("a<b" if html.startswith("<p>") else "")
+
     def test_text_modes_and_projected_attributes(self) -> None:
         cases = [
             (

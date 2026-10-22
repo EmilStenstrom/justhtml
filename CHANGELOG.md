@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Ignore NUL character tokens after `<` and in CDATA at HTML integration points, while preserving foreign-content replacement rules.
 - Preserve non-ASCII whitespace in class and attribute tokens, selector identifiers, HTML cleanup, and pretty output.
 - Apply ASCII whitespace rules to CSS declarations, URL lists, encoding labels, and streamed doctypes.
 - Reject malformed `:nth-child()` / `:nth-of-type()` formulas without accepting Unicode digits or Python integer syntax.

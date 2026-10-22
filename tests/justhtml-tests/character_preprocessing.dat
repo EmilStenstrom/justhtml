@@ -161,7 +161,7 @@ y -->
 | <html>
 |   <head>
 |   <body>
-|     "<�div>"
+|     "<div>"
 
 #data
 </>
@@ -250,3 +250,27 @@ y -->
 |     <a>
 |       8="
 "
+
+#data
+<!DOCTYPE html><body>a<\x00b
+#errors
+(1,24): unexpected-null-character
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "a<b"
+
+#data
+<svg><foreignObject><![CDATA[a\x00b]]>
+#errors
+(1,5): expected-doctype-but-got-start-tag
+(1,30): unexpected-null-character
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg foreignObject>
+|         "ab"

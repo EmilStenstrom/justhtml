@@ -394,6 +394,14 @@ class TestStream(unittest.TestCase):
 
     def test_null_handling_matches_stream_compatibility(self):
         assert list(stream("a\0b")) == [("text", "a\0b")]
+        assert "".join(value for kind, value in stream("a<\0b") if kind == "text") == "a<\0b"
+        assert list(stream("<svg><foreignObject><![CDATA[a\0b]]></foreignObject></svg>")) == [
+            ("start", ("svg", {})),
+            ("start", ("foreignobject", {})),
+            ("text", "a\0b"),
+            ("end", "foreignobject"),
+            ("end", "svg"),
+        ]
         assert list(stream("<svg><![CDATA[a\0b]]></svg>")) == [
             ("start", ("svg", {})),
             ("text", "a\0b"),
