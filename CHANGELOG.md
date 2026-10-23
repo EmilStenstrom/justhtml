@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep whitespace after a `<base>`, `<link>` or `<meta>` that implies the `<head>` in the head, instead of dropping it.
+
 ## [3.14.0] - 2026-10-22
 
 ### Fixed

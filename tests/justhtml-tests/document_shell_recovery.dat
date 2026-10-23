@@ -364,3 +364,30 @@
 |     "İ"
 |     <p>
 |       "x"
+
+#data
+<meta charset="utf-8">
+<title>x</title>
+#errors
+#document
+| <html>
+|   <head>
+|     <meta>
+|       charset="utf-8"
+|     "
+"
+|     <title>
+|       "x"
+|   <body>
+
+#data
+<base><link> x
+#errors
+#document
+| <html>
+|   <head>
+|     <base>
+|     <link>
+|     " "
+|   <body>
+|     "x"

@@ -4045,6 +4045,7 @@ class ParseEngine:
                 self._generate_implied_end_tags("rtc")
 
         parent: Node
+        parsed_in_initial_head = False
         if (
             action is not None
             and allowed
@@ -4057,6 +4058,7 @@ class ParseEngine:
             and not self._body_has_content()
         ):
             parent = self._head
+            parsed_in_initial_head = self._current_parent() is not self._head
         elif not html_text_parsing and not self._is_foreign_breakout_start(name, attrs):
             # A non-breakout start tag inside foreign content is inserted as a
             # foreign element in the current namespace; the HTML in-body repair
@@ -4150,6 +4152,10 @@ class ParseEngine:
                 self._stack.pop()  # pragma: no cover - unreachable after parser-state guards
         if action is not None and action.pre_linefeed:
             self._ignore_lf = True
+        if parsed_in_initial_head and name in _HTML_VOID_ELEMENTS and self._html is not None:
+            # A void head element implies the head like title does, so the
+            # parser is now "in head" and following whitespace stays there.
+            self._stack = _CountingStack([self._doc, self._html, self._head])  # type: ignore[list-item]
         self._finish_head_reentry()
         return pos
 
