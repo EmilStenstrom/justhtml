@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Keep whitespace after a `<base>`, `<link>` or `<meta>` that implies the `<head>` in the head, instead of dropping it.
+- Keep whitespace after a `<base>`, `<link>` or `<meta>` that implies the `<head>` in the head, including when sanitization removes the metadata element.
 
 ## [3.14.0] - 2026-10-22
 
