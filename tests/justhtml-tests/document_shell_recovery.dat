@@ -391,3 +391,27 @@
 |     " "
 |   <body>
 |     "x"
+
+#data
+<head></head>  x
+#errors
+#document
+| <html>
+|   <head>
+|   "  "
+|   <body>
+|     "x"
+
+#data
+</head>
+<!--c--> x
+#errors
+#document
+| <html>
+|   <head>
+|   "
+"
+|   <!-- c -->
+|   " "
+|   <body>
+|     "x"
