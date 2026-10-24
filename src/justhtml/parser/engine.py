@@ -2350,6 +2350,19 @@ class ParseEngine:
             if raw_is_space is None:  # pragma: no branch - opposite edge requires invalid parser state
                 raw_is_space = raw.strip(_SPACE) == ""
             if not raw_is_space:
+                # "After head" inserts whitespace characters into the html element; only the first
+                # other character switches to the body (13.2.6.4.6).
+                stripped = raw.lstrip(_SPACE)
+                leading_len = len(raw) - len(stripped)
+                if leading_len:
+                    leading_text = self._clean_text(raw[:leading_len])
+                    node = (
+                        self._new_text(leading_text, source_pos) if self._track_node_locations else Text(leading_text)
+                    )
+                    self._insert_at(self._html, self._html.children.index(self._body), node)
+                    if source_pos is not None:  # pragma: no branch - opposite edge requires invalid parser state
+                        source_pos += leading_len
+                    raw = stripped
                 self._stack = _CountingStack([self._doc, self._html, self._body])  # type: ignore[list-item]
                 self._after_head = False
                 self._body_mode_seen = True

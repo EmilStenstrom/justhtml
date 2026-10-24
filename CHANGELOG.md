@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep whitespace that follows `</head>` in the `<html>` element, before `<body>`, when the same text continues with other characters, instead of moving it into the body.
+
 ## [3.15.0] - 2026-10-24
 
 ### Added
