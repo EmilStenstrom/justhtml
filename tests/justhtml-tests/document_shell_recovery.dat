@@ -391,3 +391,41 @@
 |     " "
 |   <body>
 |     "x"
+
+#data
+<!DOCTYPE html>\x00 <table>
+#errors
+(1,16): unexpected-null-character
+
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     " "
+|     <table>
+
+#data
+<!DOCTYPE html>\x00<title>t</title>
+#errors
+(1,16): unexpected-null-character
+
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <title>
+|       "t"
+
+#data
+\x00<!DOCTYPE html><p>
+#errors
+(1,1): unexpected-null-character
+(1,1): expected-doctype-but-got-chars
+
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>

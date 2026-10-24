@@ -2256,12 +2256,14 @@ class ParseEngine:
             pending_table_whitespace = int(self._foster_next_table_whitespace)
             self._foster_next_table_whitespace = 0  # pragma: no cover - unreachable after parser-state guards
         if not self._quirks_mode:
-            if "&" in raw:
+            # Only whitespace is ignored before the document starts. A NUL is "anything else":
+            # it starts the document (in quirks mode) and implies <body>, then is dropped there.
+            if "&" in raw and "\0" not in raw:
                 initial_text = self._clean_text(raw)
-                if initial_text and initial_text.strip(_SPACE + "\0") == "":
+                if initial_text and initial_text.strip(_SPACE) == "":
                     return
             initial_end = 0
-            while initial_end < len(raw) and raw[initial_end] in _SPACE + "\0":
+            while initial_end < len(raw) and raw[initial_end] in _SPACE:
                 initial_end += 1
             if initial_end:
                 raw = raw[initial_end:]
@@ -2370,15 +2372,18 @@ class ParseEngine:
             and not self._body_mode_seen
             and not self._body_has_content()
         ):
-            if "&" in raw:
+            if "&" in raw and "\0" not in raw:
                 initial_text = self._clean_text(raw)
-                if initial_text and initial_text.strip(_SPACE + "\0") == "":
+                if initial_text and initial_text.strip(_SPACE) == "":
                     return
             if raw_is_space is None:  # pragma: no branch - shell text reaches this block without prior classification
-                raw_is_space = raw.strip(_SPACE + "\0") == ""
+                raw_is_space = raw.strip(_SPACE) == ""
             if raw_is_space:
                 return
-            raw = raw.lstrip(_SPACE + "\0")
+            raw = raw.lstrip(_SPACE)
+            # A NUL before any body content still implies <body> (and is dropped there), so the
+            # text after it stays in the body and later head elements go to the body too
+            self._body_mode_seen = True
         if self._in_colgroup and getattr(parent, "name", None) == "table":
             if raw.strip(_SPACE):  # pragma: no branch - mixed colgroup text is the state-changing edge
                 leading = len(raw) - len(raw.lstrip(_SPACE))
