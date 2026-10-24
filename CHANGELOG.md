@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Treat a NUL character before any document or body content as content instead of skipping it like whitespace: it implies `<body>` (and quirks mode when it comes before the doctype), so the whitespace after it stays in the body, a following `<title>` or `<style>` goes to the body, and a later doctype is ignored.
+
 ## [3.15.0] - 2026-10-24
 
 ### Added
