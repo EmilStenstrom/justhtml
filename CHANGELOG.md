@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Restrict decimal character references to ASCII digits, preventing uncaught conversion errors on Unicode digit lookalikes in text and attributes, including the event stream API.
+
 ## [3.16.0] - 2026-10-26
 
 ### Added

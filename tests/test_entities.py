@@ -1,9 +1,50 @@
 import unittest
 
+from justhtml import JustHTML, stream
 from justhtml.core.entities import decode_entities_in_text, decode_numeric_entity
+from tests.harness.scaling import assert_scales_linearly
 
 
 class TestEntities(unittest.TestCase):
+    def test_numeric_references_accept_only_ascii_digits(self):
+        # Include Unicode decimal digits that int() accepts as well as digits
+        # such as superscripts that would raise ValueError during conversion.
+        for digit in "¹²³⁰₀₁₂₃٠١٢۳४９𝟚":
+            for semicolon in ("", ";"):
+                for prefix, decoded in (("", "&#"), ("65", "A"), ("x", "&#x"), ("x41", "A")):
+                    source = f"&#{prefix}{digit}{semicolon}"
+                    expected = f"{decoded}{digit}{semicolon}"
+                    with self.subTest(source=source):
+                        for in_attribute in (False, True):
+                            errors: list[str] = []
+                            assert (
+                                decode_entities_in_text(source, in_attribute=in_attribute, report_error=errors.append)
+                                == expected
+                            )
+                            assert errors == (
+                                ["missing-semicolon-after-character-reference"] if decoded == "A" else []
+                            )
+
+                        assert list(stream(source)) == [("text", expected)]
+                        attribute_source = f'<a title="{source}">x</a>'
+                        assert list(stream(attribute_source)) == [
+                            ("start", ("a", {"title": expected})),
+                            ("text", "x"),
+                            ("end", "a"),
+                        ]
+                        for sanitize in (False, True):
+                            assert JustHTML(source, fragment=True, sanitize=sanitize).to_text() == expected
+                            doc = JustHTML(attribute_source, fragment=True, sanitize=sanitize)
+                            assert doc.query_one("a").attrs["title"] == expected
+
+    def test_unicode_digit_references_scale_linearly(self):
+        for reference in ("&#²;", "&#65²;", "&#65;"):
+            assert_scales_linearly(
+                lambda size, reference=reference: reference * (size * 20),
+                decode_entities_in_text,
+                label="numeric character references",
+            )
+
     def test_numeric_entity_invalid_ranges_and_replacements(self):
         assert decode_numeric_entity("110000", is_hex=True) == "\ufffd"
         assert decode_numeric_entity("D800", is_hex=True) == "\ufffd"

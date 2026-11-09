@@ -283,7 +283,7 @@ def decode_entities_in_text(
                 while j < length and text[j] in "0123456789abcdefABCDEF":
                     j += 1
             else:
-                while j < length and text[j].isdigit():
+                while j < length and text[j] in "0123456789":
                     j += 1
 
             has_semicolon = j < length and text[j] == ";"
