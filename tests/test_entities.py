@@ -6,6 +6,30 @@ from tests.harness.scaling import assert_scales_linearly
 
 
 class TestEntities(unittest.TestCase):
+    def test_legacy_named_entities_before_non_ascii_characters(self):
+        for suffix in ("²", "\uff19", "\U0001d7da", "é", "中", "²;", "é;", "\u0301", "\u00a0"):
+            source = f"&copy{suffix}"
+            expected = f"©{suffix}"
+            with self.subTest(suffix=suffix):
+                for in_attribute in (False, True):
+                    errors: list[str] = []
+                    assert (
+                        decode_entities_in_text(source, in_attribute=in_attribute, report_error=errors.append)
+                        == expected
+                    )
+                    assert errors == ["missing-semicolon-after-character-reference"]
+                assert list(stream(source)) == [("text", expected)]
+                html = f'<a title="{source}">{source}</a>'
+                assert list(stream(html)) == [
+                    ("start", ("a", {"title": expected})),
+                    ("text", expected),
+                    ("end", "a"),
+                ]
+                for sanitize in (False, True):
+                    doc = JustHTML(html, fragment=True, sanitize=sanitize)
+                    assert doc.query_one("a").children[0].data == expected
+                    assert doc.query_one("a").attrs["title"] == expected
+
     def test_numeric_references_accept_only_ascii_digits(self):
         # Include Unicode decimal digits that int() accepts as well as digits
         # such as superscripts that would raise ValueError during conversion.

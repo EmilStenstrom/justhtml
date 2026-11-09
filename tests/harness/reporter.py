@@ -94,7 +94,10 @@ class TestReporter:
         lines = []
 
         def natural_sort_key(filename):
-            return [int(text) if text.isdigit() else text.lower() for text in re.split("([0-9]+)", filename)]
+            return [
+                int(text) if text.isascii() and text.isdecimal() else text.lower()
+                for text in re.split("([0-9]+)", filename)
+            ]
 
         sorted_files = sorted(file_results.keys(), key=natural_sort_key)
 

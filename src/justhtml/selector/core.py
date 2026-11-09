@@ -111,7 +111,7 @@ class SelectorTokenizer:
 
     def _is_name_char(self, ch: str) -> bool:
         # CSS identifier continuation: name-start or digit
-        return self._is_name_start(ch) or ch.isdigit()
+        return self._is_name_start(ch) or ch in "0123456789"
 
     def _read_name(self) -> str:
         start = self.pos

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Restrict decimal character references to ASCII digits, preventing uncaught conversion errors on Unicode digit lookalikes in text and attributes, including the event stream API.
 
+### Fixed
+
+- Decode legacy named character references before non-ASCII characters in attributes, using HTML's ASCII alphanumeric boundary rules.
+- Preserve Unicode digit lookalikes when escaping Markdown ordered-list markers.
+
 ## [3.16.0] - 2026-10-26
 
 ### Added

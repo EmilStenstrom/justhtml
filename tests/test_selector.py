@@ -275,6 +275,14 @@ class TestClassSelector(SelectorTestCase):
                 assert not matches(paragraph, f".alpha{space}")
                 assert doc.query(f"p:not(.alpha{space})") == [paragraph]
 
+    def test_digit_characters_in_identifiers(self):
+        for digit in "09²\uff19\U0001d7da\u0661":
+            for name in (f"alpha{digit}", f"{digit}alpha") if ord(digit) > 127 else (f"alpha{digit}",):
+                doc = JustHTML(f'<p class="{name}" id="{name}">x</p>')
+                paragraph = doc.query("p")[0]
+                assert doc.query(f".{name}") == [paragraph]
+                assert doc.query(f"#{name}") == [paragraph]
+
     def test_class_with_wrong_tag(self):
         result = query(self.get_simple_doc(), "div.intro")
         assert len(result) == 0

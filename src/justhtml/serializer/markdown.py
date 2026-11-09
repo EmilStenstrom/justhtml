@@ -118,9 +118,9 @@ def _markdown_escape_line_start(s: str) -> tuple[str, int] | None:
             return r"\`", 1
         return None
 
-    if first.isdigit():
+    if first in "0123456789":
         end = 1
-        while end < len(s) and s[end].isdigit():
+        while end < len(s) and s[end] in "0123456789":
             end += 1
         if end < len(s) and s[end] in ".)" and end + 1 < len(s) and s[end + 1] in " \t":
             return f"{s[:end]}\\{s[end]}", end + 1

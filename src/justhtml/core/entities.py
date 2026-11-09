@@ -303,7 +303,7 @@ def decode_entities_in_text(
 
         # Named entity
         # Collect alphanumeric characters (entity names are case-sensitive and can include uppercase)
-        while j < length and (text[j].isalpha() or text[j].isdigit()):
+        while j < length and text[j].isascii() and text[j].isalnum():
             j += 1
 
         entity_length = j - i - 1
@@ -346,7 +346,7 @@ def decode_entities_in_text(
             # don't decode if followed by alphanumeric or '='
             # Per HTML5 spec §13.2.5.72
             next_char = text[j] if j < length else None
-            if in_attribute and next_char and (next_char.isalnum() or next_char == "="):
+            if in_attribute and next_char and ((next_char.isascii() and next_char.isalnum()) or next_char == "="):
                 result.append("&")
                 i += 1
                 continue

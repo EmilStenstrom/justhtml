@@ -105,7 +105,7 @@ class TestRunner:
 
     def _natural_sort_key(self, path):
         def convert(text):
-            return int(text) if text.isdigit() else text.lower()
+            return int(text) if text.isascii() and text.isdecimal() else text.lower()
 
         return [convert(c) for c in re.split("([0-9]+)", str(path))]
 

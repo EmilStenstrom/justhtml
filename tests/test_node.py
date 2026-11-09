@@ -870,6 +870,15 @@ class TestNode(unittest.TestCase):
         doc = JustHTML("<p>a<br>- item<br>+ next<br>1. ordered<br>2) ordered<br>12. multi</p>", fragment=True)
         assert doc.to_markdown() == "a\n\\- item\n\\+ next\n1\\. ordered\n2\\) ordered\n12\\. multi"
 
+    def test_to_markdown_preserves_non_ascii_digit_list_lookalikes(self):
+        for digits in ("²", "\uff11\uff12", "\u0661\u0662", "\U0001d7da", "1²", "1\uff19"):
+            for marker in (".", ")"):
+                text = f"{digits}{marker} item"
+                with self.subTest(text=text):
+                    assert _markdown_escape_line_start(text) is None
+                    assert JustHTML(f"<p>{text}</p>", fragment=True).to_markdown() == text
+                    assert JustHTML(f"<p>a<br>{text}</p>", fragment=True).to_markdown() == f"a\n{text}"
+
     def test_to_markdown_escapes_fence_and_rule_markers_after_line_break(self):
         doc = JustHTML("<p>a<br>~~~<br>```<br>---<br>===</p>", fragment=True)
         assert doc.to_markdown() == "a\n\\~~~\n\\`\\`\\`\n\\---\n\\==="
