@@ -1,6 +1,6 @@
 [← Back to docs](index.md)
 
-# Command Line Interface
+# Command line interface
 
 JustHTML ships with a small CLI for parsing HTML and extracting HTML/text/Markdown from selected parts of a document.
 
@@ -42,7 +42,7 @@ Use `--fragment` to parse the input as an HTML fragment (instead of a full docum
 echo '<li>Hi</li>' | justhtml - --fragment
 ```
 
-## Strict Mode
+## Strict mode
 
 Use `--strict` to fail immediately and print an error to `stderr` if the input HTML contains parsing errors or is otherwise malformed according to the WHATWG specification.
 

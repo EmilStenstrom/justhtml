@@ -1,10 +1,10 @@
 [← Back to docs](index.md)
 
-# HTML Cleaning
+# HTML cleaning
 
-JustHTML includes a built-in, **policy-driven HTML sanitizer** intended for rendering *untrusted HTML safely*.
+JustHTML uses a policy to sanitize untrusted HTML before rendering.
 
-This page focuses on **HTML cleaning**: tags, attributes, and inline styles. For URL validation and rewriting, see [URL Cleaning](url-cleaning.md).
+HTML cleaning controls which tags, attributes, and inline styles the sanitizer allows. For URL validation and rewriting, see [URL Cleaning](url-cleaning.md).
 
 On this page:
 
@@ -19,7 +19,7 @@ On this page:
 
 ## Safe-by-default construction
 
-By default, construction removes all dangerous html:
+By default, JustHTML sanitizes input using its built-in allowlist policy:
 
 ### HTML output
 
@@ -57,7 +57,7 @@ Hello **world** [bad] [ok](https://example.com/?a=1&b=2)
 
 The built-in default is `DEFAULT_POLICY` (a conservative allowlist).
 
-The default URL policy is conservative about remote loads: by default `a[href]` allows common link schemes, while `img[src]` only allows relative URLs (so images won't load from remote hosts unless you opt in via a custom policy). For details, see [URL Cleaning](url-cleaning.md).
+The default URL policy allows common link schemes for `a[href]`. For `img[src]`, it allows only relative URLs. To allow remote image URLs, configure a custom policy. See [URL Cleaning](url-cleaning.md).
 
 High-level behavior:
 

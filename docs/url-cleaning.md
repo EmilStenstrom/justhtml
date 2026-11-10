@@ -1,8 +1,8 @@
 [← Back to docs](index.md)
 
-# URL Cleaning
+# URL cleaning
 
-This page focuses on **URL cleaning**: how JustHTML validates and rewrites URL-valued attributes like `a[href]` or `img[src]`.
+JustHTML validates and rewrites URL-valued attributes such as `a[href]` and `img[src]` according to URL policy rules.
 
 For tag/attribute allowlists, inline styles, and unsafe-handling modes, see [HTML Cleaning](html-cleaning.md).
 
@@ -25,7 +25,9 @@ On this page:
 
 JustHTML treats a set of attributes as *URL-like* (including `href`, `src`, `srcset`, `action`, and a few others).
 
-The reason is that these attributes can trigger navigation or resource loading (and in some cases script execution via unsafe schemes like `javascript:`). Different attributes also have different security expectations: for example, allowing `a[href]` is often fine, while allowing `img[src]` can cause remote requests/tracking. Requiring an explicit `(tag, attr)` rule forces you to opt in and define what is considered a valid URL for that specific attribute.
+URL-like attributes can trigger navigation, load resources, or execute scripts through unsafe schemes such as `javascript:`.
+
+Different attributes need different rules. For example, you may allow navigation through `a[href]` while restricting `img[src]` to prevent remote requests and tracking. An explicit `(tag, attr)` rule defines which URLs you accept for each attribute.
 
 For safety, these attributes are **only kept** if there is an explicit matching rule in `UrlPolicy(allow_rules=...)` for the `(tag, attr)` pair.
 
@@ -50,7 +52,7 @@ print(JustHTML("""
 <img>
 ```
 
-Since no urlpolicy was set, the default kicked in, and deleted any URL-like attribute. It's not enough to allow an attribute if it's "URL-like", you need to add a url_policy, matching what you want to allow:
+This custom policy has no matching URL rules, so the sanitizer drops the URL-like attributes. To keep them, allow the attribute names and add matching rules in `UrlPolicy`:
 
 ```python
 from justhtml import JustHTML, SanitizationPolicy, UrlPolicy, UrlRule
@@ -125,9 +127,7 @@ UrlPolicy(
 <a id="default_handling-allow"></a>
 ### Allow all URL-like attributes (default_handling=`"allow"`)
 
-This is the default “keep validated URLs” behavior for attributes with a matching allow rule.
-
-For URL-like attributes that match an explicit `(tag, attr)` rule in `UrlPolicy(allow_rules=...)`, a validated URL is kept when `default_handling="allow"` unless you override handling with `UrlRule.handling`.
+With `default_handling="allow"`, JustHTML keeps validated URLs whose attributes match an explicit `(tag, attr)` rule in `UrlPolicy(allow_rules=...)`. Set `UrlRule.handling` to override that action for a rule.
 
 <a id="default_handling-strip"></a>
 ### Default: Strip all URL-like attributes (default_handling=`"strip"`)
@@ -136,7 +136,11 @@ Some renderers (notably email clients) want to avoid loading remote resources by
 
 The built-in `DEFAULT_POLICY` already blocks remote image loads by default (`img[src]` only allows relative URLs).
 
-To strip URL-valued attributes, either omit the `(tag, attr)` rule (so the attribute is dropped), set `default_handling="strip"` for matching rules, or set `UrlRule(handling="strip")` for a specific attribute.
+To strip URL-valued attributes, choose one of these options:
+
+- Omit the `(tag, attr)` rule to drop that attribute.
+- Set `default_handling="strip"` to drop attributes with matching rules unless a rule overrides the action.
+- Set `UrlRule(handling="strip")` to drop a specific attribute.
 
 ```python
 from justhtml import JustHTML, SanitizationPolicy, UrlPolicy, UrlRule
@@ -257,9 +261,9 @@ print(JustHTML('<a href="https://example.com/?a=1&b=2">link</a>', policy=policy)
 
 ### Protocol-relative URLs
 
-Protocol-relative URLs start with `//`, and are relatively unknown. Browsers resolve them to "https" if you are on a https-enabled site, and "http" otherwise.
+Protocol-relative URLs start with `//`. On HTTP and HTTPS pages, browsers resolve them using the page's scheme.
 
-By default, justhtml resolves them to `https` before validation. This ensures they are checked against allowed schemes and prevents inheriting an insecure protocol from the embedding page.
+By default, JustHTML resolves them to `https` before checking the allowed schemes. This prevents the URL from inheriting an insecure protocol from the embedding page.
 
 You can configure this behavior per rule:
 
@@ -276,11 +280,11 @@ rule = UrlRule(allowed_schemes=["http", "https"], resolve_protocol_relative="htt
 rule = UrlRule(allowed_schemes=["https"], resolve_protocol_relative=None)
 ```
 
-There is currently no way to leave protocol relative URLs untouched. If this is something you need, open an issue with a desciption of your use-case.
+JustHTML cannot preserve protocol-relative URLs unchanged. If you need this behavior, open an issue describing your use case.
 
 ### Special handling: srcset
 
-`srcset` contains **multiple URLs**, so it requires special care.
+`srcset` contains multiple URL candidates.
 
 JustHTML parses the comma-separated candidates and sanitizes each candidate URL using the matching `UrlRule` for `(tag, "srcset")`.
 
@@ -288,12 +292,11 @@ If any candidate is unsafe, the entire attribute is dropped.
 
 ### url_filter hook
 
-`UrlPolicy.url_filter` lets you apply a last-mile filter/rewrite (or drop) based on `(tag, attr, value)`.
+`UrlPolicy.url_filter` can keep, rewrite, or drop a URL based on `(tag, attr, value)` before validation.
 
 - Return a string to keep it (possibly rewritten).
 - Return `None` to drop the attribute.
 
-This runs before validation.
 
 Example: drop URLs to a blocked host:
 

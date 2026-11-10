@@ -1,27 +1,31 @@
 [← Back to docs](index.md)
 
-# Unsafe Handling
+# Unsafe handling
 
-This page focuses on **what happens when unsafe input is encountered** during sanitization.
+The sanitizer can strip unsafe content, collect findings, or raise an error.
 
 For tag/attribute allowlists and inline styles, see [HTML Cleaning](html-cleaning.md).
 For URL validation and URL handling, see [URL Cleaning](url-cleaning.md).
 
-Unsafe behavior is controlled by `SanitizationPolicy(unsafe_handling=...)`.
+Choose the behavior with `SanitizationPolicy(unsafe_handling=...)`.
 
-## Strip (default) — unsafe_handling="strip"
+<a id="strip-default--unsafe_handlingstrip"></a>
 
-Unsafe constructs are removed/dropped and sanitization continues.
+## Strip (default): unsafe_handling="strip"
+
+The sanitizer removes unsafe constructs and continues processing.
 
 Use this mode when you want best-effort cleaned output and don't need a list of what was removed.
 
-## Collect (optional) — unsafe_handling="collect"
+<a id="collect-optional--unsafe_handlingcollect"></a>
+
+## Collect (optional): unsafe_handling="collect"
 
 If you want to keep sanitizing but also get a list of what was removed, set `unsafe_handling="collect"`.
 
 Collected findings are exposed as parse-style errors with `category == "security"` and are available in `doc.errors` after construction.
 
-Tip: pass `track_node_locations=True` to `JustHTML(...)` to include `line`/`column` information in the collected findings (otherwise location may be missing). This comes with a slight performance penalty, which is why it's disabled by default.
+To include `line`/`column` information in collected findings, pass `track_node_locations=True` to `JustHTML(...)`. Otherwise, locations may be missing. Location tracking adds some processing time and is disabled by default.
 
 ```python
 from justhtml import JustHTML, SanitizationPolicy, UrlPolicy
@@ -50,7 +54,9 @@ for e in doc.errors:
 Unsafe tag 'script' (dropped content)
 ```
 
-## Raise (optional) — unsafe_handling="raise"
+<a id="raise-optional--unsafe_handlingraise"></a>
+
+## Raise (optional): unsafe_handling="raise"
 
 If you want to treat unsafe HTML as an error instead of stripping it, set `unsafe_handling="raise"`.
 

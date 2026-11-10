@@ -4,11 +4,11 @@
 
 JustHTML’s sanitization and transform pipeline were heavily inspired by Bleach’s real-world ergonomics.
 
-Bleach has helped a lot of projects ship safer HTML over the years, and a lot of that is thanks to the hard work of [@willkg](https://github.com/willkg) building and maintaining it.
+Bleach has helped projects sanitize HTML for years. [@willkg](https://github.com/willkg) built and maintained it.
 
 In June 2026, Bleach’s maintainer [announced Bleach’s final release](https://bluesock.org/~willkg/blog/dev/bleach_6_4_0_final_release.html). The announcement identifies JustHTML as an easy migration path and explicitly recommends swapping Bleach out for it.
 
-This guide starts with Bleach's defaults, then builds up to a copyable compatibility wrapper for a gradual migration.
+Start with Bleach's defaults, then use the compatibility wrapper below to migrate gradually.
 
 ## Start with the defaults
 
@@ -141,7 +141,9 @@ safe_html = clean(
 )
 ```
 
-`fragment=True` inside the wrapper keeps user-generated snippets free of `<html>`, `<head>`, and `<body>` wrappers. For URL rules with host restrictions, proxies, `srcset`, and remote-resource controls, extend the local `build_url_policy(...)` function; see [URL Cleaning](url-cleaning.md).
+`fragment=True` keeps user-generated snippets free of `<html>`, `<head>`, and `<body>` wrappers.
+
+To add host restrictions, proxies, `srcset`, or remote-resource controls, extend the local `build_url_policy(...)` function. See [URL Cleaning](url-cleaning.md).
 
 ## Intentional compatibility differences
 
@@ -208,7 +210,11 @@ Mapping:
 
 JustHTML also supports `disallowed_tag_handling="drop"` to drop the entire disallowed subtree.
 
-If you need to display untrusted HTML with no HTML in the output, prefer `to_text()`, or escape the output before embedding it into an HTML page. `to_markdown()` runs on the sanitized DOM when `sanitize=True` (the default), but the value it returns is still Markdown source, not escaped HTML. Render it with a compliant Markdown renderer before embedding it into a page, or escape it first if you want to show the raw Markdown source. It may still include sanitized raw HTML for elements such as tables and images.
+To extract plain text from untrusted HTML, use `to_text()`. Before embedding plain text into an HTML page, escape it.
+
+With `sanitize=True` (the default), `to_markdown()` reads the sanitized DOM. Its output is Markdown source and can include sanitized raw HTML for tables and images.
+
+Before embedding Markdown into a page, render it with a compliant Markdown renderer. To display the raw Markdown source, escape it first.
 
 If you need additional structural cleanup beyond policy decisions, prefer doing it explicitly with transforms.
 

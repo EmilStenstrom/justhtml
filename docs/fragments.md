@@ -1,10 +1,10 @@
 [← Back to docs](index.md)
 
-# Fragment Parsing
+# Fragment parsing
 
 Parse HTML fragments as if they were inserted into a specific context element. This is essential for WYSIWYG editors, sanitizers, and template systems.
 
-## Why Fragment Parsing?
+## Why fragment parsing?
 
 HTML parsing rules depend on context. The same markup can produce different results depending on where it appears:
 
@@ -45,7 +45,7 @@ print(doc.to_html(indent_size=4))
 </tr>
 ```
 
-## Basic Usage
+## Basic usage
 
 ```python
 from justhtml import JustHTML
@@ -71,9 +71,9 @@ paragraphs = doc.query("p")
 <p>User's <b>content</b></p>
 ```
 
-## Common Use Cases
+## Common use cases
 
-### WYSIWYG Editor Content
+### WYSIWYG editor content
 
 When users edit HTML in a rich text editor, the content will typically be inserted into a container like `<div>` or `<article>`:
 
@@ -88,7 +88,7 @@ doc = JustHTML(user_html, fragment=True)
 clean_html = doc.to_html()
 ```
 
-### Table Cell Content
+### Table cell content
 
 Parsing content that will go inside a table cell:
 
@@ -98,7 +98,7 @@ ctx = FragmentContext("td")
 doc = JustHTML(cell_content, fragment_context=ctx)
 ```
 
-### List Item Content
+### List item content
 
 ```python
 item_html = "Buy <a href='/milk'>milk</a>"
@@ -106,7 +106,7 @@ ctx = FragmentContext("li")
 doc = JustHTML(item_html, fragment_context=ctx)
 ```
 
-### Select Options
+### Select options
 
 ```python
 options_html = "<option>Red</option><option>Blue</option>"
@@ -114,7 +114,7 @@ ctx = FragmentContext("select")
 doc = JustHTML(options_html, fragment_context=ctx)
 ```
 
-## Context Elements
+## Context elements
 
 The context element affects parsing rules:
 
@@ -129,7 +129,7 @@ The context element affects parsing rules:
 | `textarea` | Raw text (no HTML parsing) |
 | `title` | Raw text (no HTML parsing) |
 
-### Raw Text Contexts
+### Raw text contexts
 
 Some elements treat their content as raw text:
 
@@ -149,7 +149,7 @@ print(doc.to_html())
 &lt;b&gt;not bold&lt;/b&gt;
 ```
 
-## SVG and MathML Fragments
+## SVG and MathML fragments
 
 Parse fragments in foreign namespaces:
 
@@ -188,7 +188,7 @@ ctx = FragmentContext("math", namespace="math")
 | `tag_name` | `str` | The context element's tag name |
 | `namespace` | `str \| None` | `None` for HTML, `"svg"` for SVG, `"math"` for MathML |
 
-## Document vs Fragment
+## Document vs fragment
 
 | Feature | `JustHTML(html)` | `JustHTML(html, fragment_context=ctx)` |
 |---------|------------------|----------------------------------------|
@@ -197,7 +197,7 @@ ctx = FragmentContext("math", namespace="math")
 | Children | Full document structure | Just the parsed content |
 | Use case | Complete HTML documents | Partial HTML snippets |
 
-## Example: HTML Sanitizer
+## Example: HTML sanitizer
 
 ```python
 from justhtml import JustHTML

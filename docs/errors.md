@@ -1,6 +1,6 @@
 [← Back to docs](index.md)
 
-# Error Codes
+# Error codes
 
 JustHTML reports a deliberately small set of high-value parser diagnostics. It
 does not attempt to reproduce every error emitted by the WHATWG reference
@@ -10,7 +10,7 @@ diagnostic is reported.
 Error collection is disabled by default because the additional diagnostic scan
 has a performance cost.
 
-## Collecting Errors
+## Collecting errors
 
 ```python
 from justhtml import JustHTML
@@ -28,7 +28,7 @@ sanitizer, and transform findings produced during construction. Set a different
 positive `max_errors` value when constructing `JustHTML` if your application
 needs a different limit.
 
-## Error Categories
+## Error categories
 
 Each error has a `category` field:
 
@@ -40,7 +40,7 @@ Each error has a `category` field:
 Custom transforms may emit application-specific codes in addition to the
 built-in codes listed below.
 
-## Strict Mode
+## Strict mode
 
 ```python
 from justhtml import JustHTML, StrictModeError
@@ -62,7 +62,7 @@ locations are best-effort, and new codes may be added in minor releases. Code
 that needs stable behavior should match on `error.code`, not the complete
 message or the exact list produced for a complex malformed document.
 
-## Error Locations
+## Error locations
 
 - Coordinates are 1-based.
 - Character errors point at the offending character where possible.
@@ -70,7 +70,7 @@ message or the exact list produced for a complex malformed document.
   end position for highlighting.
 - EOF errors point at the end of the input.
 
-## Parser Errors
+## Parser errors
 
 ### Tokenizer
 
@@ -94,7 +94,7 @@ foster-parenting and adoption-agency repairs. Those events are implementation
 details of successful tree construction and reproducing a legacy parser's
 diagnostic stream would add substantial duplicate work.
 
-## Security Errors
+## Security errors
 
 Security errors are reported by the sanitizer when its unsafe handling mode is
 `collect`.
@@ -106,7 +106,7 @@ Security errors are reported by the sanitizer when its unsafe handling mode is
 | `unsafe-rawtext-end-tag` | A dangerous closing-tag sequence in raw text was neutralized |
 | `unsafe-style-resource` | Resource-loading CSS in a `<style>` element was removed |
 
-## Node Locations
+## Node locations
 
 Node locations are separate from parse errors and disabled by default. Enable
 them with `track_node_locations=True`:

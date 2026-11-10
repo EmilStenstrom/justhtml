@@ -2,17 +2,15 @@
 
 # Learn by examples
 
-This page is a grab-bag of real-world “how do I…” questions from StackOverflow, rewritten to show the equivalent JustHTML approach.
+These examples show how to solve HTML-processing tasks from StackOverflow with JustHTML.
 
 The “Original HTML” blocks are excerpts from the StackOverflow question bodies (see the linked threads for full context and attribution).
 
-Principles these examples emphasize:
+JustHTML parses HTML5, queries with CSS selectors, transforms the DOM, and serializes the result. Sanitization is enabled by default.
 
-- **One library, end-to-end**: parse HTML5 → query with CSS selectors → transform → serialize.
-- **Safe by default**: sanitization is on unless you disable it.
-- **Composable building blocks**: selectors *locate* nodes; policies and transforms do the work; `to_html()` / `to_text()` / `to_markdown()` handle output.
+Selectors locate nodes. Policies control sanitization, and transforms modify the tree. Use `to_html()` / `to_text()` / `to_markdown()` for output.
 
-Note: Each example links to the original question thread for context. The code below is a fresh JustHTML rewrite (not a copy/paste of StackOverflow answers).
+The JustHTML code is written for these examples. It is not copied from the linked answers.
 
 ---
 

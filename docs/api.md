@@ -1,8 +1,8 @@
 [← Back to docs](index.md)
 
-# API Reference
+# API reference
 
-Complete documentation for the JustHTML public API.
+Classes, methods, and functions in the JustHTML public API.
 
 ## JustHTML
 
@@ -187,7 +187,13 @@ doc.to_markdown()  # => # Title
 doc.to_markdown(html_passthrough=True)
 ```
 
-Sanitization happens at construction time. `JustHTML(..., sanitize=True)` (the default) makes the DOM safe before Markdown serialization runs, unless you use an explicit transform pipeline where later transforms run after `Sanitize(...)`. The returned Markdown is generated from that DOM, but it is still Markdown source, not escaped HTML. Render it with a compliant Markdown renderer before embedding it into a page, or escape it first if you need to display the raw Markdown source inside HTML. Markdown output may still contain sanitized raw HTML for elements such as tables and images, so use `to_text()` instead if you need plain text with no HTML output at all. Use `JustHTML(..., sanitize=False)` only for trusted input, or `JustHTML(..., policy=...)` to customize the policy.
+Sanitization runs during construction. By default, `JustHTML(..., sanitize=True)` sanitizes the DOM before Markdown serialization. Transforms after an explicit `Sanitize(...)` can reintroduce unsafe content.
+
+The result is Markdown source. Before embedding it into a page, render it with a compliant Markdown renderer. To display the raw source inside HTML, escape it first.
+
+Markdown output may contain sanitized raw HTML for tables and images. Use `to_text()` when you need plain text with no HTML.
+
+Use `JustHTML(..., sanitize=False)` only for trusted input. To customize the policy, use `JustHTML(..., policy=...)`.
 
 #### `query(selector)`
 
@@ -402,7 +408,11 @@ node.to_markdown()
 node.to_markdown(html_passthrough=True)
 ```
 
-When you build documents with `JustHTML(..., sanitize=True)` (the default), this Markdown is generated from the sanitized DOM, unless later transforms run after an explicit `Sanitize(...)`. The safety guarantee applies to the rendered Markdown output, assuming you render it with a compliant Markdown renderer. The returned Markdown string is not escaped HTML and should not be injected directly into a page without rendering or escaping first. It may still include sanitized raw HTML for elements such as tables and images. Use `to_text()` if you need plain text output with no HTML.
+By default, `JustHTML(..., sanitize=True)` generates Markdown from the sanitized DOM. Transforms after an explicit `Sanitize(...)` can reintroduce unsafe content.
+
+The safety guarantee applies when a compliant Markdown renderer renders the output. Before inserting the returned string into a page, render it or escape it to display the raw Markdown source.
+
+The output may include sanitized raw HTML for tables and images. Use `to_text()` when you need plain text with no HTML.
 
 #### `append_child(node)`
 
@@ -459,10 +469,11 @@ from justhtml.selector import SelectorLimits
 
 ### Sanitizing output vs sanitizing the DOM
 
-- Construction sanitization is the default: `JustHTML(..., sanitize=True)` sanitizes once during construction. If your transform list does not already include `Sanitize()`, JustHTML appends it at the end; otherwise your explicit `Sanitize()` determines where sanitization happens.
-- If you want to sanitize *after* other transforms or direct DOM edits, add `Sanitize(...)` to your transform pipeline.
-    - If you care about explicit transform passes, group transforms using [`Stage([...])`](transforms.md#advanced-stages).
-    - For details on how `Sanitize(...)` works (and why it’s reviewable), see [Transforms](transforms.md#sanitizepolicynone-enabledtrue).
+`JustHTML(..., sanitize=True)` sanitizes during construction by default. If your transform list has no `Sanitize()`, JustHTML appends it at the end. Otherwise, sanitization runs at each explicit `Sanitize()` position.
+
+To sanitize after other transforms, place `Sanitize(...)` after them. For direct DOM edits, use `sanitize_dom(...)` as described below.
+
+Use [`Stage([...])`](transforms.md#advanced-stages) to group transforms into separate passes. See [Transforms](transforms.md#sanitizepolicynone-enabledtrue) for the operations that `Sanitize(...)` performs.
 
 ```python
 from justhtml import JustHTML, Sanitize
@@ -509,7 +520,9 @@ Notable options:
 - `url_policy`: controls URL validation and URL handling ("allow", "strip", or "proxy")
 - `selector_limits`: resource limits used when parsing and matching selectors in sanitization transform pipelines
 
-`selector_limits` is an advanced escape hatch for trusted real-world pipelines that hit the conservative selector hardening defaults. If a transform pipeline includes `Sanitize(policy=policy)`, the pipeline uses `policy.selector_limits` for transform selector parsing and matching. If there are multiple enabled `Sanitize(...)` transforms, the last one in the pipeline controls the limits. Without an enabled `Sanitize(...)`, default selector limits apply.
+For trusted pipelines that exceed the default selector limits, configure `selector_limits`. A pipeline with `Sanitize(policy=policy)` uses `policy.selector_limits` to parse and match transform selectors.
+
+If the pipeline has multiple enabled `Sanitize(...)` transforms, the last one controls the limits. Without an enabled `Sanitize(...)`, default limits apply.
 
 ```python
 from justhtml import JustHTML, SanitizationPolicy, Sanitize, SetAttrs
@@ -683,7 +696,7 @@ Inherits from `SyntaxError`, so it displays source location in tracebacks.
 
 ---
 
-## Standalone Functions
+## Standalone functions
 
 ### `query(node, selector)`
 

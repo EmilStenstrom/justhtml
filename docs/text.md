@@ -1,8 +1,8 @@
 [← Back to docs](index.md)
 
-# Extracting Text
+# Extracting text
 
-JustHTML gives you a few ways to get text out of a parsed document, depending on whether you want a fast concatenation, or something structured.
+Use `to_text()` to concatenate text from a parsed document, or `to_markdown()` to preserve structure as Markdown.
 
 ## 1) `to_text()` (concatenated text)
 
@@ -12,7 +12,7 @@ Use `to_text()` when you want the concatenated text from a whole subtree:
 - Joins text nodes using `separator` (default: a single space).
 - Strips each text node by default (`strip=True`) and drops empty segments.
 - Includes `<template>` contents (via `template_content`).
-- Sanitizes untrusted HTML by default (safe-by-default at construction).
+- Reads the DOM, which `JustHTML(...)` sanitizes by default during construction.
 
 ```python
 from justhtml import JustHTML

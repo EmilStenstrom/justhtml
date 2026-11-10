@@ -6,22 +6,24 @@ Use JustHTML when you want browser-grade HTML parsing, safe-by-default sanitizat
 
 Use a different tool when one narrow requirement matters more than the whole pipeline: maximum throughput, a BeautifulSoup-specific API, XPath-heavy XML work, or integration with an existing lxml tree.
 
-## At a Glance
+## At a glance
+
+Speed labels are qualitative categories, not measured throughput. Run the [performance benchmark](../benchmarks/performance.py) on your workload to compare timings.
 
 | Tool | HTML5 parsing [1] | Speed | Query | Build | Sanitize | Notes |
 |------|------------------------------------------|-------|----------|-------|------------------|-------|
-| **JustHTML**<br>Pure Python | ✅ 100% | ⚡ Fast | ✅ CSS selectors | ✅ `element()` | ✅ Built-in | Correct, secure, easy to install, and fast enough. |
-| **`selectolax`**<br>Python wrapper of C-based Lexbor | ✅ 100% | 🚀 Very Fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Very fast. |
-| **Chromium**<br>browser engine | 🟡 95.3% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
-| **WebKit**<br>browser engine | 🟡 95.1% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
-| **`markupever`**<br>Python wrapper of Rust-based html5ever | 🟡 94.9% | 🚀 Very Fast | ✅ CSS selectors | ✅ `TreeDom .create_*()` | ❌ Needs sanitization | Very fast. |
-| **Firefox**<br>browser engine | 🟡 94.8% [2] | 🚀 Very Fast | — | — | — | Current browser-harness result. |
-| **`turbohtml`**<br>Python wrapper of a C core | 🟡 94.8% | 🚀 Very Fast | ✅ CSS selectors, XPath | ✅ `E.*` builder | ✅ Built-in | Broad, compiled alternative with parsing, querying, and sanitization. |
-| **`html5lib`**<br>Pure Python | 🟡 82.3% | 🐢 Slow | 🟡 XPath (lxml) | 🟡 Tree API | 🔴 [Deprecated](https://github.com/html5lib/html5lib-python/issues/443) | Unmaintained reference implementation; incomplete coverage of the tree-construction fixtures. |
-| **`html5_parser`**<br>Python wrapper of C-based Gumbo | 🔴 47.8% | 🚀 Very Fast | 🟡 XPath (lxml) | 🟡 `etree` (lxml) | ❌ Needs sanitization | Fast, but its public tree API loses information needed by many fixtures. |
-| **`BeautifulSoup`**<br>Pure Python | 🔴 0.3% (default) | 🐢 Slow | 🟡 Custom API | ✅ `new_tag()` API | ❌ Needs sanitization | Wraps `html.parser` (default). Can use lxml or html5lib. |
-| **`html.parser`**<br>Python stdlib | 🔴 0.3% | ⚡ Fast | ❌ None | ❌ None | ❌ Needs sanitization | Standard library. Chokes on malformed HTML. |
-| **`lxml`**<br>Python wrapper of C-based libxml2 | 🔴 0.9% | 🚀 Very Fast | 🟡 XPath | ✅ `etree` / E-factory | ❌ Needs sanitization | Fast but not HTML5 compliant. Context-fragment cases are skipped; supported cases still perform poorly. Don't use the old lxml.html.clean module! |
+| **JustHTML**<br>Pure Python | ✅ 100% | Fast | ✅ CSS selectors | ✅ `element()` | ✅ Built-in | Pure Python; default sanitization; no runtime dependencies. |
+| **`selectolax`**<br>Python wrapper of C-based Lexbor | ✅ 100% | Very fast | ✅ CSS selectors | ✅ `create_node()` | ❌ Needs sanitization | Native parser extension. |
+| **Chromium**<br>browser engine | 🟡 95.3% [2] | Very fast | — | — | — | Current browser-harness result. |
+| **WebKit**<br>browser engine | 🟡 95.1% [2] | Very fast | — | — | — | Current browser-harness result. |
+| **`markupever`**<br>Python wrapper of Rust-based html5ever | 🟡 94.9% | Very fast | ✅ CSS selectors | ✅ `TreeDom .create_*()` | ❌ Needs sanitization | Native parser extension. |
+| **Firefox**<br>browser engine | 🟡 94.8% [2] | Very fast | — | — | — | Current browser-harness result. |
+| **`turbohtml`**<br>Python wrapper of a C core | 🟡 94.8% | Very fast | ✅ CSS selectors, XPath | ✅ `E.*` builder | ✅ Built-in | Broad, compiled alternative with parsing, querying, and sanitization. |
+| **`html5lib`**<br>Pure Python | 🟡 82.3% | Slow | 🟡 XPath (lxml) | 🟡 Tree API | 🔴 [Deprecated](https://github.com/html5lib/html5lib-python/issues/443) | Unmaintained reference implementation; incomplete coverage of the tree-construction fixtures. |
+| **`html5_parser`**<br>Python wrapper of C-based Gumbo | 🔴 47.8% | Very fast | 🟡 XPath (lxml) | 🟡 `etree` (lxml) | ❌ Needs sanitization | Fast, but its public tree API loses information needed by many fixtures. |
+| **`BeautifulSoup`**<br>Pure Python | 🔴 0.3% (default) | Slow | 🟡 Custom API | ✅ `new_tag()` API | ❌ Needs sanitization | Wraps `html.parser` (default). Can use lxml or html5lib. |
+| **`html.parser`**<br>Python stdlib | 🔴 0.3% | Fast | ❌ None | ❌ None | ❌ Needs sanitization | Standard library. Chokes on malformed HTML. |
+| **`lxml`**<br>Python wrapper of C-based libxml2 | 🔴 0.9% | Very fast | 🟡 XPath | ✅ `etree` / E-factory | ❌ Needs sanitization | Fast but not HTML5 compliant. Context-fragment cases are skipped; supported cases still perform poorly. Don't use the old lxml.html.clean module! |
 
 [1]: JustHTML was verified on 2026-10-04 against [WPT commit `57bdb7f88a`](https://github.com/web-platform-tests/wpt/commit/57bdb7f88a04f09d441ecb4eeebf23664884aa06), passing all 1,917 non-script treebuilder cases. See [Correctness Testing](correctness.md) for the current fixture details. The earlier library benchmark was run on 2026-07-15 against WPT commit `4830edb`, covering 1,880 cases after excluding scripting-directed fixtures. Selectolax 0.4.11 passed all 1,880 cases.
 
@@ -51,7 +53,7 @@ print(doc.to_html(pretty=False))
 
 Sanitization happens before you query or serialize unless you explicitly disable it with `sanitize=False`.
 
-## When to Choose Another Tool
+## When to choose another tool
 
 Choose **selectolax** when raw speed is the main requirement and the HTML is trusted or sanitized elsewhere.
 
@@ -77,7 +79,7 @@ JustHTML sanitizes HTML output by default. That is the right default for user-ge
 
 JustHTML's sanitizer emits HTML-only output. SVG and MathML can still be parsed when sanitization is disabled, but sanitized output drops foreign-namespace content to keep the security model smaller and more reviewable.
 
-## Related Pages
+## Related pages
 
 - [Correctness Testing](correctness.md)
 - [Sanitization & Security](sanitization.md)

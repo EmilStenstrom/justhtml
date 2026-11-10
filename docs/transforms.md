@@ -2,9 +2,7 @@
 
 # Transforms
 
-JustHTML supports optional **transforms** to modify the parsed DOM tree right after parsing.
-
-This is intended as a migration path for Bleach/html5lib filter pipelines, but implemented as DOM transforms over the parsed HTML5 tree.
+Transforms modify the DOM tree after parsing. They also provide a migration path for Bleach/html5lib filter pipelines, using the parsed HTML5 tree.
 
 Transforms are the recommended way to mutate the DOM. Direct node edits are supported,
 but transforms provide clearer ordering guarantees and make it explicit when sanitization
@@ -44,7 +42,7 @@ print(doc.to_html(pretty=False))
 
 - Transforms run **once**, right after parsing, and mutate `doc.root`.
 - JustHTML is safe-by-default by sanitizing at construction (`JustHTML(..., sanitize=True)`).
-- Serialization (`to_html`/`to_text`/`to_markdown`) is serialize-only; earlier versions accepted `safe=` or `policy=` when serializing. This is no longer needed.
+- Serialization (`to_html`/`to_text`/`to_markdown`) reads the DOM without sanitizing it. Configure sanitization at construction time.
 
 > **Important:** When `sanitize=True`, JustHTML appends a final `Sanitize(...)` step **only if your transform list does not already include `Sanitize()`**.
 >
@@ -85,7 +83,7 @@ Transforms run left-to-right, but JustHTML may **batch compatible transforms** i
 Batching preserves left-to-right ordering, but it is still a single walk with a moving cursor.
 If a transform inserts or moves nodes **before** the current cursor, later transforms in the same walk may not visit those nodes.
 
-If you need explicit pass boundaries (to make multi-pass pipelines easier to read, or to avoid cross-transform batching effects), use `Stage([...])` (see “Advanced: Stages” below).
+To create separate tree walks, use `Stage([...])`. This makes pass boundaries explicit and avoids batching effects between stages. See [Advanced: stages](#advanced-stages).
 
 ```python
 from justhtml import JustHTML, Drop, SetAttrs
@@ -100,19 +98,14 @@ doc = JustHTML(
 
 ```
 
-## Advanced: Stages
+## Advanced: stages
 
-`Stage([...])` lets you explicitly split transforms into **separate passes**.
-
-Use it when you want to make a multi-pass pipeline clearer, or when you want to avoid cross-transform batching effects.
-
-Stages also matter for semantics when earlier transforms insert/move nodes “behind” the current walk position.
-Splitting into stages forces a new walk, so later transforms see the updated tree.
+`Stage([...])` groups transforms into separate tree walks. Later stages visit the updated tree, including nodes that earlier stages inserted or moved before the walk cursor. Use stages when later transforms must visit those nodes.
 
 - Stages can be nested; nested stages are flattened.
 - If at least one `Stage` is present at the top level, any top-level transforms around it are automatically grouped into implicit stages.
 
-Example: Let's a Edit() transform create new nodes and then set attributes
+Example: create nodes with an `Edit()` transform, then set their attributes in a separate stage:
 
 ```python
 from justhtml import Edit, JustHTML, SetAttrs, Stage
@@ -183,7 +176,9 @@ Transforms are optional; omitting `transforms` keeps constructor behavior unchan
 Transform selectors are validated during construction.
 Invalid selectors raise `SelectorError` early, before the document is exposed.
 
-Selector parsing and matching use conservative resource limits to avoid disproportionate work from attacker-controlled selectors or very large attribute/text values. If a trusted sanitization pipeline needs higher limits, set `SanitizationPolicy(selector_limits=...)` and include that policy with `Sanitize(policy=...)` in the transform list. The last enabled `Sanitize(...)` in a compiled pipeline controls the selector limits for that pipeline; without `Sanitize(...)`, default limits apply.
+Selector parsing and matching have resource limits to bound work on complex selectors and large attribute or text values.
+
+If a trusted sanitization pipeline needs higher limits, set `SanitizationPolicy(selector_limits=...)`. Include that policy with `Sanitize(policy=...)` in the transform list. The last enabled `Sanitize(...)` controls the pipeline's selector limits. Without an enabled `Sanitize(...)`, default limits apply.
 
 ```python
 from justhtml import JustHTML, SanitizationPolicy, Sanitize, SetAttrs
@@ -227,42 +222,42 @@ All built-in transforms have an `enabled` flag.
 
 All built-in transforms share the same optional keyword parameters:
 
-- `enabled=True` — if false, the transform is skipped at compile time (it does not run and does not affect ordering).
-- `callback=None` — a node hook, invoked as `callback(node)` when the transform performs its action for a node.
-- `report=None` — a reporting hook, invoked as `report(msg, node=...)` with a human-readable description of what happened.
+- `enabled=True`: if false, the transform is skipped at compile time (it does not run and does not affect ordering).
+- `callback=None`: a node hook, invoked as `callback(node)` when the transform performs its action for a node.
+- `report=None`: a reporting hook, invoked as `report(msg, node=...)` with a human-readable description of what happened.
 
 Some transforms require an additional function argument (for example `Edit(..., func)`), which is documented in their signatures below.
 
 ## Built-in transforms
 
-- [`Linkify(...)`](linkify.md) — Scan text nodes and convert URLs/emails into `<a>` elements.
-- `CollapseWhitespace(skip_tags=(...))` — Collapse whitespace runs in text nodes (html5lib-like).
-- `Sanitize(policy=None)` — Sanitize the in-memory tree (reviewable pipeline).
-- `PruneEmpty(selector, strip_whitespace=True)` — Recursively drop empty elements.
-- `Stage([...])` — Split transforms into explicit passes (advanced).
+- [`Linkify(...)`](linkify.md): Scan text nodes and convert URLs/emails into `<a>` elements.
+- `CollapseWhitespace(skip_tags=(...))`: Collapse whitespace runs in text nodes (html5lib-like).
+- `Sanitize(policy=None)`: Sanitize the in-memory tree (reviewable pipeline).
+- `PruneEmpty(selector, strip_whitespace=True)`: Recursively drop empty elements.
+- `Stage([...])`: Split transforms into explicit passes (advanced).
 
 Core selector transforms:
 
-- `SetAttrs(selector, attributes=None, **attrs)` — Set/overwrite attributes on matching elements.
-- `Drop(selector)` — Remove matching nodes.
-- `Unwrap(selector)` — Remove the element but keep its children.
-- `Escape(selector)` — Escape the element's tags but keep its children.
-- `Empty(selector)` — Remove all children of matching elements.
-- `Edit(selector, func)` — Run custom logic for matching elements.
+- `SetAttrs(selector, attributes=None, **attrs)`: Set/overwrite attributes on matching elements.
+- `Drop(selector)`: Remove matching nodes.
+- `Unwrap(selector)`: Remove the element but keep its children.
+- `Escape(selector)`: Escape the element's tags but keep its children.
+- `Empty(selector)`: Remove all children of matching elements.
+- `Edit(selector, func)`: Run custom logic for matching elements.
 
 Advanced building blocks (useful for policy-driven pipelines):
 
-- `EditDocument(func)` — Run once on the root container.
-- `Decide(selector, func)` — Keep/drop/unwrap/empty based on a callback.
-- `EditAttrs(selector, func)` — Rewrite attributes based on a callback.
-- `DropComments()` — Drop `#comment` nodes.
-- `DropDoctype()` — Drop `!doctype` nodes.
-- `DropForeignNamespaces()` — Drop elements in foreign namespaces (SVG/MathML).
-- `DropAttrs(selector, patterns=())` — Drop attributes matching glob-like patterns.
-- `AllowlistAttrs(selector, allowed_attributes=...)` — Keep only allowlisted attributes.
-- `DropUrlAttrs(selector, url_policy=...)` — Validate/rewrite/drop URL-valued attributes.
-- `AllowStyleAttrs(selector, allowed_css_properties=...)` — Sanitize inline `style` attributes.
-- `MergeAttrs(tag, attr=..., tokens=...)` — Merge tokens into a whitespace-delimited attribute.
+- `EditDocument(func)`: Run once on the root container.
+- `Decide(selector, func)`: Keep/drop/unwrap/empty based on a callback.
+- `EditAttrs(selector, func)`: Rewrite attributes based on a callback.
+- `DropComments()`: Drop `#comment` nodes.
+- `DropDoctype()`: Drop `!doctype` nodes.
+- `DropForeignNamespaces()`: Drop elements in foreign namespaces (SVG/MathML).
+- `DropAttrs(selector, patterns=())`: Drop attributes matching glob-like patterns.
+- `AllowlistAttrs(selector, allowed_attributes=...)`: Keep only allowlisted attributes.
+- `DropUrlAttrs(selector, url_policy=...)`: Validate/rewrite/drop URL-valued attributes.
+- `AllowStyleAttrs(selector, allowed_css_properties=...)`: Sanitize inline `style` attributes.
+- `MergeAttrs(tag, attr=..., tokens=...)`: Merge tokens into a whitespace-delimited attribute.
 
 ### `Linkify(...)`
 
@@ -304,20 +299,20 @@ Sanitizes the in-memory DOM tree using the same sanitizer as construction-time s
 #### Reviewability (security argument)
 
 `Sanitize(...)` is implemented as an explicit pipeline of smaller, focused transforms (like `DropComments`, `DropAttrs`, `DropUrlAttrs`, …).
-This makes it easier to audit: the sanitizer behavior is a readable list of operations rather than a monolithic “magic” pass.
+Each operation can be reviewed separately when auditing the sanitizer.
 
 The `Sanitize(...)` pipeline follows this ordered set of operations (some may be disabled by policy):
 
-- `Drop("tag1, tag2, ...", callback=..., report=...)` — Drops dangerous content containers like `script`/`style` (drops the *entire* subtree).
-- `DropComments(callback=..., report=...)` — Drops comments.
-- `DropDoctype(callback=..., report=...)` — Drops doctypes.
-- Foreign namespace dropping — equivalent to `DropForeignNamespaces(callback=..., report=...)`; `Sanitize(...)` always drops SVG/MathML and other non-HTML namespace content.
-- `Unwrap(":not(allowed_tags)", callback=..., report=...)` — Unwraps disallowed elements (keeps their children) for non-container tags.
-- `DropAttrs("*", patterns=("on*", "srcdoc", "*:*"), callback=..., report=...)` — Drops dangerous attributes (`on*`, `srcdoc`, and namespaced attributes like `xlink:href`).
-- `AllowlistAttrs("*", allowed_attributes=..., callback=..., report=...)` — Applies tag/attribute allowlists.
-- `DropUrlAttrs("*", url_policy=..., callback=..., report=...)` — Validates and rewrites URL-valued attributes (`href`, `src`, `srcset`, …) according to `UrlPolicy`.
-- `AllowStyleAttrs("[style]", allowed_css_properties=..., callback=..., report=...)` — Optionally sanitizes inline styles using an allowlist of CSS properties.
-- `MergeAttrs("a", attr="rel", tokens=..., callback=..., report=...)` — Optionally enforces `rel` tokens on links.
+- `Drop("tag1, tag2, ...", callback=..., report=...)`: Drops dangerous content containers like `script`/`style` (drops the *entire* subtree).
+- `DropComments(callback=..., report=...)`: Drops comments.
+- `DropDoctype(callback=..., report=...)`: Drops doctypes.
+- Foreign namespace dropping: equivalent to `DropForeignNamespaces(callback=..., report=...)`; `Sanitize(...)` always drops SVG/MathML and other non-HTML namespace content.
+- `Unwrap(":not(allowed_tags)", callback=..., report=...)`: Unwraps disallowed elements (keeps their children) for non-container tags.
+- `DropAttrs("*", patterns=("on*", "srcdoc", "*:*"), callback=..., report=...)`: Drops dangerous attributes (`on*`, `srcdoc`, and namespaced attributes like `xlink:href`).
+- `AllowlistAttrs("*", allowed_attributes=..., callback=..., report=...)`: Applies tag/attribute allowlists.
+- `DropUrlAttrs("*", url_policy=..., callback=..., report=...)`: Validates and rewrites URL-valued attributes (`href`, `src`, `srcset`, …) according to `UrlPolicy`.
+- `AllowStyleAttrs("[style]", allowed_css_properties=..., callback=..., report=...)`: Optionally sanitizes inline styles using an allowlist of CSS properties.
+- `MergeAttrs("a", attr="rel", tokens=..., callback=..., report=...)`: Optionally enforces `rel` tokens on links.
 
 For policy details, see [Sanitization & Security](sanitization.md).
 
@@ -516,10 +511,10 @@ General-purpose structural transform.
 
 The callback must return one of:
 
-- `Decide.KEEP` — keep node
-- `Decide.DROP` — drop node
-- `Decide.UNWRAP` — remove node but keep its children (and template contents)
-- `Decide.EMPTY` — keep node but remove its children (and template contents)
+- `Decide.KEEP`: keep node
+- `Decide.DROP`: drop node
+- `Decide.UNWRAP`: remove node but keep its children (and template contents)
+- `Decide.EMPTY`: keep node but remove its children (and template contents)
 
 ### `EditAttrs(selector, func, enabled=True, callback=None, report=None)`
 

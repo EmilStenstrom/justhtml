@@ -1,34 +1,37 @@
 [← Back to docs](index.md)
 
-# Sanitization & Security
+# Sanitization & security
 
-**JustHTML includes a built-in HTML sanitizer.** When you parse HTML with `JustHTML(html)`, it is sanitized by default according to a [strict allowlist policy](#configuration). You do not need a separate library.
+JustHTML includes a built-in HTML sanitizer. `JustHTML(html)` sanitizes input by default according to a [strict allowlist policy](#configuration). You do not need a separate sanitization library.
 
-## Threat Model
+## Threat model
 
 JustHTML protects against:
 - **XSS**: Script execution via tags (`<script>`), attributes (`onload`), and schemes (`javascript:`).
 - **Markup Injection**: Breaking out of intended HTML structure.
-- **Remote url requests**: Only URL:s that are allowed are let through.
+- **Remote URL requests**: Only URLs allowed by the policy are kept.
 
-The sanitizer is validated against [`justhtml-xss-bench`](https://github.com/EmilStenstrom/justhtml-xss-bench/) (7,000+ real-world XSS vectors). The benchmark can be used to compare JustHTML's output against  established sanitizers like nh3 and bleach.
+The sanitizer is tested against [`justhtml-xss-bench`](https://github.com/EmilStenstrom/justhtml-xss-bench/), which contains 7,000+ real-world XSS vectors. Use the benchmark to compare JustHTML's output with sanitizers such as nh3 and Bleach.
 
-## Important: Context is King
+<a id="important-context-is-king"></a>
 
-Preventing Cross-Site Scripting (XSS) requires more than just cleaning HTML tags. Security depends entirely on **context**. A string that is safe to display in a `<div>` might be dangerous inside a `<script>` tag or an HTML attribute.
+## Choose the output context
 
-Therefore, you must choose the correct output method when embedding data in contexts other than standard HTML.
+Output safety depends on where you embed the result. A string that is safe inside a `<div>` might be dangerous inside a `<script>` tag or an HTML attribute.
+
+Choose the output method for the target context:
 
 1. **[HTML Body](#1-safety-for-standard-html)**: `JustHTML(html, fragment=True).to_html()` for [snippets](#fragments-snippets), or `JustHTML(html).to_html()` for [full page documents](#full-documents). (Safe by default)
 2. **[JavaScript](#2-safety-for-javascript--dynamic-contexts)**: Use `JustHTML.escape_js_string()` for strings, `clean_url_in_js_string()` for URLs.
 3. **[HTML Attributes](#3-safety-for-html-attributes)**: Use `JustHTML.escape_attr_value()` for values, `clean_url_value()` for URLs.
 
-### 1. Safety for Standard HTML
+### 1. Safety for standard HTML
 
-If you are rendering HTML into the body of a page (server-side rendering), JustHTML safeguards you automatically. By default, `JustHTML(...)` sanitizes input using a conservative policy (strips scripts, allowlists safe tags).
-If you build a custom transform pipeline, remember that `Sanitize(...)` only guarantees the tree state at the point where it runs; transforms placed after it can reintroduce unsafe content. See [Transforms](transforms.md#safety-model).
+For HTML rendered into a page body, `JustHTML(...)` sanitizes input by default. Its conservative policy strips scripts and allows safe tags.
 
-#### Fragments (Snippets)
+In a custom transform pipeline, `Sanitize(...)` sanitizes the tree at its position in the list. Later transforms can reintroduce unsafe content. See [Transforms](transforms.md#safety-model).
+
+#### Fragments (snippets)
 
 Most real-world untrusted HTML is a snippet (a comment, a bio, a post) meant to be inserted into an existing page. Pass `fragment=True` to parse it without adding `<html>`/`<body>` wrappers.
 
@@ -40,7 +43,7 @@ html = JustHTML(user_html, fragment=True).to_html()
 # Output: <p>User content...</p>
 ```
 
-#### Full Documents
+#### Full documents
 
 If you are sanitizing a complete HTML document (e.g. an uploaded file or email), omit `fragment=True`. JustHTML will preserve or add the necessary `<html>`, `<head>`, and `<body>` structure.
 
@@ -50,9 +53,9 @@ doc = JustHTML(full_html_string).to_html()
 # Output: <html><head></head><body>...</body></html>
 ```
 
-### 2. Safety for JavaScript & Dynamic Contexts
+### 2. Safety for JavaScript & dynamic contexts
 
-This is where most XSS vulnerabilities occur. If you embed HTML or data into `<script>` blocks or event handlers, simple HTML cleaning is **not enough**. You need specialized escaping.
+If you embed HTML or data into `<script>` blocks or event handlers, use escaping for that JavaScript context. HTML cleaning alone does not make the result safe there.
 
 #### Embedding HTML markup in a JS string
 
@@ -65,9 +68,9 @@ from justhtml import JustHTML, HTMLContext
 safe = JustHTML(user_html, fragment=True).to_html(context=HTMLContext.JS_STRING)
 ```
 
-#### Embedding Text in `innerHTML` via JS
+#### Embedding text in `innerHTML` via JS
 
-**Recommendation**: Use `element.textContent = ...` instead. It safer and handles escaping automatically. You only need `escape_js_string()` for that (see below).
+Use `element.textContent = ...` to insert plain text. The browser treats the value as text instead of parsing it as HTML. If you embed that value in a JavaScript string literal, use `escape_js_string()` (see below).
 
 If you **must** assign text to `.innerHTML` (e.g. legacy code), you need to escape HTML entities *and* JS characters:
 
@@ -102,7 +105,7 @@ rule = UrlRule(allowed_schemes={"https"})
 clean = JustHTML.clean_url_in_js_string(value=user_url, url_rule=rule)
 ```
 
-### 3. Safety for HTML Attributes
+### 3. Safety for HTML attributes
 
 When inserting data into HTML attributes (like `title="..."` or `class="..."`), you must escape double quotes to prevent the value from closing the attribute early.
 
@@ -113,9 +116,9 @@ from justhtml import JustHTML
 safe = JustHTML.escape_attr_value(user_input)
 ```
 
-#### URLs in HTML Attributes
+#### URLs in HTML attributes
 
-If the attribute expects a URL (like `href`, `src`, or `action`), simple escaping is safer than nothing but often insufficient (e.g. `javascript:alert(1)` contains no quotes). You must **validate** the URL first.
+If the attribute expects a URL, validate it before escaping. This applies to attributes such as `href`, `src`, and `action`. Escaping alone cannot block `javascript:alert(1)`, which contains no quotes.
 
 ```python
 from justhtml import JustHTML, UrlRule

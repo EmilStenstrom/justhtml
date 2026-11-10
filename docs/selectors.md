@@ -1,10 +1,10 @@
 [← Back to docs](index.md)
 
-# CSS Selectors
+# CSS selectors
 
 JustHTML supports a comprehensive subset of CSS selectors for querying the DOM.
 
-## Performance Notes
+## Performance notes
 
 - Selector parsing is cached internally (LRU, up to 512 distinct selector strings). Repeating the same selector across many calls avoids re-parsing overhead.
 - Simple tag-only selectors like `"div"` use a fast path (descendant scan without running the full selector matcher).
@@ -26,7 +26,7 @@ Default selector limits:
 
 Direct `query(...)` and `matches(...)` calls use the defaults. Sanitization transform pipelines can raise limits for trusted workloads with `SanitizationPolicy(selector_limits=...)`; see [Transforms](transforms.md#validation).
 
-## Basic Selectors
+## Basic selectors
 
 | Selector | Example | Description |
 |----------|---------|-------------|
@@ -44,7 +44,7 @@ doc.query("#main")     # Element with id="main"
 doc.query("*")         # All elements
 ```
 
-## Attribute Selectors
+## Attribute selectors
 
 | Selector | Example | Description |
 |----------|---------|-------------|
@@ -133,7 +133,7 @@ doc.query("div:not(.hidden)")     # Visible divs
 doc.query("input:not([disabled])")  # Enabled inputs
 ```
 
-## Selector Groups
+## Selector groups
 
 Combine multiple selectors with commas:
 
@@ -142,7 +142,7 @@ doc.query("h1, h2, h3")           # All headings
 doc.query(".btn, [type='submit']") # Buttons and submit inputs
 ```
 
-## Compound Selectors
+## Compound selectors
 
 Chain selectors without spaces:
 

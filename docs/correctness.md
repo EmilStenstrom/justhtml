@@ -1,10 +1,10 @@
 [← Back to docs](index.md)
 
-# Correctness Testing
+# Correctness testing
 
-JustHTML is tested against the web platform html5 treebuilder tests. This page explains how we verify and maintain that compliance.
+JustHTML is tested against the web platform html5 treebuilder fixtures, with coverage checks, parser comparisons, and fuzzing.
 
-## The Web Platform Tests
+## The web platform tests
 
 The web platform html5 treebuilder tests live in [web-platform-tests/wpt](https://github.com/web-platform-tests/wpt/tree/57bdb7f88a04f09d441ecb4eeebf23664884aa06/html/syntax/parsing/resources). Serializer and encoding fixtures remain in [html5lib-tests](https://github.com/html5lib/html5lib-tests).
 
@@ -17,7 +17,7 @@ The external fixture inputs contain:
 - **Encoding sniffing tests** - Testing BOM/meta charset/transport overrides and legacy fallbacks
 - **1,959 treebuilder cases** - Covering edge cases, error recovery, and spec compliance
 
-### What the Tests Cover
+### What the tests cover
 
 The tests verify correct handling of:
 
@@ -31,7 +31,7 @@ The tests verify correct handling of:
 - **DOCTYPE parsing** - Quirks mode detection
 - **Encoding sniffing** - BOM detection, `<meta charset=...>`, transport overrides (`encoding=`), and `windows-1252` fallback
 
-### Example Test Case
+### Example test case
 
 Here's what a test case looks like (from `tests1.dat`):
 
@@ -51,15 +51,15 @@ Here's what a test case looks like (from `tests1.dat`):
 |       <b>
 ```
 
-This tests the adoption agency algorithm - when `</b>` is encountered inside `<p>`, the browser doesn't just close `<b>`. Instead, it splits the formatting across the block element boundary.
+This tests the adoption agency algorithm. When the parser encounters `</b>` inside `<p>`, it splits the formatting across the block element boundary.
 
-## Compliance Comparison
+## Compliance comparison
 
 We run the same test suite against other Python parsers to compare compliance. The current cross-parser scores, browser results, and their benchmark-specific notes live in the [comparison guide](comparison.md).
 
 The Python-parser scores come from a strict tree comparison against the expected output in the treebuilder fixtures, excluding `#script-on` / `#script-off` cases. Unsupported parser capabilities count as failures. The numbers will not match the `html5lib` project’s own reported totals, because `html5lib` runs the suite in multiple configurations and also has its own skip/xfail lists. Run `python benchmarks/correctness.py` to reproduce the Python-parser benchmark.
 
-## Our Testing Strategy
+## Our testing strategy
 
 ### 1. Official and project test suite
 
@@ -112,7 +112,7 @@ PYTHONPATH=src python benchmarks/html5lib_engine_diff.py \
 
 This requires exact agreement with the reference parser path across every scored web platform html5 treebuilder case.
 
-### 3. Fuzz Testing (millions of cases)
+### 3. Fuzz testing (millions of cases)
 
 We generate random malformed HTML to find crashes and hangs:
 
@@ -133,7 +133,7 @@ Total time:     928s
 Tests/second:   3232
 ```
 
-The fuzzer generates truly nasty edge cases:
+The fuzzer generates malformed input such as:
 - Deeply nested elements
 - Invalid character references (`&#xFFFFFFFF;`)
 - Mismatched tags (`<b><p></b></i>`)
@@ -142,7 +142,7 @@ The fuzzer generates truly nasty edge cases:
 - Malformed doctypes
 - SVG/MathML interleaved with HTML
 
-### 4. Custom Edge Case Tests
+### 4. Custom edge case tests
 
 We maintain additional tests in `tests/justhtml-tests/` for:
 - Branch coverage gaps found during development
@@ -151,9 +151,9 @@ We maintain additional tests in `tests/justhtml-tests/` for:
 - iframe srcdoc parsing
 - Empty stack edge cases
 
-## Running the Tests
+## Running the tests
 
-### Quick Start
+### Quick start
 
 ```bash
 # Clone the test suites (one-time setup)
@@ -176,7 +176,7 @@ cd ..
 python run_tests.py
 ```
 
-### Test Runner Options
+### Test runner options
 
 ```bash
 # Verbose output with diffs
@@ -192,7 +192,7 @@ python run_tests.py -x
 python run_tests.py --regressions
 ```
 
-### Correctness Benchmark
+### Correctness benchmark
 
 Compare against other parsers:
 
@@ -200,18 +200,18 @@ Compare against other parsers:
 python benchmarks/correctness.py
 ```
 
-## Why 100% Matters
+## Why 100% matters
 
-HTML5 parsing is notoriously complex. The spec describes intricate parsing behavior with:
+The HTML5 parsing specification includes:
 - Rawtext/RCDATA/script scanning states
 - 23 tree construction insertion modes
 - The "adoption agency algorithm" (called "the most complicated part of the tree builder" by Firefox's HTML5 parser author)
 - Foster parenting for misplaced table content
 - "Noah's Ark" clause limiting identical elements to 3
 
-Getting 99% compliance means you're still breaking on real-world edge cases. Browsers pass 100% because they have to - and now JustHTML does too.
+JustHTML passed all 1,917 non-script treebuilder cases in the 2026-10-04 verification described above. Passing these fixtures does not establish complete HTML5 compliance. Browser results and differences in the scored cases are documented in the [comparison guide](comparison.md).
 
-## Error Diagnostics
+## Error diagnostics
 
 The html5lib suite verifies tree output, not a standardized diagnostic stream.
 JustHTML therefore reports a small set of high-value errors instead of

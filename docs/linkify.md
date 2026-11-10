@@ -125,7 +125,7 @@ This matters for Linkify because sanitization policies can remove or rewrite att
 - Schemes not allowed for `a[href]` are stripped (the `<a>` remains, but `href` is removed).
 - Protocol-relative `//example.com` is resolved according to policy (default: `https://example.com`).
 
-**Put `Linkify()` before `Sanitize()`, not after.** It is tempting to reach for `transforms=[Sanitize(policy), Linkify()]`, reasoning "sanitize first, then add links to the clean text." That order does the opposite of what it looks like: your explicit `Sanitize()` position becomes the sanitize point (see above), so the `<a href="...">` elements Linkify creates afterward are never checked against your `UrlPolicy`/`UrlRule` restrictions.
+**Place `Linkify()` before the final `Sanitize()`.** Links created after sanitization bypass your `UrlPolicy`/`UrlRule` checks. With `transforms=[Sanitize(policy), Linkify()]`, the explicit `Sanitize()` runs before Linkify creates the `<a href="...">` elements. JustHTML does not append another sanitization step.
 
 ```python
 from justhtml import JustHTML, Linkify, Sanitize, SanitizationPolicy, UrlPolicy, UrlRule

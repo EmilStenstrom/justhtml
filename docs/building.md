@@ -5,8 +5,8 @@
 Build HTML programmatically with explicit node factories, then normalize the
 result through `JustHTML(...)`.
 
-This guide is for the case where HTML is assembled from Python values,
-conditions, loops, and helper functions.
+Use the builder to assemble HTML from Python values, conditions, loops, and
+helper functions.
 
 If your markup is already known and mostly static, plain HTML strings are still
 the simpler API:
@@ -19,10 +19,7 @@ doc = JustHTML("""
 """, fragment=True)
 ```
 
-Use the builder when you want to construct HTML as data rather than hand-write
-HTML text.
-
-## The Model
+## The model
 
 The builder module creates nodes directly:
 
@@ -30,9 +27,7 @@ The builder module creates nodes directly:
 from justhtml.dom.builder import comment, doctype, element, text
 ```
 
-`JustHTML(...)` is still the parser and normalizer.
-
-That means the usual flow is:
+`JustHTML(...)` parses and normalizes the built tree:
 
 1. build an attempted node tree
 2. pass that node tree to `JustHTML(...)`
@@ -46,7 +41,7 @@ doc = JustHTML(element("p", "Hello"), fragment=True)
 doc.to_html(pretty=False)  # => <p>Hello</p>
 ```
 
-## Start Small
+## Start small
 
 The core factory is `element()`:
 
@@ -84,7 +79,7 @@ card = element(
 card.to_html(pretty=False)  # => <article class="post"><h2>JustHTML</h2><p>Build nodes directly.</p><a href="/docs">Read docs</a></article>
 ```
 
-## Text, Comments, and Doctype
+## Text, comments, and doctype
 
 Use the dedicated factories when you want those exact node types:
 
@@ -125,7 +120,7 @@ dt = doctype(
 dt.to_html(pretty=False)  # => <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 ```
 
-## Parse the Built Nodes
+## Parse the built nodes
 
 Once you have a built node, hand it to `JustHTML(...)`.
 
@@ -192,7 +187,7 @@ so `sanitize=False` is not required here.
 Even if the attempted tree is awkward or incomplete, final structure is defined
 by normal HTML5 parsing behavior.
 
-## Build Dynamic Content
+## Build dynamic content
 
 The builder becomes useful when Python is deciding what HTML to emit.
 
@@ -266,7 +261,7 @@ print(page.to_html(pretty=False))
 # => <section><article class="user-card"><h2>Ada</h2><p>ada@example.com</p></article><article class="user-card"><h2>Linus</h2><p>linus@example.com</p></article></section>
 ```
 
-## Attribute Dicts First
+## Attribute dicts first
 
 The explicit attrs dict is the canonical form:
 
@@ -301,9 +296,9 @@ Supported forms:
 Use the shorthand when it stays short. Switch back to an attrs dict when it
 starts to feel like a tiny language.
 
-## What Gets Coerced
+## What gets coerced
 
-Children are intentionally strict.
+The builder accepts these child values:
 
 - strings become text nodes
 - iterables are flattened
@@ -329,7 +324,7 @@ element("p", 1)
 
 This raises `TypeError`.
 
-Attributes are slightly more forgiving.
+For attribute values:
 
 - `None` means a present boolean attribute
 - other values are converted to strings
@@ -341,12 +336,11 @@ element("input", {"maxlength": 10, "required": None}).to_html(pretty=False)
 # => <input maxlength="10" required>
 ```
 
-## Template Elements
+## Template elements
 
 `element("template", ...)` creates a template node.
 
-Its children are written into `template_content`, which matches how users think
-about `<template>...</template>` content.
+The builder stores `<template>...</template>` children in `template_content`.
 
 ```python
 from justhtml.dom.builder import element
@@ -359,7 +353,7 @@ node = element(
 node.to_html(pretty=False)  # => <template><p>Hello from a template</p></template>
 ```
 
-## Fragment Context Still Belongs to JustHTML
+## Fragment context still belongs to JustHTML
 
 The builder does not decide fragment parsing context. `JustHTML(...)` still does.
 
@@ -379,15 +373,13 @@ doc = JustHTML(
 doc.to_html(pretty=False)  # => <tr><td>cell</td></tr>
 ```
 
-That keeps parsing behavior in one place.
-
 Only HTML5 namespaces are accepted by the builder: HTML, SVG, and MathML.
 
 Foreign namespaces are preserved when normal HTML5 parsing can reconstruct them,
 such as content inside `<svg>` or `<math>`. Arbitrary custom namespaces are
 rejected by `element()` instead of being silently lost during normalization.
 
-## Common Patterns
+## Common patterns
 
 ### Build a fragment from one top-level node
 
@@ -462,11 +454,9 @@ template.to_html(pretty=False)  # => <section><p class="lead">Hello</p></section
 output.to_html(pretty=False)  # => <main><p class="lead">Hello</p></main>
 ```
 
-## When Not to Use the Builder
+## When not to use the builder
 
-Don’t use the builder just because it exists.
-
-Plain HTML is still better when:
+Prefer plain HTML strings when:
 
 - the markup is mostly static
 - you want the code to look exactly like HTML
@@ -474,7 +464,7 @@ Plain HTML is still better when:
 
 Use the builder when Python structure is already driving the output.
 
-## Next Steps
+## Next steps
 
 - [API Reference](api.md) - Full builder and parser reference
 - [Fragment Parsing](fragments.md) - How fragment context affects parsing

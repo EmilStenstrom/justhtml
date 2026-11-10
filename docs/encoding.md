@@ -1,27 +1,27 @@
 [← Back to docs](index.md)
 
-# Encoding & Byte Input
+# Encoding & byte input
 
 JustHTML can parse both Unicode strings (`str`) and raw byte streams (`bytes`, `bytearray`, `memoryview`).
 
 If you pass **bytes**, JustHTML will **sniff and decode** the input using the HTML Standard’s encoding rules.
 
-## When Encoding Sniffing Happens
+## When encoding sniffing happens
 
 - If `html` is a `str`: no sniffing/decoding happens (it’s already decoded).
 - If `html` is bytes-like: JustHTML decodes it into a `str` before tokenization.
 
 The chosen encoding is exposed as `doc.encoding` when you use `JustHTML(...)`.
 
-## Why the Default Is `windows-1252`
+## Why the default is `windows-1252`
 
-If no encoding information is found, HTML parsing defaults to **Windows-1252** (often called “cp1252”). This can be surprising if you expect UTF-8 everywhere, but it’s important for **legacy HTML**:
+If no encoding information is found, JustHTML defaults to Windows-1252 (also called "cp1252") for compatibility with legacy HTML:
 
 - Many older documents were authored as “Latin-1” without an explicit encoding.
 - Browsers historically treated this as Windows-1252, not ISO-8859-1.
 - Using the same default makes JustHTML behave like browsers on real-world old documents.
 
-## What JustHTML Looks At (High Level)
+## What JustHTML looks at (high level)
 
 For byte input, JustHTML follows the standard precedence:
 
@@ -32,9 +32,9 @@ For byte input, JustHTML follows the standard precedence:
 
 JustHTML also treats `utf-7` labels as unsafe and falls back to `windows-1252`.
 
-## How To Control It
+## How to control it
 
-### 1) Let JustHTML Sniff (recommended for unknown/legacy HTML)
+### 1) Let JustHTML sniff (recommended for unknown/legacy HTML)
 
 ```python
 from justhtml import JustHTML
@@ -46,7 +46,7 @@ doc = JustHTML(data)
 print(doc.encoding)
 ```
 
-### 2) Override With a Known Encoding
+### 2) Override with a known encoding
 
 If you already know the correct encoding (e.g. from HTTP headers, file metadata, or your application protocol), pass it as `encoding=`.
 
@@ -59,7 +59,7 @@ data = Path("page.html").read_bytes()
 doc = JustHTML(data, encoding="utf-8")
 ```
 
-### 3) Decode Yourself (when you want full control)
+### 3) Decode yourself (when you want full control)
 
 ```python
 from justhtml import JustHTML

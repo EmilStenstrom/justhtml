@@ -6,12 +6,11 @@ For large files or when you don't need the full DOM tree, use the streaming API.
 
 ## Overview
 
-The streaming parser is:
-- **Memory efficient** - Processes HTML without building a tree
-- **Fast** - Minimal overhead per token
-- **Simple** - Just iterate over events
+`stream()` yields events without building a DOM, which reduces tree-allocation work and memory use. Iterate over the events to process tags and text.
 
-## Basic Usage
+It does not provide the full HTML5 tree-construction recovery used by `JustHTML`. Use `JustHTML` when you need the recovered document tree.
+
+## Basic usage
 
 ```python
 from justhtml import stream
@@ -33,7 +32,7 @@ end body
 end html
 ```
 
-## Byte Input and Encodings
+## Byte input and encodings
 
 `stream()` also accepts bytes (`bytes`, `bytearray`, `memoryview`). In that case, the input is decoded using HTML encoding sniffing (including a `windows-1252` fallback for legacy documents).
 
@@ -71,7 +70,7 @@ See [Encoding & Byte Input](encoding.md) for details.
 
 ## Examples
 
-### Extract All Links
+### Extract all links
 
 ```python
 from justhtml import stream
@@ -86,7 +85,7 @@ for event, data in stream(html):
             print(attrs["href"])
 ```
 
-### Count Elements
+### Count elements
 
 ```python
 from justhtml import stream
@@ -102,7 +101,7 @@ for event, data in stream(html):
 print(counts.most_common(10))
 ```
 
-### Extract Text Content
+### Extract text content
 
 ```python
 from justhtml import stream
@@ -115,7 +114,7 @@ for event, data in stream(html):
 full_text = " ".join(text_parts)
 ```
 
-### Filter by Tag
+### Filter by tag
 
 ```python
 from justhtml import stream
@@ -130,7 +129,7 @@ for event, data in stream(html):
         print(data)  # Only non-script text
 ```
 
-## When to Use Streaming
+## When to use streaming
 
 Use the streaming API when:
 - Processing very large HTML files
@@ -146,11 +145,11 @@ Use the DOM API (`JustHTML`) when:
 
 ## Performance
 
-The streaming API is faster than building a full DOM:
+The documented timing example compares event scanning with DOM construction:
 
 | API | Time (100 files) | Memory |
 |-----|------------------|--------|
 | `JustHTML()` | ~1.0s | Higher |
 | `stream()` | ~0.7s | Lower |
 
-For most use cases, the difference is negligible. Use whichever API fits your needs.
+These timings do not include a corpus or environment description. Measure your own input before relying on the speed difference, and choose the API with the structural behavior you need.

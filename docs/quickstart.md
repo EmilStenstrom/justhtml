@@ -2,7 +2,7 @@
 
 # Quickstart
 
-Get up and running with JustHTML in 5 minutes.
+Install JustHTML, parse documents and fragments, query nodes, and serialize the results.
 
 ## Installation
 
@@ -10,7 +10,7 @@ Get up and running with JustHTML in 5 minutes.
 pip install justhtml
 ```
 
-## Basic Parsing
+## Basic parsing
 
 ```python
 from justhtml import JustHTML
@@ -19,7 +19,7 @@ html = "<html><body><div id='main'><p>Hello, <b>world</b>!</p></div></body></htm
 doc = JustHTML(html)
 ```
 
-## HTML Snippets (Fragments)
+## HTML snippets (fragments)
 
 If your input is an HTML **snippet** (like user generated content from a WYSIWYG editor), you usually want fragment parsing to avoid implicit `<html>`, `<head>`, and `<body>` insertion:
 
@@ -33,7 +33,7 @@ print(doc.to_html())
 # => <p>Hello <b>world</b></p>
 ```
 
-## Parsing Bytes (Encoding Sniffing)
+## Parsing bytes (encoding sniffing)
 
 If you pass bytes (for example from a file), JustHTML decodes them using HTML encoding sniffing. If no encoding is found, it falls back to `windows-1252` for browser compatibility.
 
@@ -48,7 +48,7 @@ print(doc.encoding)
 
 See [Encoding & Byte Input](encoding.md) for details and how to override with `encoding=...`.
 
-## Traversing the Tree
+## Traversing the tree
 
 The parser returns a tree of `Node` objects:
 
@@ -70,7 +70,7 @@ print([child.name for child in div.children])  # => ['p']
 print(div.parent.name)                         # => body
 ```
 
-## Querying with CSS Selectors
+## Querying with CSS selectors
 
 Use familiar CSS syntax to find elements:
 
@@ -110,7 +110,7 @@ print(div.to_html(indent_size=4))
 </div>
 ```
 
-## Strict Mode
+## Strict mode
 
 Reject malformed HTML instead of silently fixing it:
 
@@ -167,7 +167,7 @@ Text: world
 End: p
 ```
 
-## Next Steps
+## Next steps
 
 - [Building HTML](building.md) - Programmatically build node trees and normalize them with `JustHTML(...)`
 - [API Reference](api.md) - Complete API documentation
