@@ -4,7 +4,7 @@
 
 JustHTML’s `Linkify` transform scans **text nodes** and wraps detected URLs/emails in `<a>` elements.
 
-This is a DOM transform (it does not operate on raw HTML strings), so it never rewrites tag soup or breaks markup.
+`Linkify` modifies DOM text nodes. It creates links without rewriting the HTML source or changing existing element boundaries.
 
 ## Quickstart
 

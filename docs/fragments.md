@@ -2,9 +2,11 @@
 
 # Fragment parsing
 
-Parse HTML fragments as if they were inserted into a specific context element. This is essential for WYSIWYG editors, sanitizers, and template systems.
+Fragment parsing uses the rules for a specific context element, such as `<div>` or `<tbody>`. Editors, sanitizers, and template systems can use it to parse content for insertion into that element.
 
-## Why fragment parsing?
+<a id="why-fragment-parsing"></a>
+
+## Context-dependent parsing
 
 HTML parsing rules depend on context. The same markup can produce different results depending on where it appears:
 
@@ -25,7 +27,7 @@ print(doc.to_html(indent_size=4))
 </html>
 ```
 
-But if we tell the parser this HTML will be inserted into a `<tbody>`:
+With `<tbody>` as the context element, the parser preserves the table row:
 
 ```python
 from justhtml import JustHTML

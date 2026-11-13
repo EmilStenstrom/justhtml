@@ -4,7 +4,7 @@
 
 Use JustHTML when you want browser-grade HTML parsing, safe-by-default sanitization, CSS selectors, transforms, text extraction, and serialization in one pure-Python package.
 
-Use a different tool when one narrow requirement matters more than the whole pipeline: maximum throughput, a BeautifulSoup-specific API, XPath-heavy XML work, or integration with an existing lxml tree.
+Other tools may suit workloads that prioritize throughput, require the BeautifulSoup API, rely on XPath for XML, or use an existing lxml tree.
 
 ## At a glance
 
@@ -29,9 +29,11 @@ Speed labels are qualitative categories, not measured throughput. Run the [perfo
 
 [2]: Browser scores were rerun on 2026-10-04 with Playwright 1.63.0 and [`justhtml-html5lib-tests-bench`](https://github.com/EmilStenstrom/justhtml-html5lib-tests-bench) against [WPT commit `57bdb7f88a`](https://github.com/web-platform-tests/wpt/commit/57bdb7f88a04f09d441ecb4eeebf23664884aa06). Chromium 153.0.8010.12 passed 1,853/1,945 cases, WebKit 26.6 passed 1,849/1,945, and Firefox 155.0 passed 1,844/1,945, with no execution errors. The harness skips 14 `#script-on` cases but includes `#script-off` cases, so these scores are not directly comparable to the Python-parser scores above.
 
-## Why JustHTML
+<a id="why-justhtml"></a>
 
-Most Python HTML projects start simple and then accumulate extra tools:
+## Operations on a shared DOM
+
+HTML processing can involve several operations:
 
 - a parser for broken HTML
 - a sanitizer for user input
@@ -40,7 +42,7 @@ Most Python HTML projects start simple and then accumulate extra tools:
 - linkification or cleanup filters
 - text or Markdown extraction
 
-JustHTML keeps those operations on one DOM. That makes the behavior easier to reason about, especially when the input is untrusted.
+JustHTML performs these operations on one DOM. You can parse the input once, then query, transform, and serialize the resulting tree.
 
 ```python
 from justhtml import JustHTML
@@ -65,7 +67,7 @@ Choose **BeautifulSoup** when you want its forgiving, familiar scraping API and 
 
 Choose **lxml** when your project is already built around XPath, etree, or XML-style processing.
 
-Choose **nh3** when you only need fast sanitization and are happy with a Rust-backed dependency.
+Choose **nh3** when you only need fast sanitization and can use a Rust-backed dependency.
 
 Choose **html.parser** when you need a tiny stdlib-only script for trusted input and HTML5 correctness does not matter.
 

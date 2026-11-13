@@ -740,9 +740,9 @@ print(doc.to_html())
 
 ## xml.etree.ElementTree
 
-These threads are often symptoms of the same underlying issue: **ElementTree is great for XML, but HTML isn’t XML**.
+ElementTree parses XML. HTML input can contain named character references and malformed markup that require HTML parsing rules.
 
-If the input is HTML (or “HTML-ish”), JustHTML gives you HTML5 parsing, browser-grade error recovery, CSS selectors, and built-in output formats.
+For HTML input, JustHTML provides HTML5 parsing and error recovery, CSS selectors, and HTML, text, and Markdown output.
 
 ### Parse HTML that contains `&nbsp;`
 
@@ -888,7 +888,7 @@ Original HTML (excerpt):
 
 ```
 
-ElementTree (why this is painful):
+ElementTree:
 
 ```python
 import xml.etree.ElementTree as ET

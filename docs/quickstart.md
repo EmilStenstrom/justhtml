@@ -112,7 +112,7 @@ print(div.to_html(indent_size=4))
 
 ## Strict mode
 
-Reject malformed HTML instead of silently fixing it:
+Set `strict=True` to raise `StrictModeError` on the earliest supported parser diagnostic. Strict mode does not detect every HTML conformance error. See [Error codes](errors.md#strict-mode).
 
 ```python
 from justhtml import JustHTML

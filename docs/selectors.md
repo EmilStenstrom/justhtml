@@ -2,7 +2,7 @@
 
 # CSS selectors
 
-JustHTML supports a comprehensive subset of CSS selectors for querying the DOM.
+Use CSS selectors to query the DOM. The supported selectors are listed below.
 
 ## Performance notes
 

@@ -80,7 +80,7 @@ Sanitization can remove or rewrite transform results (for example, unsafe tags, 
 
 Transforms run left-to-right, but JustHTML may **batch compatible transforms** into a single tree walk for performance.
 
-Batching preserves left-to-right ordering, but it is still a single walk with a moving cursor.
+Batching applies transforms in left-to-right order during a single tree walk. The cursor tracks the current position in that walk.
 If a transform inserts or moves nodes **before** the current cursor, later transforms in the same walk may not visit those nodes.
 
 To create separate tree walks, use `Stage([...])`. This makes pass boundaries explicit and avoids batching effects between stages. See [Advanced: stages](#advanced-stages).
@@ -488,7 +488,7 @@ Empty("template")
 
 ### `Edit(selector, func, enabled=True, callback=None, report=None)`
 
-Escape hatch for custom logic. Runs `func(node)` for each matching element.
+Runs your `func(node)` callback for each matching element.
 
 Optional: pass `callback(node)` / `report(msg, node=...)` to run hooks when the transform is applied.
 

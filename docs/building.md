@@ -8,8 +8,7 @@ result through `JustHTML(...)`.
 Use the builder to assemble HTML from Python values, conditions, loops, and
 helper functions.
 
-If your markup is already known and mostly static, plain HTML strings are still
-the simpler API:
+For mostly static markup, use plain HTML strings:
 
 ```python
 from justhtml import JustHTML
@@ -19,7 +18,9 @@ doc = JustHTML("""
 """, fragment=True)
 ```
 
-## The model
+<a id="the-model"></a>
+
+## Node construction
 
 The builder module creates nodes directly:
 
@@ -29,9 +30,9 @@ from justhtml.dom.builder import comment, doctype, element, text
 
 `JustHTML(...)` parses and normalizes the built tree:
 
-1. build an attempted node tree
-2. pass that node tree to `JustHTML(...)`
-3. let the HTML5 parser normalize it
+1. Build a node tree.
+2. Pass the tree to `JustHTML(...)`.
+3. Use the normalized tree returned by the HTML5 parser.
 
 ```python
 from justhtml import JustHTML
@@ -41,7 +42,9 @@ doc = JustHTML(element("p", "Hello"), fragment=True)
 doc.to_html(pretty=False)  # => <p>Hello</p>
 ```
 
-## Start small
+<a id="start-small"></a>
+
+## Create an element
 
 The core factory is `element()`:
 
@@ -122,7 +125,7 @@ dt.to_html(pretty=False)  # => <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"
 
 ## Parse the built nodes
 
-Once you have a built node, hand it to `JustHTML(...)`.
+Pass the built node to `JustHTML(...)` to parse and normalize it.
 
 ### Fragment mode
 
@@ -156,9 +159,8 @@ doc = JustHTML(
 doc.to_html(pretty=False)  # => <html><head><title>Example</title></head><body><p>Hello</p></body></html>
 ```
 
-This example has no doctype because `JustHTML(...)` follows normal parser
-behavior: it will insert missing `html`, `head`, and `body` structure, but it
-will not invent a doctype token that was never provided.
+`JustHTML(...)` inserts missing `html`, `head`, and `body` elements. It adds
+a doctype only when the input includes one, so this example has no doctype.
 
 If you want a doctype, provide one explicitly:
 
@@ -184,12 +186,12 @@ doc.to_html(pretty=False)  # => <!DOCTYPE html><html><head><title>Example</title
 In document mode, the default document sanitization policy preserves doctypes,
 so `sanitize=False` is not required here.
 
-Even if the attempted tree is awkward or incomplete, final structure is defined
-by normal HTML5 parsing behavior.
+HTML5 parsing rules determine the final structure, including recovery from
+misnested or incomplete input trees.
 
 ## Build dynamic content
 
-The builder becomes useful when Python is deciding what HTML to emit.
+Use conditions, loops, and helper functions to choose which nodes to create.
 
 ### Conditions
 
@@ -210,7 +212,7 @@ print(header.to_html(pretty=False))
 # => <header><h1>Dashboard</h1><a href="/admin">Admin</a></header>
 ```
 
-If `is_admin = False`, the link disappears completely because `False` is ignored
+If `is_admin = False`, the builder omits the link because it ignores `False`
 in child positions.
 
 ```html
@@ -261,7 +263,9 @@ print(page.to_html(pretty=False))
 # => <section><article class="user-card"><h2>Ada</h2><p>ada@example.com</p></article><article class="user-card"><h2>Linus</h2><p>linus@example.com</p></article></section>
 ```
 
-## Attribute dicts first
+<a id="attribute-dicts-first"></a>
+
+## Attribute dictionaries
 
 The explicit attrs dict is the canonical form:
 
@@ -293,10 +297,12 @@ Supported forms:
 - `[attr="value"]`
 - `[attr='value']`
 
-Use the shorthand when it stays short. Switch back to an attrs dict when it
-starts to feel like a tiny language.
+Use shorthand for short attribute lists. Use an attrs dict for longer lists
+or values that contain special characters.
 
-## What gets coerced
+<a id="what-gets-coerced"></a>
+
+## Child and attribute value conversion
 
 The builder accepts these child values:
 
@@ -353,9 +359,12 @@ node = element(
 node.to_html(pretty=False)  # => <template><p>Hello from a template</p></template>
 ```
 
-## Fragment context still belongs to JustHTML
+<a id="fragment-context-still-belongs-to-justhtml"></a>
 
-The builder does not decide fragment parsing context. `JustHTML(...)` still does.
+## Fragment parsing context
+
+Set the fragment parsing context on `JustHTML(...)` when normalizing built nodes.
+The builder creates the nodes without choosing a parsing context.
 
 ```python
 from justhtml import JustHTML
@@ -454,15 +463,15 @@ template.to_html(pretty=False)  # => <section><p class="lead">Hello</p></section
 output.to_html(pretty=False)  # => <main><p class="lead">Hello</p></main>
 ```
 
-## When not to use the builder
+<a id="when-not-to-use-the-builder"></a>
+
+## Static HTML strings
 
 Prefer plain HTML strings when:
 
 - the markup is mostly static
 - you want the code to look exactly like HTML
 - there is little or no conditional logic
-
-Use the builder when Python structure is already driving the output.
 
 ## Next steps
 

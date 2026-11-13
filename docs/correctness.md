@@ -200,7 +200,9 @@ Compare against other parsers:
 python benchmarks/correctness.py
 ```
 
-## Why 100% matters
+<a id="why-100-matters"></a>
+
+## Coverage of HTML5 parsing rules
 
 The HTML5 parsing specification includes:
 - Rawtext/RCDATA/script scanning states
@@ -214,8 +216,8 @@ JustHTML passed all 1,917 non-script treebuilder cases in the 2026-10-04 verific
 ## Error diagnostics
 
 The html5lib suite verifies tree output, not a standardized diagnostic stream.
-JustHTML therefore reports a small set of high-value errors instead of
-duplicating the parser to reproduce every detailed recovery diagnostic:
+JustHTML reports a limited set of parser errors. Enable `collect_errors=True`
+to collect them:
 
 ```python
 doc = JustHTML("<!doctype html><!--", collect_errors=True)

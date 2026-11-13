@@ -46,7 +46,7 @@ print(doc.to_text(separator="", strip=False))
 # => Hello world
 ```
 
-The default `separator=" "` avoids accidentally smashing words together when the HTML splits text across nodes:
+The default `separator=" "` inserts spaces between text nodes, keeping words separate when HTML splits them across nodes:
 
 ```python
 from justhtml import JustHTML
@@ -88,7 +88,7 @@ print(doc.to_text(separator="\n", separator_blocks_only=True))
 
 ## 2) `to_markdown()` (GitHub Flavored Markdown)
 
-`to_markdown()` outputs a pragmatic subset of GitHub Flavored Markdown (GFM) that aims to be readable and stable for common HTML.
+`to_markdown()` converts common HTML elements to a subset of GitHub Flavored Markdown (GFM).
 
 - Converts common elements like headings, paragraphs, lists, emphasis, links, and code.
 - Keeps tables (`<table>`) and images (`<img>`) as raw HTML.
@@ -145,7 +145,9 @@ code block
 ```
 ````
 
-## Which should I use?
+<a id="which-should-i-use"></a>
+
+## Choosing an output format
 - Use `to_text()` for the raw concatenated text of a subtree (textContent semantics).
 - Use `to_markdown()` when you want readable, structured Markdown from the sanitized DOM.
 - Use `to_text()` when you need plain text with no HTML in the output.

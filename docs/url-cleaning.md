@@ -21,7 +21,9 @@ On this page:
 - [UrlRule: validation for a single (tag, attr)](#urlrule-validation-for-a-single-tag-attr)
     - [Common URL rules](#common-url-rules)
 
-## Key idea: URL-like attributes require explicit rules
+<a id="key-idea-url-like-attributes-require-explicit-rules"></a>
+
+## URL-like attributes require explicit rules
 
 JustHTML treats a set of attributes as *URL-like* (including `href`, `src`, `srcset`, `action`, and a few others).
 

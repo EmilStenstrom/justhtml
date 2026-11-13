@@ -2,7 +2,7 @@
 
 # Migrating from Bleach
 
-JustHTML’s sanitization and transform pipeline were heavily inspired by Bleach’s real-world ergonomics.
+Bleach's sanitization and filter APIs influenced JustHTML's sanitization and transform pipeline.
 
 Bleach has helped projects sanitize HTML for years. [@willkg](https://github.com/willkg) built and maintained it.
 

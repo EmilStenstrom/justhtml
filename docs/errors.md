@@ -2,10 +2,10 @@
 
 # Error codes
 
-JustHTML reports a deliberately small set of high-value parser diagnostics. It
-does not attempt to reproduce every error emitted by the WHATWG reference
-parser. Tree recovery and output remain standards-compatible even when no
-diagnostic is reported.
+JustHTML reports a limited set of parser diagnostics. The supported codes are
+listed below. They cover fewer errors than the WHATWG reference parser reports.
+Tree recovery and output follow the parsing rules even when JustHTML reports
+no diagnostic.
 
 Error collection is disabled by default because the additional diagnostic scan
 has a performance cost.
