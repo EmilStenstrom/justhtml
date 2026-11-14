@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.17.1] - 2026-11-14
+
 ### Fixed
 
 - Keep paragraphs, code blocks, and nested lists inside their Markdown list items, using continuation indentation based on each marker's width (#103).
