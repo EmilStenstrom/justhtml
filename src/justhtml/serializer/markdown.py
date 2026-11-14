@@ -157,10 +157,20 @@ _MAX_LIST_DEPTH = 64
 
 
 class _MarkdownBuilder:
-    __slots__ = ("_blockquote_depth", "_buf", "_leading_space", "_newline_count", "_pending_space")
+    __slots__ = (
+        "_blockquote_depth",
+        "_buf",
+        "_item_start",
+        "_leading_space",
+        "_list_indent",
+        "_newline_count",
+        "_pending_space",
+    )
 
     _buf: list[str]
     _blockquote_depth: int
+    _item_start: bool
+    _list_indent: int
     _newline_count: int
     _pending_space: bool
     _leading_space: bool
@@ -171,6 +181,8 @@ class _MarkdownBuilder:
         self._leading_space = False
         self._newline_count = 0
         self._pending_space = False
+        self._list_indent = 0
+        self._item_start = False
 
     def _rstrip_last_segment(self) -> None:
         if not self._buf:
@@ -181,6 +193,7 @@ class _MarkdownBuilder:
             self._buf[-1] = stripped
 
     def newline(self, count: int = 1) -> None:
+        self._item_start = False
         for _ in range(count):
             self._pending_space = False
             self._rstrip_last_segment()
@@ -190,11 +203,25 @@ class _MarkdownBuilder:
                 self._newline_count += 1
 
     def ensure_newlines(self, count: int) -> None:
+        if self._item_start:
+            return
         while self._newline_count < count:
             self.newline(1)
 
+    def _start_content(self) -> None:
+        if self._newline_count and self._list_indent:
+            self._buf.append(" " * self._list_indent)
+        self._item_start = False
+
     def raw(self, s: str) -> None:
         if not s:
+            return
+
+        if self._list_indent and "\n" in s:
+            for index, line in enumerate(s.split("\n")):
+                if index:
+                    self.newline()
+                self.raw(line)
             return
 
         # If we've collapsed whitespace and the next output is raw (e.g. "**"),
@@ -215,6 +242,7 @@ class _MarkdownBuilder:
         if self._buf and self._newline_count == 0 and self._buf[-1].endswith("`") and s.startswith("`"):
             self._buf.append(" ")
 
+        self._start_content()
         self._buf.append(s)
         if "\n" in s:
             # Count trailing newlines (cap at 2 for blank-line semantics).
@@ -253,7 +281,9 @@ class _MarkdownBuilder:
                     self._buf.append(" ")
                 self._pending_space = False
 
-            if not self._buf or self._newline_count > 0:
+            line_start = not self._buf or self._newline_count > 0 or self._item_start
+            if line_start:
+                self._start_content()
                 escaped_prefix = _markdown_escape_line_start(s[index:])
                 if escaped_prefix is not None:
                     replacement, consumed = escaped_prefix
@@ -533,18 +563,27 @@ def _to_markdown_walk(
             continue
 
         if kind == "list_separator":
-            task[1].newline(1)
+            task[1].ensure_newlines(1)
             continue
 
         if kind == "visit_list_item":
             li_node, current_builder, current_list_depth, ordered, index = task[1], task[2], task[3], task[4], task[5]
-            # Cap indentation so nested lists cannot produce quadratic output.
-            current_builder.raw("  " * min(current_list_depth, _MAX_LIST_DEPTH))
-            current_builder.raw(f"{index}. " if ordered else "- ")
+            indent = current_builder._list_indent
+            marker = f"{index}. " if ordered else "- "
+            current_builder.raw(marker)
+            # Bound total continuation indentation, including ordered marker widths.
+            current_builder._list_indent = min(indent + len(marker), 2 * _MAX_LIST_DEPTH)
+            current_builder._item_start = True
+            tasks.append(("after_list_item", current_builder, indent))
             tasks.extend(
                 ("visit", child, current_builder, False, current_list_depth + 1, False)
                 for child in reversed(li_node.children or [])
             )
+            continue
+
+        if kind == "after_list_item":
+            task[1]._list_indent = task[2]
+            task[1]._item_start = False
             continue
 
         if kind == "flatten_list_item":

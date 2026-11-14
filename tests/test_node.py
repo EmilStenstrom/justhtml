@@ -538,8 +538,8 @@ class TestNode(unittest.TestCase):
         doc = JustHTML("<ul><li><b> outer</b><ul><li>inner</li></ul></li><li>second</li></ul>")
         empty_inline = JustHTML("<ul><li><b> </b>outer<ul><li>inner</li></ul></li><li>second</li></ul>")
 
-        assert doc.to_markdown() == "- **outer**\n\n  - inner\n\n\n- second"
-        assert empty_inline.to_markdown() == "- outer\n\n  - inner\n\n\n- second"
+        assert doc.to_markdown() == "- **outer**\n\n  - inner\n\n- second"
+        assert empty_inline.to_markdown() == "- outer\n\n  - inner\n\n- second"
 
     def test_to_markdown_renders_whitespace_only_inline_element_as_one_space(self):
         item = JustHTML("<ul><li><b> </b>Item text</li></ul>")
@@ -578,16 +578,74 @@ class TestNode(unittest.TestCase):
         assert "- One\n- Two" in md
         assert "1. A\n2. B" in md
 
+    def test_to_markdown_list_paragraphs_stay_in_items(self):
+        source = "<ul><li><p>one</p></li><li><p>two</p></li></ul>"
+        for sanitize in (True, False):
+            assert JustHTML(source, fragment=True, sanitize=sanitize).to_markdown() == "- one\n\n- two"
+
+    def test_to_markdown_list_code_has_continuation_indentation(self):
+        source = "<ol><li><p>Step one</p></li><li><p>Step two</p><pre><code>run x\n\nnext</code></pre></li></ol>"
+        for sanitize in (True, False):
+            assert JustHTML(source, fragment=True, sanitize=sanitize).to_markdown() == (
+                "1. Step one\n\n2. Step two\n\n   ```\n   run x\n\n   next\n   ```"
+            )
+
+    def test_to_markdown_list_multiple_paragraphs_and_empty_items(self):
+        source = "<ul><li></li><li><p>one</p><p>two</p></li><li></li></ul>"
+        assert JustHTML(source, fragment=True).to_markdown() == "-\n- one\n\n  two\n\n-"
+
+    def test_to_markdown_nested_lists_use_parent_marker_width(self):
+        for tag, marker, indent in (("ul", "-", "  "), ("ol", "1.", "   ")):
+            source = f"<{tag}><li>one<ul><li>nested</li></ul><p>tail</p></li></{tag}>"
+            assert JustHTML(source, fragment=True).to_markdown() == (
+                f"{marker} one\n\n{indent}- nested\n\n{indent}tail"
+            )
+        assert JustHTML("<ul><li><ol><li>nested</li></ol></li></ul>").to_markdown() == "- 1. nested"
+
+    def test_to_markdown_ordered_list_marker_width_changes(self):
+        source = "<ol>" + "<li><p>one</p><p>two</p><ul><li>nested</li></ul></li>" * 10 + "</ol>"
+        output = JustHTML(source, fragment=True).to_markdown()
+        assert "9. one\n\n   two\n\n   - nested" in output
+        assert "10. one\n\n    two\n\n    - nested" in output
+
+    def test_to_markdown_list_block_content(self):
+        source = (
+            "<ul><li><blockquote><p>quote</p></blockquote><h2>heading</h2><hr>"
+            "<table><tr><td>cell</td></tr></table></li></ul>"
+        )
+        assert JustHTML(source, fragment=True).to_markdown() == (
+            "- > quote\n\n  ## heading\n\n  ---\n\n  <table><tbody><tr><td>cell</td></tr></tbody></table>"
+        )
+
+    def test_to_markdown_list_first_content_escapes_markers(self):
+        source = "<ul><li> <!--x--><p></p><p># heading</p></li><li>&gt; quote</li><li>- bullet</li></ul>"
+        assert JustHTML(source, fragment=True).to_markdown() == "- \\# heading\n\n- \\> quote\n- \\- bullet"
+
+    def test_to_markdown_list_first_block_and_continuation_escaping(self):
+        for content, expected in (
+            ("<pre>```\n&lt;script&gt;</pre>", "````\n  ```\n  <script>\n  ````"),
+            ("<h2>heading</h2>", "## heading"),
+            ("<div><p>one</p></div><p># two</p>", "one\n\n  \\# two"),
+            ("one<br>&gt; two", "one\n  \\> two"),
+        ):
+            assert JustHTML(f"<ul><li>{content}</li></ul>", fragment=True).to_markdown() == f"- {expected}"
+
+    def test_to_markdown_nested_list_blocks_scale_linearly(self):
+        assert_scales_linearly(
+            lambda size: JustHTML("<ol><li><p>x</p>" * size + "<p>tail</p></li></ol>" * size).root,
+            lambda root: root.to_markdown(),
+        )
+
     def test_to_markdown_bounds_nested_list_indentation(self):
         for tag, marker in (("ul", "-"), ("ol", "1.")):
-            for depth in (63, 64, 65, 66, 2000):
+            for depth in (42, 43, 44, 63, 64, 65, 66, 2000):
                 source = f"<{tag}><li>x" * depth + f"</li></{tag}>" * depth
                 output = JustHTML(source).to_markdown()
                 lines = [line for line in output.splitlines() if line.strip()]
                 assert len(lines) == depth
                 assert all(line.lstrip() == f"{marker} x" for line in lines)
                 assert lines[0] == f"{marker} x"
-                assert lines[-1] == "  " * min(depth - 1, 64) + f"{marker} x"
+                assert lines[-1] == " " * min((depth - 1) * (len(marker) + 1), 128) + f"{marker} x"
                 assert len(output) <= 135 * depth
 
     def test_to_markdown_nested_lists_scale_linearly(self):
