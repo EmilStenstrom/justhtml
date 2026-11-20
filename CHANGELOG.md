@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Drop nested `script`, `style`, and `textarea` elements from Markdown tables, code fences, and code spans. `html_passthrough=True` still emits those elements when they are rendered as HTML blocks.
+
 ## [3.17.1] - 2026-11-14
 
 ### Fixed
