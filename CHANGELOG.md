@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep a template's content fragment owned by that template when its children move, and reject inserting the template into that fragment.
+
 ## [3.17.1] - 2026-11-14
 
 ### Fixed

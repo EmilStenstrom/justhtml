@@ -1484,6 +1484,35 @@ class TestNode(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ancestor"):
             template.template_content.replace_child(template, placeholder)
 
+    def test_moving_template_content_keeps_owner_and_rejects_cycle(self):
+        template = Template("template", namespace="html")
+        assert template.template_content is not None
+        template.template_content.append_child(Node("span"))
+
+        template.append_child(template.template_content)
+
+        assert template.template_content.parent is template
+        assert [child.name for child in template.children] == ["span"]
+        assert template.template_content.children == []
+        with self.assertRaisesRegex(ValueError, "ancestor"):
+            template.template_content.append_child(template)
+        assert template.to_html() == "<template></template>"
+        assert template.to_text() == ""
+        assert template.to_markdown() == ""
+
+    def test_moving_template_content_into_another_element_keeps_owner(self):
+        template = Template("template", namespace="html")
+        assert template.template_content is not None
+        template.template_content.append_child(Node("span"))
+        other = Node("div")
+
+        other.append_child(template.template_content)
+
+        assert [child.name for child in other.children] == ["span"]
+        assert other.children[0].parent is other
+        assert template.template_content.parent is template
+        assert template.template_content.children == []
+
     def test_append_child_rejects_self(self):
         parent = Node("div")
 
