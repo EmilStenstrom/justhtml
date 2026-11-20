@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Escape Markdown headings, lists, and thematic breaks in `to_markdown()`, including ATX levels 2-6, a line that is only a list marker, and markers revealed when HTML whitespace collapses. Encode backslashes in link destinations so those links keep parsing as links.
+
 ## [3.17.1] - 2026-11-14
 
 ### Fixed
