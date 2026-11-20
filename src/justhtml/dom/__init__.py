@@ -205,6 +205,7 @@ class Node:
 
         old_children = old_parent.children if old_parent is not None else None
         old_index: int | None = None
+        removed_from_parent = False
         if old_children is not None:
             try:
                 old_index = old_children.index(node)
@@ -212,7 +213,10 @@ class Node:
                 pass
             else:
                 old_children.pop(old_index)
-        node.parent = None
+                removed_from_parent = True
+        # A template owns its content fragment even though that fragment is not a child.
+        if removed_from_parent or not (isinstance(old_parent, Template) and old_parent.template_content is node):
+            node.parent = None
         return old_parent, old_index
 
     def _insert_fragment(self, fragment: DocumentFragment, reference_node: NodeType | None) -> None:
