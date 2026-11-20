@@ -6,10 +6,40 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from justhtml.core.constants import HTML_SPACE_CHARACTERS
-from justhtml.dom import Element
+from justhtml.dom import Element, Template
 
 if TYPE_CHECKING:
-    from justhtml.dom import NodeType
+    from justhtml.dom import Node, NodeType
+
+
+_MARKDOWN_DROPPED_RAW_ELEMENTS: frozenset[str] = frozenset({"script", "style", "textarea"})
+
+
+def _markdown_omitting_raw_elements(node: Node) -> Node:
+    """Copy a subtree without script, style, or textarea elements."""
+    clone = node.clone_node(deep=True)
+    stack: list[Node] = [clone]
+    while stack:
+        current = stack.pop()
+        if type(current) is Template and current.template_content is not None:
+            stack.append(current.template_content)
+        children = current.children
+        if not children:
+            continue
+        kept: list[Node] = []
+        changed = False
+        for child in children:
+            child_name = child.name
+            folded = child_name if child_name.islower() else child_name.lower()
+            if folded in _MARKDOWN_DROPPED_RAW_ELEMENTS:
+                changed = True
+                continue
+            kept.append(child)
+            if not child_name.startswith("#"):
+                stack.append(child)
+        if changed:
+            children[:] = kept
+    return clone
 
 
 def _markdown_escape_text(s: str) -> str:
@@ -390,7 +420,12 @@ def _to_markdown_walk(
                 if not current_in_link:
                     current_builder.ensure_newlines(2 if current_builder._buf else 0)
                 if tag == "table" or html_passthrough:
-                    current_builder.raw(current.to_html(indent=0, indent_size=2, pretty=False))
+                    rendered = (
+                        _markdown_omitting_raw_elements(current)
+                        if tag == "table" and not html_passthrough
+                        else current
+                    )
+                    current_builder.raw(rendered.to_html(indent=0, indent_size=2, pretty=False))
                 if not current_in_link:
                     current_builder.ensure_newlines(2)
                 continue
@@ -415,7 +450,7 @@ def _to_markdown_walk(
                 continue
 
             if tag == "pre":
-                code = current.to_text(separator="", strip=False)
+                code = _markdown_omitting_raw_elements(current).to_text(separator="", strip=False)
                 if current_in_link:
                     current_builder.raw(_markdown_code_span(code))
                 else:
@@ -431,7 +466,8 @@ def _to_markdown_walk(
                 continue
 
             if tag == "code" and not current_preserve:
-                current_builder.raw(_markdown_code_span(current.to_text(separator="", strip=False)))
+                code_text = _markdown_omitting_raw_elements(current).to_text(separator="", strip=False)
+                current_builder.raw(_markdown_code_span(code_text))
                 continue
 
             if tag == "p":
