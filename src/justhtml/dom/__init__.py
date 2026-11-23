@@ -9,12 +9,17 @@ if TYPE_CHECKING:
     from justhtml.serializer import HTMLContext
 
 
-def _to_text_collect(node: NodeType, parts: list[str], strip: bool) -> None:
+def _to_text_collect(
+    node: NodeType, parts: list[str], strip: bool, *, omit_tags: frozenset[str] = frozenset()
+) -> None:
     # Iterative traversal avoids recursion overhead on large documents.
     stack: list[NodeType] = [node]
     while stack:
         current = stack.pop()
         name: str = current.name
+
+        if omit_tags and name.lower() in omit_tags:
+            continue
 
         if name == "#text":
             data = current.data if isinstance(current.data, str) else None

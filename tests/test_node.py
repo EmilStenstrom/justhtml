@@ -810,6 +810,68 @@ class TestNode(unittest.TestCase):
         root.append_child(script)
         assert root.to_markdown() == ""
 
+    def test_to_markdown_drops_nested_script_style_and_textarea(self):
+        parsed = JustHTML(
+            "<table><tr><td>cell<script>discarded-script</script></td></tr></table>",
+            fragment=True,
+            sanitize=False,
+        ).to_markdown()
+        assert parsed == "<table><tbody><tr><td>cell</td></tr></tbody></table>"
+
+        pre = Node("pre")
+        pre.append_child(Text("keep"))
+        for name, payload in (
+            ("script", "discarded-script"),
+            ("SCRIPT", "discarded-uppercase-script"),
+            ("style", "a{color:red}"),
+            ("textarea", "secret"),
+        ):
+            raw = Node(name)
+            raw.append_child(Text(payload))
+            pre.append_child(raw)
+        assert pre.to_markdown() == "```\nkeep\n```"
+        assert pre.to_text(separator="").endswith("secret")
+        assert pre.children[-1].name == "textarea"
+        assert pre.children[-1].parent is pre
+
+        code = Node("code")
+        code.append_child(Text("keep"))
+        nested = Node("script")
+        nested.append_child(Text("discarded-script"))
+        code.append_child(nested)
+        assert code.to_markdown() == "`keep`"
+
+        table = Node("table")
+        cell = Node("td")
+        cell.append_child(Text("cell"))
+        script = Node("script")
+        script.append_child(Text("discarded-script"))
+        cell.append_child(script)
+        row = Node("tr")
+        row.append_child(cell)
+        table.append_child(row)
+        assert table.to_markdown() == "<table><tr><td>cell</td></tr></table>"
+        assert "<script>discarded-script</script>" in table.to_markdown(html_passthrough=True)
+        assert "<script>discarded-script</script>" in table.to_html(pretty=False)
+
+        html_template = Template("template", namespace="html")
+        assert html_template.template_content is not None
+        hidden = Node("script")
+        hidden.append_child(Text("discarded-template-script"))
+        html_template.template_content.append_child(hidden)
+        html_template.template_content.append_child(Text("shown"))
+        svg_template = Template("template", namespace="svg")
+        template_cell = Node("td")
+        template_cell.append_child(html_template)
+        template_cell.append_child(svg_template)
+        template_row = Node("tr")
+        template_row.append_child(template_cell)
+        template_table = Node("table")
+        template_table.append_child(template_row)
+        template_markdown = template_table.to_markdown()
+        assert "discarded-template-script" not in template_markdown
+        assert "shown" in template_markdown
+
     def test_to_markdown_textnode_method(self):
         t = Text("a*b")
         assert t.to_markdown() == "a\\*b"

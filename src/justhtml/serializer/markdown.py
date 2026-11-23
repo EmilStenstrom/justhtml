@@ -6,10 +6,20 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from justhtml.core.constants import HTML_SPACE_CHARACTERS
-from justhtml.dom import Element
+from justhtml.dom import Element, _to_text_collect
+from justhtml.serializer.html import _node_to_html_compact
 
 if TYPE_CHECKING:
     from justhtml.dom import NodeType
+
+
+_MARKDOWN_OMITTED_TAGS = frozenset({"script", "style", "textarea"})
+
+
+def _markdown_code_text(node: NodeType) -> str:
+    parts: list[str] = []
+    _to_text_collect(node, parts, strip=False, omit_tags=_MARKDOWN_OMITTED_TAGS)
+    return "".join(parts)
 
 
 def _markdown_escape_text(s: str) -> str:
@@ -498,11 +508,13 @@ def _to_markdown_walk(
                 current_builder.raw(current.to_html(indent=0, indent_size=2, pretty=False))
                 continue
 
-            if tag in {"table", "script", "style", "textarea"}:
+            if tag == "table" or tag in _MARKDOWN_OMITTED_TAGS:
                 if not current_in_link:
                     current_builder.ensure_newlines(2 if current_builder._buf else 0)
-                if tag == "table" or html_passthrough:
+                if html_passthrough:
                     current_builder.raw(current.to_html(indent=0, indent_size=2, pretty=False))
+                elif tag == "table":
+                    current_builder.raw(_node_to_html_compact(current, omit_tags=_MARKDOWN_OMITTED_TAGS))
                 if not current_in_link:
                     current_builder.ensure_newlines(2)
                 continue
@@ -527,7 +539,7 @@ def _to_markdown_walk(
                 continue
 
             if tag == "pre":
-                code = current.to_text(separator="", strip=False)
+                code = _markdown_code_text(current)
                 if current_in_link:
                     current_builder.raw(_markdown_code_span(code))
                 else:
@@ -543,7 +555,7 @@ def _to_markdown_walk(
                 continue
 
             if tag == "code" and not current_preserve:
-                current_builder.raw(_markdown_code_span(current.to_text(separator="", strip=False)))
+                current_builder.raw(_markdown_code_span(_markdown_code_text(current)))
                 continue
 
             if tag == "p":

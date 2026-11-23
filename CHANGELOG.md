@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Prevent quadratic Markdown serialization of deeply nested emphasis in untrusted HTML, including multiline content, and bound list indentation composed across inline wrappers. Reported by Amit Carmon ([@AmitCa10](https://github.com/AmitCa10)).
 
+- Omit nested script, style, and textarea elements when converting tables and code to Markdown (#106).
+
 ### Performance
 
 - Defer nested Markdown inline output and list indentation until final rendering, avoiding repeated copies of descendant content.

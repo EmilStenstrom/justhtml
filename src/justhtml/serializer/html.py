@@ -345,7 +345,7 @@ def serialize_end_tag(name: str) -> str:
     return f"</{name}>"
 
 
-def _node_to_html_compact(node: Any) -> str:
+def _node_to_html_compact(node: Any, *, omit_tags: frozenset[str] = frozenset()) -> str:
     """Serialize a node subtree to compact HTML (no newlines/indentation).
 
     This is a hot path for `to_html(..., pretty=False)`, so it is implemented
@@ -370,6 +370,9 @@ def _node_to_html_compact(node: Any) -> str:
             continue
 
         name: str = item.name
+
+        if omit_tags and name.lower() in omit_tags:
+            continue
 
         if name == "#text":
             data = item.data
