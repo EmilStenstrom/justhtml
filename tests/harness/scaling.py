@@ -67,13 +67,22 @@ def _fastest(prepare, run, size: int, *, reusable: bool) -> float:
             gc.enable()
 
 
-def assert_scales_linearly(prepare, run, *, label: str = "input", reusable: bool = True) -> None:
-    """Assert that doubling a prepared input keeps the operation linear."""
-    small = _fastest(prepare, run, SMALL_SIZE, reusable=reusable)
-    large = _fastest(prepare, run, LARGE_SIZE, reusable=reusable)
+def assert_scales_linearly(
+    prepare,
+    run,
+    *,
+    label: str = "input",
+    reusable: bool = True,
+    small_size: int = SMALL_SIZE,
+    large_size: int = LARGE_SIZE,
+) -> None:
+    """Compare prepared inputs, allowing twice the expected linear growth."""
+    small = _fastest(prepare, run, small_size, reusable=reusable)
+    large = _fastest(prepare, run, large_size, reusable=reusable)
     growth = large / small
-    assert growth < MAX_GROWTH, (
-        f"doubling {label} took {growth:.2f}x as long "
-        f"({SMALL_SIZE}: {small * 1000:.2f}ms, {LARGE_SIZE}: {large * 1000:.2f}ms); "
-        f"linear is ~2x and quadratic ~4x"
+    size_ratio = large_size / small_size
+    assert growth < MAX_GROWTH * size_ratio / 2, (
+        f"growing {label} took {growth:.2f}x as long "
+        f"({small_size}: {small * 1000:.2f}ms, {large_size}: {large * 1000:.2f}ms); "
+        f"linear is ~{size_ratio:g}x and quadratic ~{size_ratio**2:g}x"
     )

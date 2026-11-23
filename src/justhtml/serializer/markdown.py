@@ -156,6 +156,65 @@ _MAX_BLOCKQUOTE_DEPTH = 64
 _MAX_LIST_DEPTH = 64
 
 
+class _MarkdownFragment:
+    """Completed, boundary-trimmed content whose children remain unflattened."""
+
+    __slots__ = ("first", "has_newline", "indent", "last", "parts")
+
+    first: str
+    last: str
+    has_newline: bool
+
+    def __init__(self, parts: tuple[str | _MarkdownFragment, ...], *, indent: int = 0) -> None:
+        self.parts = parts
+        self.indent = indent
+        first, last = parts[0], parts[-1]
+        self.first = first[0] if isinstance(first, str) else first.first
+        self.last = last[-1] if isinstance(last, str) else last.last
+        self.has_newline = any("\n" in part if isinstance(part, str) else part.has_newline for part in parts)
+
+    def render(self) -> str:
+        out: list[str] = []
+        # Each indentation transform starts after its fragment's first newline.
+        # Compose transforms while walking, rather than revisiting every leaf
+        # once per enclosing inline element or list.
+        tasks: list[tuple[str | _MarkdownFragment, int, int]] = [(self, 0, 0)]
+        pending_spaces: list[str] = []
+        prefix = 0
+        blank_prefix = 0
+        while tasks:
+            part, indent, outer_indent = tasks.pop()
+            if not isinstance(part, str):
+                if part.indent:
+                    indent = min(indent + part.indent, 2 * _MAX_LIST_DEPTH)
+                    outer_indent = outer_indent or part.indent
+                tasks.extend((child, indent, outer_indent) for child in reversed(part.parts))
+                continue
+            if not indent:
+                out.append(part)
+                continue
+            for index, line in enumerate(part.split("\n")):
+                if index:
+                    # raw() indents nonempty lines and strips their trailing
+                    # horizontal whitespace before the following newline.
+                    if pending_spaces and prefix:
+                        out.append(" " * blank_prefix)
+                    pending_spaces.clear()
+                    out.append("\n")
+                    prefix, blank_prefix = indent, outer_indent
+                content = line.rstrip(" \t")
+                if content:
+                    if prefix:
+                        out.append(" " * prefix)
+                        prefix = 0
+                    out.extend(pending_spaces)
+                    pending_spaces.clear()
+                    out.append(content)
+                if len(content) != len(line):
+                    pending_spaces.append(line[len(content) :])
+        return "".join(out)
+
+
 class _MarkdownBuilder:
     __slots__ = (
         "_blockquote_depth",
@@ -167,7 +226,7 @@ class _MarkdownBuilder:
         "_pending_space",
     )
 
-    _buf: list[str]
+    _buf: list[str | _MarkdownFragment]
     _blockquote_depth: int
     _item_start: bool
     _list_indent: int
@@ -188,9 +247,12 @@ class _MarkdownBuilder:
         if not self._buf:
             return
         last = self._buf[-1]
-        stripped = last.rstrip(" \t")
-        if stripped != last:
-            self._buf[-1] = stripped
+        if isinstance(last, str):
+            self._buf[-1] = last.rstrip(" \t")
+
+    def _last_character(self) -> str:
+        last = self._buf[-1]
+        return last[-1:] if isinstance(last, str) else last.last
 
     def newline(self, count: int = 1) -> None:
         self._item_start = False
@@ -213,11 +275,17 @@ class _MarkdownBuilder:
             self._buf.append(" " * self._list_indent)
         self._item_start = False
 
-    def raw(self, s: str) -> None:
+    def raw(self, s: str | _MarkdownFragment) -> None:
         if not s:
             return
 
-        if self._list_indent and "\n" in s:
+        if isinstance(s, str):
+            has_newline = "\n" in s
+            first = s[0]
+        else:
+            has_newline = s.has_newline
+            first = s.first
+        if self._list_indent and has_newline and isinstance(s, str):
             for index, line in enumerate(s.split("\n")):
                 if index:
                     self.newline()
@@ -227,24 +295,25 @@ class _MarkdownBuilder:
         # If we've collapsed whitespace and the next output is raw (e.g. "**"),
         # we still need to emit a single separating space.
         if self._pending_space:
-            first = s[0]
             if (
                 first not in HTML_SPACE_CHARACTERS
                 and self._buf
                 and self._newline_count == 0
-                and not self._buf[-1].endswith((" ", "\t"))
+                and self._last_character() not in {" ", "\t"}
             ):
                 self._buf.append(" ")
             self._pending_space = False
 
         # Adjacent raw backtick runs can merge into a different Markdown code
         # span delimiter and expose code text as ordinary Markdown/HTML.
-        if self._buf and self._newline_count == 0 and self._buf[-1].endswith("`") and s.startswith("`"):
+        if self._buf and self._newline_count == 0 and self._last_character() == "`" and first == "`":
             self._buf.append(" ")
 
         self._start_content()
+        if isinstance(s, _MarkdownFragment) and self._list_indent and has_newline:
+            s = _MarkdownFragment((s,), indent=self._list_indent)
         self._buf.append(s)
-        if "\n" in s:
+        if isinstance(s, str) and has_newline:
             # Count trailing newlines (cap at 2 for blank-line semantics).
             trailing = 0
             i = len(s) - 1
@@ -277,7 +346,7 @@ class _MarkdownBuilder:
                 continue
 
             if self._pending_space:
-                if self._buf and self._newline_count == 0 and not self._buf[-1].endswith((" ", "\t")):
+                if self._buf and self._newline_count == 0 and self._last_character() not in {" ", "\t"}:
                     self._buf.append(" ")
                 self._pending_space = False
 
@@ -296,9 +365,48 @@ class _MarkdownBuilder:
             self._newline_count = 0
             index += 1
 
+    def fragment(self) -> _MarkdownFragment | None:
+        # Nested fragments already have trimmed boundaries. Only this builder's
+        # own boundary strings need inspection; never descend into children.
+        parts = self._buf.copy()
+        while parts:
+            last_part = parts[-1]
+            if not isinstance(last_part, str):
+                break
+            last = last_part.rstrip(" \t\n")
+            if last:
+                parts[-1] = last
+                break
+            parts.pop()
+        start = 0
+        while start < len(parts):
+            first_part = parts[start]
+            if not isinstance(first_part, str):
+                break
+            first = first_part.lstrip(" \t\n")
+            if first:
+                parts[start] = first
+                break
+            start += 1
+        if start == len(parts):
+            return None
+        compact: list[str | _MarkdownFragment] = []
+        strings: list[str] = []
+        for part in parts[start:]:
+            if isinstance(part, str):
+                strings.append(part)
+            else:
+                if strings:
+                    compact.append("".join(strings))
+                    strings.clear()
+                compact.append(part)
+        if strings:
+            compact.append("".join(strings))
+        return _MarkdownFragment(tuple(compact))
+
     def finish(self) -> str:
-        out = "".join(self._buf)
-        return out.strip(" \t\n")
+        fragment = self.fragment()
+        return fragment.render() if fragment is not None else ""
 
 
 _MARKDOWN_BLOCK_ELEMENTS: frozenset[str] = frozenset(
@@ -597,11 +705,11 @@ def _to_markdown_walk(
 
         if kind == "after_marker":
             parent_builder, inner_builder, marker = task[1], task[2], task[3]
-            content = inner_builder.finish()
+            content = inner_builder.fragment()
             if inner_builder._leading_space:
                 parent_builder.text(" ")
             if content:
-                if "\n" in content:
+                if content.has_newline:
                     parent_builder.ensure_newlines(2 if parent_builder._buf else 0)
                     parent_builder.raw(content)
                     continue
@@ -614,11 +722,12 @@ def _to_markdown_walk(
 
         if kind == "after_link":
             parent_builder, inner_builder, href = task[1], task[2], task[3]
-            link_text = inner_builder.finish()
+            link_text = inner_builder.fragment()
             if inner_builder._leading_space:
                 parent_builder.text(" ")
             parent_builder.raw("[")
-            parent_builder.raw(link_text)
+            if link_text is not None:
+                parent_builder.raw(link_text)
             parent_builder.raw("]")
             if href:
                 parent_builder.raw("(")

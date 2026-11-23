@@ -503,6 +503,89 @@ class TestNode(unittest.TestCase):
 
         assert doc.to_markdown() == "x\n\n```\n<img src=x onerror=alert(1)>\n```"
 
+    def test_to_markdown_nested_inline_fragments(self):
+        cases = (
+            ("<em><strong><i><b>x</b></i></strong></em>", "******x******"),
+            ("a<em><strong></strong></em>b", "ab"),
+            ("a<em><strong> </strong></em>b", "a b"),
+            ("a<em><strong> x </strong></em>b", "a ***x*** b"),
+            ("<em><strong>x<br>y</strong></em>", "x\ny"),
+            ("<em>x<br><code>a</code></em><code>b</code>", "x\n`a` `b`"),
+            ("<em><code>x</code><span></span></em><code>y</code>", "*`x`*`y`"),
+            ('<em><a href="https://e.com"><strong> x </strong></a></em>y', "*[**x**](https://e.com)* y"),
+        )
+        for source, expected in cases:
+            for sanitize in (True, False):
+                with self.subTest(source=source, sanitize=sanitize):
+                    assert JustHTML(source, sanitize=sanitize).to_markdown() == expected
+
+    def test_to_markdown_nested_inline_multiline_list_indentation(self):
+        cases = (
+            ("<ul><li><em>x<br><strong>y<br>z</strong></em></li></ul>", "- x\n\n  y\n  z"),
+            (
+                "<ol><li><em>x<ul><li><strong>a<br>b</strong></li></ul>tail</em></li></ol>",
+                "1. x\n\n   - a\n     b\n\n   tail",
+            ),
+            (
+                "<ul><li><em><pre>a \n \t\n\nb\t \n c</pre></em></li></ul>",
+                "- ```\n  a\n  \n\n  b\n   c\n  ```",
+            ),
+            (
+                "<ul><li><em><ul><li><b><pre>a\n \n\nb</pre></b></li></ul></em></li></ul>",
+                "- - ```\n    a\n  \n\n    b\n    ```",
+            ),
+        )
+        for source, expected in cases:
+            for sanitize in (True, False):
+                with self.subTest(source=source, sanitize=sanitize):
+                    assert JustHTML(source, sanitize=sanitize).to_markdown() == expected
+
+    def test_to_markdown_deep_inline_fragments_without_recursion(self):
+        depth = 4000
+        for tag, marker in (("em", "*"), ("i", "*"), ("strong", "**"), ("b", "**")):
+            with self.subTest(tag=tag):
+                assert JustHTML(f"<{tag}>" * depth + "x").to_markdown() == marker * depth + "x" + marker * depth
+        assert JustHTML("<em>" * depth + "x<br>y").to_markdown() == "x\ny"
+
+    def test_to_markdown_nested_emphasis_scales_linearly(self):
+        for tag in ("em", "strong"):
+            with self.subTest(tag=tag):
+                assert_scales_linearly(
+                    lambda size, tag=tag: JustHTML(f"<{tag}>" * size + "x"),
+                    lambda doc: doc.to_markdown(),
+                    label=f"nested {tag} elements",
+                    small_size=16_000,
+                    large_size=128_000,
+                )
+
+    def test_to_markdown_bounds_composed_inline_list_indentation(self):
+        for depth in (63, 64, 65, 200):
+            source = "<ul><li><em>x<br>" * depth + "tail" + "</em></li></ul>" * depth
+            output = JustHTML(source).to_markdown()
+            lines = output.splitlines()
+            assert sum(line.lstrip(" ") == "- x" for line in lines) == depth
+            assert lines[-1] == " " * min(2 * depth, 128) + "tail"
+            assert max(len(line) - len(line.lstrip(" ")) for line in lines) <= 128
+            assert len(output) < 135 * (2 * depth + 1)
+
+    def test_to_markdown_composed_inline_list_indentation_scales_linearly(self):
+        assert_scales_linearly(
+            lambda size: JustHTML("<ul><li><em>x<br>" * size + "tail" + "</em></li></ul>" * size),
+            lambda doc: doc.to_markdown(),
+            label="inline-wrapped list indentation",
+            small_size=500,
+            large_size=4_000,
+        )
+
+    def test_to_markdown_multiline_inline_fragments_scale_linearly(self):
+        assert_scales_linearly(
+            lambda size: JustHTML("<em>x<br>" * size),
+            lambda doc: doc.to_markdown(),
+            label="multiline emphasis",
+            small_size=8_000,
+            large_size=64_000,
+        )
+
     def test_to_markdown_blockquote_and_br(self):
         doc = JustHTML("<blockquote><p>Q<br>R</p></blockquote>")
         assert doc.to_markdown() == "> Q\n> R"

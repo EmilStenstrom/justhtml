@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Prevent quadratic Markdown serialization of deeply nested emphasis in untrusted HTML, including multiline content, and bound list indentation composed across inline wrappers. Reported by Amit Carmon ([@AmitCa10](https://github.com/AmitCa10)).
+
+### Performance
+
+- Defer nested Markdown inline output and list indentation until final rendering, avoiding repeated copies of descendant content.
+
 ## [3.17.1] - 2026-11-14
 
 ### Fixed
