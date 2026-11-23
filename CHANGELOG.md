@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.18.0] - 2026-11-23
+
 ### Security
 
 - Prevent quadratic Markdown serialization of deeply nested emphasis in untrusted HTML, including multiline content, and bound list indentation composed across inline wrappers. Reported by Amit Carmon ([@AmitCa10](https://github.com/AmitCa10)).
-
 - Omit nested script, style, and textarea elements when converting tables and code to Markdown (#106).
 
 ### Performance
@@ -20,7 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Preserve template content ownership when splicing its children, so DOM mutations still reject cycles (#105).
-
 - Escape Markdown block markers that become active after HTML whitespace collapses, and preserve links with backslashes in their destinations (#104).
 
 ## [3.17.1] - 2026-11-14
