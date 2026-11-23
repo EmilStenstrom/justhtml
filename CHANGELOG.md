@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Defer nested Markdown inline output and list indentation until final rendering, avoiding repeated copies of descendant content.
 
+### Fixed
+
+- Preserve template content ownership when splicing its children, so DOM mutations still reject cycles (#105).
+
 ## [3.17.1] - 2026-11-14
 
 ### Fixed

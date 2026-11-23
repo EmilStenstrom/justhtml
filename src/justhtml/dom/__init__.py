@@ -203,6 +203,10 @@ class Node:
                 raise ValueError("Cannot insert an ancestor into its descendant")
             current = current.parent
 
+        # Splicing a template's content moves its children, not the owned fragment.
+        if isinstance(old_parent, Template) and old_parent.template_content is node:
+            return old_parent, None
+
         old_children = old_parent.children if old_parent is not None else None
         old_index: int | None = None
         if old_children is not None:
