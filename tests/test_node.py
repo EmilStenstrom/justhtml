@@ -976,6 +976,52 @@ class TestNode(unittest.TestCase):
         assert _markdown_escape_line_start("===") == (r"\=", 1)
         assert _markdown_escape_line_start("=x") is None
         assert _markdown_escape_line_start("plain text") is None
+        assert _markdown_escape_line_start("## heading") == (r"\#", 1)
+        assert _markdown_escape_line_start("###### heading") == (r"\#", 1)
+        assert _markdown_escape_line_start("####### heading") is None
+        assert _markdown_escape_line_start("##heading") is None
+        assert _markdown_escape_line_start("##") == (r"\#", 1)
+        assert _markdown_escape_line_start("#\nheading") == (r"\#", 1)
+        assert _markdown_escape_line_start("-") == (r"\-", 1)
+        assert _markdown_escape_line_start("-\n") == (r"\-", 1)
+        assert _markdown_escape_line_start("-\nitem") == (r"\-", 1)
+        assert _markdown_escape_line_start("-\n\nitem") == (r"\-", 1)
+        assert _markdown_escape_line_start("+") == (r"\+", 1)
+        assert _markdown_escape_line_start("+\n") == (r"\+", 1)
+        assert _markdown_escape_line_start("+\nitem") == (r"\+", 1)
+        assert _markdown_escape_line_start("1x") is None
+        assert _markdown_escape_line_start("1.") == (r"1\.", 2)
+        assert _markdown_escape_line_start("1)") == (r"1\)", 2)
+        assert _markdown_escape_line_start("1.\n") == (r"1\.", 2)
+        assert _markdown_escape_line_start("1.\nfoo") == (r"1\.", 2)
+        assert _markdown_escape_line_start("12.\nmulti") == (r"12\.", 3)
+        assert _markdown_escape_line_start("---\n") == (r"\-", 1)
+        assert _markdown_escape_line_start("===\n") == (r"\=", 1)
+        assert _markdown_escape_line_start("=\nx") is None
+        assert _markdown_thematic_or_setext_line("---\n", "-", minimum_markers=3) is True
+        assert _markdown_thematic_or_setext_line("---\nfoo", "-", minimum_markers=3) is False
+        assert _markdown_thematic_or_setext_line("--\n-", "-", minimum_markers=3) is True
+
+    def test_to_markdown_escapes_markers_after_html_whitespace_collapses(self):
+        assert JustHTML("<p>## heading</p>", fragment=True).to_markdown() == r"\## heading"
+        assert JustHTML("<p>#\nheading</p>", fragment=True).to_markdown() == r"\# heading"
+        assert JustHTML("<p>-\nitem</p>", fragment=True).to_markdown() == r"\- item"
+        assert JustHTML("<p>+\nitem</p>", fragment=True).to_markdown() == r"\+ item"
+        assert JustHTML("<p>1.\nfoo</p>", fragment=True).to_markdown() == r"1\. foo"
+        assert JustHTML("<p>---\n</p>", fragment=True).to_markdown() == r"\---"
+        assert JustHTML("<p>##</p>", fragment=True).to_markdown() == r"\##"
+        assert JustHTML("<p>-</p>", fragment=True).to_markdown() == r"\-"
+        assert JustHTML("<p>+</p>", fragment=True).to_markdown() == r"\+"
+        assert JustHTML("<p>1.</p>", fragment=True).to_markdown() == r"1\."
+        assert JustHTML("<p>1)</p>", fragment=True).to_markdown() == r"1\)"
+        assert JustHTML("<p>####### heading</p>", fragment=True).to_markdown() == "####### heading"
+        assert JustHTML("<p>Title<br>---\n</p>", fragment=True).to_markdown() == "Title\n\\---"
+        assert JustHTML("<p>=\nx</p>", fragment=True).to_markdown() == "= x"
+
+    def test_to_markdown_encodes_backslash_in_link_destination(self):
+        assert _markdown_link_destination("https://example.com/a\\") == "<https://example.com/a%5C>"
+        doc = JustHTML('<a href="https://example.com/a\\">x</a>', fragment=True)
+        assert doc.to_markdown() == "[x](<https://example.com/a%5C>)"
 
     def test_markdown_thematic_or_setext_line_helper_edge_cases(self):
         assert _markdown_thematic_or_setext_line("   ", "-", minimum_markers=3) is False

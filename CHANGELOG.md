@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Preserve template content ownership when splicing its children, so DOM mutations still reject cycles (#105).
 
+- Escape Markdown block markers that become active after HTML whitespace collapses, and preserve links with backslashes in their destinations (#104).
+
 ## [3.17.1] - 2026-11-14
 
 ### Fixed

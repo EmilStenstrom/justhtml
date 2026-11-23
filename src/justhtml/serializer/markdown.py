@@ -66,13 +66,9 @@ def _markdown_backtick_fence(s: str | None, *, minimum: int) -> str:
 
 
 def _markdown_thematic_or_setext_line(s: str, marker: str, *, minimum_markers: int) -> bool:
-    stripped = s.rstrip(" \t")
-    if not stripped:
-        return False
-
     count = 0
-    for ch in stripped:
-        if ch in " \t":
+    for ch in s:
+        if ch in HTML_SPACE_CHARACTERS:
             continue
         if ch != marker:
             return False
@@ -86,7 +82,11 @@ def _markdown_escape_line_start(s: str) -> tuple[str, int] | None:
 
     first = s[0]
     if first == "#":
-        if len(s) == 1 or s[1] in " \t":
+        hashes = 1
+        limit = min(len(s), 7)
+        while hashes < limit and s[hashes] == "#":
+            hashes += 1
+        if hashes <= 6 and (hashes == len(s) or s[hashes] in HTML_SPACE_CHARACTERS):
             return r"\#", 1
         return None
 
@@ -94,12 +94,16 @@ def _markdown_escape_line_start(s: str) -> tuple[str, int] | None:
         return r"\>", 1
 
     if first == "-":
-        if (len(s) > 1 and s[1] in " \t") or _markdown_thematic_or_setext_line(s, "-", minimum_markers=3):
+        if (
+            len(s) == 1
+            or s[1] in HTML_SPACE_CHARACTERS
+            or _markdown_thematic_or_setext_line(s, "-", minimum_markers=3)
+        ):
             return r"\-", 1
         return None
 
     if first == "+":
-        if len(s) > 1 and s[1] in " \t":
+        if len(s) == 1 or s[1] in HTML_SPACE_CHARACTERS:
             return r"\+", 1
         return None
 
@@ -122,7 +126,7 @@ def _markdown_escape_line_start(s: str) -> tuple[str, int] | None:
         end = 1
         while end < len(s) and s[end] in "0123456789":
             end += 1
-        if end < len(s) and s[end] in ".)" and end + 1 < len(s) and s[end + 1] in " \t":
+        if end < len(s) and s[end] in ".)" and (end + 1 == len(s) or s[end + 1] in HTML_SPACE_CHARACTERS):
             return f"{s[:end]}\\{s[end]}", end + 1
 
     return None
@@ -132,7 +136,7 @@ def _markdown_link_destination(url: str) -> str:
     """Return a Markdown-safe link destination.
 
     We primarily care about avoiding Markdown formatting injection and broken
-    parsing for URLs that contain whitespace or parentheses.
+    parsing for URLs that contain whitespace, parentheses, or backslashes.
 
     CommonMark supports destinations wrapped in angle brackets:
     `[text](<https://example.com/a(b)c>)`
@@ -144,8 +148,8 @@ def _markdown_link_destination(url: str) -> str:
 
     # If the destination contains characters that can terminate or confuse
     # the Markdown destination parser, wrap in <...> and percent-encode
-    # whitespace and angle brackets.
-    if any(ch in u for ch in (" ", "\t", "\n", "\r", "(", ")", "<", ">")):
+    # whitespace, angle brackets, and backslashes.
+    if any(ch in u for ch in (" ", "\t", "\n", "\r", "(", ")", "<", ">", "\\")):
         u = quote(u, safe=":/?#[]@!$&'*+,;=%-._~()")
         return f"<{u}>"
 
